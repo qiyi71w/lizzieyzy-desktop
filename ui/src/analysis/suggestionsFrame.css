@@ -1,0 +1,127 @@
+/* 独立选点列表 window: the candidate list as the main window's 选点列表 reads, in its colours
+   (`--ws-table-ground`, Java's white table under Java 经典; rows of at least 22 px, horizontal
+   hairlines only, numbers right-aligned in tabular figures, the 占比 underline and the actual move's
+   row from table.ts), and the strip under it with the totals, the 柱状图 and the four boxes. Nothing
+   is cut: a header too wide for its column takes a second line, the actual move's cells break
+   between their parts. suggestions.html loads this sheet with the design base. */
+html,
+body {
+  overflow: hidden;
+}
+body {
+  background: var(--ds-panel);
+}
+#top {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background-color: var(--ws-table-ground);
+}
+#top table {
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  font-family: var(--af-ui-font, inherit);
+  font-variant-numeric: tabular-nums;
+}
+#top th,
+#top td {
+  padding: 0 8px 0 0;
+  border-bottom: 1px solid var(--ws-panel-line);
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#top th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: max(calc(var(--af-row, 20px) - 2px), 24px);
+  padding-top: 2px;
+  padding-bottom: 2px;
+  background: var(--ws-panel-solid);
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+  font-weight: 400;
+  line-height: 1.2;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+/* The focused header rings itself inside its cell. */
+#top th:focus-visible {
+  outline-offset: -2px;
+}
+/* Rows follow the session's row height (Config.menuHeight), never below 22 px. */
+#top td {
+  height: max(calc(var(--af-row, 20px) - 4px), 22px);
+}
+/* The actual move's row shows all its figures: its rank with a smaller 实战 note under it, a
+   smaller change before each value (actualParts). A figure cell too narrow for both breaks
+   between them, and only there. */
+#top tr.actual td {
+  padding-block: 3px;
+  line-height: 1.25;
+  white-space: normal;
+  word-break: keep-all;
+}
+#top .actual-note {
+  margin-right: 4px;
+  font-size: var(--ds-size-s);
+}
+#top td:first-child .actual-note {
+  display: block;
+  margin-right: 0;
+  word-break: normal;
+}
+/* 序号 and 坐标 read as words. */
+#top th:nth-child(-n + 2),
+#top td:nth-child(-n + 2) {
+  text-align: left;
+}
+#top th:first-child,
+#top td:first-child {
+  padding-left: 8px;
+}
+#top th:last-child,
+#top td:last-child {
+  padding-right: 12px;
+}
+
+#bottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border-top: 1px solid var(--ds-line);
+  background: var(--ds-chrome);
+}
+#bottom canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+/* The four boxes at the right end of the totals line, or on the lines under it (place() sets
+   `top`), wrapping as a group. */
+#bottom .boxes {
+  position: absolute;
+  top: 0;
+  right: 8px;
+  max-width: calc(100% - 16px);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  column-gap: 12px;
+}
+#bottom label {
+  display: inline-flex;
+  align-items: center;
+  height: 21px;
+  white-space: nowrap;
+}
+#bottom input[type="checkbox"] {
+  margin-right: 4px;
+}

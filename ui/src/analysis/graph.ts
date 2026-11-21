@@ -1,14 +1,27 @@
-// Win-rate graph (胜率图): the single-engine branch of WinrateGraph.draw (WinrateGraph.java:573-1680
-// with helpers 186-570, 2163-3250) and its hit testing for LizzieFrame's click / drag / hover
-// (LizzieFrame.java:9600-10030, 10371-10500). Values are Black's from the core (`HistoryPoint.black`);
-// nothing here flips sides. Java paints three layers (background, blunder bars, lines and text) and
-// composites them in that order; the painter records each layer's operations and replays them so.
-import type { DisplaySettings, HistoryPoint, TreeNodeView } from "../contract/generated";
-import { t } from "../i18n";
+// Win-rate graph (胜率图): WinrateGraph.draw (WinrateGraph.java:573-1680 with helpers 186-570,
+// 2163-3250) and its hit testing for LizzieFrame's click / drag / hover (LizzieFrame.java:9600-10030,
+// 10371-10500). The single-engine graph plots Black's values from the core (`HistoryPoint.black`);
+// during an engine game (引擎对局) each engine's curve plots its own results instead (the side to
+// move's, `HistoryPoint.winrate`). The plot sits above an axis strip carrying the move numbers. The
+// painter records each layer's operations and replays them bottom up: grid and scales, area fill,
+// the legend, blunder bars, guides, curves, points and markers, then the readout chips and the caption.
+import type { DisplaySettings, HistoryPoint, Stone, TreeNodeView } from "../contract/generated";
+import { product, registerProduct, t } from "../i18n";
 import { graphGeom, type Rect } from "../workbench/layout";
-import { GRAPH_FONT } from "../workbench/paint";
-import { appearance } from "../appearance/state";
-import { belowBaselineFill, cssColor, graphBackground } from "../appearance/model";
+import { fillTabular, panelFont, tabularWidth } from "../workbench/paint";
+import { appearance, frameMetrics } from "../appearance/state";
+import { belowBaselineFill, cssColor, graphBackground, sameRgba, THEME_DEFAULT, themeColor } from "../appearance/model";
+import { stagePalette } from "../design/stage";
+import { skin } from "../design/theme";
+
+registerProduct({
+  ZhCn: { graphNoAnalysis: "尚无分析数据，开始分析后显示曲线", graphAnalysing: "正在分析，结果会显示在这里", graphMove: "第{0}手", graphNamed: "{0}（{1}）" },
+  ZhTw: { graphNoAnalysis: "尚無分析資料，開始分析後顯示曲線", graphAnalysing: "正在分析，結果會顯示在這裡", graphMove: "第{0}手", graphNamed: "{0}（{1}）" },
+  EnUs: { graphNoAnalysis: "No analysis yet. Start analysis to draw the curve.", graphAnalysing: "Analysing; results appear here.", graphMove: "Move {0}", graphNamed: "{0} ({1})" },
+  JaJp: { graphNoAnalysis: "まだ分析データがありません。分析を開始すると曲線を表示します", graphAnalysing: "分析中です。結果はここに表示されます", graphMove: "{0}手目", graphNamed: "{0}（{1}）" },
+  KoKr: { graphNoAnalysis: "아직 분석 데이터가 없습니다. 분석을 시작하면 곡선이 표시됩니다", graphAnalysing: "분석 중입니다. 결과가 여기에 표시됩니다", graphMove: "{0}수", graphNamed: "{0} ({1})" },
+  ThTh: { graphNoAnalysis: "ยังไม่มีข้อมูลการวิเคราะห์ เริ่มวิเคราะห์เพื่อแสดงเส้นกราฟ", graphAnalysing: "กำลังวิเคราะห์ ผลจะแสดงที่นี่", graphMove: "ตาที่ {0}", graphNamed: "{0} ({1})" },
+});
 
 const i = Math.trunc;
 
@@ -21,6 +34,15 @@ export interface GraphScene {
   display: DisplaySettings;
   /** WinrateGraph.mouseOverNode, only while 显示鼠标悬停信息 is on. */
   hover: number | null;
+  /** The view's engine is analysing: the empty graph says results are on their way. */
+  analysing: boolean;
+  /** WinrateGraph suppressGraphContent (play mode): no content and no empty-state caption. */
+  suppressed: boolean;
+  /** An engine game on the board (Board.isPkBoard, EngineGamePresentation.current()): the engine
+   *  playing each side, whether a game is being played (EngineGameSnapshot.playing) and the side
+   *  whose engine gives the score line (`PkBoardView.score_side`: whiteKataScoreMode, else
+   *  blackKataScoreMode); null for the single-engine graph. */
+  engineGame: { playing: boolean; black: string; white: string; scoreSide: Stone | null } | null;
 }
 
 /** A rendered anchor (GraphPoint) with its node's move number. */
@@ -43,82 +65,136 @@ export interface GraphHits {
   targets: { node: number; moveNumber: number }[];
 }
 
+/** The engine-game graph's own results, for the acceptance probe. */
+export interface EngineGraphReport {
+  /** The engine names of the black and the white engine's curve. */
+  black: string;
+  white: string;
+  /** Separately stroked pieces of each engine's win-rate curve (0 without the line). */
+  blackPieces: number;
+  whitePieces: number;
+  /** The side whose engine the score line follows (whiteKataScoreMode before
+   *  blackKataScoreMode), null without a score line. */
+  scoreSide: "Black" | "White" | null;
+  /** Each engine's win rate (one decimal, no unit) in the current readout: the current move's and
+   *  the move's before it, by the side that was to move. */
+  blackText: string | null;
+  whiteText: string | null;
+  /** The same for the hovered move and the move before it. */
+  hoverBlackText: string | null;
+  hoverWhiteText: string | null;
+}
+
 /** What the graph drew, for the acceptance probe. */
 export interface GraphReport {
   /** Nodes plotted with a win rate (WinrateGraph's analysed points; the root never). */
   pointCount: number;
   winrateRenderable: boolean;
   scoreRenderable: boolean;
-  /** Baseline chip text: "50%", "0" or null. */
+  /** The midline's scale label while one curve shows: "50%" for the win rate, "0" for the score
+   *  lead; null with both curves or none (each curve then labels its own scale). */
   chip: string | null;
+  /** The dashed midline marks a curve's baseline (any curve shows). */
   baseline: boolean;
+  /** 面积填充 applies: the setting is on, exactly one curve shows and no engine game is on. */
   fill: boolean;
+  /** Area shapes drawn, one per analysed run of the one curve. */
   fillShapes: number;
   blunderBars: number;
   /** Separately stroked win-rate line pieces: connected runs of strokes, broken by a 25+ move gap or
-   *  the jump to a fork's trunk end. Miss-coloured bridges continue a piece. 0 without the line. */
+   *  the jump to a fork's trunk end (in an engine game, both engines' pieces). Dashed bridges
+   *  continue a piece. 0 without the line. */
   segments: number;
-  /** Win-rate strokes drawn in the miss colour (each bridges unanalysed moves under the 25 limit). */
+  /** Win-rate strokes drawn as dashed miss-colour bridges over unanalysed moves (under the 25 limit). */
   missSegments: number;
   numMoves: number;
   /** The score scale used, or null while no score line is drawn. */
   maxScoreLead: number | null;
   scorePointCount: number;
+  /** Win-rate anchors, the current move's fallback included. */
   anchors: number;
   /** Win-rate anchors (analysed graph-path nodes, without the current-move fallback) in graph-canvas
-   *  coordinates, the space of currentMarker and of the click hit test; `move` is the move number. */
+   *  coordinates, the space of currentMarker and of the click hit test; the curve's vertices lie on
+   *  them. `move` is the move number. */
   points: { node: number; move: number; x: number; y: number }[];
   currentMarker: { node: number; x: number; y: number } | null;
   scoreMarker: { x: number; y: number } | null;
   markersOverlap: boolean;
+  /** Black's current win rate (one decimal, no unit) shown in the current readout chip; null in
+   *  an engine game, whose readout is in `engineGame`. */
   currentText: string | null;
+  /** The current score lead (formatScoreLead) shown in the current readout chip. */
   currentScoreText: string | null;
   hoverNode: number | null;
+  /** The hovered move's win rate and score lead, as in the hover readout chip. */
   hoverText: string | null;
   hoverScoreText: string | null;
+  /** The curve names the legend draws (empty when it is left out). */
   legend: string[];
+  /** The move numbers on the axis strip. */
   xLabels: string[];
+  /** The empty graph's caption, null while anything is plotted or the graph is suppressed. */
+  emptyText: string | null;
+  /** The engine-game graph, null for the single-engine graph. */
+  engineGame: EngineGraphReport | null;
 }
 
-// ------------------------------------------------------------------ colours (Java defaults)
-
-const GRID = "rgba(255,255,255,0.282)";
-const BASELINE = "rgba(236,232,224,0.659)";
-const GUIDE = "rgba(232,225,210,0.706)";
-const rgba = (c: number[], a: number) => `rgba(${c[0]},${c[1]},${c[2]},${+(a / 255).toFixed(3)})`;
+// ------------------------------------------------------------------ colours
 
 /** The theme's graph values (Config.readThemeVaule, Config.java:2248-2264): winrate-line-color,
  *  winrate-miss-line-color, scoremean-line-color, blunder-bar-color, the two stroke widths and
- *  minimum-blunder-bar-width (WinrateGraph.java:174-184, 261-295, 654-656, 1208-1209). The panel
- *  takes resolveGraphBackgroundColor of comment-background-color and Apple style and its
- *  resolveBelowBaselineFillColor (312-323, 396-399). Java always loads a theme at start-up
- *  (Config.java:2159), so the colours of its null fallbacks never show. */
+ *  minimum-blunder-bar-width (WinrateGraph.java:174-184, 261-295, 654-656, 1208-1209); a colour
+ *  still at the theme default takes the stage palette's shade of it, and stroke widths still at
+ *  the default (1.7 and 1) are the card's 1.4 and 1.2. The graph draws on its card section
+ *  without a ground of its own while comment-background-color is the default, else on
+ *  resolveGraphBackgroundColor of it, and the area below the midline then takes
+ *  resolveBelowBaselineFillColor of that ground (312-323, 396-399). */
 function graphTheme() {
-  const a = appearance();
-  const th = a?.theme;
-  const background = graphBackground(th?.commentBackgroundColor ?? [0, 0, 0, 200], a?.settings.appleStyle ?? false);
-  const line = th?.winrateLineColor ?? [100, 180, 255];
-  const score = th?.scoremeanLineColor ?? [255, 0, 255];
+  const p = stagePalette();
+  const th = appearance()?.theme;
+  const comment = th?.commentBackgroundColor ?? THEME_DEFAULT.commentBackground;
+  const own = sameRgba(comment, THEME_DEFAULT.commentBackground) ? null : graphBackground(comment);
+  const winrateWidth = th?.winrateStrokeWidth ?? 1.7;
+  const scoreWidth = th?.scoreLeadStrokeWidth ?? 1;
   return {
-    lineRgb: line,
-    scoreRgb: score,
-    line: cssColor(line),
-    miss: cssColor(th?.winrateMissLineColor ?? [0, 0, 178]),
-    score: cssColor(score),
-    bar: cssColor(th?.blunderBarColor ?? [255, 204, 255, 170]),
-    winrateWidth: th?.winrateStrokeWidth ?? 1.7,
-    scoreWidth: th?.scoreLeadStrokeWidth ?? 1,
+    palette: p,
+    line: themeColor(th?.winrateLineColor, THEME_DEFAULT.winrateLine, p.winrateLine),
+    miss: themeColor(th?.winrateMissLineColor, THEME_DEFAULT.winrateMiss, p.winrateMiss),
+    /** The engine-game graph's white-engine curve: the theme's miss colour when it was changed. */
+    engineWhite: themeColor(th?.winrateMissLineColor, THEME_DEFAULT.winrateMiss, p.engineWhiteLine),
+    score: themeColor(th?.scoremeanLineColor, THEME_DEFAULT.scoreLine, p.scoreLine),
+    bar: themeColor(th?.blunderBarColor, THEME_DEFAULT.blunderBar, p.blunderBar),
+    winrateWidth: winrateWidth === 1.7 ? 1.4 : winrateWidth,
+    scoreWidth: scoreWidth === 1 ? 1.2 : scoreWidth,
     barMinimum: Math.max(1, th?.minimumBlunderBarWidth ?? 1),
-    background: cssColor(background),
-    belowFill: cssColor(belowBaselineFill(background)),
+    /** The graph's own ground, null on the card's. */
+    background: own ? cssColor(own) : null,
+    /** What hover dots and the engine readout's dots are ringed with to separate them from the curves. */
+    ground: own ? cssColor(own) : p.panelSolid,
+    /** The ring of the two current markers: the stage's marker ring over a wallpaper the user
+     *  chose (a light ring, whatever the graph's ground), else the graph's own ground or the card
+     *  under the graph. */
+    markerRing: own && (p.builtin || skin() === "java") ? cssColor(own) : p.graphMarkerRing,
+    belowFill: own ? cssColor(belowBaselineFill(own)) : p.graphFillBelow,
   };
 }
 
 const DOT_RADIUS = 3;
 const ANCHOR_HALF = 2;
 const MARKER_RADIUS = 4;
-const MOVE_MARKER = { fill: "rgb(244,67,72)", border: rgba([112, 24, 28], 230), halo: rgba([255, 250, 240], 225) };
-const SCORE_MARKER = { fill: "rgb(46,204,113)", border: rgba([20, 96, 55], 230), halo: rgba([248, 255, 245], 225) };
+/** Clearance between the plot's edges and the chips, scale labels and legend inside it. */
+const INSET = 4;
+/** Readout chips, legend and caption: inner padding, gap between parts, corner radius. */
+const CHIP_PAD = 6;
+const CHIP_GAP = 6;
+const CHIP_RADIUS = 4;
+/** Dash patterns: an analysed run is solid, a bridge over unanalysed moves and the main trunk's
+ *  continuation after a fork are dashed (the bridge finer). */
+const SOLID: number[] = [];
+const BRIDGE_DASH = [3, 3];
+const TRUNK_DASH = [4, 4];
+/** A readout part's curve swatch: a short line and the gap after it, as in the legend. */
+const SWATCH = 16;
 
 // ------------------------------------------------------------------ Java number helpers
 
@@ -143,6 +219,12 @@ function formatScoreLead(black: number): string {
   const magnitude = javaFixed1(Math.round(Math.abs(black) * 10) / 10);
   if (magnitude === "0.0") return "0.0";
   return (black > 0 ? t("WinrateGraph.scoreLeadBlackPrefix") : t("WinrateGraph.scoreLeadWhitePrefix")) + magnitude;
+}
+
+/** A scale value: one decimal at most, without a trailing ".0". */
+function compactNumber(v: number): string {
+  const s = javaFixed1(Math.round(v * 10) / 10);
+  return s.endsWith(".0") ? s.slice(0, -2) : s;
 }
 
 /** resolveBlunderBarHeight (WinrateGraph.java:297-310). */
@@ -209,6 +291,17 @@ function displayedWinrate(s: GraphScene, n: number, fallback: number): number | 
   return Math.max(0, Math.min(100, fallback));
 }
 
+/** BoardData.blackToPlay: the analysed side to move, else the side after the node's move; a
+ *  snapshot keeps its parent's side, the root has Black to move. */
+function blackToPlay(s: GraphScene, n: number): boolean {
+  const point = s.history.get(n);
+  if (point) return point.to_play === "Black";
+  const node = s.nodes.get(n);
+  if (node?.kind === "Black") return false;
+  if (node?.kind === "White") return true;
+  return node?.parent == null ? true : blackToPlay(s, node.parent);
+}
+
 // ------------------------------------------------------------------ drawing primitives
 
 type Op = () => void;
@@ -218,14 +311,22 @@ function metrics(g: CanvasRenderingContext2D) {
   return { ascent: i(0.95 + m.fontBoundingBoxAscent), descent: i(0.95 + m.fontBoundingBoxDescent) };
 }
 const stringWidth = (g: CanvasRenderingContext2D, s: string) => Math.round(g.measureText(s).width);
-const plain = (size: number) => `${size}px ${GRAPH_FONT}`;
-const bold = (size: number) => `bold ${size}px ${GRAPH_FONT}`;
+const plain = (size: number) => `${size}px ${panelFont()}`;
+const bold = (size: number) => `600 ${size}px ${panelFont()}`;
 
-/** drawLine with a 1 px aligned stroke. */
-function line(g: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string, width: number, dashed: boolean) {
+/** `text` cut to `max` pixels in the current font, ending in "…" where it is cut. */
+function elide(g: CanvasRenderingContext2D, text: string, max: number): string {
+  if (stringWidth(g, text) <= max) return text;
+  let k = text.length;
+  while (k > 0 && stringWidth(g, `${text.slice(0, k)}…`) > max) k--;
+  return `${text.slice(0, k)}…`;
+}
+
+/** drawLine with a 1 px aligned stroke; `dashed` is Java's 4 / 4 dash or a pattern of its own. */
+function line(g: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number, color: string, width: number, dashed: boolean | number[]) {
   g.strokeStyle = color;
   g.lineWidth = width;
-  g.setLineDash(dashed ? [4, 4] : []);
+  g.setLineDash(dashed === true ? [4, 4] : dashed || []);
   g.beginPath();
   g.moveTo(x1 + 0.5, y1 + 0.5);
   g.lineTo(x2 + 0.5, y2 + 0.5);
@@ -241,70 +342,122 @@ function oval(g: CanvasRenderingContext2D, cx: number, cy: number, r: number, co
   g.fill();
 }
 
-/** drawMetricMarkerCore. */
-function markerCore(g: CanvasRenderingContext2D, cx: number, cy: number, r: number, c: typeof MOVE_MARKER) {
-  oval(g, cx, cy, r, c.fill);
-  g.strokeStyle = c.border;
-  g.lineWidth = 1;
-  g.beginPath();
-  g.arc(cx, cy, r, 0, Math.PI * 2);
-  g.stroke();
+/** A current marker: a filled dot ringed to separate it from the curves. */
+function marker(g: CanvasRenderingContext2D, cx: number, cy: number, r: number, fill: string, ring: string) {
+  oval(g, cx, cy, r + 2, ring);
+  oval(g, cx, cy, r, fill);
 }
 
-/** drawMetricMarker: the halo, then the core. */
-function marker(g: CanvasRenderingContext2D, cx: number, cy: number, radius: number, c: typeof MOVE_MARKER) {
-  const r = Math.max(3, radius);
-  oval(g, cx, cy, r + 2, c.halo);
-  markerCore(g, cx, cy, r, c);
+/** A hovered value: a hollow dot in the curve's colour on the ground under the graph. */
+function hoverDot(g: CanvasRenderingContext2D, cx: number, cy: number, color: string, ground: string) {
+  oval(g, cx, cy, DOT_RADIUS + 1, ground);
+  g.strokeStyle = color;
+  g.lineWidth = 1.5;
+  g.beginPath();
+  g.arc(cx, cy, DOT_RADIUS, 0, Math.PI * 2);
+  g.stroke();
 }
 
 interface Box { x: number; y: number; w: number; h: number }
 
 const intersects = (a: Box, b: Box) => a.w > 0 && a.h > 0 && b.w > 0 && b.h > 0 && a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 
-function clampBox(box: Box, bounds: Box): Box {
-  const x = box.w >= bounds.w ? bounds.x : Math.max(bounds.x, Math.min(box.x, bounds.x + bounds.w - box.w));
-  const y = box.h >= bounds.h ? bounds.y : Math.max(bounds.y, Math.min(box.y, bounds.y + bounds.h - box.h));
-  return { x, y, w: box.w, h: box.h };
+/** How much of a polyline runs inside `box`: each segment clipped to it (Liang–Barsky). */
+function lengthInside(points: number[][], box: Box): number {
+  let total = 0;
+  for (let k = 1; k < points.length; k++) {
+    const [x1, y1] = points[k - 1];
+    const [x2, y2] = points[k];
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    let t0 = 0;
+    let t1 = 1;
+    for (const [p, q] of [[-dx, x1 - box.x], [dx, box.x + box.w - x1], [-dy, y1 - box.y], [dy, box.y + box.h - y1]]) {
+      if (p === 0) {
+        if (q < 0) t1 = -1;
+      } else if (p < 0) t0 = Math.max(t0, q / p);
+      else t1 = Math.min(t1, q / p);
+    }
+    if (t1 > t0) total += (t1 - t0) * Math.hypot(dx, dy);
+  }
+  return total;
 }
 
-/** placeGraphLabelBox (WinrateGraph.java:460-482). */
-function placeLabel(preferred: Box, bounds: Box, occupied: Box[]): Box {
-  const box = clampBox(preferred, bounds);
-  if (!occupied.some((o) => intersects(box, o))) return box;
-  const step = Math.max(1, preferred.h + 1);
-  for (const dy of [-step, step, -2 * step, 2 * step, -3 * step, 3 * step])
-    for (const dx of [0, preferred.w + 4, -(preferred.w + 4)]) {
-      const candidate = clampBox({ x: preferred.x + dx, y: preferred.y + dy, w: preferred.w, h: preferred.h }, bounds);
-      if (!occupied.some((o) => intersects(candidate, o))) return candidate;
-    }
-  return box;
+/** How a curve piece is stroked; `filled` pieces enclose the area fill with the midline. */
+interface StrokeStyle { color: string; width: number; dash: number[]; filled: boolean }
+
+/** A polyline of one style: consecutive strokes of that style that join extend it. */
+interface Stroke extends StrokeStyle { points: number[][] }
+
+function addStroke(strokes: Stroke[], x1: number, y1: number, x2: number, y2: number, style: StrokeStyle) {
+  const last = strokes.at(-1);
+  const end = last?.points.at(-1);
+  if (last && end && end[0] === x1 && end[1] === y1 && last.color === style.color && last.width === style.width && last.dash === style.dash && last.filled === style.filled)
+    last.points.push([x2, y2]);
+  else strokes.push({ ...style, points: [[x1, y1], [x2, y2]] });
 }
+
+/** Strokes each polyline as one path with round joins (round caps on solid runs). */
+function strokePaths(g: CanvasRenderingContext2D, strokes: Stroke[]) {
+  g.lineJoin = "round";
+  for (const s of strokes) {
+    g.strokeStyle = s.color;
+    g.lineWidth = s.width;
+    g.setLineDash(s.dash);
+    g.lineCap = s.dash.length ? "butt" : "round";
+    g.beginPath();
+    g.moveTo(s.points[0][0], s.points[0][1]);
+    for (let k = 1; k < s.points.length; k++) g.lineTo(s.points[k][0], s.points[k][1]);
+    g.stroke();
+  }
+  g.setLineDash([]);
+  g.lineCap = "butt";
+  g.lineJoin = "miter";
+}
+
+/** A piece of a readout chip's text; `swatch` leads it with that curve's colour. */
+interface ChipPart { text: string; font: string; color: string; swatch?: string }
 
 // ------------------------------------------------------------------ painter
 
-/** WinrateGraph.scoreAjustMove / scoreAjustBelow: the current score text keeps its side while the
- *  two labels nearly coincide (WinrateGraph.java:1590-1615). */
-let scoreAdjustMove = -10;
-let scoreAdjustBelow = false;
-
-/** WinrateGraph.draw (single engine). Returns what was drawn and the hit-test sources (null when
- *  nothing is plotted). */
+/** WinrateGraph.draw: the single-engine graph, or the engine-game one (engineOrPkBoard) while
+ *  `s.engineGame` is set. Returns what was drawn and the hit-test sources (null when nothing is
+ *  plotted). */
 export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene): { report: GraphReport; hits: GraphHits | null } {
   const W0 = r.w;
   const H0 = r.h;
   const d = s.display;
   const nodes = s.nodes;
   const theme = graphTheme();
+  const p = theme.palette;
   const LINE = theme.line;
   const SCORE = theme.score;
+  // largeEnough (WinrateGraph.java:581): a large graph sets its text one type step up.
+  const type = frameMetrics().type;
+  const large = W0 > 475 && H0 > 335;
+  const labelFont = plain(large ? type.size : type.s);
+  const readSize = large ? type.l : type.size;
   const background: Op[] = [];
+  const fills: Op[] = [];
+  const legendLayer: Op[] = [];
   const blunder: Op[] = [];
+  const guides: Op[] = [];
+  const curves: Op[] = [];
   const front: Op[] = [];
+  /** Readout chips and caption, over everything. */
+  const overlay: Op[] = [];
   const flush = () => {
-    for (const op of background) op();
-    for (const op of blunder) op();
-    for (const op of front) op();
+    for (const op of [...background, ...fills, ...legendLayer, ...blunder]) op();
+    // The current and hovered move's guides break around the scale labels they cross (the line
+    // end's guide stands over the right-hand ones whenever the last move is current).
+    g.save();
+    g.beginPath();
+    g.rect(0, 0, W0, plotBottom + 1);
+    for (const box of scaleBoxes) g.rect(box.x - 1, box.y - 1, box.w + 2, box.h + 2);
+    g.clip("evenodd");
+    for (const op of guides) op();
+    g.restore();
+    for (const op of [...curves, ...front, ...overlay]) op();
     g.setLineDash([]);
     g.textAlign = "left";
     g.textBaseline = "alphabetic";
@@ -312,16 +465,23 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   g.textAlign = "left";
   g.textBaseline = "alphabetic";
 
+  // suppressGraphContent (play mode, WinrateGraph.java:611-628) comes before the engine game: the
+  // graph keeps its ground and grid alone.
+  const eg = s.suppressed ? null : s.engineGame;
   // currentRenderableMetrics: the score line needs a score source (Java: KataGo / Sai engine or a
-  // KataGo record), here any stored lead on the graph's nodes.
-  let scoreAvailable = false;
-  for (const p of s.history.values()) if (p.black.score_lead !== null) { scoreAvailable = true; break; }
-  const winrateRenderable = d.winrateLine;
-  const scoreRenderable = d.scoreLeadLine && scoreAvailable;
+  // KataGo record), here any stored lead on the graph's nodes. In an engine game
+  // (resolveScoreLeadAvailable) it is the engine of the score side alone; without one there is no
+  // score line.
+  const engineScoreSide = eg ? eg.scoreSide : null;
+  let scoreAvailable = engineScoreSide !== null;
+  if (!eg) for (const p of s.history.values()) if (p.black.score_lead !== null) { scoreAvailable = true; break; }
+  const winrateRenderable = d.winrateLine && !s.suppressed;
+  const scoreRenderable = d.scoreLeadLine && scoreAvailable && !s.suppressed;
   const renderable = Number(winrateRenderable) + Number(scoreRenderable);
   const chip = renderable !== 1 ? null : winrateRenderable ? "50%" : "0";
   const baselineActive = renderable > 0;
-  const fillEnabled = d.winrateGraphFill && renderable === 1;
+  // No area fill while an engine game is on the board (WinrateGraph.java:629-633).
+  const fillEnabled = d.winrateGraphFill && renderable === 1 && !eg;
   const report: GraphReport = {
     pointCount: 0,
     winrateRenderable,
@@ -348,101 +508,162 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     hoverScoreText: null,
     legend: [],
     xLabels: [],
+    emptyText: null,
+    engineGame: eg
+      ? { black: eg.black, white: eg.white, blackPieces: 0, whitePieces: 0, scoreSide: scoreRenderable ? engineScoreSide : null, blackText: null, whiteText: null, hoverBlackText: null, hoverWhiteText: null }
+      : null,
   };
 
-  background.push(() => {
-    g.fillStyle = theme.background;
-    g.fillRect(0, 0, W0, H0);
-  });
+  if (theme.background) {
+    const ground = theme.background;
+    background.push(() => {
+      g.fillStyle = ground;
+      g.fillRect(0, 0, W0, H0);
+    });
+  }
+  // The plot above the axis strip, which is a line of Label text with 2 px either side.
+  g.font = labelFont;
+  const lm = metrics(g);
+  const labelH = lm.ascent + lm.descent;
   const posx = 0;
   const posy = 2;
-  let width = W0 - 6;
-  const height = H0 - 4;
-  // Dashed grid at 25 / 50 / 75 %; the highlighted baseline replaces the midline.
-  for (let k = 1; k <= 3; k++) {
-    if (baselineActive && k * 2 === 4) continue;
-    const y = posy + height - jInt((height * ((k * 100) / 4)) / 100);
-    const w = width;
-    background.push(() => line(g, posx, y, posx + w, y, GRID, 1, true));
-  }
+  const plotBottom = Math.max(posy + 4, H0 - labelH - 4);
+  const height = plotBottom - posy;
   const baselineY = posy + i(height / 2);
-  const occupied: Box[] = [];
-  let chipBox: Box | null = null;
-  if (chip) {
-    g.font = plain(11);
-    const fm = metrics(g);
-    const h = fm.ascent + fm.descent + 2;
-    chipBox = { x: posx + 4, y: baselineY - i(h / 2), w: stringWidth(g, chip) + 8, h };
-    occupied.push(chipBox);
-  }
-  /** paintHighlightedBaseline (WinrateGraph.java:1730-1759). */
-  const paintBaseline = (w: number) => {
-    if (!baselineActive) return;
-    background.push(() => {
-      line(g, posx, baselineY, posx + w, baselineY, BASELINE, 1.5, false);
-      if (!chip || !chipBox) return;
-      g.font = plain(11);
-      const fm = metrics(g);
-      g.fillStyle = "rgba(0,0,0,0.667)";
-      g.beginPath();
-      g.roundRect(chipBox.x, chipBox.y, chipBox.w, chipBox.h, 3);
-      g.fill();
-      g.fillStyle = rgba([236, 232, 224], 230);
-      g.fillText(chip, chipBox.x + 4, chipBox.y + fm.ascent + 1);
-    });
-  };
-
-  const cur = s.current;
-  if (!nodes.has(cur)) {
-    paintBaseline(width);
+  /** The grid line at k quarters of the win rate. */
+  const quarterY = (k: number) => posy + height - jInt((height * k * 25) / 100);
+  // Hairlines at 25 / 75 %, the dashed midline at 50 % (the baseline of the curves).
+  background.push(() => {
+    for (const k of [1, 3]) line(g, posx, quarterY(k), W0, quarterY(k), p.graphGrid, 1, false);
+    line(g, posx, baselineY, W0, baselineY, p.graphBaseline, 1, [2, 3]);
+  });
+  /** Where the scale labels stand, which the legend leaves free. */
+  const scaleBoxes: Box[] = [];
+  /** The readout chips drawn; a scale label one of them covers is left out (a short graph's 75 %
+   *  labels share the band at the top of the plot with the chips). */
+  const readoutBoxes: Box[] = [];
+  /** The current move's markers with their rings; a scale label one of them covers is left out
+   *  too (the current move at the line end stands over the right-hand labels). */
+  const markerBoxes: Box[] = [];
+  if (s.suppressed) {
     flush();
     return { report, hits: null };
   }
+  /** The scale labels just above the lines at 75 / 50 / 25 % (the midline's alone where the
+   *  quarters are closer than a line of Label text): the win rate at the left edge; the score
+   *  lead at ±maxScore / 2 and 0 at the right edge, at the left without the win-rate curve. */
+  const scaleLabels = (maxScore: number | null) => {
+    const quarters = baselineY - quarterY(3) >= labelH + 2;
+    const rows: { y: number; text: string; color: string; right: boolean }[] = [];
+    const add = (texts: [string, string, string], color: string, right: boolean) =>
+      [quarterY(3), baselineY, quarterY(1)].forEach((y, k) => {
+        if (k === 1 || quarters) rows.push({ y, text: texts[k], color, right });
+      });
+    if (winrateRenderable) add(["75%", "50%", "25%"], p.graphLabel, false);
+    if (maxScore !== null) {
+      const half = compactNumber(maxScore / 2);
+      add([t("WinrateGraph.scoreLeadBlackPrefix") + half, "0", t("WinrateGraph.scoreLeadWhitePrefix") + half], p.graphScoreText, winrateRenderable);
+    }
+    // The labels' ink (digits, signs and "%" reach neither the line's ascent nor its descent), so
+    // a legend in a top corner may stand in the space above a short graph's 75 % labels.
+    g.font = labelFont;
+    for (const row of rows) {
+      const w = tabularWidth(g, row.text);
+      const ink = g.measureText(row.text);
+      const baseline = row.y - 2 - lm.descent;
+      scaleBoxes.push({ x: row.right ? W0 - INSET - w : posx + INSET, y: baseline - ink.actualBoundingBoxAscent - 1, w, h: ink.actualBoundingBoxAscent + ink.actualBoundingBoxDescent + 2 });
+    }
+    background.push(() => {
+      g.font = labelFont;
+      rows.forEach((row, k) => {
+        if ([...readoutBoxes, ...markerBoxes].some((box) => intersects(box, scaleBoxes[k]))) return;
+        g.fillStyle = row.color;
+        fillTabular(g, row.text, row.right ? W0 - INSET - tabularWidth(g, row.text) : posx + INSET, row.y - 2 - lm.descent);
+      });
+    });
+  };
+  /** The empty graph's caption on the chip ground, centred on the midline: nothing is plotted.
+   *  Left out where one line of it does not fit. */
+  const caption = () => {
+    if (report.pointCount || report.scorePointCount) return;
+    const text = product(s.analysing ? "graphAnalysing" : "graphNoAnalysis");
+    g.font = labelFont;
+    const w = stringWidth(g, text) + 2 * CHIP_PAD;
+    const h = labelH + 6;
+    if (w > W0 - 2 * INSET || h > height) return;
+    report.emptyText = text;
+    const x = i((W0 - w) / 2);
+    const y = baselineY - i(h / 2);
+    overlay.push(() => {
+      g.fillStyle = p.graphChip;
+      g.beginPath();
+      g.roundRect(x, y, w, h, CHIP_RADIUS);
+      g.fill();
+      g.font = labelFont;
+      g.fillStyle = p.graphLabel;
+      g.fillText(text, x + CHIP_PAD, y + 3 + lm.ascent);
+    });
+  };
+  /** Nothing to plot along: the grid and scales, and the caption. */
+  const bare = () => {
+    scaleLabels(scoreRenderable ? d.initialMaxScoreLead : null);
+    caption();
+    flush();
+    return { report, hits: null };
+  };
+
+  const cur = s.current;
+  if (!nodes.has(cur)) return bare();
   const variationTop = isMainTrunk(nodes, cur) ? null : findTop(nodes, cur);
   let numMoves = variationTop === null ? 0 : depth(nodes, variationTop) + moveNumber(nodes, variationTop) - 1;
   const end = lineEnd(nodes, cur);
   if (numMoves < moveNumber(nodes, end) - 1) numMoves = moveNumber(nodes, end) - 1;
-  if (numMoves < 1) {
-    paintBaseline(width);
-    flush();
-    return { report, hits: null };
-  }
+  if (numMoves < 1) return bare();
   const geo = graphGeom(W0, H0, numMoves);
   numMoves = geo.slots;
-  width = geo.width;
+  const width = geo.width;
   report.numMoves = numMoves;
-  const X = (moveIndex: number) => posx + i((moveIndex * width) / numMoves);
-  const WY = (wr: number) => posy + height - jInt((wr * height) / 100);
-  const clampDotY = (y: number) => Math.max(0, Math.min(H0 - DOT_RADIUS * 2, y));
-  const activeCurve = scoreRenderable && !winrateRenderable ? theme.scoreRgb : theme.lineRgb;
-  const aboveFill = rgba(activeCurve, 52);
-
-  /** drawFilledGraphLine: the fill under the segment (only for analysed neighbours), then the line. */
-  const filledLine = (missing: boolean, x1: number, y1: number, x2: number, y2: number, color: string, stroke: number, dashed: boolean) => {
-    if (fillEnabled && !missing && !(y1 === baselineY && y2 === baselineY)) {
-      const polygon = (above: boolean, points: number[][]) => {
-        report.fillShapes++;
-        background.push(() => {
-          g.fillStyle = above ? aboveFill : theme.belowFill;
+  /** A move index's column and a win rate's height, kept inside the plot; anchors, curve
+   *  vertices, fill and markers all take these. */
+  const X = (moveIndex: number) => posx + Math.max(0, Math.min(Math.max(0, width - 1), i((moveIndex * width) / numMoves)));
+  const WY = (wr: number) => Math.max(posy, Math.min(plotBottom - 1, posy + height - jInt((wr * height) / 100)));
+  const winRun: StrokeStyle = { color: LINE, width: theme.winrateWidth, dash: SOLID, filled: fillEnabled };
+  const winTrunk: StrokeStyle = { color: LINE, width: 1, dash: TRUNK_DASH, filled: false };
+  const winBridge: StrokeStyle = { color: theme.miss, width: 1, dash: BRIDGE_DASH, filled: false };
+  const scoreRun: StrokeStyle = { color: SCORE, width: theme.scoreWidth, dash: SOLID, filled: fillEnabled };
+  const scoreBridge: StrokeStyle = { color: SCORE, width: 1, dash: BRIDGE_DASH, filled: false };
+  const winStrokes: Stroke[] = [];
+  const scoreStrokes: Stroke[] = [];
+  /** drawFilledGraphLine's area (WinrateGraph.java:452-548, 3082-3105): each analysed run of the
+   *  one curve encloses one shape with the midline, the ink tint above it (Black ahead) and the
+   *  paper tint below it; bridges and the dashed trunk are not filled. */
+  const paintFill = (strokes: Stroke[]) => {
+    for (const run of strokes) {
+      if (!run.filled || run.points.every(([, y]) => y === baselineY)) continue;
+      report.fillShapes++;
+      fills.push(() => {
+        for (const [above, color] of [[true, p.graphFillAbove], [false, theme.belowFill]] as const) {
+          g.save();
           g.beginPath();
-          g.moveTo(points[0][0], points[0][1]);
-          for (const [px, py] of points.slice(1)) g.lineTo(px, py);
+          if (above) g.rect(0, 0, W0, baselineY);
+          else g.rect(0, baselineY, W0, H0 - baselineY);
+          g.clip();
+          g.fillStyle = color;
+          g.beginPath();
+          g.moveTo(run.points[0][0], baselineY);
+          for (const [x, y] of run.points) g.lineTo(x, y);
+          g.lineTo(run.points[run.points.length - 1][0], baselineY);
           g.closePath();
           g.fill();
-        });
-      };
-      if ((y1 - baselineY) * (y2 - baselineY) >= 0) {
-        polygon(y1 < baselineY || y2 < baselineY, [[x1, y1], [x2, y2], [x2, baselineY], [x1, baselineY]]);
-      } else {
-        const xi = x1 + ((baselineY - y1) / (y2 - y1)) * (x2 - x1);
-        polygon(y1 < baselineY, [[x1, y1], [xi, baselineY], [x1, baselineY]]);
-        polygon(y2 < baselineY, [[x2, y2], [xi, baselineY], [x2, baselineY]]);
-      }
+          g.restore();
+        }
+      });
     }
-    front.push(() => line(g, x1, y1, x2, y2, color, stroke, dashed));
   };
 
-  /** drawBlunderBar (WinrateGraph.java:272-295) along the panel's bottom edge. */
+  /** Where the blunder bars stand, which the legend avoids as it avoids the curves. */
+  const barBoxes: Box[] = [];
+  /** drawBlunderBar (WinrateGraph.java:272-295), growing up from the plot's bottom edge. */
   const blunderBar = (from: number, to: number, winrateDrop: number, scoreDrop: number) => {
     const barHeight = blunderBarHeight(height, winrateDrop, scoreDrop);
     const start = posx + i((Math.min(from, to) * width) / numMoves);
@@ -450,26 +671,32 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     const barWidth = Math.max(theme.barMinimum, stop - start);
     const color = theme.bar;
     report.blunderBars++;
+    barBoxes.push({ x: start, y: plotBottom - barHeight, w: barWidth + 1, h: barHeight });
     blunder.push(() => {
       g.fillStyle = color;
-      g.fillRect(start, H0 - barHeight, barWidth + 1, barHeight);
+      g.fillRect(start, plotBottom - barHeight, barWidth + 1, barHeight);
     });
   };
 
-  // ---------------------------------------------------------------- win-rate line (WinrateGraph.java:976-1135)
+  // ---------------------------------------------------------------- win-rate line (WinrateGraph.java:976-1135), single engine
   const curPoint = s.history.get(cur);
   const curParent = parentOf(nodes, cur);
   const currentMoveNumber = moveNumber(nodes, cur);
   const plotted = new Set<number>();
+  /** Plotted nodes a stroke reaches; the others are drawn as single points. */
+  const joined = new Set<number>();
   let lastWr = 50;
   let lastScore = 0;
   let lastNodeOk = false;
   let movenum = moveNumber(nodes, end) - 1;
   let lastOkMove = -1;
+  let lastOkNode = -1;
   let cwr = -1;
   let cmovenum = -1;
   let mwr = -1;
   let mmovenum = -1;
+  let hoverX: number | null = null;
+  let hoverMove = 0;
   let canDrawBlunderBar = true;
   let forkNode: number | null = null;
   let dashed = false;
@@ -477,20 +704,21 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   let pieceOpen = false;
   let top = variationTop;
   let node = end;
-  while (parentOf(nodes, node) !== null) {
-    const p = s.history.get(node);
-    // Java's own win rate of an unanalysed node only places the hover number; 50 puts it below.
+  while (!eg && parentOf(nodes, node) !== null) {
+    const point = s.history.get(node);
+    // Java's own win rate of an unanalysed node only places the hover value; 50 puts it below.
     let wr = 50;
     const shown = displayedWinrate(s, node, lastWr);
     if (shown !== null) {
       wr = shown;
       plotted.add(node);
-      const score = p ? p.black.score_lead ?? 0 : lastScore;
-      const color = lastNodeOk ? LINE : theme.miss;
+      const score = point ? point.black.score_lead ?? 0 : lastScore;
       if (lastOkMove > 0 && lastOkMove - movenum < 25) {
-        if (canDrawBlunderBar && d.blunderBar && p) blunderBar(lastOkMove, movenum, Math.abs(lastWr - wr), Math.abs(lastScore - score));
+        if (canDrawBlunderBar && d.blunderBar && point) blunderBar(lastOkMove, movenum, Math.abs(lastWr - wr), Math.abs(lastScore - score));
         if (d.winrateLine) {
-          filledLine(!lastNodeOk, X(lastOkMove), WY(lastWr), X(movenum), WY(wr), color, dashed ? 1 : theme.winrateWidth, dashed);
+          addStroke(winStrokes, X(lastOkMove), WY(lastWr), X(movenum), WY(wr), !lastNodeOk ? winBridge : dashed ? winTrunk : winRun);
+          joined.add(lastOkNode);
+          joined.add(node);
           if (!pieceOpen) report.segments++;
           if (!lastNodeOk) report.missSegments++;
           pieceOpen = true;
@@ -522,27 +750,16 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
         if (continuation === null) lastNodeOk = false;
       }
       if (d.winrateLine && (node === cur || (node === curParent && !curPoint))) {
-        const x = X(movenum), y = clampDotY(WY(wr) - DOT_RADIUS);
-        front.push(() => oval(g, x, y + DOT_RADIUS, DOT_RADIUS, LINE));
         cwr = wr;
         cmovenum = movenum;
       }
       lastOkMove = lastNodeOk ? movenum : -1;
+      lastOkNode = node;
     } else lastNodeOk = false;
 
     if (s.hover !== null && node === s.hover) {
-      // The guide, the move number at the bottom (at the top under 3%), and the hover values.
-      const x = X(movenum);
-      const moveNum = moveNumber(nodes, node);
-      const low = wr < 3;
-      front.push(() => {
-        line(g, x, posy, x, posy + height, GUIDE, 1, true);
-        g.font = bold(12);
-        const fm = metrics(g);
-        const dx = moveNum < i(numMoves / 2) ? 3 : moveNum < 10 ? -10 : currentMoveNumber > 99 ? -22 : -16;
-        g.fillStyle = "#fff";
-        g.fillText(String(moveNum), x + dx, low ? posy + fm.ascent - fm.descent - 1 : posy + height - 1);
-      });
+      hoverX = X(movenum);
+      hoverMove = moveNumber(nodes, node);
       if (d.winrateLine && s.history.has(node)) {
         mwr = wr;
         mmovenum = movenum;
@@ -553,6 +770,68 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   }
   report.pointCount = plotted.size;
 
+  // ---------------------------------------------------------------- engine curves (WinrateGraph.java:706-975)
+  // Each engine's own win rate (its side to move's, not turned to Black's), every node joined to
+  // the node two moves back: the black engine's positions (Black to move) in the win-rate colour,
+  // the white engine's in the miss colour, without area fill. An unanalysed node takes the result
+  // two moves back, else 50; a blunder bar spans every such pair.
+  /** The engine searched the position (getPlayouts() > 0). */
+  const searched = (n: number) => (s.history.get(n)?.visits ?? 0) > 0;
+  /** The current readout's values: the current move's and its parent's (Java's saveCurWr and the
+   *  previous move's dot), and the hover readout's: the hovered move's and its parent's. */
+  const engineCurrent: { node: number; x: number; y: number; wr: number; black: boolean }[] = [];
+  const engineHover: { x: number; y: number; wr: number; black: boolean }[] = [];
+  if (eg) {
+    const blackRun: StrokeStyle = { color: LINE, width: theme.winrateWidth, dash: SOLID, filled: false };
+    const whiteRun: StrokeStyle = { color: theme.engineWhite, width: theme.winrateWidth, dash: SOLID, filled: false };
+    const blackPieces: Stroke[] = [];
+    const whitePieces: Stroke[] = [];
+    const counted = new Set<number>();
+    for (let n = end; parentOf(nodes, n) !== null && parentOf(nodes, parentOf(nodes, n)!) !== null; n = parentOf(nodes, n)!) {
+      const back = parentOf(nodes, parentOf(nodes, n)!)!;
+      const index = moveNumber(nodes, n) - 1;
+      const backIndex = Math.max(0, moveNumber(nodes, back) - 1);
+      const own = s.history.get(n);
+      const prior = s.history.get(back);
+      let wr = 50;
+      let score = 0;
+      if (own && searched(n)) {
+        wr = own.winrate;
+        score = own.score_lead ?? 0;
+        counted.add(n);
+      } else if (prior && searched(back)) {
+        wr = prior.winrate;
+        score = prior.score_lead ?? 0;
+      }
+      const backWr = prior && searched(back) ? prior.winrate : wr;
+      const backScore = prior && searched(back) ? prior.score_lead ?? 0 : score;
+      if (prior && searched(back) && parentOf(nodes, back) !== null) counted.add(back);
+      if (d.blunderBar) blunderBar(backIndex, index, Math.abs(backWr - wr), Math.abs(backScore - score));
+      if (!d.winrateLine) continue;
+      const black = blackToPlay(s, n);
+      const pieces = black ? blackPieces : whitePieces;
+      const before = pieces.length;
+      addStroke(pieces, X(index), WY(wr), X(backIndex), WY(backWr), black ? blackRun : whiteRun);
+      if (pieces.length > before) report.segments++;
+      if (curParent !== null && index > 1 && (n === cur || n === curParent)) engineCurrent.push({ node: n, x: X(index), y: WY(wr), wr, black });
+    }
+    // The black engine's curve over the white one's.
+    winStrokes.push(...whitePieces, ...blackPieces);
+    report.engineGame!.blackPieces = blackPieces.length;
+    report.engineGame!.whitePieces = whitePieces.length;
+    report.pointCount = counted.size;
+    for (let n = end; s.hover !== null && parentOf(nodes, n) !== null; n = parentOf(nodes, n)!) {
+      if (n !== s.hover) continue;
+      hoverX = X(moveNumber(nodes, n) - 1);
+      hoverMove = moveNumber(nodes, n);
+      for (const m of [n, parentOf(nodes, n)!]) {
+        const point = s.history.get(m);
+        if (d.winrateLine && point && searched(m)) engineHover.push({ x: X(moveNumber(nodes, m) - 1), y: WY(point.winrate), wr: point.winrate, black: blackToPlay(s, m) });
+      }
+      break;
+    }
+  }
+
   // ---------------------------------------------------------------- score lead line (WinrateGraph.java:1151-1470)
   let maxScore = d.initialMaxScoreLead;
   let curScoreMoveNum = -1;
@@ -562,9 +841,10 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   let markerIndex = -1;
   let markerMean = 0;
   const convert = (v: number) => (v > maxScore ? maxScore : v < 0 && Math.abs(v) > maxScore ? -maxScore : v);
-  const SY = (v: number) => baselineY - jInt((convert(v) * height) / 2 / maxScore);
-  /** scoreLeadAnchorY with the clamped lead. */
-  const anchorY = (v: number) => posy + i(height / 2) - jInt((convert(v) * height) / 2 / Math.max(1, maxScore));
+  /** scoreLeadAnchorY with the clamped lead, kept inside the plot. */
+  const SY = (v: number) => Math.max(posy, Math.min(plotBottom - 1, baselineY - jInt((convert(v) * height) / 2 / Math.max(1, maxScore))));
+  /** Score points no stroke reaches, drawn as single points. */
+  const scoreDots: number[][] = [];
   if (d.scoreLeadLine && scoreAvailable) {
     // setMaxScoreLead: the initial scale, widened by the current line's largest lead (root included).
     for (let n: number | null = end; n !== null; n = parentOf(nodes, n)) {
@@ -572,11 +852,14 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
       if (lead > maxScore) maxScore = lead;
     }
     report.maxScoreLead = maxScore;
+  }
+  if (d.scoreLeadLine && scoreAvailable && !eg) {
     node = end;
     movenum = moveNumber(nodes, end) - 1;
     lastOkMove = -1;
     lastNodeOk = false;
     let lastMean = -500;
+    let lastJoined = false;
     while (parentOf(nodes, node) !== null) {
       const lead = s.history.get(node)?.black.score_lead ?? null;
       if (lead !== null) {
@@ -591,8 +874,11 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
           mScoreMoveNum = movenum;
           drawHoverScore = lead;
         }
-        if (lastOkMove > 0 && Math.abs(movenum - lastOkMove) < 25 && lastMean > -500)
-          filledLine(!lastNodeOk, X(lastOkMove), SY(lastMean), X(movenum), SY(lead), SCORE, theme.scoreWidth, false);
+        const join = lastOkMove > 0 && Math.abs(movenum - lastOkMove) < 25 && lastMean > -500;
+        if (join) addStroke(scoreStrokes, X(lastOkMove), SY(lastMean), X(movenum), SY(lead), lastNodeOk ? scoreRun : scoreBridge);
+        // The previous point stood alone when neither of its neighbours joined it.
+        else if (lastMean > -500 && !lastJoined) scoreDots.push([X(lastOkMove), SY(lastMean)]);
+        lastJoined = join;
         lastMean = lead;
         lastOkMove = movenum;
         lastNodeOk = true;
@@ -600,170 +886,131 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
       node = parentOf(nodes, node)!;
       movenum--;
     }
+    if (lastMean > -500 && !lastJoined) scoreDots.push([X(lastOkMove), SY(lastMean)]);
   }
-  paintBaseline(width);
-
-  // ---------------------------------------------------------------- texts (WinrateGraph.java:1474-1647)
-  const bounds: Box = { x: 0, y: 0, w: W0, h: H0 };
-  /** drawPlacedString in the current font and colour. */
-  const placed = (text: string, font: string, color: string, x: number, y: number) => {
-    g.font = font;
-    const fm = metrics(g);
-    const box = placeLabel({ x, y: y - fm.ascent, w: stringWidth(g, text), h: fm.ascent + fm.descent }, bounds, occupied);
-    occupied.push(box);
-    front.push(() => {
-      g.font = font;
-      g.fillStyle = color;
-      g.fillText(text, box.x, box.y + fm.ascent);
-    });
-  };
-  const centredX = (text: string, moveIndex: number) => Math.min(Math.max(X(moveIndex) - i(stringWidth(g, text) / 2), 0), W0 - stringWidth(g, text));
-  let mwrHeight = -1;
-  let mWinFontHeight = -1;
-  let oriMWrHeight = -1;
-  if (mwr >= 0) {
-    const x = X(mmovenum), y = clampDotY(WY(mwr) - DOT_RADIUS);
-    front.push(() => oval(g, x, y + DOT_RADIUS, DOT_RADIUS, "rgb(255,0,0)"));
-    g.font = bold(16);
-    const fm = metrics(g);
-    oriMWrHeight = posy + (height - jInt((mwr * height) / 100));
-    mwrHeight = oriMWrHeight + (mwr < 10 ? -5 : (mwr > 90 ? 6 : -2) * DOT_RADIUS);
-    mWinFontHeight = fm.ascent - fm.descent;
-    if (mwrHeight > H0) mwrHeight = H0 - 2;
-    const text = javaFixed1(mwr);
-    report.hoverText = text;
-    placed(text, bold(16), "#fff", centredX(text, mmovenum), mwrHeight);
-  }
-  if (mScoreMoveNum >= 0) {
-    g.font = bold(14);
-    const fm = metrics(g);
-    let h = anchorY(drawHoverScore) - 3;
-    const ori = h;
-    const fontHeight = fm.ascent - fm.descent;
-    const up = fontHeight;
-    const down = H0;
-    h = Math.min(down, Math.max(up, h));
-    if (Math.abs(mwrHeight - h) < fontHeight) {
-      if (ori < oriMWrHeight) h = mwrHeight - mWinFontHeight - 1 >= up ? mwrHeight - mWinFontHeight - 1 : mwrHeight + fontHeight + 1;
-      else h = mwrHeight + fontHeight + 1 <= down ? mwrHeight + fontHeight + 1 : mwrHeight - mWinFontHeight - 1;
-    }
-    if (h > H0) h = Math.max(H0, mwrHeight - mWinFontHeight);
-    const text = formatScoreLead(drawHoverScore);
-    report.hoverScoreText = text;
-    placed(text, bold(14), "rgb(255,255,0)", centredX(text, mScoreMoveNum), h);
-  }
-  let cwrHeight = -1;
-  let winFontHeight = -1;
-  let oriWrHeight = -1;
-  if (cwr >= 0) {
-    g.font = bold(16);
-    const fm = metrics(g);
-    oriWrHeight = posy + (height - jInt((cwr * height) / 100));
-    cwrHeight = oriWrHeight + (cwr < 10 ? -5 : (cwr > 90 ? 6 : -2) * DOT_RADIUS);
-    winFontHeight = fm.ascent - fm.descent;
-    if (cwrHeight > H0) cwrHeight = H0 - 2;
-    const text = javaFixed1(cwr);
-    report.currentText = text;
-    placed(text, bold(16), "#fff", centredX(text, cmovenum), cwrHeight);
-  }
-  if (curScoreMoveNum >= 0) {
-    g.font = bold(14);
-    const fm = metrics(g);
-    let h = anchorY(drawCurScore) - 3;
-    const ori = h;
-    const fontHeight = fm.ascent - fm.descent;
-    const up = fontHeight;
-    const down = H0;
-    h = Math.min(down, Math.max(up, h));
-    const diff = Math.abs(cwrHeight - h);
-    if (diff < fontHeight) {
-      if (diff <= i(fontHeight / 3) && scoreAdjustMove === curScoreMoveNum) {
-        h = scoreAdjustBelow ? cwrHeight + fontHeight + 1 : cwrHeight - winFontHeight - 1;
-      } else {
-        if (ori < oriWrHeight) {
-          scoreAdjustBelow = !(cwrHeight - winFontHeight - 1 >= up);
-        } else scoreAdjustBelow = cwrHeight + fontHeight + 1 <= down;
-        h = scoreAdjustBelow ? cwrHeight + fontHeight + 1 : cwrHeight - winFontHeight - 1;
-        scoreAdjustMove = diff <= i(fontHeight / 3) ? curScoreMoveNum : -1;
+  if (eg && d.scoreLeadLine && engineScoreSide !== null) {
+    // WinrateGraph.java:1170-1415: Black's lead from the scoring engine's positions only, every
+    // second node back from the line end, joined under the 25-move limit; the earliest one runs
+    // flat back to the start. While a game is played, an unanalysed position at the end reads the
+    // lead two moves back.
+    const white = engineScoreSide === "White";
+    /** blackPerspectiveScoreMean: 0 without a result. */
+    const blackLead = (n: number) => {
+      const point = s.history.get(n);
+      const lead = point?.score_lead ?? 0;
+      return point?.to_play === "White" ? -lead : lead;
+    };
+    let n = end;
+    let mv = moveNumber(nodes, end) - 1;
+    let lastMean: number | null = null;
+    let lastOk = -1;
+    let lastJoined = false;
+    let at = -1;
+    let atMean = 0;
+    // The line end and the current move step back to the scoring engine's positions.
+    if (blackToPlay(s, n) === white) {
+      mv--;
+      const prev = parentOf(nodes, n);
+      if (prev !== null) {
+        if (eg.playing) {
+          at = mv;
+          atMean = blackLead(prev);
+          lastMean = atMean;
+          lastOk = mv;
+        }
+        n = prev;
       }
     }
-    const text = formatScoreLead(drawCurScore);
-    report.currentScoreText = text;
-    placed(text, bold(14), "rgb(255,255,0)", centredX(text, curScoreMoveNum), h);
+    const scoreNode = blackToPlay(s, cur) === white && curParent !== null ? curParent : cur;
+    while (parentOf(nodes, n) !== null && parentOf(nodes, parentOf(nodes, n)!) !== null) {
+      const back = parentOf(nodes, parentOf(nodes, n)!)!;
+      if (searched(n)) {
+        const mean = blackLead(n);
+        report.scorePointCount++;
+        if (n === scoreNode) {
+          at = mv;
+          atMean = mean;
+        }
+        const join = lastMean !== null && lastOk > 0 && Math.abs(mv - lastOk) < 25;
+        if (join) addStroke(scoreStrokes, X(lastOk), SY(lastMean!), X(mv), SY(mean), scoreRun);
+        else if (lastMean !== null && !lastJoined) scoreDots.push([X(lastOk), SY(lastMean)]);
+        lastJoined = join;
+        lastMean = mean;
+        lastOk = mv;
+      } else if (eg.playing) {
+        const next = nextOf(nodes, n);
+        if (next === undefined || nextOf(nodes, next) === undefined) {
+          at = mv;
+          atMean = blackLead(back);
+        }
+      }
+      n = back;
+      mv -= 2;
+    }
+    if (lastMean !== null) {
+      if (mv !== lastOk) addStroke(scoreStrokes, X(lastOk), SY(lastMean), X(mv), SY(lastMean), scoreRun);
+      else if (!lastJoined) scoreDots.push([X(lastOk), SY(lastMean)]);
+    }
+    if (at >= 0) {
+      curScoreMoveNum = markerIndex = at;
+      drawCurScore = markerMean = atMean;
+    }
+    // The hovered move's lead: its own or its parent's, whichever is the scoring engine's.
+    for (const m of hoverX === null ? [] : [s.hover!, parentOf(nodes, s.hover!)]) {
+      if (m === null || blackToPlay(s, m) === white || !searched(m)) continue;
+      mScoreMoveNum = moveNumber(nodes, m) - 1;
+      drawHoverScore = blackLead(m);
+      break;
+    }
   }
+  paintFill(winStrokes);
+  paintFill(scoreStrokes);
+  // The score line under the win-rate line.
+  curves.push(() => {
+    strokePaths(g, scoreStrokes);
+    strokePaths(g, winStrokes);
+  });
+  scaleLabels(report.maxScoreLead);
 
-  // ---------------------------------------------------------------- move numbers and legend
+  // ---------------------------------------------------------------- move numbers on the axis strip
   if (width >= 150) {
     const step = numMoves <= 63 ? 10 : numMoves <= 125 ? 20 : numMoves < 205 ? 30 : 40;
     for (let k = 1; k <= i(numMoves / step); k++) {
       if (numMoves - k * step <= 3) continue;
       const label = String(k * step);
-      const x = posx + i(((k * step - 1) * width) / numMoves) - 3;
+      const x = X(k * step - 1);
       report.xLabels.push(label);
       background.push(() => {
-        g.font = plain(11);
-        g.fillStyle = "rgb(200,200,200)";
-        g.fillText(label, x, posy + height - 1);
+        line(g, x, posy, x, plotBottom - 1, p.graphGrid, 1, false);
+        g.font = labelFont;
+        const w = tabularWidth(g, label);
+        g.fillStyle = p.graphLabel;
+        fillTabular(g, label, Math.max(0, Math.min(W0 - w, Math.round(x + 0.5 - w / 2))), plotBottom + 2 + lm.ascent);
       });
     }
   }
-  // drawLineLegend (WinrateGraph.java:1774-1830); the outline keeps the background's dashed stroke.
-  const legend: [string, string][] = [];
-  if (winrateRenderable) legend.push([t("WinrateGraph.legendWinrate"), LINE]);
-  if (scoreRenderable) legend.push([t("WinrateGraph.legendScoreLead"), SCORE]);
-  if (W0 >= 240 && legend.length) {
-    report.legend = legend.map(([label]) => label);
-    background.push(() => {
-      g.font = plain(11);
-      const fm = metrics(g);
-      const widths = legend.map(([label]) => stringWidth(g, label));
-      const boxW = widths.reduce((sum, w) => sum + 16 + 5 + w + 12, 0) - 12 + 16;
-      const boxH = fm.ascent + fm.descent + 6;
-      const boxX = W0 - boxW - 6;
-      const boxY = 4;
-      g.fillStyle = "rgba(0,0,0,0.588)";
-      g.beginPath();
-      g.roundRect(boxX, boxY, boxW, boxH, 4);
-      g.fill();
-      g.strokeStyle = "rgba(255,255,255,0.098)";
-      g.lineWidth = 1;
-      g.setLineDash([4, 4]);
-      g.beginPath();
-      g.roundRect(boxX + 0.5, boxY + 0.5, boxW, boxH, 4);
-      g.stroke();
-      g.setLineDash([]);
-      const textY = boxY + 3 + fm.ascent;
-      const lineY = textY - i(fm.ascent / 2);
-      let cx = boxX + 8;
-      legend.forEach(([label, color], k) => {
-        g.strokeStyle = color;
-        g.lineWidth = 2;
-        g.beginPath();
-        g.moveTo(cx, lineY);
-        g.lineTo(cx + 16, lineY);
-        g.stroke();
-        cx += 21;
-        g.fillStyle = "rgb(210,210,210)";
-        g.fillText(label, cx, textY);
-        cx += widths[k] + 12;
-      });
-    });
-  }
 
-  // ---------------------------------------------------------------- anchors and current markers
-  const pointX = (mn: number) => Math.max(posx, Math.min(posx + Math.max(0, width - 1), posx + i(((mn - 1) * width) / numMoves)));
-  const pointY = (wr: number) => Math.max(posy, Math.min(posy + Math.max(0, height - 1), posy + height - jInt((wr * height) / 100)));
+  // ---------------------------------------------------------------- anchors, points and markers
   const anchors: Anchor[] = [];
   if (d.winrateLine) {
-    // buildDefaultGraphAnchorPoints (WinrateGraph.java:2314-2338).
+    // appendGraphPoint: an action or snapshot node off the root at its column and win rate.
     const append = (n: number, wr: number) => {
       if (parentOf(nodes, n) === null || !isAnchorNode(nodes, n)) return;
       const mn = moveNumber(nodes, n);
-      anchors.push({ node: n, x: pointX(mn), y: pointY(wr), moveNumber: mn });
+      anchors.push({ node: n, x: X(mn - 1), y: WY(wr), moveNumber: mn });
     };
+    // buildEngineGraphAnchorPoints (WinrateGraph.java:2355-2385): each node at its own result (else
+    // the node's two moves back, else 50) and the node two moves back at its result (else the same).
+    for (let n = end; eg && parentOf(nodes, n) !== null && parentOf(nodes, parentOf(nodes, n)!) !== null; n = parentOf(nodes, n)!) {
+      const back = parentOf(nodes, parentOf(nodes, n)!)!;
+      const wr = s.history.get(n)?.winrate ?? s.history.get(back)?.winrate ?? 50;
+      append(n, wr);
+      append(back, s.history.get(back)?.winrate ?? wr);
+    }
+    // buildDefaultGraphAnchorPoints (WinrateGraph.java:2314-2338).
     let last = 50;
     let fork = variationTop;
-    for (let n = end; parentOf(nodes, n) !== null; n = parentOf(nodes, n)!) {
+    for (let n = end; !eg && parentOf(nodes, n) !== null; n = parentOf(nodes, n)!) {
       const wr = displayedWinrate(s, n, last);
       if (wr !== null) {
         last = wr;
@@ -785,50 +1032,241 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
       for (let n = parentOf(nodes, cur); n !== null; n = parentOf(nodes, n)) {
         const fallback = anchors.find((a) => a.node === n);
         if (fallback) {
-          anchors.push({ node: cur, x: pointX(currentMoveNumber), y: fallback.y, moveNumber: currentMoveNumber });
+          anchors.push({ node: cur, x: X(currentMoveNumber - 1), y: fallback.y, moveNumber: currentMoveNumber });
           break;
         }
       }
     }
   }
   report.anchors = anchors.length;
-  if (anchors.length) {
-    const half = anchorHalfWidth(anchors);
-    front.push(() => {
-      for (const a of anchors) {
-        g.fillStyle = nodes.get(a.node)?.kind === "Snapshot" ? rgba([255, 208, 84], 110) : rgba(theme.lineRgb, 80);
-        g.fillRect(a.x - half, a.y - ANCHOR_HALF, half * 2 + 1, ANCHOR_HALF * 2 + 1);
-      }
-    });
-  }
+  // drawGraphAnchors: the curve carries ordinary moves without marks (they still take clicks); a
+  // point no stroke reaches is a dot of the curve, and snapshots keep their marks.
+  const half = anchorHalfWidth(anchors);
+  front.push(() => {
+    for (const [x, y] of scoreDots) oval(g, x, y, Math.max(2, theme.scoreWidth + 0.6), SCORE);
+    for (const a of anchors) {
+      if (plotted.has(a.node) && !joined.has(a.node)) oval(g, a.x, a.y, Math.max(2, theme.winrateWidth + 0.6), LINE);
+      if (nodes.get(a.node)?.kind !== "Snapshot") continue;
+      g.fillStyle = p.graphSnapshot;
+      g.fillRect(a.x - half, a.y - ANCHOR_HALF, half * 2 + 1, ANCHOR_HALF * 2 + 1);
+    }
+  });
   // drawMainCurrentMarkers (WinrateGraph.java:3131-3171).
   const movePoint = anchors.find((a) => a.node === cur) ?? null;
-  const scorePoint = d.scoreLeadLine && markerIndex >= 0
-    ? { x: posx + i((markerIndex * width) / numMoves), y: Math.max(posy, Math.min(posy + height, anchorY(markerMean))) }
-    : null;
+  const scorePoint = d.scoreLeadLine && markerIndex >= 0 ? { x: X(markerIndex), y: SY(markerMean) } : null;
   if (movePoint) report.currentMarker = { node: cur, x: movePoint.x, y: movePoint.y };
   report.scoreMarker = scorePoint;
+  // The current move's guide: a solid hairline through the plot at its column.
+  const guideX = movePoint ? movePoint.x : cmovenum >= 0 ? X(cmovenum) : scorePoint ? scorePoint.x : null;
+  if (guideX !== null) guides.push(() => line(g, guideX, posy, guideX, plotBottom - 1, p.graphGuide, 1, false));
   if (scorePoint && movePoint) {
     const dx = movePoint.x - scorePoint.x;
     const dy = movePoint.y - scorePoint.y;
     const overlap = MARKER_RADIUS * 2 + 2;
     report.markersOverlap = dx * dx + dy * dy <= overlap * overlap;
   }
+  // The engine readout's other value: a dot in its engine's colour at the move before.
   front.push(() => {
-    if (!scorePoint) {
-      if (movePoint) marker(g, movePoint.x, movePoint.y, MARKER_RADIUS, MOVE_MARKER);
-      return;
-    }
-    if (!movePoint) return marker(g, scorePoint.x, scorePoint.y, MARKER_RADIUS, SCORE_MARKER);
-    if (!report.markersOverlap) {
-      marker(g, scorePoint.x, scorePoint.y, MARKER_RADIUS, SCORE_MARKER);
-      marker(g, movePoint.x, movePoint.y, MARKER_RADIUS, MOVE_MARKER);
-      return;
-    }
-    // Overlapping: a larger score marker with the move's core drawn on it.
-    marker(g, scorePoint.x, scorePoint.y, MARKER_RADIUS + 3, SCORE_MARKER);
-    markerCore(g, movePoint.x, movePoint.y, Math.max(3, MARKER_RADIUS - 1), MOVE_MARKER);
+    for (const e of engineCurrent) if (e.node !== cur) marker(g, e.x, e.y, DOT_RADIUS, e.black ? LINE : theme.engineWhite, theme.ground);
   });
+  front.push(() => {
+    if (scorePoint) marker(g, scorePoint.x, scorePoint.y, report.markersOverlap ? MARKER_RADIUS + 3 : MARKER_RADIUS, p.graphScoreMarker, theme.markerRing);
+    // Overlapping: the move's smaller core, ringed, on the larger score marker.
+    if (movePoint) marker(g, movePoint.x, movePoint.y, report.markersOverlap ? MARKER_RADIUS - 1 : MARKER_RADIUS, p.graphMoveMarker, theme.markerRing);
+  });
+  // The hovered move: a dashed guide and hollow dots on its values.
+  const hoverYs: number[] = [];
+  if (hoverX !== null) {
+    const x = hoverX;
+    guides.push(() => line(g, x, posy, x, plotBottom - 1, p.graphGuide, 1, true));
+  }
+  if (mwr >= 0) hoverYs.push(WY(mwr));
+  if (mScoreMoveNum >= 0) hoverYs.push(SY(drawHoverScore));
+  for (const e of engineHover) hoverYs.push(e.y);
+  front.push(() => {
+    if (mwr >= 0) hoverDot(g, X(mmovenum), WY(mwr), LINE, theme.ground);
+    if (mScoreMoveNum >= 0) hoverDot(g, X(mScoreMoveNum), SY(drawHoverScore), SCORE, theme.ground);
+    for (const e of engineHover) hoverDot(g, e.x, e.y, e.black ? LINE : theme.engineWhite, theme.ground);
+  });
+
+  // ---------------------------------------------------------------- readout chips (WinrateGraph.java:1474-1647)
+  const valueFont = bold(readSize);
+  g.font = valueFont;
+  const vm = metrics(g);
+  const chipH = vm.ascent + vm.descent + 4;
+  /** A readout chip centred over the guide at `cx` at the top of the plot, or at its bottom when
+   *  one of the values it reads (`ys`) lies in that band; kept inside the plot. */
+  const placeChip = (parts: ChipPart[], cx: number, ys: number[]): Box => {
+    let w = 2 * CHIP_PAD + CHIP_GAP * (parts.length - 1);
+    for (const part of parts) {
+      g.font = part.font;
+      w += tabularWidth(g, part.text) + (part.swatch ? SWATCH : 0);
+    }
+    const x = Math.max(posx, Math.min(W0 - w, Math.round(cx + 0.5 - w / 2)));
+    const topY = posy + 2;
+    const clear = MARKER_RADIUS + 3;
+    const y = ys.some((v) => v + clear >= topY && v - clear <= topY + chipH) ? plotBottom - 2 - chipH : topY;
+    return { x, y, w, h: chipH };
+  };
+  const drawChip = (box: Box, parts: ChipPart[]) => {
+    readoutBoxes.push(box);
+    overlay.push(() => {
+      g.fillStyle = p.graphChip;
+      g.beginPath();
+      g.roundRect(box.x, box.y, box.w, box.h, CHIP_RADIUS);
+      g.fill();
+      let x = box.x + CHIP_PAD;
+      for (const part of parts) {
+        g.font = part.font;
+        if (part.swatch) {
+          const lineY = box.y + i(box.h / 2) + 0.5;
+          g.strokeStyle = part.swatch;
+          g.lineWidth = 2;
+          g.lineCap = "round";
+          g.beginPath();
+          g.moveTo(x + 1, lineY);
+          g.lineTo(x + 11, lineY);
+          g.stroke();
+          g.lineCap = "butt";
+          x += SWATCH;
+        }
+        g.fillStyle = part.color;
+        fillTabular(g, part.text, x, box.y + 2 + vm.ascent);
+        x += tabularWidth(g, part.text) + CHIP_GAP;
+      }
+    });
+  };
+  /** An engine-game readout: each side's win rate after its curve's swatch and side, Black first;
+   *  returns the parts and the two values as the report gives them. */
+  const engineParts = (values: { wr: number; black: boolean }[]) => {
+    const parts: ChipPart[] = [];
+    const texts: [string | null, string | null] = [null, null];
+    for (const black of [true, false]) {
+      const value = values.find((e) => e.black === black);
+      if (!value) continue;
+      const text = javaFixed1(Math.max(0, Math.min(100, value.wr)));
+      texts[black ? 0 : 1] = text;
+      parts.push({ text: black ? t("GameInfoDialog.black") : t("GameInfoDialog.white"), font: plain(readSize), color: p.graphLabel, swatch: black ? LINE : theme.engineWhite });
+      parts.push({ text: `${text}%`, font: valueFont, color: p.graphText });
+    }
+    return { parts, texts };
+  };
+  const currentParts: ChipPart[] = [];
+  if (eg) {
+    const readout = engineParts(engineCurrent);
+    currentParts.push(...readout.parts);
+    [report.engineGame!.blackText, report.engineGame!.whiteText] = readout.texts;
+  }
+  if (cwr >= 0) {
+    report.currentText = javaFixed1(cwr);
+    currentParts.push({ text: `${report.currentText}%`, font: valueFont, color: p.graphText });
+  }
+  if (curScoreMoveNum >= 0) {
+    report.currentScoreText = formatScoreLead(drawCurScore);
+    currentParts.push({ text: report.currentScoreText, font: valueFont, color: p.graphScoreText });
+  }
+  const markerYs = [movePoint?.y, scorePoint?.y, ...engineCurrent.map((e) => e.y)].filter((y): y is number => y !== undefined);
+  let currentBox = guideX !== null && currentParts.length ? placeChip(currentParts, guideX, markerYs) : null;
+  let hoverBox: Box | null = null;
+  if (hoverX !== null) {
+    const parts: ChipPart[] = [{ text: product("graphMove", hoverMove), font: plain(readSize), color: p.graphLabel }];
+    if (eg) {
+      const readout = engineParts(engineHover);
+      parts.push(...readout.parts);
+      [report.engineGame!.hoverBlackText, report.engineGame!.hoverWhiteText] = readout.texts;
+    }
+    if (mwr >= 0) {
+      report.hoverText = javaFixed1(mwr);
+      parts.push({ text: `${report.hoverText}%`, font: valueFont, color: p.graphText });
+    }
+    if (mScoreMoveNum >= 0) {
+      report.hoverScoreText = formatScoreLead(drawHoverScore);
+      parts.push({ text: report.hoverScoreText, font: valueFont, color: p.graphScoreText });
+    }
+    hoverBox = placeChip(parts, hoverX, hoverYs);
+    drawChip(hoverBox, parts);
+  }
+  // While hovering, the current readout yields where the two would meet.
+  if (currentBox && hoverBox && intersects({ x: currentBox.x - INSET, y: currentBox.y, w: currentBox.w + 2 * INSET, h: currentBox.h }, hoverBox)) currentBox = null;
+  if (currentBox) drawChip(currentBox, currentParts);
+
+  // ---------------------------------------------------------------- legend (WinrateGraph.java:1774-1830)
+  // Under the data on the chip ground: the curves, blunder bars, guides and markers draw over it,
+  // so it never hides one. It takes the corner of the plot (top right, top left, bottom left,
+  // bottom right) no readout, current marker or scale label takes that has the least curve,
+  // current / hover guide and blunder bar under it, on one row, or with the names stacked when
+  // that leaves less under it (a narrow box fits beside a readout or a guide); it is left out
+  // where something takes every corner or it is wider than the plot.
+  const legend: [string, string][] = [];
+  g.font = labelFont;
+  if (eg) {
+    // An engine game names each win-rate curve by its side and engine (cut so the stacked box
+    // takes at most half the plot), and the lead by the side whose engine gives it.
+    const nameWidth = (W0 - 2 * INSET) / 2 - 2 * CHIP_PAD - 16;
+    if (winrateRenderable) {
+      legend.push([elide(g, product("graphNamed", t("GameInfoDialog.black"), eg.black), nameWidth), LINE]);
+      legend.push([elide(g, product("graphNamed", t("GameInfoDialog.white"), eg.white), nameWidth), theme.engineWhite]);
+    }
+    if (scoreRenderable) legend.push([product("graphNamed", t("WinrateGraph.legendScoreLead"), engineScoreSide === "White" ? t("GameInfoDialog.white") : t("GameInfoDialog.black")), SCORE]);
+  } else {
+    if (winrateRenderable) legend.push([t("WinrateGraph.legendWinrate"), LINE]);
+    if (scoreRenderable) legend.push([t("WinrateGraph.legendScoreLead"), SCORE]);
+  }
+  const legendWidths = legend.map(([label]) => stringWidth(g, label));
+  const layouts = [{ w: 2 * CHIP_PAD + legendWidths.reduce((sum, w) => sum + 16 + w, 0) + 10 * Math.max(0, legend.length - 1), h: labelH + 6, stacked: false }];
+  // Stacked names sit closer than a full line (their ink is shorter than the line's ascent plus
+  // descent), so the box fits above the 75 % scale labels of a panel of the default size.
+  const stackStep = labelH - 2;
+  if (legend.length > 1) layouts.push({ w: 2 * CHIP_PAD + 16 + Math.max(...legendWidths), h: 4 + labelH + (legend.length - 1) * stackStep, stacked: true });
+  const taken: Box[] = [...scaleBoxes];
+  if (currentBox) taken.push(currentBox);
+  if (hoverBox) taken.push(hoverBox);
+  for (const pt of [movePoint, scorePoint, ...engineCurrent]) if (pt) markerBoxes.push({ x: pt.x - MARKER_RADIUS - 3, y: pt.y - MARKER_RADIUS - 3, w: 2 * MARKER_RADIUS + 6, h: 2 * MARKER_RADIUS + 6 });
+  taken.push(...markerBoxes);
+  const strokes = [...winStrokes, ...scoreStrokes].map((stroke) => stroke.points);
+  for (const x of [guideX, hoverX]) if (x !== null) strokes.push([[x, posy], [x, plotBottom]]);
+  let chosen: { box: Box; stacked: boolean } | undefined;
+  let covered = Infinity;
+  for (const { w, h, stacked } of layouts) {
+    for (const [x, y] of [[W0 - w - INSET, posy + 2], [INSET, posy + 2], [INSET, plotBottom - 2 - h], [W0 - w - INSET, plotBottom - 2 - h]]) {
+      const box = { x, y, w, h };
+      if (x < 0 || x + w > W0 || y < posy || y + h > plotBottom || taken.some((other) => intersects(other, box))) continue;
+      // A curve passing just outside the box still touches its edge at the curve's width.
+      const near = { x: x - 2, y: y - 2, w: w + 4, h: h + 4 };
+      let under = strokes.reduce((sum, points) => sum + lengthInside(points, near), 0);
+      for (const bar of barBoxes) if (intersects(bar, near)) under += Math.min(bar.x + bar.w, near.x + near.w) - Math.max(bar.x, near.x);
+      if (under < covered) [chosen, covered] = [{ box, stacked }, under];
+    }
+  }
+  if (W0 >= 240 && legend.length && chosen) {
+    const { box, stacked } = chosen;
+    report.legend = legend.map(([label]) => label);
+    legendLayer.push(() => {
+      g.fillStyle = p.graphChip;
+      g.beginPath();
+      g.roundRect(box.x, box.y, box.w, box.h, CHIP_RADIUS);
+      g.fill();
+      g.font = labelFont;
+      let cx = box.x + CHIP_PAD;
+      let top = box.y + (stacked ? 2 : 3);
+      legend.forEach(([label, color], k) => {
+        const lineY = top + i(labelH / 2) + 0.5;
+        g.strokeStyle = color;
+        g.lineWidth = 2;
+        g.lineCap = "round";
+        g.beginPath();
+        g.moveTo(cx + 1, lineY);
+        g.lineTo(cx + 11, lineY);
+        g.stroke();
+        g.lineCap = "butt";
+        g.fillStyle = p.graphLabel;
+        g.fillText(label, cx + 16, top + lm.ascent);
+        if (stacked) top += stackStep;
+        else cx += 16 + legendWidths[k] + 10;
+      });
+    });
+  }
+  caption();
   flush();
 
   // buildGraphNavigationTargets over buildGraphPath: the current line, then the main trunk after

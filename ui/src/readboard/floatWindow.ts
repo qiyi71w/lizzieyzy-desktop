@@ -1,6 +1,6 @@
 // 棋盘同步工具's float board window (FloatBoard.java): an undecorated, transparent, always-on-top
 // window over the client's board. It paints the overlay the main window sends (FloatBoardRenderer)
-// in physical pixels on FloatBoardRenderer's grid, and the eight icon buttons at its bottom right
+// in physical pixels on FloatBoardRenderer's grid, and the eight 19 px icon buttons at its bottom right
 // (setButton). Pointer, wheel and key input goes to the main window, which owns the hover, the
 // preview depth and every command. The 位置 button's state (showPosBtn) is the window's own and is
 // not persisted, like Java's.
@@ -12,13 +12,19 @@ import { setLanguage } from "../i18n";
 import type { BoardGeom } from "../workbench/layout";
 import { loadImages, paintBoard } from "../workbench/paint";
 import { FLOAT_DATA_EVENT, FLOAT_INPUT_EVENT, type FloatButton, type FloatInput, type FloatPayload } from "./floatModel";
+import { icon } from "../design/icons";
+import "../design/window";
 
+/** The window stays transparent; only the buttons carry the interface ground. */
 const STYLE = `
 @font-face { font-family: "Lizzie Winrate"; src: url("/fonts/OpenSans-Semibold.ttf") format("truetype"); }
-html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; user-select: none; }
+html, body { overflow: hidden; background: transparent; }
+:root[data-theme] { color-scheme: normal; }
 #board { position: absolute; left: 0; top: 0; }
-.fb { position: absolute; width: 19px; height: 19px; padding: 0; border: 1px solid rgba(128,128,128,0.8);
-  background: transparent center no-repeat; z-index: 2; }
+.fb { --menu-icon-size: 13px; position: absolute; z-index: 2; width: 19px; height: 19px; display: inline-flex;
+  align-items: center; justify-content: center; padding: 0; border-radius: var(--ds-radius-s); color: var(--ds-text-2); }
+.fb:hover { color: var(--ds-text); }
+.fb[aria-pressed="true"] { background-image: linear-gradient(var(--ds-accent-soft), var(--ds-accent-soft)); color: var(--ds-accent-text); }
 .fb[hidden] { display: none; }
 `;
 
@@ -75,26 +81,27 @@ export function bootFloatWindow(): void {
     return b;
   };
   const command = (name: FloatButton) => button(() => send({ type: "button", button: name }));
-  const icon = (b: HTMLButtonElement, name: string) => (b.style.backgroundImage = `url(/assets/${name}.png)`);
+  // The buttons show the action they take, as Java's images did.
   const stopGo = command("stopGo");
   const hideShow = command("hideShow");
   const edit = command("edit");
-  // noEdit.png / edit.png are scaled to 16 x 16 (FloatBoard.java:150-155).
-  edit.style.backgroundSize = "16px 16px";
+  edit.append(icon("markup"));
   const left = command("left");
   const right = command("right");
   const up = command("up");
   const down = command("down");
-  icon(left, "leftFloat");
-  icon(right, "rightFloat");
-  icon(up, "upFloat");
-  icon(down, "downFloat");
+  left.append(icon("step-back"));
+  right.append(icon("step-forward"));
+  up.append(icon("chevron-up"));
+  down.append(icon("chevron-down"));
   let showPos = false;
   const pos = button(() => {
     showPos = !showPos;
+    pos.setAttribute("aria-pressed", String(showPos));
     place();
   });
-  icon(pos, "pos");
+  pos.append(icon("move"));
+  pos.setAttribute("aria-pressed", "false");
 
   let data: FloatPayload | null = null;
   let geo: BoardGeom | null = null;
@@ -134,9 +141,9 @@ export function bootFloatWindow(): void {
   const render = () => {
     if (!data) return;
     setLanguage(data.language);
-    icon(stopGo, data.pondering ? "tostop" : "toplay");
-    icon(hideShow, data.hidden ? "plus" : "minus");
-    icon(edit, data.edit ? "noEdit" : "edit");
+    stopGo.replaceChildren(icon(data.pondering ? "pause" : "play"));
+    hideShow.replaceChildren(icon(data.hidden ? "plus" : "minus"));
+    edit.setAttribute("aria-pressed", String(data.edit));
     edit.hidden = !data.editButton;
     place();
     const { width, height, pad, scene } = data;

@@ -1,57 +1,202 @@
-/* KataGo跑谱贡献设置 (ContributeSettings.java): GridBagLayout of two 217px columns, labels centered
-   in the left one, fields filling the right one; 保存设置 / 开始跑谱贡献! centered below. */
-.contribution-settings-body { padding: 8px 10px 0; }
-.contribution-settings { display: grid; grid-template-columns: 217px minmax(217px, 1fr); gap: 6px 5px; align-items: center; }
-.contribution-settings > span, .contribution-settings > label { justify-self: center; text-align: center; }
-.contribution-settings > .contribution-cell:nth-child(odd) { justify-content: center; }
-.contribution-cell { display: flex; align-items: center; gap: 4px; min-width: 0; }
-.contribution-stack { flex-direction: column; align-items: stretch; gap: 2px; }
-.contribution-stack .contribution-cell button { align-self: flex-start; }
-.contribution-settings input[type=text], .contribution-settings input[type=password] { min-width: 0; width: 100%; box-sizing: border-box; height: 32px; }
-.contribution-settings label:has(input:disabled) { color: #888; }
-.contribution-qualification { max-width: 440px; margin: 8px 0 0; color: #555; white-space: pre-line; }
-.contribution-qualification:empty { display: none; }
-.contribution-settings-body > .engine-actions { justify-content: center; }
-/* 选择已配置引擎 (SavedEnginePathChooser.java): table 716 wide, 3-8 rows, a 3-row detail area. */
-.contribution-saved { padding: 10px 10px 0; width: min(736px, 90vw); }
-.contribution-saved > p { margin: 0 0 6px; white-space: pre-wrap; }
-.contribution-saved-table { height: auto; max-height: 220px; min-height: 90px; }
-.contribution-saved-table th:nth-child(1) { width: 36px; }
-.contribution-saved-table th:nth-child(2) { width: 150px; }
-.contribution-saved-table th:nth-child(3) { width: 110px; }
-.contribution-saved-table th:nth-child(4) { width: auto; }
-.contribution-saved-table tr.contribution-unavailable:not(.selected) { color: #888; }
-.contribution-saved-table:focus { outline: 1px dotted #333; }
-.contribution-saved-detail { display: block; box-sizing: border-box; width: 100%; margin-top: 6px; resize: none; }
-.contribution-saved > .engine-actions { justify-content: flex-end; }
+/* KataGo跑谱贡献设置 (ContributeSettings.java): grouped rows (design/dialog.css). A row holding a
+   path or the custom command puts the field (and its buttons) on a line of its own under the row's
+   name; the engine's qualification is said under the engine row's name. */
+.contribution-settings-body {
+  width: min(600px, 92vw);
+}
+.contribution-path {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+/* The name takes the first line's room left of a switch, so the switch stays at the row's end. */
+.contribution-path > .ds-row-text {
+  flex: 1 1 0;
+}
+/* A path field fills the line left of its buttons, so the fields start and the buttons end on
+   one line in every path row. */
+.contribution-path > .ds-row-control:not(:has(> .ds-switch)) {
+  flex: 1 1 100%;
+  flex-wrap: nowrap;
+}
+.contribution-path > .ds-row-control > input {
+  flex: 1 1 0;
+  min-width: 0;
+}
+/* The custom command under its switch row's name and switch. */
+.contribution-path > input {
+  flex: 1 1 100%;
+  min-width: 0;
+}
+.contribution-qualification:empty {
+  display: none;
+}
 
-/* KataGo分布式训练 (ContributeView.java): a fixed-size window beside the board — console on top
-   (black, stdout green, stderr red) with the tip under it, then the bevelled control rows. */
-.contribution-window { position: fixed; z-index: 29; right: 12px; top: max(40px, calc(50% - 300px)); width: 439px; max-height: calc(100vh - 50px); overflow: auto;
-  display: flex; flex-direction: column; background: #eee; color: #111; border: 1px solid #666; box-shadow: 0 3px 16px #0007; font-size: 12px; }
+/* 选择已配置引擎 (SavedEnginePathChooser.java): the table, 3 to 8 rows, and the chosen entry's path. */
+.contribution-saved {
+  width: min(736px, 90vw);
+}
+.contribution-saved > p {
+  margin: 0 0 8px;
+  color: var(--ds-text-2);
+  white-space: pre-wrap;
+}
+.contribution-saved-table {
+  height: auto;
+  max-height: 220px;
+  min-height: 90px;
+}
+.contribution-saved-table th:nth-child(1) { width: calc(var(--ds-size) * 3); }
+.contribution-saved-table th:nth-child(2) { width: calc(var(--ds-size) * 12); }
+.contribution-saved-table th:nth-child(3) { width: calc(var(--ds-size) * 9); }
+.contribution-saved-table th:nth-child(4) { width: auto; }
+.contribution-saved-table :is(th, td):nth-child(4) {
+  text-align: left;
+}
+.contribution-saved-table tr.contribution-unavailable:not(.selected) {
+  color: var(--ds-text-off);
+}
+.contribution-saved-detail {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  resize: none;
+}
+
+/* KataGo分布式训练 (ContributeView.java): a tool window beside the board with the dialog's ground,
+   radius and shadow; the title with its close box, the engine console, then the watch controls in
+   rows divided by hairlines, and the session's actions in the footer band at the foot. */
+.contribution-window {
+  /* Centred on the board's height when it fits, never past the window's foot: a taller window
+     scrolls with its footer kept in view. */
+  --contribution-top: max(40px, calc(50% - 300px));
+  position: fixed;
+  z-index: 29;
+  right: 12px;
+  top: var(--contribution-top);
+  width: min(439px, calc(100vw - 24px));
+  max-height: calc(100vh - var(--contribution-top) - 12px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--ds-radius-l);
+  background: var(--ds-panel);
+  color: var(--ds-text);
+  box-shadow: var(--ds-shadow-dialog);
+}
 /* 总在最前: above the other tool windows (GTP console, engine notices) — but under an open
    message, which Java shows always on top (Message.setAlwaysOnTop). */
-.contribution-window.contribution-top { z-index: 47; }
-body:has(.modal) .contribution-window.contribution-top { z-index: 29; }
-.contribution-window button { font: inherit; padding: 1px 7px; }
-.contribution-window input[type=text] { font: inherit; color: #111; background: #fff; border: 1px solid #777; border-radius: 0; padding: 1px 3px; }
-.contribution-header { display: flex; justify-content: space-between; align-items: center; padding: 3px 6px; font-weight: bold; }
-.contribution-console { height: 140px; margin: 0; padding: 4px; overflow: auto; background: #000; color: #ccc; font: 12px "Source Code Pro", monospace; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
-.contribution-console[hidden] { display: none; }
-.contribution-out { color: #0f0; }
-.contribution-err { color: #f00; }
-.contribution-tip { padding: 0 0 2px 4px; min-height: 1.3em; }
-.contribution-console-buttons { display: flex; align-items: center; }
-.contribution-console-buttons > button:first-child { flex: 1; }
-.contribution-count { color: #00f; }
-.contribution-console-buttons label, .contribution-row label { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
-.contribution-row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px; padding: 3px 2px; border: 1px solid; border-color: #999 #fff #fff #999; }
-.contribution-game { gap: 10px; }
-.contribution-number { width: 38px; }
-.contribution-rules { margin: 0; padding: 2px 4px; background: #fff; font: inherit; white-space: pre-line; user-select: text; }
-.contribution-rules[hidden] { display: none; }
-.contribution-wide { width: 100%; }
-.contribution-buttons { display: flex; justify-content: center; gap: 4px; padding: 3px; }
-.contribution-buttons button[hidden] { display: none; }
-.contribution-notice { margin: 0 0 8px; white-space: pre-wrap; }
-.contribution-link { border: 0; background: none; padding: 0; color: #00e; text-decoration: underline; cursor: pointer; font: inherit; }
+.contribution-window.contribution-top {
+  z-index: 47;
+}
+body:has(.modal) .contribution-window.contribution-top {
+  z-index: 29;
+}
+.contribution-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 0 16px;
+  font-size: var(--ds-size-l);
+  font-weight: 600;
+}
+.contribution-console {
+  height: 140px;
+  margin: 8px 12px 0;
+  padding: 6px 8px;
+  overflow: auto;
+  border-radius: var(--ds-radius);
+  background: var(--ds-field);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  font-size: var(--ds-size-s);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.contribution-console[hidden] {
+  display: none;
+}
+.contribution-out {
+  color: var(--ds-success-text);
+}
+.contribution-err {
+  color: var(--ds-danger-text);
+}
+.contribution-tip {
+  min-height: 1.4em;
+  padding: 4px 16px 0;
+  color: var(--ds-text-2);
+  font-size: var(--ds-size-s);
+}
+.contribution-console-buttons,
+.contribution-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin: 8px 12px 0;
+}
+.contribution-row {
+  justify-content: center;
+  padding-top: 8px;
+  border-top: 1px solid var(--ds-line);
+}
+.contribution-console-buttons label,
+.contribution-row label {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+.contribution-count {
+  color: var(--ds-accent-text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.contribution-step {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  padding: 0;
+  color: var(--ds-text-2);
+}
+.contribution-number {
+  width: calc(var(--ds-size) * 4);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.contribution-game {
+  gap: 4px 12px;
+  font-variant-numeric: tabular-nums;
+}
+.contribution-rules {
+  margin: 8px 12px 0;
+  padding: 4px 8px;
+  border-radius: var(--ds-radius);
+  background: var(--ds-sunken);
+  font: inherit;
+  white-space: pre-line;
+  user-select: text;
+}
+.contribution-rules[hidden] {
+  display: none;
+}
+.contribution-wide {
+  margin: 8px 12px 0;
+}
+.contribution-window > .ds-footer {
+  position: sticky;
+  bottom: 0;
+  margin: 12px 0 0;
+  padding: 12px;
+  border-top: 1px solid var(--ds-line);
+  background: var(--ds-chrome);
+}
+.contribution-window > .ds-footer button[hidden] {
+  display: none;
+}
+
+/* The one-time 跑谱贡献 notices. */
+.contribution-notice {
+  margin: 0 0 8px;
+  white-space: pre-wrap;
+}

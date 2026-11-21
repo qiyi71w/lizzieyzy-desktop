@@ -1,13 +1,18 @@
-// 帮助 > 检查更新 (Menu.java:5274-5277): the 检查更新 page (CheckUpdateDialog) and the 发现新版本 window
-// (WindowsUpdateDialog), both modeless over the workbench. Rust owns the settings, the check, the
-// package preparation and the installation; these windows show `view.update` and send its commands.
-// Opening the page uses no network. The automatic options save at once and apply from the next start.
+// 帮助 > 检查更新 (Menu.java:5274-5277): the 检查更新 page (CheckUpdateDialog) as rows of 综合设置 > 关于,
+// with the offer a check found and its download in place below them, and the 发现新版本 window
+// (WindowsUpdateDialog) for an offer found while those rows are not in view. Rust owns the
+// settings, the check, the package preparation and the installation; this module shows
+// `view.update` and sends its commands. Opening the rows uses no network. The options save at
+// once, apart from 综合设置's 确定 / 取消, and the automatic ones apply from the next start.
 import { invoke } from "@tauri-apps/api/core";
 import { registerViewHandler, run, state } from "./app";
 import { COMMANDS } from "./commands";
 import type { UpdateDownloadView, UpdateError, UpdateOfferView, UpdateResultView, UpdateSettings, UpdateView } from "./contract/generated";
-import { message } from "./dialogs";
+import { closeBox, message } from "./dialogs";
+import { errorText } from "./errorText";
 import { product, registerProduct, t } from "./i18n";
+import { footer, groupTitle, row, switchRow } from "./engine/controls";
+import { openSettingsAt, registerSettingTargets } from "./engine/settingsTargets";
 import "./update.css";
 
 registerProduct({
@@ -74,6 +79,78 @@ registerProduct({
     updateErrorPackageManager: "The system package manager did not install this update; the program is unchanged.",
     updateErrorPackageUnfinished: "The update was not fully installed, and the program's package is left unfinished. Run sudo dpkg --configure -a in a terminal to finish it; if that does not help, install the package again (it can be downloaded from the Release page).",
   },
+  JaJp: {
+    updateSigningNotConfigured: "このビルドには更新署名用の公開鍵がないため、更新を確認できません。",
+    updateUnsupportedForm: "このインストール形式では、プログラム内から更新できません。",
+    updateErrorSources: "更新ファイルをダウンロードできませんでした。ネットワークを確認して再試行してください。",
+    updateErrorInstall: "更新をインストールできませんでした。プログラムは変更されていません。再試行するか、Release ページを開いて手動でダウンロードしてください。",
+    updateIntroInPlace: "更新ファイルをダウンロードして検証したあと、プログラムファイルを置き換えて再起動します。",
+    updateReadyIntroInPlace: "更新ファイルはダウンロード・検証済みです。「今すぐ更新」を押すと、プログラムファイルを置き換えて再起動します。",
+    updatePreserved: "ユーザーデータ、棋譜、設定、エンジン、ウェイトはすべて保持されます。",
+    updateInstalling: "更新をインストールしています。プログラムを終了して再起動します…",
+    updateErrorPermission: "プログラムのフォルダーに書き込めないため、更新はインストールされず、プログラムは変更されていません。書き込み可能な場所にフォルダーを移動して再試行するか、Release ページを開いて手動でダウンロードしてください。",
+    updateErrorInUse: "使用中のプログラムファイルがあり、置き換えられませんでした。元のファイルを復元したため、プログラムは変更されていません。これらのファイルを使用しているプログラム（別に起動している本プログラムや盤面同期ツールなど）を閉じてから再試行してください。",
+    updateErrorInterrupted: "前回の更新が中断されました。元のファイルを復元したため、プログラムは変更されていません。もう一度更新を確認してください。",
+    updateErrorUnrecovered: "前回の更新が中断され、一部の元のファイルをまだ復元できていません。プログラムのフォルダーを使用している他のプログラムを閉じてから、本プログラムを再起動してください。解決しない場合は Release ページからプログラムを再ダウンロードしてください。",
+    updateIntroDeb: "インストールパッケージをダウンロードして検証したあと、システムのパッケージ管理（apt）でインストールします。システムから認証を求められ、インストール後にプログラムが再起動します。",
+    updateReadyIntroDeb: "インストールパッケージはダウンロード・検証済みです。「今すぐ更新」を押すとシステムから認証を求められ、システムのパッケージ管理（apt）でインストールしたあと、プログラムが再起動します。",
+    updateInstallingDeb: "システムの認証を待って更新をインストールしています。完了するとプログラムが再起動します…",
+    updateErrorDismissed: "システムの認証がキャンセルされました。更新はインストールされず、プログラムは変更されていません。",
+    updateErrorUnauthorized: "システムの認証を得られませんでした。更新はインストールされず、プログラムは変更されていません。再試行するか、ターミナルで次のコマンドを実行して検証済みのパッケージをインストールしてください：",
+    updateErrorPackageManager: "システムのパッケージ管理はこの更新をインストールしませんでした。プログラムは変更されていません。",
+    updateErrorPackageUnfinished: "更新のインストールが完了せず、本プログラムのパッケージが未完了の状態です。ターミナルで sudo dpkg --configure -a を実行してインストールを完了してください。解決しない場合は、このインストールパッケージを再インストールしてください（Release ページからダウンロードできます）。",
+  },
+  KoKr: {
+    updateSigningNotConfigured: "이 버전에는 업데이트 서명 공개 키가 없어 업데이트를 확인할 수 없습니다.",
+    updateUnsupportedForm: "현재 설치 형태에서는 프로그램 안에서 업데이트할 수 없습니다.",
+    updateErrorSources: "업데이트 파일을 다운로드하지 못했습니다. 네트워크를 확인한 뒤 다시 시도하세요.",
+    updateErrorInstall: "업데이트를 설치하지 못했습니다. 현재 프로그램은 변경되지 않았습니다. 다시 시도하거나 Release 페이지에서 직접 다운로드하세요.",
+    updateIntroInPlace: "먼저 업데이트 파일을 다운로드해 검증한 뒤, 프로그램 파일을 교체하고 다시 시작합니다.",
+    updateReadyIntroInPlace: "업데이트 파일 다운로드와 검증이 끝났습니다. “지금 업데이트”를 누르면 프로그램 파일을 교체하고 다시 시작합니다.",
+    updatePreserved: "사용자 데이터, 기보, 설정, 엔진, 가중치는 모두 유지됩니다.",
+    updateInstalling: "업데이트를 설치하는 중입니다. 프로그램이 닫힌 뒤 다시 시작됩니다…",
+    updateErrorPermission: "프로그램 폴더에 쓸 수 없어 업데이트를 설치하지 않았습니다. 현재 프로그램은 변경되지 않았습니다. 프로그램 폴더를 쓰기 가능한 위치로 옮긴 뒤 다시 시도하거나 Release 페이지에서 직접 다운로드하세요.",
+    updateErrorInUse: "사용 중인 프로그램 파일이 있어 교체할 수 없습니다. 원래 파일을 복구했으며 현재 프로그램은 변경되지 않았습니다. 이 파일을 사용 중인 프로그램(예: 이미 열려 있는 이 프로그램의 다른 창이나 바둑판 동기화 도구)을 닫은 뒤 다시 시도하세요.",
+    updateErrorInterrupted: "지난 업데이트가 중단되어 원래 파일을 복구했습니다. 현재 프로그램은 변경되지 않았습니다. 업데이트를 다시 확인하세요.",
+    updateErrorUnrecovered: "지난 업데이트가 중단되어 일부 원래 파일을 아직 복구하지 못했습니다. 프로그램 폴더를 사용 중인 다른 프로그램을 닫고 이 프로그램을 다시 시작하세요. 문제가 계속되면 Release 페이지에서 프로그램을 다시 다운로드하세요.",
+    updateIntroDeb: "먼저 설치 패키지를 다운로드해 검증한 뒤 시스템 패키지 관리자(apt)로 설치합니다. 시스템에서 승인을 요청하며, 설치가 끝나면 프로그램이 다시 시작됩니다.",
+    updateReadyIntroDeb: "설치 패키지 다운로드와 검증이 끝났습니다. “지금 업데이트”를 누르면 시스템에서 승인을 요청하고 시스템 패키지 관리자(apt)가 설치한 뒤 프로그램이 다시 시작됩니다.",
+    updateInstallingDeb: "시스템 승인을 기다리며 업데이트를 설치하는 중입니다. 완료되면 프로그램이 다시 시작됩니다…",
+    updateErrorDismissed: "시스템 승인이 취소되어 업데이트를 설치하지 않았습니다. 현재 프로그램은 변경되지 않았습니다.",
+    updateErrorUnauthorized: "시스템 승인을 받지 못해 업데이트를 설치하지 않았습니다. 현재 프로그램은 변경되지 않았습니다. 다시 시도하거나 터미널에서 아래 명령으로 검증된 설치 패키지를 설치하세요:",
+    updateErrorPackageManager: "시스템 패키지 관리자가 이 업데이트를 설치하지 않았습니다. 현재 프로그램은 변경되지 않았습니다.",
+    updateErrorPackageUnfinished: "업데이트가 끝까지 설치되지 않아 이 프로그램의 패키지가 미완료 상태입니다. 터미널에서 sudo dpkg --configure -a 를 실행해 설치를 마치세요. 그래도 해결되지 않으면 이 설치 패키지를 다시 설치하세요(Release 페이지에서 다운로드할 수 있습니다).",
+  },
+  ThTh: {
+    updateSigningNotConfigured: "รุ่นนี้ไม่มีกุญแจสาธารณะสำหรับลายเซ็นอัปเดต จึงตรวจสอบการอัปเดตไม่ได้",
+    updateUnsupportedForm: "รูปแบบการติดตั้งนี้ไม่รองรับการอัปเดตจากภายในโปรแกรม",
+    updateErrorSources: "ดาวน์โหลดไฟล์อัปเดตไม่ได้ โปรดตรวจสอบเครือข่ายแล้วลองอีกครั้ง",
+    updateErrorInstall: "ติดตั้งการอัปเดตไม่ได้ โปรแกรมปัจจุบันไม่มีการเปลี่ยนแปลง โปรดลองอีกครั้ง หรือเปิดหน้า Release เพื่อดาวน์โหลดเอง",
+    updateIntroInPlace: "ระบบจะดาวน์โหลดและตรวจสอบไฟล์อัปเดตก่อน จากนั้นแทนที่ไฟล์โปรแกรมและเปิดโปรแกรมใหม่",
+    updateReadyIntroInPlace: "ดาวน์โหลดและตรวจสอบไฟล์อัปเดตแล้ว เมื่อคลิก “อัปเดตตอนนี้” ระบบจะแทนที่ไฟล์โปรแกรมและเปิดโปรแกรมใหม่",
+    updatePreserved: "ข้อมูลผู้ใช้ บันทึกหมาก การตั้งค่า เอนจิน และโมเดลจะยังอยู่ครบ",
+    updateInstalling: "กำลังติดตั้งการอัปเดต โปรแกรมจะปิดและเปิดใหม่…",
+    updateErrorPermission: "เขียนไฟล์ลงในโฟลเดอร์ของโปรแกรมไม่ได้ จึงไม่ได้ติดตั้งการอัปเดต และโปรแกรมปัจจุบันไม่มีการเปลี่ยนแปลง โปรดย้ายโฟลเดอร์โปรแกรมไปยังตำแหน่งที่เขียนได้แล้วลองอีกครั้ง หรือเปิดหน้า Release เพื่อดาวน์โหลดเอง",
+    updateErrorInUse: "มีไฟล์โปรแกรมที่กำลังถูกใช้งานอยู่ จึงแทนที่ไม่ได้ กู้คืนไฟล์เดิมแล้ว และโปรแกรมปัจจุบันไม่มีการเปลี่ยนแปลง โปรดปิดโปรแกรมที่ใช้ไฟล์เหล่านี้ (เช่น โปรแกรมนี้อีกหน้าต่างหนึ่ง หรือเครื่องมือซิงโครไนซ์บอร์ด) แล้วลองอีกครั้ง",
+    updateErrorInterrupted: "การอัปเดตครั้งก่อนถูกขัดจังหวะ กู้คืนไฟล์เดิมแล้ว และโปรแกรมปัจจุบันไม่มีการเปลี่ยนแปลง โปรดตรวจสอบการอัปเดตอีกครั้ง",
+    updateErrorUnrecovered: "การอัปเดตครั้งก่อนถูกขัดจังหวะ และยังกู้คืนไฟล์เดิมบางส่วนไม่ได้ โปรดปิดโปรแกรมอื่นที่ใช้โฟลเดอร์ของโปรแกรมนี้ แล้วเปิดโปรแกรมนี้ใหม่ หากยังมีปัญหา โปรดดาวน์โหลดโปรแกรมใหม่จากหน้า Release",
+    updateIntroDeb: "ระบบจะดาวน์โหลดและตรวจสอบแพ็กเกจติดตั้งก่อน จากนั้นส่งให้ตัวจัดการแพ็กเกจของระบบ (apt) ติดตั้ง ระบบจะขอให้คุณอนุญาต และโปรแกรมจะเปิดใหม่เมื่อติดตั้งเสร็จ",
+    updateReadyIntroDeb: "ดาวน์โหลดและตรวจสอบแพ็กเกจติดตั้งแล้ว เมื่อคลิก “อัปเดตตอนนี้” ระบบจะขอให้คุณอนุญาต แล้วตัวจัดการแพ็กเกจของระบบ (apt) จะติดตั้ง และโปรแกรมจะเปิดใหม่เมื่อเสร็จ",
+    updateInstallingDeb: "กำลังรอการอนุญาตจากระบบและติดตั้งการอัปเดต โปรแกรมจะเปิดใหม่เมื่อเสร็จ…",
+    updateErrorDismissed: "ยกเลิกการอนุญาตจากระบบแล้ว จึงไม่ได้ติดตั้งการอัปเดต และโปรแกรมปัจจุบันไม่มีการเปลี่ยนแปลง",
+    updateErrorUnauthorized: "ไม่ได้รับอนุญาตจากระบบ จึงไม่ได้ติดตั้งการอัปเดต และโปรแกรมปัจจุบันไม่มีการเปลี่ยนแปลง ลองอีกครั้งได้ หรือติดตั้งแพ็กเกจที่ตรวจสอบแล้วในเทอร์มินัลด้วยคำสั่งด้านล่าง:",
+    updateErrorPackageManager: "ตัวจัดการแพ็กเกจของระบบไม่ได้ติดตั้งการอัปเดตนี้ โปรแกรมปัจจุบันไม่มีการเปลี่ยนแปลง",
+    updateErrorPackageUnfinished: "ติดตั้งการอัปเดตไม่ครบ แพ็กเกจของโปรแกรมนี้อยู่ในสถานะติดตั้งไม่เสร็จ โปรดรัน sudo dpkg --configure -a ในเทอร์มินัลเพื่อติดตั้งให้เสร็จ หากยังไม่หาย โปรดติดตั้งแพ็กเกจนี้ใหม่ (ดาวน์โหลดได้จากหน้า Release)",
+  },
+});
+
+registerProduct({
+  ZhCn: { updateSectionSub: "更新选项改动后立即保存，不受“{0}”“{1}”影响。" },
+  ZhTw: { updateSectionSub: "更新選項變更後立即儲存，不受「{0}」「{1}」影響。" },
+  EnUs: { updateSectionSub: "Update options are saved as soon as you change them; {0} and {1} do not affect them." },
+  JaJp: { updateSectionSub: "更新の設定は変更した時点で保存され、「{0}」「{1}」の影響を受けません。" },
+  KoKr: { updateSectionSub: "업데이트 옵션은 바꾸는 즉시 저장되며 '{0}', '{1}'과 관계없습니다." },
+  ThTh: { updateSectionSub: "ตัวเลือกการอัปเดตจะบันทึกทันทีที่เปลี่ยน ไม่ขึ้นกับปุ่ม “{0}” และ “{1}”" },
 });
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", text = ""): HTMLElementTagNameMap[K] {
@@ -107,7 +184,7 @@ export function formatBytes(bytes: number): string {
 const downloading = (d: UpdateDownloadView) => d.phase === "Downloading" || d.phase === "Paused";
 
 /** UpdateText.userFacingError, with what the system itself said. */
-function errorText(d: UpdateDownloadView): string | null {
+function downloadErrorText(d: UpdateDownloadView): string | null {
   if (d.error === null) return null;
   const text = failureText(d.error);
   return d.detail ? `${text}\n${d.detail}` : text;
@@ -154,7 +231,7 @@ function downloadStatus(u: UpdateView): string {
       break;
     case "None": break;
   }
-  const error = errorText(d);
+  const error = downloadErrorText(d);
   return error ? `${text}\n${error}` : text;
 }
 
@@ -180,10 +257,11 @@ function feedback(r: UpdateResultView): string {
   }
 }
 
-/** A modeless window over the workbench with its title bar close button; the newest-clicked one
- *  is on top. */
+/** A modeless window over the workbench with its title bar close box, which Escape presses; the
+ *  newest-clicked one is on top. Its body scrolls under the title and its footer stays at the
+ *  body's foot. */
 function frame(title: string, cls: string, key: string, onClose: () => void): { box: HTMLElement; close: () => void } {
-  const box = el("section", `modal-box update-window ${cls}`);
+  const box = el("section", `modal-box engine-dialog update-window ${cls}`);
   box.dataset.key = key;
   box.dataset.freeWindow = "";
   box.tabIndex = -1;
@@ -191,9 +269,8 @@ function frame(title: string, cls: string, key: string, onClose: () => void): { 
   box.setAttribute("aria-modal", "false");
   box.setAttribute("aria-label", title);
   const head = el("div", "modal-title update-title", title);
-  const x = button("×", `${key}.close`, () => close());
-  x.className = "update-close";
-  x.setAttribute("aria-label", product("close"));
+  const x = closeBox(() => close());
+  x.dataset.key = `${key}.close`;
   head.append(x);
   box.append(head);
   let closed = false;
@@ -203,7 +280,10 @@ function frame(title: string, cls: string, key: string, onClose: () => void): { 
     box.remove();
     onClose();
   };
-  box.addEventListener("keydown", (e) => e.stopPropagation());
+  box.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Escape") { e.preventDefault(); close(); }
+  });
   box.addEventListener("pointerdown", () => {
     if (box.nextElementSibling) document.body.append(box);
   });
@@ -211,17 +291,18 @@ function frame(title: string, cls: string, key: string, onClose: () => void): { 
   return { box, close };
 }
 
-// ------------------------------------------------------------------ 检查更新 page
+// ------------------------------------------------------------------ 综合设置 > 关于 > 检查更新
 
-let page: { box: HTMLElement; close: () => void; show: (u: UpdateView) => void } | null = null;
+/** The rows of the open 综合设置; gone once that dialog closes. */
+let section: { root: HTMLElement; show: (u: UpdateView) => void } | null = null;
 
-/** Saves at once; a save that fails shows its error and the page returns to the saved settings
+/** Saves at once; a save that fails shows its error and the rows return to the saved settings
  *  (the control already shows the unsaved choice, and no new view follows a failure). */
 async function saveSettings(change: Partial<UpdateSettings>): Promise<void> {
   const settings = state.view?.update.settings;
   if (!settings) return;
   const result = await run({ type: "Update", op: { type: "Settings", settings: { ...settings, ...change } } });
-  if (result === null && state.view) page?.show(state.view.update);
+  if (result === null && state.view) section?.show(state.view.update);
 }
 
 function radio(name: string, text: string, key: string, onPick: () => void): { label: HTMLLabelElement; input: HTMLInputElement } {
@@ -236,71 +317,57 @@ function radio(name: string, text: string, key: string, onPick: () => void): { l
   return { label, input };
 }
 
-function openPage(): void {
-  if (page) {
-    document.body.append(page.box);
-    page.box.focus();
-    return;
-  }
-  const { box, close } = frame(t("WindowsUpdate.page.title"), "update-page", "update.page", () => { page = null; });
-  const body = el("div", "update-body");
-  const versionLabel = el("div", "update-muted", t("WindowsUpdate.currentVersion"));
-  const versionValue = el("div", "update-version");
-  versionValue.dataset.key = "update.version";
+/** CheckUpdateDialog's options as grouped rows, its result line and its buttons, then the offer
+ *  the check found with WindowsUpdateDialog's account of it and its download, built into
+ *  综合设置's 关于 page. */
+export function buildUpdateSection(host: HTMLElement): void {
+  groupTitle(host, t("WindowsUpdate.page.title"), product("updateSectionSub", t("SetKataRules.btnApply"), t("SetKataRules.btnCancel")));
 
   const stable = radio("update-channel", t("WindowsUpdate.channel.stable"), "update.channel.stable", () => saveSettings({ channel: "Stable" }));
   const beta = radio("update-channel", t("WindowsUpdate.channel.beta"), "update.channel.beta", () => saveSettings({ channel: "Beta" }));
   const official = radio("update-source", t("WindowsUpdate.source.official"), "update.source.official", () => saveSettings({ source: "Official" }));
   const github = radio("update-source", t("WindowsUpdate.source.github"), "update.source.github", () => saveSettings({ source: "Github" }));
-  const channelRow = el("div", "update-row");
-  channelRow.append(stable.label, beta.label);
-  const sourceRow = el("div", "update-row");
-  sourceRow.append(official.label, github.label);
+  // Each pair of choices is one segmented control.
+  for (const [title, ...choices] of [[t("WindowsUpdate.page.channel"), stable, beta], [t("WindowsUpdate.page.source"), official, github]] as const) {
+    const seg = el("span", "ds-seg");
+    seg.setAttribute("role", "radiogroup");
+    seg.append(...choices.map((choice) => choice.label));
+    row(host, title, "", seg);
+  }
 
+  // The switch rows; their names change while a saved option waits for the next start.
   const check = (key: string, onChange: (on: boolean) => void) => {
-    const input = el("input");
-    input.type = "checkbox";
-    input.dataset.key = `${key}.input`;
-    input.onchange = () => onChange(input.checked);
-    const text = el("span");
-    const label = el("label", "update-check");
-    label.dataset.key = key;
-    label.append(input, text);
-    return { label, input, text };
+    const r = switchRow(host, "", "", false);
+    r.row.classList.add("update-check");
+    r.row.dataset.key = key;
+    r.input.dataset.key = `${key}.input`;
+    r.input.onchange = () => onChange(r.input.checked);
+    return { label: r.row, input: r.input, text: r.row.querySelector(".ds-row-title")! };
   };
   const autoCheck = check("update.autoCheck", (on) => saveSettings(on ? { autoCheck: true } : { autoCheck: false, autoDownload: false }));
   const autoDownload = check("update.autoDownload", (on) => saveSettings({ autoDownload: on }));
   const result = el("div", "update-result");
   result.dataset.key = "update.result";
   result.setAttribute("aria-live", "polite");
+  const details = el("div", "update-details");
+  host.append(result, details);
 
-  body.append(
-    versionLabel, versionValue,
-    el("div", "update-label", t("WindowsUpdate.page.channel")), channelRow,
-    el("div", "update-label", t("WindowsUpdate.page.source")), sourceRow,
-    autoCheck.label, autoDownload.label, result,
-  );
-
-  const footer = el("div", "modal-buttons update-buttons");
-  const cancel = button(t("WindowsUpdate.btnCancel"), "update.cancel", () => void run({ type: "Update", op: { type: "Cancel" } }));
-  const pause = button("", "update.pause", () => void run({ type: "Update", op: { type: "TogglePause" } }));
-  const retry = button(t("WindowsUpdate.btnResume"), "update.retry", () => void run({ type: "Update", op: { type: "Retry" } }));
-  const viewOffer = button(t("WindowsUpdate.viewOffer"), "update.viewOffer", () => openOffer(true));
-  const later = button(t("WindowsUpdate.later"), "update.later", () => close());
+  let offerId: number | null = null;
+  let offerShow: ((v: UpdateView) => void) | null = null;
   const checkNow = button(t("WindowsUpdate.btnCheck"), "update.check", () => void run({ type: "Update", op: { type: "Check" } }));
-  checkNow.classList.add("primary");
-  footer.append(cancel, pause, retry, viewOffer, later, checkNow);
-  box.append(body, footer);
-  // The page's default button (getRootPane().setDefaultButton(checkButton)).
-  box.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement) && !checkNow.disabled) {
-      e.preventDefault();
-      checkNow.click();
-    }
+  const updateNow = button(t("WindowsUpdate.btnUpdate"), "update.updateNow", () => {
+    if (offerId !== null) void run({ type: "Update", op: { type: "Update", offer: offerId } });
   });
+  const retry = button(t("WindowsUpdate.btnResume"), "update.retry", () => void run({ type: "Update", op: { type: "Retry" } }));
+  const pause = button("", "update.offerPause", () => void run({ type: "Update", op: { type: "TogglePause" } }));
+  const cancel = button(t("WindowsUpdate.btnCancel"), "update.offerCancel", () => void run({ type: "Update", op: { type: "Cancel" } }));
+  const release = button(t("WindowsUpdate.btnRelease"), "update.release", () => void openRelease());
+  const buttons = el("div", "engine-actions update-actions");
+  buttons.dataset.settingTarget = "menu.checkUpdate";
+  buttons.append(checkNow, updateNow, retry, pause, cancel, release);
+  host.append(buttons);
 
   const show = (u: UpdateView) => {
-    versionValue.textContent = u.current_version || "-";
     const s = u.settings;
     stable.input.checked = s.channel === "Stable";
     beta.input.checked = s.channel === "Beta";
@@ -320,15 +387,31 @@ function openPage(): void {
 
     const d = u.download;
     const offer = u.result?.offer ?? null;
+    if ((offer?.id ?? null) !== offerId) {
+      offerId = offer?.id ?? null;
+      offerShow = null;
+      details.replaceChildren();
+      if (offer) {
+        const parts = offerDetails(offer);
+        details.append(parts.heading, parts.summary, parts.bar);
+        offerShow = parts.show;
+      }
+    }
+    details.hidden = !offer;
+    offerShow?.(u);
     checkNow.disabled = u.busy;
-    viewOffer.hidden = !offer || downloading(d) || d.phase === "Cancelled" || d.phase === "Failed";
-    viewOffer.disabled = u.busy;
-    cancel.hidden = pause.hidden = !downloading(d);
-    pause.textContent = d.phase === "Paused" ? t("WindowsUpdate.btnResume") : t("WindowsUpdate.btnPause");
+    updateNow.hidden = !offer || downloading(d) || d.phase === "Cancelled" || d.phase === "Failed";
+    updateNow.disabled = u.busy;
     retry.hidden = !offer || (d.phase !== "Cancelled" && d.phase !== "Failed");
     retry.disabled = u.busy;
+    pause.hidden = cancel.hidden = !downloading(d);
+    pause.textContent = d.phase === "Paused" ? t("WindowsUpdate.btnResume") : t("WindowsUpdate.btnPause");
+    release.hidden = !offer;
+    // The status line is a 提示条 when it reports a failure or a partial check.
+    let tone: "error" | "warning" | null = null;
     if (d.phase !== "None" || u.installing) {
       result.textContent = downloadStatus(u);
+      if (d.phase === "Failed" || d.error !== null) tone = "error";
     } else if (u.checking) {
       result.textContent = t("WindowsUpdate.checking");
     } else if (!u.result) {
@@ -336,12 +419,17 @@ function openPage(): void {
     } else {
       const extra = warning(u.result);
       result.textContent = extra ? `${feedback(u.result)}\n${extra}` : feedback(u.result);
+      tone = u.result.outcome === "Failed" ? "error" : extra ? "warning" : null;
     }
+    result.hidden = !result.textContent;
+    result.classList.toggle("update-error", tone === "error");
+    result.classList.toggle("update-warn", tone === "warning");
   };
-  page = { box, close, show };
+  section = { root: host, show };
   if (state.view) show(state.view.update);
-  box.focus();
 }
+
+registerSettingTargets("about", ["menu.checkUpdate"]);
 
 // ------------------------------------------------------------------ 发现新版本
 
@@ -364,28 +452,15 @@ async function openRelease(): Promise<void> {
   try {
     await invoke("open_update_release");
   } catch (e) {
-    const reason = e && typeof e === "object" && "message" in e ? String(e.message) : String(e);
+    const reason = errorText(e);
     await message(t("Message.title"), `${t("WindowsUpdate.status.openReleaseFailed")}: ${reason}`, "error");
   }
 }
 
-/** Shows the current offer (`openOffer`): `focus` is false for an automatic check's reminder
- *  (setAutoRequestFocus(false)). Viewing grants nothing; only 立即更新 prepares and installs. */
-function openOffer(focus: boolean): void {
-  const u = state.view?.update;
-  const offer = u?.result?.offer;
-  if (!u || !offer) return;
-  page?.close();
-  if (offerWindow?.id === offer.id) {
-    if (focus) offerWindow.show(u);
-    return;
-  }
-  offerWindow?.close();
-  const { box, close } = frame(t("WindowsUpdate.title"), "update-offer", "update.offer", () => { offerWindow = null; });
-  const body = el("div", "update-body");
+/** WindowsUpdateDialog's account of one offer: its version, what 立即更新 does with it and the
+ *  download's progress; `show` fills them from a view of this offer. */
+function offerDetails(offer: UpdateOfferView): { heading: HTMLElement; summary: HTMLElement; bar: HTMLElement; show: (v: UpdateView) => void } {
   const heading = el("div", "update-offer-heading", `LizzieYzy Tauri ${offer.version}`);
-  const current = el("div", "", `${t("WindowsUpdate.currentVersion")}: ${offer.current_version}`);
-  const extra = el("div", "update-warning");
   const summary = el("div", "update-summary");
   summary.dataset.key = "update.summary";
   const bar = el("div", "update-progress");
@@ -394,24 +469,56 @@ function openOffer(focus: boolean): void {
   bar.setAttribute("aria-label", t("WindowsUpdate.accessibility.progress"));
   bar.setAttribute("aria-valuemin", "0");
   bar.setAttribute("aria-valuemax", "100");
-  const fill = el("div", "update-progress-fill");
+  const meter = el("progress");
+  meter.max = 1000;
+  meter.setAttribute("aria-hidden", "true");
   const percent = el("span", "update-progress-text");
-  bar.append(fill, percent);
+  bar.append(meter, percent);
+  const show = (v: UpdateView) => {
+    const d = v.download;
+    summary.textContent = `${intro(offer, d.phase === "Ready")}\n\n${t("WindowsUpdate.summary.package")}: ${offer.asset_name}\n${t("WindowsUpdate.summary.totalDownload")}: ${formatBytes(offer.size)}\n\n${product("updatePreserved")}`;
+    bar.hidden = d.phase === "None";
+    const value = d.total > 0 ? Math.min(1000, Math.floor((d.bytes * 1000) / d.total)) : 0;
+    meter.value = value;
+    percent.textContent = `${Math.floor(value / 10)}%`;
+    bar.setAttribute("aria-valuenow", String(Math.floor(value / 10)));
+  };
+  return { heading, summary, bar, show };
+}
+
+/** Shows the current offer (`openOffer`): `focus` is false for an automatic check's reminder
+ *  (setAutoRequestFocus(false)). Viewing grants nothing; only 立即更新 prepares and installs. */
+function openOffer(focus: boolean): void {
+  const u = state.view?.update;
+  const offer = u?.result?.offer;
+  if (!u || !offer) return;
+  // While 综合设置 is open its 关于 page shows the offer in place of this window.
+  if (section?.root.isConnected) return;
+  if (offerWindow?.id === offer.id) {
+    if (focus) offerWindow.show(u);
+    return;
+  }
+  offerWindow?.close();
+  const { box, close } = frame(t("WindowsUpdate.title"), "update-offer", "update.offer", () => { offerWindow = null; });
+  const body = el("div", "update-body");
+  const details = offerDetails(offer);
+  const current = el("div", "", `${t("WindowsUpdate.currentVersion")}: ${offer.current_version}`);
+  const extra = el("div", "update-warning");
   const status = el("div", "update-status");
   status.dataset.key = "update.status";
   status.setAttribute("aria-label", t("WindowsUpdate.accessibility.status"));
   status.setAttribute("aria-live", "polite");
-  body.append(heading, current, extra, summary, bar, status);
+  body.append(details.heading, current, extra, details.summary, details.bar, status);
 
-  const footer = el("div", "modal-buttons update-buttons");
+  // 查看 Release and the download's 取消 / 暂停 do not end the window; 稍后 closes it.
   const release = button(t("WindowsUpdate.btnRelease"), "update.release", () => void openRelease());
   const closeButton = button(t("WindowsUpdate.btnLater"), "update.offerClose", () => close());
   const cancel = button(t("WindowsUpdate.btnCancel"), "update.offerCancel", () => void run({ type: "Update", op: { type: "Cancel" } }));
   const pause = button("", "update.offerPause", () => void run({ type: "Update", op: { type: "TogglePause" } }));
   const update = button(t("WindowsUpdate.btnUpdate"), "update.updateNow", () => void run({ type: "Update", op: { type: "Update", offer: offer.id } }));
   update.classList.add("primary");
-  footer.append(release, closeButton, cancel, pause, update);
-  box.append(body, footer);
+  footer(body, { start: [release, cancel, pause], primary: update, cancel: closeButton });
+  box.append(body);
 
   const show = (v: UpdateView) => {
     const shown = v.result?.offer;
@@ -421,20 +528,15 @@ function openOffer(focus: boolean): void {
       return;
     }
     const d = v.download;
-    const ready = d.phase === "Ready";
     extra.textContent = v.result ? warning(v.result) : "";
     extra.hidden = !extra.textContent;
-    summary.textContent = `${intro(offer, ready)}\n\n${t("WindowsUpdate.summary.package")}: ${offer.asset_name}\n${t("WindowsUpdate.summary.totalDownload")}: ${formatBytes(offer.size)}\n\n${product("updatePreserved")}`;
+    details.show(v);
     update.disabled = v.busy;
     cancel.disabled = pause.disabled = !downloading(d);
     pause.textContent = d.phase === "Paused" ? t("WindowsUpdate.btnResume") : t("WindowsUpdate.btnPause");
-    bar.hidden = d.phase === "None";
-    const value = d.total > 0 ? Math.min(1000, Math.floor((d.bytes * 1000) / d.total)) : 0;
-    fill.style.width = `${value / 10}%`;
-    percent.textContent = `${Math.floor(value / 10)}%`;
-    bar.setAttribute("aria-valuenow", String(Math.floor(value / 10)));
     const text = downloadStatus(v);
     if (text) status.textContent = text;
+    status.classList.toggle("update-error", d.phase === "Failed" || d.error !== null);
   };
   offerWindow = { id: offer.id, close, show };
   show(u);
@@ -445,7 +547,8 @@ let reminded = 0;
 let handoverReported = false;
 registerViewHandler((view) => {
   const u = view.update;
-  page?.show(u);
+  if (section && !section.root.isConnected) section = null;
+  section?.show(u);
   offerWindow?.show(u);
   // The previous run closed to install an update, which did not happen.
   if (u.handover_failed && !handoverReported) {
@@ -460,6 +563,6 @@ registerViewHandler((view) => {
 });
 
 Object.assign(COMMANDS, {
-  // 帮助 > 检查更新 (WindowsUpdateController.openCheckUpdatePage): one page, brought to front.
-  "menu.checkUpdate": { run: () => openPage() },
+  // 帮助 > 检查更新 (WindowsUpdateController.openCheckUpdatePage): 综合设置 at the 检查更新 buttons.
+  "menu.checkUpdate": { run: () => void openSettingsAt("menu.checkUpdate") },
 });

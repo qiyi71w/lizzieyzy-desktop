@@ -8,10 +8,9 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { registerViewHandler, run, state } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
 import type { BottomToolbar, PanelSettings, PanelSizes, WorkbenchPanel, WorkbenchView } from "../contract/generated";
-import { ask } from "../dialogs";
 import { commentEditing } from "../editing/comment";
 import { openAnalysisSettings } from "../engine/settings";
-import { product, t } from "../i18n";
+import { t } from "../i18n";
 import type { Handles, LayoutRequest, Rect } from "./layout";
 import { GRAPH_FONT, prepare } from "./paint";
 import { listShown, presentation, statusShown } from "./presentation";
@@ -107,41 +106,25 @@ function setBottomToolbar(mode: BottomToolbar): Promise<unknown> {
   return run({ type: "SetBottomToolbar", mode });
 }
 
-/** 使用详细工具栏 (Menu.java:4561-4591): turning it on asks first; turning it off does not. */
-async function toggleDetailedToolbar(): Promise<void> {
-  if (state.view?.settings.bottom_toolbar === "Detailed") {
-    await setBottomToolbar("Simple");
-    return;
-  }
-  const body = document.createElement("p");
-  body.textContent = "详细工具栏已过时,其中的内容可以在顶部/底部工具栏中找到,从详细工具栏发起的功能也已过时,例如自动分析不能分析所有分支,确定启用详细工具栏?";
-  if (await ask("确定使用详细工具栏?", body, product("yes"), product("no"))) await setBottomToolbar("Detailed");
-}
-
 /** Shows a toolbar so one of its controls can be located, as Menu.locateTopFunction
  *  (Menu.java:6979-7014: the top toolbar becomes 分开) and BottomToolbar.locateFunction
- *  (BottomToolbar.java:632-643: a hidden bottom toolbar takes its main-bar height, and the
- *  详细工具栏's height for one of its controls) do. Resolves once the toolbar is laid out; the
- *  destination's value and action are untouched. */
-export async function revealToolbar(kind: "top" | "bottom" | "detail"): Promise<void> {
+ *  (BottomToolbar.java:632-643: a hidden bottom toolbar takes its main-bar height) do. Resolves
+ *  once the toolbar is laid out; the destination's value and action are untouched. */
+export async function revealToolbar(kind: "top" | "bottom"): Promise<void> {
   const p = panels();
   if (kind === "top") {
     if (p && !topSeparated(p)) {
       topRevealed = true;
       showTopToolbar(p);
     }
-  } else if (kind === "detail") {
-    if (state.view?.settings.bottom_toolbar !== "Detailed") await setBottomToolbar("Detailed");
   } else if (state.view?.settings.bottom_toolbar === "Hidden") await setBottomToolbar("Simple");
   // The bar is laid out when the view with the new mode arrives, which may follow the command's
   // reply; give it up to about a second.
-  const wanted = kind === "detail" ? "Detailed" : kind === "bottom" ? "Simple" : null;
   for (let n = 0; n < 60; n++) {
     const frame = Promise.withResolvers<void>();
     requestAnimationFrame(() => frame.resolve());
     await frame.promise;
-    const mode = state.view?.settings.bottom_toolbar;
-    if (!wanted || mode === wanted || (wanted === "Simple" && mode === "Detailed")) break;
+    if (kind === "top" || state.view?.settings.bottom_toolbar === "Simple") break;
   }
 }
 
@@ -193,7 +176,6 @@ Object.assign(COMMANDS, {
   // 工具栏 > 底部工具栏 (Menu.java:4532-4591, syncBottomToolbarMenuMarks 10628-10654).
   "menu.bottomToolBar.visible": { run: () => void setBottomToolbar("Simple"), checked: () => state.view?.settings.bottom_toolbar === "Simple" },
   "menu.bottomToolBar.invisible": { run: () => void setBottomToolbar("Hidden"), checked: () => state.view?.settings.bottom_toolbar === "Hidden" },
-  "toolbar.detailed": { run: () => void toggleDetailedToolbar(), checked: () => state.view?.settings.bottom_toolbar === "Detailed" },
 } satisfies Record<string, CommandEntry>);
 
 // ------------------------------------------------------------------ keys

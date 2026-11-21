@@ -10,7 +10,7 @@ import { t } from "../i18n";
 import { frameCoordinate, playouts, themeFonts } from "../workbench/paint";
 import { appearance, frameMetrics } from "../appearance/state";
 import { customFont } from "../appearance/model";
-import { bindColumnResize, layoutColumns, MIN_COLUMN, type FrameBar, type FrameCell, type FramePayload } from "./suggestionsFrame";
+import { actualParts, bindColumnResize, cellBackground, layoutColumns, MIN_COLUMN, rankWidths, tableFaces, type FrameBar, type FrameCell, type FramePayload } from "./suggestionsFrame";
 import { autoReplayed, setAutoReplayed } from "../display/autoplay";
 import { replayLength, stopReplayOf } from "../display/replay";
 
@@ -259,44 +259,31 @@ function parsedDifference(text: string | undefined): number {
 }
 
 /** ColorTableCellRenderer: the actual row's level by the configured win-rate / score loss
- *  thresholds, stronger while it is the highlighted point (LizzieFrame.java:15025-15098). */
-const LEVELS: [number, number, number, number, number][] = [
-  [85, 25, 80, 120, 70],
-  [208, 16, 19, 100, 50],
-  [200, 140, 50, 100, 50],
-  [180, 180, 0, 100, 50],
-  [140, 202, 34, 100, 50],
-  [0, 180, 0, 100, 60],
-];
-
-function rankBackground(v: WorkbenchView, diff: number, scoreDiff: number, selected: boolean): string {
+ *  thresholds, 0 the worst and 5 the best (LizzieFrame.java:15025-15098). */
+function lossLevel(v: WorkbenchView, diff: number, scoreDiff: number): number {
   const w = v.settings.display.winLossThresholds, s = v.settings.display.scoreLossThresholds;
-  let level = 5;
-  for (let k = 4; k >= 0; k--)
-    if (diff <= w[k] || scoreDiff <= s[k]) {
-      level = 4 - k;
-      break;
-    }
-  const [r, g, b, strong, light] = LEVELS[level];
-  return `rgba(${r}, ${g}, ${b}, ${(selected ? strong : light) / 255})`;
+  for (let k = 4; k >= 0; k--) if (diff <= w[k] || scoreDiff <= s[k]) return 4 - k;
+  return 5;
 }
 
-/** Cell colours of one row: blue on the highlighted point's rows (red where the clicked row moved
- *  away from it), the rank colour on the actual row; the 占比 cell draws its bar only. */
+/** Cell colours of one row: the highlighted point's rows (another colour where the clicked row
+ *  moved away from it), the loss level on the actual row, stronger while it is the highlighted
+ *  point; the 占比 cell draws its bar only. Both the main list and the 独立选点列表 take them from
+ *  the design and stage tokens, so they follow the colour mode. */
 function colourCells(v: WorkbenchView, table: Table, rows: TableRow[], cells: string[][], shareColumn: number, winrateColumn: number, scoreColumn: number | null): FrameCell[][] {
-  const selectedAlpha = table === "main" ? 70 : 35;
   return rows.map((r, k) => {
     const isSelect = samePoint(r.point, suggestionClick);
     const isChanged = isSelect && selection[table].selected >= 0 && selection[table].selected !== k;
     let fg = "", bg = "";
     if (isSelect) {
-      fg = "#0000ff";
-      bg = `rgba(0, 0, 0, ${selectedAlpha / 255})`;
+      fg = "var(--ds-accent-text)";
+      bg = "var(--ds-accent-soft)";
     }
-    if (isChanged) fg = "#ff0000";
+    if (isChanged) fg = "var(--ds-danger-text)";
     if (r.actual) {
       const scoreDiff = scoreColumn === null ? 0 : parsedDifference(cells[k][scoreColumn]);
-      bg = rankBackground(v, parsedDifference(cells[k][winrateColumn]), scoreDiff, isSelect);
+      const level = lossLevel(v, parsedDifference(cells[k][winrateColumn]), scoreDiff);
+      bg = `var(--ws-rank-${level + 1}${isSelect ? "-strong" : ""})`;
     }
     return cells[k].map((text, column) =>
       column === shareColumn ? { text, fg: "", bg: "", bar: Number.parseFloat(text) } : { text, fg, bg, bar: null });
@@ -514,18 +501,20 @@ export function frameSortBy(id: FrameId, column: number): void {
 
 // ------------------------------------------------------------------ main window table
 
-const TABLE_HEADER = navigator.userAgent.includes("Windows") ? 19 : 17;
+/** The list's rows and header at a 12 px font (DESIGN.md 选点列表: 22 px rows). */
+const ROW = 22;
+const HEADER = 24;
 
 /** refreshSuggestionTableStyle (LizzieFrame.java:2697-2721): the list takes
- *  workspaceFont(PLAIN, frameFontSize) — the theme's UI font when one is named — and rows of
- *  max(Config.menuHeight - 4, font height + 8) (SuggestionTableScrollPane.rowHeightFor); the header
- *  is the font height plus its insets. The 12 px heights are the measured ones above; other sizes
- *  add the font's own height difference, and the row never drops below menuHeight - 4. */
+ *  workspaceFont(PLAIN, frameFontSize) — the theme's UI font when one is named — at the
+ *  interface's body step of that size (DESIGN.md Typography). Rows are 22 px and the header 24 px
+ *  at a 12 px font; larger fonts add their own height difference, and the row never drops below
+ *  Java's menuHeight - 4. */
 function mainTableStyle(table: HTMLTableElement): { row: number; header: number } {
-  const { frameFontSize, menuHeight } = frameMetrics();
+  const { menuHeight, type } = frameMetrics();
   const a = appearance();
   table.style.fontFamily = a && customFont(a.theme.uiFontName) ? themeFonts().ui : "";
-  table.style.fontSize = `${frameFontSize}px`;
+  table.style.fontSize = `${type.size}px`;
   const family = getComputedStyle(table).fontFamily;
   const c = document.createElement("canvas").getContext("2d")!;
   const height = (size: number) => {
@@ -533,15 +522,56 @@ function mainTableStyle(table: HTMLTableElement): { row: number; header: number 
     const m = c.measureText("Hg");
     return Math.ceil(m.fontBoundingBoxAscent + m.fontBoundingBoxDescent);
   };
-  const grow = frameFontSize === 12 ? 0 : height(frameFontSize) - height(12);
-  return { row: Math.max(menuHeight - 4, TABLE_HEADER + 3 + grow), header: TABLE_HEADER + grow };
+  const grow = type.size === 12 ? 0 : height(type.size) - height(12);
+  return { row: Math.max(menuHeight - 4, ROW + grow), header: HEADER + grow };
 }
-let mainRowHeight = TABLE_HEADER + 3;
-/** setPreferredWidth of 序号, 胜率, 计算量, 占比, 目数 (LizzieFrame.java:907-912); 序号's 10 is
- *  raised to TableColumn's minimum. */
-let mainPreferred = [15, 30, 30, 45, 30];
+let mainRowHeight = ROW;
+/** Widths of 序号, 胜率, 计算量, 占比, 目数 from a border drag or the saved list layout; until then
+ *  the content widths (contentWidths). Java's own 15 / 30 / 30 / 45 / 30 (LizzieFrame.java:
+ *  907-912) gave the widest share to 占比. */
+let mainPreferred: number[] | null = null;
 let mainWidths: number[] = [];
 let mainStructure = "";
+
+/** The five columns' content widths in the table's faces, with the cells' padding (`last` is the
+ *  rightmost shown column): `fit` holds each header (Label), the widest usual figure and the actual
+ *  move's row on one line; `least` the actual row with its smaller change above its value. 序号
+ *  holds "Pass" and the actual move's smaller 实战 note under its rank (rankWidths). */
+function contentWidths(table: HTMLTableElement, heads: string[], last: number): { fit: number[]; least: number[] } {
+  const faces = tableFaces(table);
+  const { body, caption, width } = faces;
+  const figures = [["88.8"], ["9.9k", "99k"], ["88.8"], ["-88.8"]];
+  // The change before 胜率's and 目数's values, with the 4 px after it (.actual-note).
+  const change = width("↓-88.8", caption) + 4;
+  // 序号: 8 px before and a 6 px gap after.
+  const rank = rankWidths(faces, heads[0], ["20", "Pass"], t("AnalysisFrame.actual"), 14);
+  const fit: number[] = [rank.fit], least: number[] = [rank.least];
+  heads.slice(1).forEach((head, i) => {
+    const k = i + 1;
+    const figure = Math.max(width(head, caption), ...figures[i].map((f) => width(f, body)));
+    // The right-aligned columns: their right padding.
+    const pad = k === last ? 12 : 8;
+    const note = k === 1 || k === 4 ? change : 0;
+    fit.push(Math.ceil(figure + note) + pad);
+    least.push(Math.ceil(Math.max(figure, note)) + pad);
+  });
+  return { fit, least };
+}
+
+/** The main list's widths across `width`. 序号 keeps its `preferred` width between its stacked
+ *  (`least`) and one-line (`fit`) content width, never wider, as it holds nothing longer. The
+ *  others start from `preferred`, no narrower than their one-line content where the list has
+ *  room, else than the stacked actual row, and share the room left over. A list too narrow even
+ *  for `least` shares its whole width. */
+function mainLayout(preferred: number[], width: number, fit: number[], least: number[]): number[] {
+  const rank = Math.max(least[0], Math.min(preferred[0], fit[0]));
+  const atLeast = (floor: number[]) => preferred.slice(1).map((w, k) => Math.max(w, floor[k + 1]));
+  const levels: [number, number[]][] = [[rank, atLeast(fit)], [rank, atLeast(least)], [least[0], least.slice(1)]];
+  for (const [first, rest] of levels) {
+    if (first + rest.reduce((s, w) => s + w, 0) <= width) return [first, ...layoutColumns(rest, width - first)];
+  }
+  return layoutColumns(least, width);
+}
 
 /** The main 选点列表 (getRowCount / getValueAt, LizzieFrame.java:14725-14916): at most 20 rows;
  *  the coordinate column stays hidden and the 目数 column shows with score data only. */
@@ -551,7 +581,8 @@ export function renderMainTable(host: HTMLElement, v: WorkbenchView): void {
   const structure = `${host.clientWidth}:${columns}:${t("AnalysisFrame.column1")}:${appearance()?.theme.uiFontName}`;
   if (mainStructure !== structure) {
     mainStructure = structure;
-    const heads = [t("AnalysisFrame.column1"), t("LizzieFrame.listColumn2"), t("AnalysisFrame.column5"), t("LizzieFrame.listColumn4"), t("AnalysisFrame.column8")].slice(0, columns);
+    const allHeads = [t("AnalysisFrame.column1"), t("LizzieFrame.listColumn2"), t("AnalysisFrame.column5"), t("LizzieFrame.listColumn4"), t("AnalysisFrame.column8")];
+    const heads = allHeads.slice(0, columns);
     const table = document.createElement("table");
     const colgroup = document.createElement("colgroup");
     const thead = document.createElement("thead"), body = document.createElement("tbody");
@@ -569,14 +600,14 @@ export function renderMainTable(host: HTMLElement, v: WorkbenchView): void {
     };
     // Java writes the widths only while the score column shows (Config.persist).
     const report = () => void invoke("set_main_list_columns", { columns: hasScore ? mainWidths : null });
-    apply(layoutColumns(mainPreferred.slice(0, columns), host.clientWidth));
-    report();
+    let content = { fit: [] as number[], least: [] as number[] };
+    // 序号 is dragged no wider than its one-line content (mainLayout keeps it there too).
     bindColumnResize(headRow, () => mainWidths, apply, (widths) => {
       // A hidden 目数 column keeps the width it had (listTableColum5Width).
-      mainPreferred = hasScore ? widths : [...widths, mainPreferred[4]];
+      mainPreferred = hasScore ? widths : [...widths, (mainPreferred ?? content.fit)[4]];
       apply(widths);
       report();
-    });
+    }, (column) => (column === 0 ? content.fit[0] : Infinity));
     const rowAt = (ev: MouseEvent) => (ev.target as HTMLElement).closest<HTMLTableRowElement>("tbody tr")?.sectionRowIndex ?? -1;
     body.addEventListener("click", (ev) => {
       const row = rowAt(ev);
@@ -601,6 +632,10 @@ export function renderMainTable(host: HTMLElement, v: WorkbenchView): void {
     const style = mainTableStyle(table);
     mainRowHeight = style.row;
     headRow.style.height = `${style.header}px`;
+    content = contentWidths(table, allHeads, columns - 1);
+    const shown = (w: number[]) => w.slice(0, columns);
+    apply(mainLayout(shown(mainPreferred ?? content.fit), host.clientWidth, shown(content.fit), shown(content.least)));
+    report();
   }
   const all = buildRows(v, "main");
   const total = totalAllocation(all);
@@ -627,16 +662,19 @@ export function renderMainTable(host: HTMLElement, v: WorkbenchView): void {
     // The hidden 坐标 column.
     row.dataset.point = r.point ? `${r.point.x},${r.point.y}` : "pass";
     row.style.height = `${mainRowHeight}px`;
+    row.classList.toggle("actual", r.actual);
     while (row.cells.length > cells.length) row.deleteCell(row.cells.length - 1);
     cells.forEach((c, column) => {
       const cell = row.cells[column] ?? row.insertCell();
-      if (cell.textContent !== c.text) cell.textContent = c.text;
+      if (cell.dataset.text !== c.text) {
+        cell.dataset.text = c.text;
+        cell.replaceChildren(...(r.actual ? actualParts(c.text, column === 0) : [c.text]));
+      }
       // The actual row's cells carry their text as a tooltip.
       cell.title = r.actual ? c.text : "";
       cell.style.color = c.fg;
-      cell.style.background = c.bar === null
-        ? c.bg
-        : `linear-gradient(to right, rgb(192, 192, 192) ${Math.min(100, c.bar)}%, transparent ${Math.min(100, c.bar)}%)`;
+      // 占比: its share underline over the row's own tint (cellBackground).
+      cell.style.background = cellBackground(c, cells[0].bg);
     });
   });
 }
@@ -649,8 +687,10 @@ export function mainTableSignature(v: WorkbenchView): string {
 
 // ------------------------------------------------------------------ 独立选点列表 rows
 
-/** Default column widths (AnalysisFrame.java:249-259). */
-export const FRAME_WIDTHS = [35, 20, 40, 70, 35, 50, 35, 70, 35];
+/** Preferred column widths until the user drags a border; the window's width is shared out from
+ *  them. At the default window size every header and the actual move's row show in full inside
+ *  the cells' padding in each language (Java's own: AnalysisFrame.java:249-259). */
+export const FRAME_WIDTHS = [42, 26, 38, 60, 34, 44, 44, 58, 48];
 
 /** getColumnCount (AnalysisFrame.java:769-781): 9 with a KataGo engine or when a main-line node
  *  holds score data (Board.isContainsKataData / isContainsKataData2, Board.java:5854-5870: from
@@ -735,9 +775,12 @@ export function framePayload(v: WorkbenchView, id: FrameId, nine: boolean, layou
   }
   return {
     headers,
+    sorted: frames[id].sort in SORT_KEYS ? frames[id].sort : null,
     widths,
     layout,
     rows: colourCells(v, id, rows, cells, 5, 3, nine ? 7 : null),
+    actualRow: rows.findIndex((r) => r.actual),
+    actualNote: t("AnalysisFrame.actual"),
     list: d.bestMovesList,
     graph: d.bestMovesGraph,
     boxes: [
@@ -759,7 +802,8 @@ export function tablesReport() {
   return {
     suggestionClick,
     branchLength: branches.values().next().value ?? null,
-    main: { rows: mainCells, selectedRow: selection.main.selected, clickedRow: selection.main.click, columns: mainWidths },
+    // rowMiddles: each body row's vertical middle in the window, where a probe's click lands on it.
+    main: { rows: mainCells, selectedRow: selection.main.selected, clickedRow: selection.main.click, columns: mainWidths, rowMiddles: [...document.querySelectorAll<HTMLTableRowElement>("#table tbody tr")].map((row) => { const box = row.getBoundingClientRect(); return Math.round(box.top + box.height / 2); }) },
     frame: { rows: frames.frame.cells, selectedRow: selection.frame.selected, clickedRow: selection.frame.click, sort: frames.frame.sort },
     sub: { rows: frames.sub.cells, selectedRow: selection.sub.selected, clickedRow: selection.sub.click, sort: frames.sub.sort },
   };

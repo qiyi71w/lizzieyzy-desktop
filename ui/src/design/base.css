@@ -1,0 +1,327 @@
+/* The document baseline and the standard controls every window shares. Control rules sit inside
+   :where() so they carry no specificity: a surface's own rule always wins without !important. */
+@import "./tokens.css";
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+body {
+  font-family: var(--ds-font);
+  font-size: var(--ds-size);
+  line-height: 1.4;
+  color: var(--ds-text);
+  background: var(--ds-chrome);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+/* A subtree fixed to one theme takes that theme's text colour along with its tokens. */
+[data-theme] {
+  color: var(--ds-text);
+}
+
+/* ---- the parts the browser draws */
+::selection {
+  background: var(--ds-accent-soft-line);
+  color: var(--ds-text);
+}
+:focus-visible {
+  outline: 2px solid var(--ds-ring);
+  outline-offset: 1px;
+}
+::placeholder {
+  color: var(--ds-text-3);
+  opacity: 1;
+}
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: var(--ds-radius);
+  background: var(--ds-line-strong);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--ds-text-3);
+}
+:where(a) {
+  color: var(--ds-accent-text);
+}
+
+/* ---- buttons */
+:where(button, input, select, textarea) {
+  margin: 0;
+  font: inherit;
+  color: inherit;
+}
+:where(button) {
+  height: var(--ds-control-h-l);
+  padding: 0 12px;
+  border: 1px solid var(--ds-line-strong);
+  border-radius: var(--ds-radius);
+  background-color: var(--ds-raised);
+  color: var(--ds-text);
+  white-space: nowrap;
+  cursor: default;
+}
+:where(button):hover:enabled {
+  background-image: linear-gradient(var(--ds-hover), var(--ds-hover));
+}
+:where(button):active:enabled {
+  background-image: linear-gradient(var(--ds-pressed), var(--ds-pressed));
+}
+:where(button):disabled {
+  color: var(--ds-text-off);
+  background-color: var(--ds-sunken);
+}
+/* A text action that opens a web page, inline in its sentence. */
+:where(button.ds-link) {
+  height: auto;
+  padding: 0;
+  border: 0;
+  background-color: transparent;
+  color: var(--ds-accent-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: normal;
+  cursor: pointer;
+}
+:where(button.ds-link):hover:enabled,
+:where(button.ds-link):active:enabled {
+  background-image: none;
+}
+:where(button.primary) {
+  border-color: var(--ds-accent);
+  background-color: var(--ds-accent);
+  color: var(--ds-on-accent);
+}
+:where(button.primary):hover:enabled {
+  border-color: var(--ds-accent-hover);
+  background-color: var(--ds-accent-hover);
+  background-image: none;
+}
+:where(button.primary):active:enabled {
+  border-color: var(--ds-accent-pressed);
+  background-color: var(--ds-accent-pressed);
+  background-image: none;
+}
+:where(button.danger) {
+  border-color: var(--ds-danger-soft-line);
+  background-color: var(--ds-danger-soft);
+  color: var(--ds-danger-text);
+}
+/* A filled or destructive action that cannot run looks like any unavailable button. */
+:where(button.primary, button.danger):disabled {
+  border-color: var(--ds-line-strong);
+  background-color: var(--ds-sunken);
+  color: var(--ds-text-off);
+}
+
+/* ---- text fields and menus */
+:where(input:not([type]), input[type="text"], input[type="number"], input[type="password"], input[type="search"], input[type="url"], select, textarea) {
+  height: var(--ds-control-h-l);
+  padding: 0 8px;
+  border: 1px solid var(--ds-line-strong);
+  border-radius: var(--ds-radius);
+  background-color: var(--ds-field);
+  color: var(--ds-text);
+}
+:where(textarea) {
+  height: auto;
+  padding: 6px 8px;
+  line-height: 1.4;
+}
+/* A field darkens its edge under the pointer; with the focus it takes the accent edge and the
+   focus ring outside it. */
+:where(input:not([type]), input[type="text"], input[type="number"], input[type="password"], input[type="search"], input[type="url"], select, textarea):hover:enabled {
+  border-color: var(--ds-text-3);
+}
+:where(input, select, textarea):focus-visible {
+  border-color: var(--ds-accent);
+  outline-offset: 0;
+}
+/* A field that holds a number: right-aligned, numerals of one width. */
+:where(input[type="number"], input[inputmode="numeric"], input[inputmode="decimal"]) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+:where(input, select, textarea):disabled {
+  color: var(--ds-text-off);
+  background-color: var(--ds-sunken);
+}
+/* An invalid field keeps its danger edge and ground under the pointer and with the focus (the
+   focus ring stays outside it): the state selectors match the hover and focus rules above. */
+:where(input.invalid, input[aria-invalid="true"]),
+:where(input.invalid, input[aria-invalid="true"]):is(:hover:enabled, :focus-visible) {
+  border-color: var(--ds-danger);
+  background-color: var(--ds-danger-soft);
+}
+:where(select) {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 24px;
+  background-image: var(--ds-chevron);
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 8px 5px;
+}
+
+/* ---- check boxes and radio buttons: drawn here so they match on every WebView */
+:where(input[type="checkbox"], input[type="radio"]) {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 0 5px 0 0;
+  border: 1px solid var(--ds-line-strong);
+  border-radius: var(--ds-radius-s);
+  background: var(--ds-field) center / 10px 10px no-repeat;
+  vertical-align: -2px;
+}
+:where(input[type="radio"]) {
+  border-radius: 50%;
+}
+:where(input[type="checkbox"], input[type="radio"]):checked {
+  border-color: var(--ds-accent);
+  background-color: var(--ds-accent);
+}
+:where(input[type="checkbox"]):checked {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2 5.2 4.2 7.4 8.2 2.9' fill='none' stroke='%23fff' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+:where(input[type="checkbox"]):indeterminate {
+  border-color: var(--ds-accent);
+  background-color: var(--ds-accent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Cpath d='M2.5 5h5' stroke='%23fff' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+:where(input[type="radio"]):checked {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'%3E%3Ccircle cx='5' cy='5' r='2.2' fill='%23fff'/%3E%3C/svg%3E");
+}
+:where(input[type="checkbox"], input[type="radio"]):disabled {
+  border-color: var(--ds-line);
+  background-color: var(--ds-sunken);
+}
+:where(input[type="checkbox"], input[type="radio"]):checked:disabled {
+  border-color: var(--ds-text-off);
+  background-color: var(--ds-text-off);
+}
+/* A check box drawn as a sliding switch (controls.ts switchBox): the knob is the gradient's disc,
+   so the switch has no pseudo-elements. */
+:where(input.ds-switch) {
+  width: 28px;
+  height: 16px;
+  margin: 0;
+  border: 0;
+  border-radius: var(--ds-radius-menu);
+  background: radial-gradient(circle 6px at 8px 50%, var(--ds-field) 5.5px, transparent 6px), var(--ds-line-strong);
+  vertical-align: middle;
+}
+:where(input.ds-switch):checked {
+  background: radial-gradient(circle 6px at 20px 50%, var(--ds-on-accent) 5.5px, transparent 6px), var(--ds-accent);
+}
+:where(input.ds-switch):disabled {
+  opacity: 0.45;
+}
+:where(input[type="range"], progress) {
+  accent-color: var(--ds-accent);
+}
+
+/* ---- number fields with their arrows (stepper.ts). The stepper carries the field's frame and
+   states; the field inside it is bare. */
+:where(.ds-stepper) {
+  display: inline-flex;
+  flex: none;
+  align-items: stretch;
+  height: var(--ds-control-h-l);
+  border: 1px solid var(--ds-line-strong);
+  border-radius: var(--ds-radius);
+  background-color: var(--ds-field);
+  overflow: hidden;
+  vertical-align: middle;
+}
+:where(.ds-stepper:has(> input[hidden])) {
+  display: none;
+}
+:where(.ds-stepper > input) {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: auto;
+  padding: 0 6px 0 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+/* The arrows beside the field replace the WebView's own. */
+:where(.ds-stepper > input)::-webkit-inner-spin-button,
+:where(.ds-stepper > input)::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+:where(.ds-stepper > input):focus-visible {
+  outline: none;
+}
+:where(.ds-stepper > input):disabled {
+  background-color: transparent;
+}
+:where(.ds-stepper):hover {
+  border-color: var(--ds-text-3);
+}
+:where(.ds-stepper):focus-within {
+  border-color: var(--ds-accent);
+  outline: 2px solid var(--ds-ring);
+}
+:where(.ds-stepper):has(> input.invalid, > input[aria-invalid="true"]) {
+  border-color: var(--ds-danger);
+  background-color: var(--ds-danger-soft);
+}
+:where(.ds-stepper):has(> input:disabled) {
+  border-color: var(--ds-line-strong);
+  background-color: var(--ds-sunken);
+}
+:where(.ds-stepper-arrows) {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: 18px;
+  box-shadow: inset 1px 0 0 var(--ds-line);
+  color: var(--ds-text-3);
+}
+:where(.ds-stepper-arrows > span) {
+  flex: 1;
+  display: grid;
+  place-items: center;
+}
+:where(.ds-stepper-arrows > span):hover {
+  background-color: var(--ds-hover);
+  color: var(--ds-text);
+}
+:where(.ds-stepper-arrows > span):active {
+  background-color: var(--ds-pressed);
+}
+:where(.ds-stepper):has(> input:disabled, > input[readonly]) > .ds-stepper-arrows {
+  color: var(--ds-text-off);
+  pointer-events: none;
+}
+/* Outranks icons.css's own size. */
+.ds-stepper-arrows .icon {
+  width: 10px;
+  height: 10px;
+  stroke-width: 2;
+}

@@ -10,6 +10,11 @@ use crate::settings::{self, Storage};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub enum BoardStyle { #[default] Japanese, ChineseClassic }
 
+/// 外观模式: the interface follows the system's light or dark setting, or is fixed to one. Light
+/// by default.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum AppearanceMode { System, #[default] Light, Dark }
+
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
 pub struct ThemeNodeColor { pub node: crate::record::NodeId, pub color: Vec<u8> }
 
@@ -18,8 +23,7 @@ pub struct ThemeNodeColor { pub node: crate::record::NodeId, pub color: Vec<u8> 
 pub struct AppearanceSettings {
     pub theme: String,
     pub board_style: BoardStyle,
-    pub apple_style: bool,
-    pub morandi_colors: bool,
+    pub mode: AppearanceMode,
     pub custom_board_image: String,
     pub custom_background_image: String,
     pub frame_font_size: i32,
@@ -28,9 +32,9 @@ pub struct AppearanceSettings {
 }
 impl Default for AppearanceSettings {
     fn default() -> Self {
-        // Config.java:1608,1871,2924; Menu.java:604-629,733-775.
-        Self { theme: "default".into(), board_style: BoardStyle::Japanese, apple_style: false,
-            morandi_colors: false, custom_board_image: String::new(), custom_background_image: String::new(), frame_font_size: 12,
+        // Config.java:1608,1871,2924; Menu.java:604-629.
+        Self { theme: "default".into(), board_style: BoardStyle::Japanese, mode: AppearanceMode::Light,
+            custom_board_image: String::new(), custom_background_image: String::new(), frame_font_size: 12,
             glass_effect_level: 1 }
     }
 }
@@ -70,7 +74,7 @@ impl Default for ThemeSettings {
             font_name: "Lizzie Default".into(), ui_font_name: "Lizzie Default".into(), winrate_font_name: "Lizzie Default".into(),
             board_image: String::new(), background_image: String::new(), black_stone_image: String::new(), white_stone_image: String::new(),
             blunder_winrate_thresholds: vec![-24.,-12.,-6.,-3.,-1.,3.,100.],
-            // Theme.java:738-767: the glass theme, used for glass-effect-level > 0 / Apple.
+            // Theme.java:738-767: the glass theme, used for glass-effect-level > 0.
             glass_panel_overlay_color:vec![24,24,26,102], glass_panel_border_color:vec![255,255,255,26],
             glass_panel_highlight_color:vec![255,255,255,77], glass_panel_shadow_color:vec![0,0,0,64], glass_accent_color:vec![96,165,250],
             glass_blur_radius:10, liquid_blur_radius:15, glass_corner_radius:12,
@@ -102,6 +106,8 @@ pub const BUNDLED: &[(&str, &str)] = &[
     ("Megapack",include_str!("../../../ui/public/themes/Megapack/theme.txt")),
     ("Custom",include_str!("../../../ui/public/themes/Custom/theme.txt")),
     ("Fast",include_str!("../../../ui/public/themes/Fast/theme.txt")),
+    // Java's own 默认 values (Theme.java getters, Config.createDefaultConfig) with the jar's images.
+    ("java-classic",include_str!("../../../ui/public/themes/java-classic/theme.txt")),
 ];
 pub fn themes_dir(storage: &Storage) -> PathBuf { storage.config_file.parent().unwrap_or(Path::new(".")).join("themes") }
 pub fn valid_name(name: &str) -> bool {
@@ -165,9 +171,30 @@ pub fn merge_java(base: &ThemeSettings, raw: &Map<String,Value>) -> ThemeSetting
     }
     next
 }
-pub fn to_java(theme: &ThemeSettings) -> Value {
+/// The `theme.txt` keys the 主题外观 page edits: those ConfigDialog2 puts into a named theme
+/// (ConfigDialog2.java:6204-6285).
+const PAGE_KEYS: &[&str] = &[
+    "use-pure-stone", "use-pure-board", "pure-board-color", "use-pure-background", "pure-background-color",
+    "show-stone-shadow", "winrate-stroke-width", "score-lead-stroke-width", "minimum-blunder-bar-width", "shadow-size",
+    "font-name", "ui-font-name", "winrate-font-name", "use-scorediff-in-variation-tree", "scorediff-in-variation-tree-factor",
+    "background-image", "board-image", "black-stone-image", "white-stone-image",
+    "winrate-line-color", "winrate-miss-line-color", "blunder-bar-color", "scoremean-line-color",
+    "stone-indicator-type", "show-comment-node-color", "comment-node-color", "comment-background-color", "comment-font-color",
+    "best-move-color", "comment-font-size", "background-filter", "blunder-winrate-thresholds", "blunder-node-colors",
+];
+/// The `theme.txt` a save of the named theme `name` writes. Like Theme.save (Theme.java:617-643)
+/// it rewrites the object read from the file, `stored` (the user's file, or the bundled one when
+/// there is none; an empty object for a theme with neither, as `new Theme(name)` reads), with the
+/// page's values put in ([`PAGE_KEYS`]): every other key stays as it was, and a key whose value is
+/// a blank string (String.trim) is left out.
+pub fn to_java(name: &str, stored: Option<&[u8]>, theme: &ThemeSettings) -> Value {
+    let mut raw = stored.and_then(|bytes| serde_json::from_slice::<Map<String,Value>>(bytes).ok())
+        .or_else(|| BUNDLED.iter().find(|(n,_)| *n == name).and_then(|(_,raw)| serde_json::from_str(raw).ok()))
+        .unwrap_or_default();
     let Value::Object(fields) = serde_json::to_value(theme).expect("theme serializes") else { unreachable!() };
-    Value::Object(fields.into_iter().map(|(k,v)|(java_key(&k),v)).collect())
+    raw.extend(fields.into_iter().map(|(k,v)|(java_key(&k),v)).filter(|(k,_)| PAGE_KEYS.contains(&k.as_str())));
+    raw.retain(|_,v| !v.as_str().is_some_and(|s| s.trim_matches(|c: char| c <= ' ').is_empty()));
+    Value::Object(raw)
 }
 pub fn load_theme(storage: &Storage, name: &str, defaults: &ThemeSettings) -> ThemeSettings {
     if name == "default" || !valid_name(name) { return defaults.clone(); }
@@ -199,7 +226,8 @@ pub fn catalog(storage: &Storage, defaults: &ThemeSettings) -> Vec<ThemeEntry> {
     names.into_iter().map(|name|ThemeEntry{values:load_theme(storage,&name,defaults),name}).collect()
 }
 pub fn add_theme(storage: &Storage, name: &str) -> std::io::Result<()> {
-    if !valid_name(name) || name.eq_ignore_ascii_case("default")
+    // "java-classic" stays the bundled theme's name even after it is deleted (hidden).
+    if !valid_name(name) || name.eq_ignore_ascii_case("default") || name.eq_ignore_ascii_case("java-classic")
         || catalog(storage,&ThemeSettings::default()).iter().any(|e|e.name.eq_ignore_ascii_case(name)) {
         return Err(std::io::Error::other("invalid or duplicate theme name"));
     }

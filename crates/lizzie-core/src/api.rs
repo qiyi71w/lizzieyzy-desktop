@@ -639,7 +639,7 @@ pub enum Command {
         op: BatchCommand,
     },
     /// 人机对弈 (棋局 menu, 新对局 dialogs, N / Alt+N / Enter / Alt+Enter / P / Alt+, and the
-    /// double-menu game buttons) and the bottom toolbar's 自动落子.
+    /// double-menu game buttons).
     Game {
         op: GameCommand,
     },
@@ -658,13 +658,9 @@ pub enum Command {
     SetTopToolbarSettings {
         settings: crate::settings::TopToolbarSettings,
     },
-    /// 自定义内容 of the bottom toolbar (its buttons) and the 详细工具栏 button.
+    /// 自定义内容 of the bottom toolbar (its buttons).
     SetBottomButtons {
         settings: crate::settings::BottomButtonSettings,
-    },
-    /// 详细工具栏 > 设置模块顺序 确认.
-    SetDetailPanelOrder {
-        order: crate::settings::DetailPanelOrder,
     },
 }
 
@@ -715,11 +711,6 @@ pub enum GameCommand {
     },
     /// Alt+, (`LizzieFrame.genmove`): the engine plays one move for the side to move.
     EngineMove,
-    /// The bottom toolbar's 自动落子 box (session) and its sides and conditions (remembered).
-    SetAutoPlay {
-        enabled: bool,
-        settings: crate::settings::AutoPlaySettings,
-    },
 }
 
 /// A game's progress. `Starting` is accepted, not started: the engine is still loading or
@@ -792,7 +783,8 @@ pub struct GameNotice {
     pub prefix: Option<String>,
 }
 
-/// The bottom toolbar's 自动落子.
+/// 自动落子: on for a 分析模式 game's engine or by 棋盘同步工具 (session only), with its sides and
+/// 落子条件 (remembered).
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, TS)]
 pub struct AutoPlayView {
     pub enabled: bool,
@@ -1273,10 +1265,8 @@ pub struct SettingsView {
     pub top_toolbar: crate::settings::TopToolbarSettings,
     pub panel_sizes: crate::settings::PanelSizes,
     pub bottom_toolbar: crate::settings::BottomToolbar,
-    /// The bottom toolbar's buttons (自定义内容) and 详细工具栏 button.
+    /// The bottom toolbar's buttons (自定义内容).
     pub bottom_buttons: crate::settings::BottomButtonSettings,
-    /// The 详细工具栏 panels' places (设置模块顺序).
-    pub detail_panel_order: crate::settings::DetailPanelOrder,
     pub comment_panel_auto_hidden: bool,
     pub custom_layouts: [Option<crate::settings::CustomLayout>; 2],
     pub independent_main_board: Option<crate::settings::WindowPlacement>,
@@ -1314,7 +1304,7 @@ pub struct SettingsView {
     pub tracking: crate::settings::TrackingSettings,
     /// 人机对弈 dialog settings.
     pub game: crate::settings::GameSettings,
-    /// The bottom toolbar's 自动落子.
+    /// 自动落子 (a 分析模式 game's or 棋盘同步工具's).
     pub autoplay: AutoPlayView,
     pub matches: MatchSettingsView,
     /// 死活题 dialog choices, 抓取死活题 参数设置 and the 死活 toolbar button.
@@ -1676,6 +1666,17 @@ pub struct WorkbenchView {
     /// 人机对弈 messages, once each, in order.
     pub game_notices: Vec<GameNotice>,
     pub engine_match: Option<MatchView>,
+    /// The open document is an engine game (Java `Board.isPkBoard` with `isPkBoardKataB` /
+    /// `isPkBoardKataW`; `WinrateGraph.isEngineOrPkGraphMode`): always while a match exists, its
+    /// score side from the match's engines; else a document a match game was played on
+    /// (`EngineManager` 2918, kata side 15801-15805), a 跑谱贡献 rating game being watched
+    /// (`ContributeEngine` 965-971) or a record whose root `DZ` is `Y` / `KB` / `KW`
+    /// (`SGFParser` 775-791, also after 转换为初始局面, `Board` 1320), until 清除Lizzie缓存(全局),
+    /// the start of 自动分析 or a fully answered flash analysis, 自动棋谱快析 attempt or 整盘精析
+    /// pass ends it (`clearBoardStat` / `clearPkBoardStat` in `AnalysisEngine.setResult`). Saves
+    /// write its `DZ` (`SGFParser` 1443-1462). `None` for any other
+    /// document.
+    pub pk_board: Option<PkBoardView>,
     pub match_outcome: Option<MatchOutcomeView>,
     pub match_notices: Vec<MatchNotice>,
     pub match_winrate_image: Option<MatchWinrateImageRequest>,
@@ -1962,10 +1963,8 @@ pub enum ImportTarget {
     /// 底部工具栏 自定义内容: `ui.liveButton`, `kataEstimate`, `batchOpen`, `openfile`, `savefile`,
     /// `finalScore`, `heatMap`, `badMoves`, `analyze-list`, `refresh`, `analyse`, `tryPlay`,
     /// `setMain`, `backMain`, `clearButton`, `deleteMove`, `move-rank`, `move`, `coords`,
-    /// `autoPlay`, `show-detailed-toolbar-menu`.
+    /// `autoPlay`.
     BottomButtons,
-    /// 详细工具栏 设置模块顺序: `persist:ui-persist.toolbar-parameter` slots 32–34.
-    DetailPanelOrder,
     /// 问题手: `ui.is-showing-blunder-table`, `problem-list-side-filter`, `problem-list-sort`,
     /// `problem-list-winrate-threshold`, `blunder-playouts-threshold`,
     /// `hide-blunder-table-control-pane`.

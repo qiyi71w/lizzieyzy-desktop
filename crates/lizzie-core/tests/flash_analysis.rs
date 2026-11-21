@@ -978,3 +978,30 @@ fn changing_the_rules_during_a_borrowed_run_fails_it_without_storing_or_stepping
     assert_eq!(v.position.move_number, 0);
     assert_eq!(flash_results(&mut wb), 0);
 }
+
+#[test]
+fn a_finished_flash_analysis_ends_the_engine_game_marks() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    configure(&mut wb, false, false);
+    let fg = with_engine(&mut wb, &world);
+    open(&mut wb, &RECORD.replacen("(;", "(;DZ[KW]", 1));
+    serve(&mut wb, &world, fg, 0, true);
+    assert!(wb.inspect().pk_board.is_some());
+    start(&mut wb, FlashTarget::WholeGame);
+    let worker = *world.workers().last().expect("an analysis process");
+    serve(&mut wb, &world, fg, 0, true);
+    let qs = queries(&world, worker);
+    let (last, earlier) = qs.split_last().unwrap();
+    for q in earlier {
+        answer(&mut wb, worker, q);
+    }
+    assert!(wb.inspect().pk_board.is_some(), "only the finished run's setResult ends them");
+    answer(&mut wb, worker, last);
+    // AnalysisEngine.java:1222-1223 clearPkBoardStat, isKataBoard: a save writes `G`, not the
+    // engine game's `KW` it was read with.
+    assert_eq!(wb.inspect().pk_board, None);
+    let saved = wb.begin_save("/x.sgf", "test").text;
+    assert!(saved.contains("DZ[G]") && saved.matches("DZ[").count() == 1, "{saved}");
+}

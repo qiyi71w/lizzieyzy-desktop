@@ -1,0 +1,46 @@
+{
+ "strings": {
+  "EnUs": {
+   "FunctionSearch.description.menu.appearanceMode": "Choose a light or dark interface, or match the system setting.",
+   "Menu.appearanceMode": "Appearance",
+   "Menu.appearanceModeDark": "Dark",
+   "Menu.appearanceModeLight": "Light",
+   "Menu.appearanceModeSystem": "Match System"
+  },
+  "JaJp": {
+   "FunctionSearch.description.menu.appearanceMode": "インターフェイスをライト、ダーク、またはシステム設定に合わせて表示します。",
+   "Menu.appearanceMode": "外観モード",
+   "Menu.appearanceModeDark": "ダーク",
+   "Menu.appearanceModeLight": "ライト",
+   "Menu.appearanceModeSystem": "システムに合わせる"
+  },
+  "KoKr": {
+   "FunctionSearch.description.menu.appearanceMode": "인터페이스를 라이트, 다크 또는 시스템 설정에 맞춰 표시합니다.",
+   "Menu.appearanceMode": "화면 모드",
+   "Menu.appearanceModeDark": "다크",
+   "Menu.appearanceModeLight": "라이트",
+   "Menu.appearanceModeSystem": "시스템 설정과 일치"
+  },
+  "ThTh": {
+   "FunctionSearch.description.menu.appearanceMode": "เลือกหน้าตาแบบสว่าง แบบมืด หรือตามการตั้งค่าระบบ",
+   "Menu.appearanceMode": "โหมดการแสดงผล",
+   "Menu.appearanceModeDark": "มืด",
+   "Menu.appearanceModeLight": "สว่าง",
+   "Menu.appearanceModeSystem": "ตามระบบ"
+  },
+  "ZhCn": {
+   "FunctionSearch.description.menu.appearanceMode": "选择界面使用浅色、深色，或跟随系统设置。",
+   "Menu.appearanceMode": "外观模式",
+   "Menu.appearanceModeDark": "深色",
+   "Menu.appearanceModeLight": "浅色",
+   "Menu.appearanceModeSystem": "跟随系统"
+  },
+  "ZhTw": {
+   "FunctionSearch.description.menu.appearanceMode": "選擇介面使用淺色、深色，或跟隨系統設定。",
+   "Menu.appearanceMode": "外觀模式",
+   "Menu.appearanceModeDark": "深色",
+   "Menu.appearanceModeLight": "淺色",
+   "Menu.appearanceModeSystem": "跟隨系統"
+  }
+ }
+}

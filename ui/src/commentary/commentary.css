@@ -1,168 +1,601 @@
-/* AI 解说 window (TeacherDialogView / TeacherDialogStyle, light workspace colours of
-   AppleStyleSupport) and its settings dialog (TeacherSettingsDialog / TeacherSettingsStyle). Fonts
-   follow TeacherDialogStyle.font: the workspace font, never below 13 pt. */
-:root {
-  --bg: rgb(247, 249, 248);
-  --surface: #fff;
-  --rail: rgb(249, 250, 250);
-  --text: rgb(35, 42, 39);
-  --muted: rgb(105, 112, 108);
-  --border: rgb(213, 218, 215);
-  --accent: rgb(15, 118, 110);
-  --accent-hover: rgb(39, 132, 124);
-  --accent-soft: rgb(229, 243, 240);
-  --danger: rgb(181, 70, 51);
-  --danger-soft: rgb(252, 239, 235);
-  --warning: rgb(184, 118, 23);
-  --font: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", "Segoe UI", sans-serif;
+/* AI 解说 window (TeacherDialog) and its settings dialog (TeacherSettingsDialog). The base controls
+   are design/base.css and the dialog frame design/dialog.css; this sheet states only what differs.
+
+   The window is a reading surface: a --ds-chrome strip with the mode switch and 设置, the reader on
+   --ds-panel (context row, page tabs, the commentary in a readable measure, the status line) and the
+   follow-up composer under a hairline. */
+html,
+body {
+  overflow: hidden;
 }
-html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; }
-[hidden] { display: none !important; }
-button, input, select, textarea { font: inherit; color: inherit; }
-button { cursor: default; }
+#tc-root [hidden],
+.ts-overlay [hidden] {
+  display: none;
+}
+#tc-root {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--ds-panel);
+}
 
-/* ---- buttons (RoundedButtonUI: arc 8, bold, 7/14 padding) */
-.tc-btn { min-height: 34px; padding: 6px 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); font-weight: bold; white-space: nowrap; }
-.tc-btn:hover:not(:disabled) { background: rgb(242, 244, 243); }
-.tc-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-.tc-btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
-.tc-btn.danger { color: var(--danger); border-color: rgb(232, 190, 180); background: var(--surface); }
-.tc-btn.danger:hover:not(:disabled) { background: var(--danger-soft); }
-.tc-btn:disabled { opacity: 0.45; }
-.tc-btn:focus-visible, .tc-mode:focus-visible, .tc-tab:focus-visible, .ts-nav:focus-visible, .ts-provider:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.tc-btn .icon { width: 16px; height: 16px; vertical-align: -3px; margin-right: 6px; }
+/* ---- the strip: 下一手 / 区间 / 全局 as one segmented switch, 设置 at the right */
+.tc-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--ds-line);
+  background: var(--ds-chrome);
+}
+.tc-modes {
+  display: inline-flex;
+  min-width: 0;
+  border: 1px solid var(--ds-line-strong);
+  border-radius: var(--ds-radius);
+  background: var(--ds-raised);
+  overflow: hidden;
+}
+.tc-mode {
+  height: calc(var(--ds-control-h-l) - 2px);
+  padding: 0 14px;
+  border: 0;
+  border-radius: 0;
+  background-color: transparent;
+}
+.tc-mode + .tc-mode {
+  border-left: 1px solid var(--ds-line);
+}
+.tc-mode.selected {
+  background-color: var(--ds-accent-soft);
+  color: var(--ds-accent-text);
+  font-weight: 600;
+}
+.tc-mode:disabled {
+  background-color: transparent;
+}
+.tc-settings {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.tc-settings > .icon {
+  color: var(--ds-text-2);
+}
+.tc-settings:disabled > .icon {
+  color: var(--ds-text-off);
+}
 
-/* ---- window: BorderLayout(0, 8) in a 12 16 border */
-#tc-root { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 8px; padding: 12px 16px; box-sizing: border-box; }
-.tc-header { display: flex; align-items: center; gap: 14px; flex: none; }
-.tc-modes { display: flex; gap: 6px; flex: 1; min-width: 0; }
-/* styleModeButton: glyph + text, at least 110 x 42, equal widths */
-.tc-mode { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-width: 110px; height: 42px; padding: 6px 12px; border: 0; border-radius: 8px; background: transparent; color: var(--text); font-weight: bold; font-size: 14px; position: relative; }
-.tc-mode svg { width: 22px; height: 22px; flex: none; }
-.tc-mode:hover:not(:disabled) { background: rgb(240, 243, 242); }
-.tc-mode.selected { background: var(--accent-soft); color: var(--accent); }
-.tc-mode.selected::before { content: ""; position: absolute; left: 0; top: 4px; bottom: 4px; width: 3px; border-radius: 2px; background: var(--accent); }
-.tc-mode:disabled { opacity: 0.5; }
+/* ---- the reader */
+.tc-reader {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.tc-context {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 42px;
+  padding: 8px 16px;
+}
+.tc-scope {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.tc-range {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ds-text-2);
+}
+.tc-range input {
+  width: calc(var(--ds-size) * 5);
+}
+.tc-range .ds-stepper + label {
+  margin-left: 4px;
+}
+.tc-actions {
+  flex: none;
+  display: flex;
+  gap: 8px;
+}
 
-/* the reader: context bar, tabs, status strip */
-.tc-reader { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--surface); padding: 0 12px; }
-.tc-context { flex: none; display: flex; align-items: center; gap: 12px; padding: 6px 12px 6px 14px; min-height: 36px; border-bottom: 1px solid var(--border); }
-.tc-scope { flex: 1; min-width: 0; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 8px 0 2px; }
-.tc-range { flex: 1; display: flex; align-items: center; gap: 6px; color: var(--muted); }
-.tc-range input { width: 62px; height: 34px; box-sizing: border-box; padding: 2px 4px 2px 6px; text-align: center; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); }
-.tc-actions { display: flex; gap: 6px; flex: none; }
-.tc-tabs { flex: none; display: flex; gap: 2px; margin-top: 6px; border-bottom: 1px solid var(--border); }
-.tc-tab { padding: 3px 10px; border: 1px solid var(--border); border-bottom: 0; border-radius: 4px 4px 0 0; background: rgb(242, 244, 243); font-size: 13px; position: relative; top: 1px; }
-.tc-tab.selected { background: var(--surface); }
-.tc-pages { flex: 1; min-height: 0; position: relative; }
-.tc-page { position: absolute; inset: 0; overflow-y: auto; overflow-x: hidden; }
-/* empty / loading card: centred icon, bold 18 title, 13 muted detail */
-.tc-empty { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 28px; text-align: center; }
-.tc-empty svg { width: 52px; height: 52px; color: rgb(185, 190, 187); }
-.tc-empty-title { margin-top: 12px; font-size: 18px; font-weight: bold; }
-.tc-empty-detail { margin-top: 8px; color: var(--muted); font-size: 13px; min-height: 2.6em; max-width: 100%; }
-/* output (createEditorKit): 16 px body, 1.4 line height, 18 22 margin */
-.tc-output { padding: 18px 22px; font-size: 16px; line-height: 1.4; user-select: text; overflow-wrap: anywhere; }
-.tc-output h1 { font-size: 20px; margin: 15px 0 9px 0; }
-.tc-output h2 { font-size: 18px; margin: 14px 0 8px 0; }
-.tc-output h3 { font-size: 16px; margin: 13px 0 7px 0; }
-.tc-output code { background: rgb(250, 251, 251); padding: 1px 4px; font-family: Consolas, Menlo, monospace; }
-.tc-output pre { background: rgb(250, 251, 251); padding: 9px; border: 1px solid var(--border); white-space: pre-wrap; }
-.tc-output pre code { padding: 0; }
-.tc-output ul { margin: 6px 0; padding-left: 22px; }
-.tc-output ol { margin: 6px 0; padding-left: 25px; }
-.tc-output blockquote { color: var(--muted); border-left: 3px solid var(--border); margin: 9px 0; padding-left: 11px; }
-.tc-output table { border-collapse: collapse; margin: 6px 0; }
-.tc-output th, .tc-output td { border: 1px solid var(--border); padding: 3px 6px; text-align: left; }
-.tc-evidence { margin: 0; padding: 12px 14px; font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; font-family: inherit; }
-/* status strip: indeterminate 3 px bar, then dot + status, model label + 管理用量 */
-.tc-status-area { flex: none; }
-.tc-progress { height: 3px; overflow: hidden; background: var(--accent-soft); position: relative; }
-.tc-progress::after { content: ""; position: absolute; top: 0; bottom: 0; width: 30%; background: var(--accent); animation: tc-indeterminate 1.4s linear infinite; }
-@keyframes tc-indeterminate { from { left: -30%; } to { left: 100%; } }
-.tc-status-row { display: flex; align-items: center; gap: 14px; padding: 8px 13px; border-top: 1px solid var(--border); }
-.tc-status-left { flex: 1; min-width: 0; display: flex; align-items: flex-start; gap: 8px; }
-.tc-dot { width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; flex: none; background: var(--muted); }
-.tc-dot.success, .tc-dot.running { background: var(--accent); }
-.tc-dot.warning { background: var(--warning); }
-.tc-dot.error { background: var(--danger); }
-.tc-status { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
-.tc-account { display: flex; align-items: center; gap: 8px; flex: none; max-width: 45%; }
-.tc-model { color: var(--muted); font-size: 13px; width: 220px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 棋理解说 / 分析依据: two text segments on a hairline; the shown page is on --ds-well in 600. */
+.tc-tabs {
+  flex: none;
+  display: flex;
+  gap: 2px;
+  padding: 0 16px 8px;
+  border-bottom: 1px solid var(--ds-line);
+}
+.tc-tab {
+  height: var(--ds-control-h);
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--ds-radius-s);
+  background-color: transparent;
+  color: var(--ds-text-2);
+}
+.tc-tab.selected {
+  background-color: var(--ds-well);
+  color: var(--ds-text);
+  font-weight: 600;
+}
+.tc-pages {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+.tc-page {
+  position: absolute;
+  inset: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
 
-/* composer */
-.tc-composer { flex: none; display: flex; flex-direction: column; gap: 6px; }
-.tc-prompt { display: flex; align-items: center; gap: 12px; }
-.tc-prompt label { font-weight: bold; white-space: nowrap; }
-.tc-input { flex: 1; min-width: 0; height: 34px; box-sizing: border-box; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
-.tc-input::placeholder { color: var(--muted); }
-.tc-input:focus, .tc-range input:focus, .ts-field:focus { outline: none; border-color: var(--accent); }
-.tc-input:disabled { background: rgb(242, 244, 243); }
-.tc-footer { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.tc-check { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); margin-right: 6px; }
-.tc-check input { margin: 0; accent-color: var(--accent); }
+/* Nothing yet / waiting: the card's mark, title and the next step, centred. */
+.tc-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 32px;
+  text-align: center;
+}
+.tc-empty > .icon {
+  --menu-icon-size: 24px;
+  margin-bottom: 4px;
+  color: var(--ds-text-3);
+}
+.tc-empty-title {
+  font-size: var(--ds-size-l);
+  font-weight: 600;
+}
+.tc-empty-detail {
+  max-width: 60ch;
+  min-height: 2.8em;
+  color: var(--ds-text-3);
+}
 
-/* ---- settings dialog: a modal 880 x 650 content area (capped to the window) */
-.ts-overlay { position: fixed; inset: 0; z-index: 10; background: rgba(20, 28, 25, 0.28); display: flex; align-items: center; justify-content: center; }
-.ts-box { width: min(880px, calc(100vw - 16px)); height: min(650px, calc(100vh - 16px)); display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25); outline: none; }
-/* JOptionPane information message over the settings dialog (ChatGPT welcome). */
-.ts-notice-layer { z-index: 20; }
-.ts-notice { width: min(420px, calc(100vw - 32px)); box-sizing: border-box; padding: 18px 20px 16px; display: flex; flex-direction: column; gap: 12px; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25); }
-.ts-notice-title { font-weight: bold; }
-.ts-notice-text { line-height: 1.5; }
-.ts-notice .tc-btn { align-self: flex-end; }
-.ts-head { flex: none; padding: 13px 24px 9px; background: var(--rail); border-bottom: 1px solid var(--border); }
-.ts-title { font-size: 30px; font-weight: bold; line-height: 1.25; }
-.ts-subtitle, .ts-note { color: var(--muted); font-size: 13px; white-space: pre-line; }
-.ts-main { flex: 1; min-height: 0; display: flex; }
-.ts-rail { width: 210px; flex: none; box-sizing: border-box; padding: 26px 10px 12px; background: var(--rail); border-right: 1px solid var(--border); display: flex; flex-direction: column; gap: 12px; }
-.ts-nav { display: flex; align-items: center; gap: 12px; height: 48px; padding: 0 14px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-size: 16px; text-align: left; position: relative; }
-.ts-nav svg { width: 22px; height: 22px; flex: none; }
-.ts-nav.selected { background: var(--accent-soft); color: var(--accent); font-weight: bold; }
-.ts-nav.selected::before { content: ""; position: absolute; left: -6px; top: 6px; bottom: 6px; width: 3px; border-radius: 2px; background: var(--accent); }
-.ts-pages { flex: 1; min-width: 0; overflow-y: auto; overflow-x: hidden; }
-.ts-page { padding: 20px 36px 16px; display: flex; flex-direction: column; gap: 8px; min-height: calc(100% - 36px); }
-.ts-heading { font-size: 28px; font-weight: bold; line-height: 1.25; }
-.ts-providers { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin: 8px 0 10px; }
-.ts-provider { height: 42px; border: 0; background: var(--surface); font-weight: bold; font-size: 15px; border-bottom: 3px solid transparent; }
-.ts-provider.selected { background: var(--rail); color: var(--accent); border-bottom-color: var(--accent); }
-.ts-provider:disabled { opacity: 0.5; }
-.ts-body { flex: 1; display: flex; flex-direction: column; gap: 8px; }
-.ts-welcome { display: flex; gap: 36px; padding: 14px 20px 6px 20px; align-items: flex-start; }
-.ts-welcome svg { width: 86px; height: 70px; flex: none; color: rgb(95, 104, 100); }
-.ts-welcome-title { font-size: 21px; font-weight: bold; margin-bottom: 10px; }
-.ts-welcome-hint { color: var(--muted); font-size: 15px; }
-.ts-privacy { margin-top: auto; display: flex; align-items: center; gap: 10px; padding: 14px 0 6px; border-top: 1px solid var(--border); color: var(--muted); font-size: 13px; }
-.ts-privacy svg { width: 22px; height: 22px; flex: none; }
-.ts-form { display: grid; grid-template-columns: auto 1fr; column-gap: 14px; row-gap: 10px; align-items: center; }
-.ts-form > label { font-size: 15px; white-space: nowrap; }
-.ts-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.ts-field { flex: 1; min-width: 0; height: 38px; box-sizing: border-box; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: rgb(250, 251, 251); font-size: 15px; }
-.ts-field:disabled { opacity: 0.6; }
-select.ts-field { padding: 4px 8px; }
-.ts-combo { position: relative; flex: 1; min-width: 0; display: flex; }
-.ts-combo .ts-field { padding-right: 30px; }
-.ts-combo-toggle { position: absolute; right: 1px; top: 1px; bottom: 1px; width: 28px; border: 0; background: transparent; color: var(--muted); }
-.ts-combo-list { position: absolute; left: 0; right: 0; top: 100%; z-index: 5; max-height: 220px; overflow-y: auto; margin: 2px 0 0; padding: 2px 0; list-style: none; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); }
-.ts-combo-list li { padding: 5px 10px; cursor: default; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ts-combo-list li:hover, .ts-combo-list li.active { background: var(--accent-soft); }
-.ts-check { display: inline-flex; align-items: center; gap: 5px; font-size: 14px; white-space: nowrap; }
-.ts-check input { margin: 0; accent-color: var(--accent); }
-.ts-label { font-weight: bold; font-size: 15px; margin-top: 4px; }
-.ts-chat-grid { display: grid; grid-template-columns: auto 1fr; column-gap: 12px; row-gap: 8px; align-items: center; }
-.ts-chat-grid > label { font-weight: bold; font-size: 15px; white-space: nowrap; }
-.ts-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.ts-connect { min-width: 270px; min-height: 44px; }
-.ts-section { color: var(--muted); font-weight: bold; font-size: 14px; margin: 12px 0 4px; }
-.ts-section:first-of-type { margin-top: 4px; }
-.ts-pref { display: flex; align-items: center; gap: 22px; padding: 4px 0; border-bottom: 1px solid var(--border); }
-.ts-pref-text { flex: 1; min-width: 0; }
-.ts-pref-title { font-weight: bold; font-size: 16px; }
-.ts-pref select { width: 220px; flex: none; }
-.ts-link { align-self: flex-start; display: inline-flex; align-items: center; gap: 8px; margin-top: 10px; padding: 4px 0; border: 0; background: none; color: var(--accent); font-weight: bold; font-size: 14px; }
-.ts-link svg { width: 22px; height: 22px; }
-.ts-link:disabled { opacity: 0.5; }
-.ts-foot { flex: none; display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 20px; background: var(--rail); border-top: 1px solid var(--border); }
-.ts-status { flex: 1; min-width: 0; color: var(--muted); font-size: 13px; white-space: pre-line; overflow-wrap: anywhere; }
-.ts-foot .tc-btn { min-height: 42px; min-width: 96px; }
-.ts-foot .tc-btn.primary { min-width: 126px; }
+/* The commentary: Body at line height 1.6 in a column of about 75 characters. */
+.tc-output,
+.tc-evidence {
+  max-width: 76ch;
+  margin: 0 auto;
+  padding: 16px 24px 24px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  user-select: text;
+  cursor: text;
+}
+.tc-output :is(h1, h2, h3) {
+  margin: 16px 0 4px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.tc-output > :first-child {
+  margin-top: 0;
+}
+.tc-output h1 {
+  font-size: var(--ds-size-xl);
+}
+.tc-output h2 {
+  font-size: var(--ds-size-l);
+}
+.tc-output h3 {
+  font-size: var(--ds-size);
+}
+.tc-output strong {
+  font-weight: 600;
+}
+.tc-output :is(ul, ol) {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+.tc-output li + li {
+  margin-top: 2px;
+}
+.tc-output code {
+  padding: 1px 4px;
+  border-radius: var(--ds-radius-s);
+  background: var(--ds-sunken);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  font-size: var(--ds-size-s);
+}
+.tc-output pre {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-radius: var(--ds-radius);
+  background: var(--ds-sunken);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.tc-output pre code {
+  padding: 0;
+  background: none;
+}
+.tc-output blockquote {
+  margin: 8px 0;
+  padding-left: 12px;
+  border-left: 1px solid var(--ds-line-strong);
+  color: var(--ds-text-2);
+}
+.tc-output table {
+  margin: 8px 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+.tc-output :is(th, td) {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--ds-line);
+  text-align: left;
+}
+.tc-output th {
+  background: var(--ds-sunken);
+  color: var(--ds-text-2);
+  font-weight: 400;
+}
+.tc-evidence {
+  font-family: inherit;
+  font-size: var(--ds-size);
+  white-space: pre-wrap;
+}
+
+/* The status line: an indeterminate bar while a request runs, the state dot and text, the model
+   and 管理用量. */
+.tc-status-area {
+  flex: none;
+  border-top: 1px solid var(--ds-line);
+}
+.tc-progress {
+  position: relative;
+  height: 2px;
+  overflow: hidden;
+  background: var(--ds-accent-soft);
+}
+.tc-progress::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 30%;
+  background: var(--ds-accent);
+  animation: tc-indeterminate 1.4s linear infinite;
+}
+@keyframes tc-indeterminate {
+  from {
+    left: -30%;
+  }
+  to {
+    left: 100%;
+  }
+}
+.tc-status-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 36px;
+  padding: 4px 16px;
+}
+.tc-status-left {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.tc-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ds-text-3);
+}
+.tc-dot.running {
+  background: var(--ds-accent);
+}
+.tc-dot.success {
+  background: var(--ds-success-text);
+}
+.tc-dot.warning {
+  background: var(--ds-warning-text);
+}
+.tc-dot.error {
+  background: var(--ds-danger);
+}
+.tc-status {
+  color: var(--ds-text-2);
+  overflow-wrap: anywhere;
+}
+.tc-account {
+  flex: none;
+  max-width: 45%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tc-model {
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+/* ---- the composer: the question, its one primary send button, then the choices under it */
+.tc-composer {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--ds-line);
+  background: var(--ds-chrome);
+}
+.tc-prompt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tc-prompt label {
+  flex: none;
+  color: var(--ds-text-2);
+}
+.tc-input {
+  flex: 1;
+  min-width: 0;
+}
+.tc-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.tc-check {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 8px;
+  white-space: nowrap;
+}
+.tc-footer button {
+  height: var(--ds-control-h);
+  padding: 0 10px;
+}
+
+/* ---- AI 解说设置: the dialog frame with the title and its close box, a page list on the left, the
+   page's grouped rows on the right and the footer band (status, 取消 / 保存) below both */
+.ts-overlay {
+  position: fixed;
+  z-index: 10;
+}
+.ts-box {
+  display: flex;
+  flex-direction: column;
+  width: min(880px, calc(100vw - 16px));
+  max-width: none;
+  height: min(650px, calc(100vh - 16px));
+  padding-bottom: 0;
+  overflow: hidden;
+  outline: none;
+}
+.ts-head {
+  flex: none;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--ds-line);
+}
+.ts-subtitle,
+.ts-note {
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+  white-space: pre-line;
+}
+.ts-subtitle {
+  margin-top: 2px;
+  padding: 0 20px;
+}
+.ts-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.ts-rail {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: calc(var(--ds-size) * 11);
+  padding: 12px;
+  border-right: 1px solid var(--ds-line);
+}
+.ts-nav {
+  padding: 0 10px;
+  border-color: transparent;
+  background-color: transparent;
+  text-align: left;
+}
+.ts-nav.selected {
+  background-color: var(--ds-accent-soft);
+  color: var(--ds-accent-text);
+  font-weight: 600;
+}
+.ts-nav:disabled {
+  background-color: transparent;
+}
+.ts-pages {
+  flex: 1;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.ts-page {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 100%;
+  padding: 12px 20px 16px;
+}
+.ts-heading {
+  font-size: var(--ds-size-l);
+  font-weight: 600;
+}
+.ts-heading + .ts-note {
+  margin-top: -6px;
+}
+.ts-providers {
+  align-self: flex-start;
+  margin: 4px 0;
+}
+.ts-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ts-welcome {
+  padding: 4px 0;
+}
+.ts-welcome-title {
+  margin-bottom: 2px;
+  font-weight: 600;
+}
+.ts-welcome-hint {
+  color: var(--ds-text-3);
+}
+.ts-privacy {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ds-line);
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+}
+.ts-privacy > .icon {
+  color: var(--ds-text-2);
+}
+
+/* The pages' grouped rows (design/dialog.css): fields, the model combo and selects take one width,
+   so a group's controls start on one line. */
+.ts-rows .ds-row-control > :is(.ts-field, .ts-combo) {
+  width: calc(var(--ds-size) * 18);
+}
+.ts-combo {
+  position: relative;
+  display: flex;
+}
+.ts-combo .ts-field {
+  flex: 1;
+  min-width: 0;
+  padding-right: 28px;
+}
+.ts-combo-toggle {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  bottom: 1px;
+  width: 26px;
+  height: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 0 var(--ds-radius) var(--ds-radius) 0;
+  background-color: transparent;
+  color: var(--ds-text-2);
+}
+.ts-combo-toggle > .icon {
+  --menu-icon-size: 12px;
+}
+.ts-combo-list {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  z-index: 5;
+  max-height: 220px;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+  border-radius: var(--ds-radius);
+  background: var(--ds-raised);
+  box-shadow: var(--ds-shadow-pop);
+}
+.ts-combo-list li {
+  height: 25px;
+  padding: 0 8px;
+  border-radius: var(--ds-radius-s);
+  line-height: 25px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ts-combo-list li:hover {
+  background: var(--ds-hover);
+}
+.ts-combo-list li.active {
+  background: var(--ds-accent-soft);
+  color: var(--ds-accent-text);
+}
+.ts-check {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+.ts-check:has(> input:disabled) {
+  color: var(--ds-text-off);
+}
+.ts-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* 重新加载讲棋知识库 after the groups. */
+.ts-link {
+  align-self: flex-start;
+  margin-top: 8px;
+}
+
+.ts-box > .ds-footer {
+  flex: none;
+  margin: 0;
+  padding: 12px 20px;
+  border-top: 1px solid var(--ds-line);
+  background: var(--ds-chrome);
+}
+.ts-box > .ds-footer button {
+  min-width: 76px;
+}
+.ts-status {
+  flex: 1;
+  min-width: 0;
+  color: var(--ds-text-2);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+/* 正在使用 ChatGPT 套餐: a message over the settings dialog in the shared dialog frame (title with
+   its close box, body, 关闭). */
+.ts-notice-layer {
+  z-index: 20;
+}
+.ts-notice {
+  width: min(420px, calc(100vw - 32px));
+}

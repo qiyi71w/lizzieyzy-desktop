@@ -5,8 +5,8 @@
 import { run, state } from "../app";
 import type { ContributionCommand, ContributionQualification, ContributionSettings, SavedEngineCandidate, SshPasswordState, SshSettings } from "../contract/generated";
 import { formPanel, message } from "../dialogs";
-import { product, t } from "../i18n";
-import { actions, button, checkbox, input } from "../engine/controls";
+import { product, registerProduct, t } from "../i18n";
+import { button, footer, groupTitle, input, primaryButton, row, switchRow } from "../engine/controls";
 import { editRemoteEngine, stagePassword } from "../engine/remote";
 import "./contribution.css";
 
@@ -14,19 +14,14 @@ function contribution(op: ContributionCommand) {
   return run({ type: "Contribution", op });
 }
 
-function label(text: string, tip?: string): HTMLSpanElement {
-  const el = document.createElement("span");
-  el.textContent = text;
-  if (tip) el.title = tip;
-  return el;
-}
-
-function cell(...items: HTMLElement[]): HTMLDivElement {
-  const el = document.createElement("div");
-  el.className = "contribution-cell";
-  el.append(...items);
-  return el;
-}
+registerProduct({
+  ZhCn: { contributionGroupEngine: "引擎", contributionGroupAccount: "账号", contributionGroupGames: "对局" },
+  ZhTw: { contributionGroupEngine: "引擎", contributionGroupAccount: "帳號", contributionGroupGames: "對局" },
+  EnUs: { contributionGroupEngine: "Engine", contributionGroupAccount: "Account", contributionGroupGames: "Games" },
+  JaJp: { contributionGroupEngine: "エンジン", contributionGroupAccount: "アカウント", contributionGroupGames: "対局" },
+  KoKr: { contributionGroupEngine: "엔진", contributionGroupAccount: "계정", contributionGroupGames: "대국" },
+  ThTh: { contributionGroupEngine: "เอนจิน", contributionGroupAccount: "บัญชี", contributionGroupGames: "เกม" },
+});
 
 function passwordHint(s: SshPasswordState): string {
   switch (s) {
@@ -89,19 +84,8 @@ async function settingsDialog(saved: ContributionSettings): Promise<void> {
   userName.setAttribute("aria-label", t("ContributeSettings.lblUserName"));
   const password = input("", "password"); password.autocomplete = "off"; password.dataset.key = "contribution.password";
   password.setAttribute("aria-label", t("ContributeSettings.lblPassword"));
-  const games = input(saved.batchGames); games.title = tip.games; games.dataset.key = "contribution.batchGames"; integerOnly(games);
+  const games = input(saved.batchGames); games.inputMode = "numeric"; games.title = tip.games; games.dataset.key = "contribution.batchGames"; integerOnly(games);
   games.setAttribute("aria-label", t("ContributeSettings.lblSimultaneousGames"));
-  const useCommand = checkbox(t("ContributeSettings.chkUseCommand"), saved.useCommand); useCommand.label.title = tip.command;
-  const remote = checkbox(t("ContributeSettings.chkRemote"), saved.remote);
-  const ignore = checkbox(t("ContributeSettings.chkIgnoreSettings"), saved.usePureCommand);
-  const ownership = input("", "checkbox"); ownership.checked = saved.showEstimate; ownership.title = tip.ownership;
-  ownership.setAttribute("aria-label", t("ContributeSettings.lblShowOwnerShip"));
-  const noRating = input("", "checkbox"); noRating.checked = saved.disableRatingMatches; noRating.title = tip.noRating;
-  noRating.setAttribute("aria-label", t("ContributeSettings.lblChkNoRatingMatches"));
-  const autoSave = input("", "checkbox"); autoSave.checked = saved.autoSave; autoSave.title = tip.autoSave;
-  autoSave.setAttribute("aria-label", t("ContributeSettings.lblAutoSave"));
-  useCommand.input.dataset.key = "contribution.useCommand"; remote.input.dataset.key = "contribution.remote"; ignore.input.dataset.key = "contribution.usePureCommand";
-  ownership.dataset.key = "contribution.showEstimate"; noRating.dataset.key = "contribution.disableRatingMatches"; autoSave.dataset.key = "contribution.autoSave";
 
   // GetEngineLine.relativizePath: a chosen file goes into the command line quoted, so a path with
   // spaces stays one argument (kept absolute: the contribution runs in its own folder).
@@ -141,7 +125,7 @@ async function settingsDialog(saved: ContributionSettings): Promise<void> {
   const signUp = button(t("ContributeSettings.btnSignUp"), () => void contribution({ type: "OpenLink", link: "SignUp" }));
   signUp.dataset.key = "contribution.signUp";
 
-  const qualification = document.createElement("p"); qualification.className = "contribution-qualification"; qualification.setAttribute("aria-live", "polite");
+  const qualification = document.createElement("span"); qualification.className = "ds-row-sub contribution-qualification"; qualification.setAttribute("aria-live", "polite");
   let qualifying = 0;
   const qualify = async () => {
     const ticket = ++qualifying;
@@ -166,6 +150,30 @@ async function settingsDialog(saved: ContributionSettings): Promise<void> {
   };
   userName.addEventListener("change", () => void refreshPassword());
 
+  // Grouped rows. The paths and the command take a line of their own under their row's name; the
+  // engine's qualification is said under the engine row's name.
+  const body = document.createElement("div"); body.className = "contribution-settings-body";
+  groupTitle(body, product("contributionGroupEngine"));
+  const engineRow = row(body, t("ContributeSettings.lblEngine"), tip.engine, enginePath, browseEngine, savedEngine);
+  engineRow.classList.add("contribution-path");
+  engineRow.querySelector(".ds-row-text")!.append(qualification);
+  row(body, t("ContributeSettings.lblConfig"), tip.config, configPath, browseConfig).classList.add("contribution-path");
+  const useCommand = switchRow(body, t("ContributeSettings.chkUseCommand"), tip.command, saved.useCommand);
+  useCommand.row.classList.add("contribution-path");
+  useCommand.row.append(command);
+  const remote = switchRow(body, t("ContributeSettings.chkRemote"), "", saved.remote, remoteSettings);
+  const ignore = switchRow(body, t("ContributeSettings.chkIgnoreSettings"), "", saved.usePureCommand);
+  groupTitle(body, product("contributionGroupAccount"));
+  row(body, t("ContributeSettings.lblUserName"), "", userName, signUp);
+  row(body, t("ContributeSettings.lblPassword"), "", password);
+  groupTitle(body, product("contributionGroupGames"));
+  row(body, t("ContributeSettings.lblSimultaneousGames"), tip.games, games);
+  const ownership = switchRow(body, t("ContributeSettings.lblShowOwnerShip"), tip.ownership, saved.showEstimate).input;
+  const noRating = switchRow(body, t("ContributeSettings.lblChkNoRatingMatches"), tip.noRating, saved.disableRatingMatches).input;
+  const autoSave = switchRow(body, t("ContributeSettings.lblAutoSave"), tip.autoSave, saved.autoSave).input;
+  useCommand.input.dataset.key = "contribution.useCommand"; remote.input.dataset.key = "contribution.remote"; ignore.input.dataset.key = "contribution.usePureCommand";
+  ownership.dataset.key = "contribution.showEstimate"; noRating.dataset.key = "contribution.disableRatingMatches"; autoSave.dataset.key = "contribution.autoSave";
+
   // setAferSets: the rest of the form does not apply to a command followed as it is.
   const afterSets = (ignored: boolean) => { for (const el of [userName, password, games, ownership, noRating]) el.disabled = ignored; };
   const commandMode = () => {
@@ -181,24 +189,6 @@ async function settingsDialog(saved: ContributionSettings): Promise<void> {
   remote.input.onchange = () => { remoteSettings.disabled = !remote.input.checked; };
   ignore.input.onchange = () => afterSets(ignore.input.checked);
   autoSave.onchange = () => { if (autoSave.checked) void message(t("Message.title"), tip.autoSave); };
-
-  const grid = document.createElement("div"); grid.className = "contribution-settings";
-  const engineCell = cell(enginePath, cell(savedEngine)); engineCell.classList.add("contribution-stack");
-  const userLabel = cell(label(t("ContributeSettings.lblUserName")), signUp);
-  grid.append(
-    cell(label(t("ContributeSettings.lblEngine"), tip.engine), browseEngine), engineCell,
-    cell(label(t("ContributeSettings.lblConfig"), tip.config), browseConfig), configPath,
-    cell(useCommand.label, remote.label, remoteSettings), command,
-    ignore.label, document.createElement("span"),
-    userLabel, userName,
-    label(t("ContributeSettings.lblPassword")), password,
-    label(t("ContributeSettings.lblSimultaneousGames"), tip.games), games,
-    label(t("ContributeSettings.lblShowOwnerShip"), tip.ownership), cell(ownership),
-    label(t("ContributeSettings.lblChkNoRatingMatches"), tip.noRating), cell(noRating),
-    label(t("ContributeSettings.lblAutoSave"), tip.autoSave), cell(autoSave),
-  );
-  const body = document.createElement("div"); body.className = "contribution-settings-body";
-  body.append(grid, qualification);
 
   const draft = (): ContributionSettings => ({
     ...(state.view?.settings.contribution ?? saved),
@@ -226,14 +216,15 @@ async function settingsDialog(saved: ContributionSettings): Promise<void> {
   const dialog = formPanel(t("ContributeSettings.title"), body);
   const saveButton = button(t("ContributeSettings.btnSave"), () => void save());
   saveButton.dataset.key = "contribution.save";
-  const start = button(t("ContributeSettings.btnStart"), async () => {
+  const start = primaryButton(t("ContributeSettings.btnStart"), async () => {
     if (!(await save())) return;
     await dialog.close();
     await contribution({ type: "Start" });
   });
   start.dataset.key = "contribution.start";
-  const close = button(product("close"), () => void dialog.close());
-  actions(body, saveButton, start, close);
+  const cancel = button(product("cancel"), () => void dialog.close());
+  cancel.dataset.key = "contribution.cancel";
+  footer(body, { start: [saveButton], primary: start, cancel });
 
   commandMode();
   void qualify();
@@ -274,7 +265,7 @@ async function chooseSavedEngine(candidates: SavedEngineCandidate[]): Promise<Sa
   detail.setAttribute("aria-label", t("ContributeSettings.savedEngine.columnPath"));
   let selected = 0;
   let chosen: SavedEngineCandidate | null = null;
-  const fill = button(t("ContributeSettings.savedEngine.fill"), () => confirmChoice());
+  const fill = primaryButton(t("ContributeSettings.savedEngine.fill"), () => confirmChoice());
   fill.dataset.key = "contribution.savedEngine.fill";
   const dialog = formPanel(t("ContributeSettings.savedEngine.title"), body);
   const confirmChoice = () => {
@@ -312,7 +303,7 @@ async function chooseSavedEngine(candidates: SavedEngineCandidate[]): Promise<Sa
   wrap.append(table);
   body.append(hint, wrap, detail);
   const cancel = button(t("ContributeSettings.savedEngine.cancel"), () => void dialog.close());
-  actions(body, fill, cancel);
+  footer(body, { primary: fill, cancel });
   select(0);
   table.focus();
   await dialog.closed;

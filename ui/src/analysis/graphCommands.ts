@@ -1,11 +1,10 @@
 // 显示 > 胜率图设置 entries of the command catalog (Menu.java:1532-1659, check states 2748-2767):
 // 显示胜率/目数曲线 胜率 / 目数 / 全部, 单曲线模式使用面积填充, 显示恶手损失条,
-// 显示鼠标悬停信息(仅限黑视角) and 初始最大目数差. Each choice saves through SetDisplaySettings.
+// 显示鼠标悬停信息(仅限黑视角) and 初始最大目数差. Each choice saves through SetDisplaySettings;
+// 初始最大目数差 opens its 综合设置 row.
 import { state } from "../app";
 import { COMMANDS, setDisplay, type CommandEntry } from "../commands";
-import { ask, message } from "../dialogs";
-import { product, t } from "../i18n";
-import { javaFixed1 } from "./graph";
+import { openSettingsAt } from "../engine/settingsTargets";
 
 const display = () => state.view?.settings.display;
 
@@ -20,37 +19,6 @@ function lines(winrate: boolean, score: boolean): CommandEntry {
   };
 }
 
-/** Double.parseDouble after its whitespace trim: a signed decimal with an optional exponent and
- *  float / double suffix. NaN and Infinity are refused: they would leave the score scale undefined
- *  and cannot be saved. */
-function parseJavaDouble(text: string): number | null {
-  const s = text.trim();
-  if (!/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?[fFdD]?$/.test(s)) return null;
-  const v = Number(s.replace(/[fFdD]$/, ""));
-  return Number.isFinite(v) ? v : null;
-}
-
-/** 初始最大目数差 (Menu.java:1626-1659): JOptionPane input with the current value; the absolute
- *  value is saved, other text shows Menu.inputDoubleTip. */
-async function chooseInitialMaxScoreLead(): Promise<void> {
-  const s = display();
-  if (!s) return;
-  const text = `${t("Menu.initialMaxScoreLead.message")}${javaFixed1(Math.abs(s.initialMaxScoreLead))}`;
-  const body = document.createElement("div");
-  body.className = "display-input";
-  const label = document.createElement("div");
-  label.textContent = text;
-  const field = document.createElement("input");
-  field.type = "text";
-  field.setAttribute("aria-label", text);
-  body.append(label, field);
-  queueMicrotask(() => field.focus());
-  if (!(await ask(t("Menu.initialMaxScoreLead.title"), body, product("ok"), product("cancel")))) return;
-  const value = parseJavaDouble(field.value);
-  if (value === null) await message(t("Message.title"), t("Menu.inputDoubleTip"));
-  else setDisplay({ initialMaxScoreLead: Math.abs(value) });
-}
-
 Object.assign(COMMANDS, {
   "Menu.showWinRateOrScoreLeadLine.winrate": lines(true, false),
   "Menu.showWinRateOrScoreLeadLine.scoreLead": lines(false, true),
@@ -63,5 +31,5 @@ Object.assign(COMMANDS, {
     run: () => setDisplay({ mouseOverWinrateGraph: !display()?.mouseOverWinrateGraph }),
     checked: () => display()?.mouseOverWinrateGraph ?? true,
   },
-  "menu.initialMaxScoreLead": { run: chooseInitialMaxScoreLead },
+  "menu.initialMaxScoreLead": { run: () => void openSettingsAt("menu.initialMaxScoreLead") },
 } satisfies Record<string, CommandEntry>);

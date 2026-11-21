@@ -4,12 +4,14 @@
 // this module holds only the window and its 隐藏界面.
 import { registerViewHandler, run, state } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
-import { dispatch, isApiError } from "../contract/client";
+import { dispatch } from "../contract/client";
+import { errorText } from "../errorText";
 import type { AnalysisEngineSettings, Command, FlashOutcome, FlashTarget, WorkbenchView } from "../contract/generated";
 import { confirm, formPanel, message, setOwnerDisabled } from "../dialogs";
-import { absolute, parseJavaInt, place } from "../display/dialogs";
+import { parseJavaInt } from "../display/dialogs";
+import { button, footer, groupNote, primaryButton, row } from "../engine/controls";
 import { toggleConsole } from "../engine/console";
-import { t } from "../i18n";
+import { product, t } from "../i18n";
 import type { MenuNode } from "../chrome/javaMenus";
 import { openAnalysisEngineSettings } from "./analysisSettings";
 import "./quick.css";
@@ -24,7 +26,7 @@ export async function requestFlash(command: Command, retry: (kept: AnalysisEngin
   try {
     result = await dispatch(command);
   } catch (e) {
-    await message("Error", isApiError(e) ? e.message : String(e), "error");
+    await message(t("Message.title"), errorText(e), "error");
     return false;
   }
   if (result.type !== "Refused") return true;
@@ -51,35 +53,31 @@ function rangeValue(text: string, previous: number): number {
   return parseJavaInt(trimmed) ?? previous;
 }
 
-/** 局部精析 (AnalysisPartGame, small-font bounds): start and end move, then 开始分析. */
+/** 局部精析 (AnalysisPartGame): the start and end move rows and the tip, then 开始分析 in the
+ *  footer with 取消. */
 async function openPartGame(): Promise<void> {
   const range = state.view?.settings.flash_range ?? { startMove: -1, endMove: -1 };
-  const panel = absolute(335, 85);
-  panel.classList.add("flash-part");
-  const label = (text: string) => {
-    const el = document.createElement("span");
-    el.className = "display-label";
-    el.textContent = text;
-    return el;
-  };
+  const panel = document.createElement("div");
+  panel.className = "flash-part";
   const field = (value: number, key: string, name: string) => {
     const input = document.createElement("input");
     input.type = "text";
+    input.inputMode = "numeric";
     input.value = value > 0 ? String(value) : "";
     input.dataset.key = `flashPart.${key}`;
-    input.setAttribute("aria-label", name);
+    row(panel, name, "", input);
     return input;
   };
-  place(panel, label(t("AnalysisPartGame.startMove")), 10, 7, 66, 23);
-  const start = place(panel, field(range.startMove, "start", t("AnalysisPartGame.startMove")), 80, 7, 66, 23);
-  place(panel, label(t("AnalysisPartGame.endMove")), 190, 7, 66, 23);
-  const end = place(panel, field(range.endMove, "end", t("AnalysisPartGame.endMove")), 260, 7, 66, 23);
-  place(panel, label(t("AnalysisPartGame.lblNotice")), 10, 33, 320, 23);
-  const button = place(panel, document.createElement("button"), 124, 60, 93, 23);
-  button.textContent = t("AnalysisPartGame.btnStart");
-  button.dataset.key = "flashPart.run";
+  const start = field(range.startMove, "start", t("AnalysisPartGame.startMove"));
+  const end = field(range.endMove, "end", t("AnalysisPartGame.endMove"));
+  groupNote(panel, t("AnalysisPartGame.lblNotice"));
+  const begin = primaryButton(t("AnalysisPartGame.btnStart"), () => {});
+  begin.dataset.key = "flashPart.run";
   const dialog = formPanel(t("AnalysisPartGame.title"), panel);
-  button.onclick = async () => {
+  const cancel = button(product("cancel"), () => void dialog.close());
+  cancel.dataset.key = "flashPart.cancel";
+  footer(panel, { primary: begin, cancel });
+  begin.onclick = async () => {
     const target: FlashTarget = {
       kind: "MoveRange",
       start_move: rangeValue(start.value, range.startMove),
@@ -92,7 +90,7 @@ async function openPartGame(): Promise<void> {
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
-        button.click();
+        begin.click();
       }
     });
   }
@@ -141,34 +139,36 @@ function hideWindow(): void {
   setOwnerDisabled(false);
 }
 
-/** The dialog (378x93, buttons at 71/148/225,29 73x22); closing it from the title bar does
- *  nothing (DO_NOTHING_ON_CLOSE). */
+/** WaitForAnalysis: a non-modal tool window over the disabled workbench with its progress, and a
+ *  footer of 取消分析 (ends the run), 隐藏界面 (closes the window) and, at its start, GTP控制台. It
+ *  has no close box: Java's title bar close does nothing here (DO_NOTHING_ON_CLOSE). */
 function buildWindow(): HTMLElement {
   const box = document.createElement("div");
-  box.className = "modal-box flash-wait";
+  box.className = "modal-box engine-dialog flash-wait";
   box.setAttribute("role", "dialog");
   box.dataset.freeWindow = "";
   title = document.createElement("div");
   title.className = "modal-title";
-  const body = absolute(362, 54);
-  progress = place(body, document.createElement("span"), 10, 2, 335, 25);
+  const body = document.createElement("div");
+  progress = document.createElement("p");
   progress.className = "flash-progress";
-  const button = (text: string, key: string, x: number, action: () => void) => {
-    const b = place(body, document.createElement("button"), x, 29, 73, 22);
-    b.textContent = text;
+  progress.setAttribute("role", "status");
+  body.append(progress);
+  const keyed = (b: HTMLButtonElement, key: string) => {
     b.dataset.key = `flashWait.${key}`;
-    b.onclick = action;
+    return b;
   };
-  button(t("WaitForAnalysis.btnCancel"), "cancel", 71, () => {
-    const cancel = shown?.cancel;
+  const cancel = keyed(button(t("WaitForAnalysis.btnCancel"), () => {
+    const command = shown?.cancel;
     hideWindow();
-    if (cancel) void run(cancel);
-  });
-  button(t("WaitForAnalysis.btnHide"), "hide", 148, () => {
+    if (command) void run(command);
+  }), "cancel");
+  const hide = keyed(button(t("WaitForAnalysis.btnHide"), () => {
     hidden = shown?.key ?? null;
     hideWindow();
-  });
-  button(t("WaitForAnalysis.btnGtpConsole"), "console", 225, () => void toggleConsole());
+  }), "hide");
+  const gtp = keyed(button(t("WaitForAnalysis.btnGtpConsole"), () => void toggleConsole()), "console");
+  footer(body, { start: [gtp], others: [cancel], cancel: hide });
   box.append(title, body);
   document.body.append(box);
   return box;

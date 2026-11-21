@@ -1157,6 +1157,12 @@ impl Workbench {
             height: game.height,
         };
         self.reopen_empty_board(size, false);
+        // ContributeEngine.java:967-971: the board is a KataGo record; a rating game is an engine
+        // game scored by Black's engine.
+        self.kata_board = Some(self.doc.id);
+        if game.rating {
+            self.pk_board = Some((self.doc.id, Some(Stone::Black)));
+        }
         let _ = self.edit_document(DocumentEdit::SetPlayers {
             black: game.black.replace(' ', ""),
             white: game.white.replace(' ', ""),
@@ -1502,7 +1508,7 @@ impl Workbench {
             record.info.result
         );
         let path = self.contribution_folder().join(safe_name(&name));
-        let text = crate::formats::sgf_write::write(record, "LizzieYzy Tauri");
+        let text = crate::formats::sgf_write::write(record, "LizzieYzy Tauri", self.save_mark().map(|m| m.tag()));
         let ticket = self.next_save;
         self.next_save += 1;
         self.saves.push(PendingSave {

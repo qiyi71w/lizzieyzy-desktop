@@ -1,8 +1,9 @@
 // 存档与读档 (Java LizzieFrame.showTempGamePanel, addTempGameOne, addTempGameNew, showBigBoardImage):
-// a grey panel over the workbench between the toolbars and the bottom toolbar, laid out with
-// Java's absolute geometry: a 20 px bar, then 300 px pictures in 310 x 345 cells. Every change
-// comes back as a new `recovery` projection and the panel is rebuilt from it, like Java rebuilding
-// the panel after each action.
+// a panel over the workbench between the toolbars and the bottom toolbar: a strip with the options,
+// 全部删除 and 关闭, then a grid of equal slot cells that fills the panel's width, each a picture with
+// its name, time and actions, the last one adding a slot. Every change comes back as a new
+// `recovery` projection and the panel is rebuilt from it, like Java rebuilding the panel after each
+// action.
 import { registerViewHandler, run, saveFileName, state } from "../app";
 import { recoveryThumbnail } from "../contract/client";
 import type { RecoveryCommand, SlotRef, SlotView } from "../contract/generated";
@@ -11,16 +12,14 @@ import { product, t } from "../i18n";
 import { slotThumbnail } from "./capture";
 import "./recovery.css";
 
-const CELL_W = 310;
-const CELL_H = 345;
-const PICTURE = 300;
+// The zoomed picture's size and the rest before it shows.
 const ZOOM = 600;
 const ZOOM_DELAY = 800;
 
 let root: HTMLElement | null = null;
 let builtFor = "";
 /** Names typed but not yet used, kept across rebuilds caused by other changes (the periodic
- *  automatic save, a resize); any panel action clears them, as Java rebuilds every field. */
+ *  automatic save); any panel action clears them, as Java rebuilds every field. */
 const drafts = new Map<string, string>();
 const pictures = { revision: -1, urls: new Map<string, string>() };
 let zoom: { el: HTMLElement; key: string } | null = null;
@@ -62,14 +61,13 @@ export function closeRecovery(): void {
 }
 
 registerViewHandler(() => refresh());
-window.addEventListener("resize", () => refresh());
 
 function refresh(): void {
   const v = state.view;
   if (!root || !v) return;
   const r = v.recovery;
   if (pictures.revision !== r.revision) void loadPictures(r.revision, [...(r.auto ? [r.auto] : []), ...r.slots]);
-  const key = `${r.revision}:${r.settings.autoSaveOnExit}:${r.settings.resumePreviousGame}:${r.settings.zoomThumbnails}:${root.clientWidth}:${root.clientHeight}`;
+  const key = `${r.revision}:${r.settings.autoSaveOnExit}:${r.settings.resumePreviousGame}:${r.settings.zoomThumbnails}`;
   if (key === builtFor) return;
   builtFor = key;
   build();
@@ -93,14 +91,6 @@ async function loadPictures(revision: number, slots: SlotView[]): Promise<void> 
       console.error("slot picture unavailable", e);
     }
   }));
-}
-
-function at(el: HTMLElement, x: number, y: number, w: number, h: number): HTMLElement {
-  el.style.left = `${x}px`;
-  el.style.top = `${y}px`;
-  el.style.width = `${w}px`;
-  el.style.height = `${h}px`;
-  return el;
 }
 
 function label(text: string): HTMLElement {
@@ -128,8 +118,13 @@ function nameField(key: string, value: string, enabled = true): HTMLInputElement
   el.className = "rc-name";
   el.dataset.key = key;
   el.value = enabled ? drafts.get(key) ?? value : value;
+  // A name longer than the field ends in an ellipsis; the tooltip gives it whole.
+  el.title = el.value;
   el.disabled = !enabled;
-  el.oninput = () => drafts.set(key, el.value);
+  el.oninput = () => {
+    drafts.set(key, el.value);
+    el.title = el.value;
+  };
   return el;
 }
 
@@ -150,39 +145,38 @@ function build(): void {
   const recovery = v.recovery;
   const focused = (document.activeElement as HTMLElement | null)?.dataset?.key;
   hideZoom();
-  const width = Math.max(0, host.clientWidth - 12);
-  const columns = Math.max(1, Math.floor(width / CELL_W));
 
   const scroll = document.createElement("div");
   scroll.className = "rc-scroll";
-  const content = document.createElement("div");
-  content.className = "rc-content";
-  scroll.append(content);
+  const grid = document.createElement("div");
+  grid.className = "rc-grid";
+  scroll.append(grid);
 
   const cards = [...(recovery.auto ? [recovery.auto] : []), ...recovery.slots];
-  cards.forEach((slot, i) => addSlot(content, slot, (i % columns) * CELL_W, Math.floor(i / columns) * CELL_H + 20));
+  for (const slot of cards) grid.append(slotCell(slot));
   const last = cards.at(-1);
-  const newIndex = !last || last.slot.type === "Auto" ? 1 : last.slot.index + 1;
-  const newX = (cards.length % columns) * CELL_W;
-  const newY = Math.floor(cards.length / columns) * CELL_H + 20;
-  addNew(content, newIndex, newX, newY);
-  content.style.width = `${width}px`;
-  content.style.height = `${Math.max(host.clientHeight - 5, newY + CELL_H)}px`;
-  content.addEventListener("mousemove", (e) => pointerMoved(e, content, cards, columns));
+  grid.append(newCell(!last || last.slot.type === "Auto" ? 1 : last.slot.index + 1));
+  grid.addEventListener("mousemove", pointerMoved);
+  // Leaving the panel (onto the menus or the board) is moving off the pictures too.
+  host.onmouseleave = () => {
+    if (hover) clearTimeout(hover.timer);
+    hover = null;
+    hideZoom();
+  };
 
   const previousScroll = host.querySelector(".rc-scroll")?.scrollTop ?? 0;
-  host.replaceChildren(scroll, topBar(width));
+  host.replaceChildren(topBar(), scroll);
   scroll.scrollTop = previousScroll;
   if (focused) host.querySelector<HTMLElement>(`[data-key="${focused}"]`)?.focus();
 }
 
-/** tempGamePanelTop: check boxes, 全部删除 and 关闭 placed from the right edge. */
-function topBar(width: number): HTMLElement {
+/** tempGamePanelTop: the three options, 全部删除 and 关闭 at the strip's right end. */
+function topBar(): HTMLElement {
   const settings = state.view!.recovery.settings;
   const bar = document.createElement("div");
   bar.className = "rc-top";
   const boxes: HTMLInputElement[] = [];
-  const check = (text: string, key: string, checked: boolean, x: number, w: number) => {
+  const check = (text: string, key: string, checked: boolean) => {
     const box = document.createElement("input");
     box.type = "checkbox";
     box.checked = checked;
@@ -195,27 +189,36 @@ function topBar(width: number): HTMLElement {
     const el = document.createElement("label");
     el.className = "rc-check";
     el.append(box, text);
-    bar.append(at(el, x, 0, w, 20));
+    bar.append(el);
   };
-  const start = Math.max(0, width - 445);
-  check(t("LizzieFrame.saveAndLoad.chkZoomImage"), "recovery.chk.zoom", settings.zoomThumbnails, start, 150);
-  check(t("LizzieFrame.saveAndLoad.chkAutoSaveOnExit"), "recovery.chk.autosave", settings.autoSaveOnExit, start + 150, 80);
-  check(t("LizzieFrame.saveAndLoad.chkAutoResume"), "recovery.chk.resume", settings.resumePreviousGame, start + 230, 110);
-  bar.append(
-    at(button(t("LizzieFrame.saveAndLoad.btnDeleteAll"), "recovery.deleteAll", async () => {
-      if (await confirm(t("LizzieFrame.warning"), t("LizzieFrame.saveAndLoad.deleteAllWarining"))) await send({ type: "DeleteAllSlots" });
-    }), start + 343, 0, 60, 19),
-    at(button(t("LizzieFrame.saveAndLoad.close"), "recovery.close", closeRecovery), Math.min(start + 403, width - 40), 0, 40, 19),
-  );
+  check(t("LizzieFrame.saveAndLoad.chkZoomImage"), "recovery.chk.zoom", settings.zoomThumbnails);
+  check(t("LizzieFrame.saveAndLoad.chkAutoSaveOnExit"), "recovery.chk.autosave", settings.autoSaveOnExit);
+  check(t("LizzieFrame.saveAndLoad.chkAutoResume"), "recovery.chk.resume", settings.resumePreviousGame);
+  const deleteAll = button(t("LizzieFrame.saveAndLoad.btnDeleteAll"), "recovery.deleteAll", async () => {
+    if (await confirm(t("LizzieFrame.warning"), t("LizzieFrame.saveAndLoad.deleteAllWarining"))) await send({ type: "DeleteAllSlots" });
+  });
+  deleteAll.classList.add("danger");
+  const actions = document.createElement("span");
+  actions.className = "rc-actions";
+  actions.append(deleteAll, button(t("LizzieFrame.saveAndLoad.close"), "recovery.close", closeRecovery));
+  bar.append(actions);
   return bar;
 }
 
-/** addTempGameOne. */
-function addSlot(content: HTMLElement, s: SlotView, x: number, y: number): void {
+function row(...children: HTMLElement[]): HTMLElement {
+  const el = document.createElement("div");
+  el.className = "rc-row";
+  el.append(...children);
+  return el;
+}
+
+/** addTempGameOne: the picture (a click loads the slot, as does 读档), the name with 重命名, then
+ *  the time with 读档 / 存档 / 删除. */
+function slotCell(s: SlotView): HTMLElement {
   const auto = s.slot.type === "Auto";
   const index = s.slot.type === "Manual" ? s.slot.index : 1;
   const key = slotKey(s.slot);
-  // A JLabel with the picture zoomed to 300 x 300; without a picture it is empty but still loads.
+  // The picture scaled to the cell; without a picture it is empty but still loads.
   const picture = document.createElement("div");
   picture.className = "rc-picture";
   picture.dataset.key = `${key}.image`;
@@ -223,63 +226,72 @@ function addSlot(content: HTMLElement, s: SlotView, x: number, y: number): void 
   if (url) picture.style.backgroundImage = `url(${url})`;
   picture.onclick = () => load(s.slot);
   const name = nameField(`${key}.name`, auto ? t("LizzieFrame.saveAndLoad.exitRecord") : s.name, !auto);
-  content.append(
-    at(picture, x, y, PICTURE, PICTURE),
-    at(label(auto ? t("LizzieFrame.saveAndLoad.autoRec") : `${t("LizzieFrame.saveAndLoad.rec")}${index}`), x + 5, y + 300, 65, 20),
-    at(name, x + (auto ? 70 : 45), y + 300, auto ? 169 : 194, 20),
-    at(button(t("LizzieFrame.saveAndLoad.reName"), `${key}.rename`, () => {
-      if (s.slot.type === "Manual") void send({ type: "RenameSlot", index: s.slot.index, name: name.value });
-    }, !auto), x + 240, y + 300, 60, 20),
-    at(label(s.time), x + 5, y + 320, 200, 20),
-    at(button(t("LizzieFrame.saveAndLoad.load"), `${key}.load`, () => load(s.slot)), x + 150, y + 320, 50, 20),
-    at(button(t("LizzieFrame.saveAndLoad.save"), `${key}.save`, async () => {
+  const time = label(s.time);
+  time.className = "rc-time";
+  const actions = document.createElement("span");
+  actions.className = "rc-actions";
+  const del = button(t("LizzieFrame.saveAndLoad.del"), `${key}.del`, () => void send({ type: "DeleteSlot", slot: s.slot }));
+  del.classList.add("danger");
+  actions.append(
+    button(t("LizzieFrame.saveAndLoad.load"), `${key}.load`, () => load(s.slot)),
+    button(t("LizzieFrame.saveAndLoad.save"), `${key}.save`, async () => {
       if (s.slot.type !== "Manual") return;
       // JOptionPane YES_NO_OPTION: 存档已存在,是否覆盖?
       if (!(await chooseSave(t("LizzieFrame.warning"), t("LizzieFrame.recordExists"), product("yes"), product("no")))) return;
       await send({ type: "OverwriteSlot", index: s.slot.index, name: saveFileName(), thumbnail: await slotThumbnail() });
-    }, !auto), x + 200, y + 320, 50, 20),
-    at(button(t("LizzieFrame.saveAndLoad.del"), `${key}.del`, () => void send({ type: "DeleteSlot", slot: s.slot })), x + 250, y + 320, 50, 20),
+    }, !auto),
+    del,
   );
+  const cell = document.createElement("div");
+  cell.className = "rc-slot";
+  cell.append(
+    picture,
+    row(
+      label(auto ? t("LizzieFrame.saveAndLoad.autoRec") : `${t("LizzieFrame.saveAndLoad.rec")}${index}`),
+      name,
+      button(t("LizzieFrame.saveAndLoad.reName"), `${key}.rename`, () => {
+        if (s.slot.type === "Manual") void send({ type: "RenameSlot", index: s.slot.index, name: name.value });
+      }, !auto),
+    ),
+    row(time, actions),
+  );
+  return cell;
 }
 
 /** addTempGameNew: the picture-sized button and the small one both add a slot after the last. */
-function addNew(content: HTMLElement, index: number, x: number, y: number): void {
+function newCell(index: number): HTMLElement {
   const name = nameField("recovery.new.name", "");
   const create = async () => {
     await send({ type: "NewSlot", name: name.value.length > 0 ? name.value : saveFileName(), thumbnail: await slotThumbnail() });
   };
   const big = button(t("LizzieFrame.saveAndLoad.newRecord"), "recovery.new.image", create);
   big.classList.add("rc-new");
-  content.append(
-    at(big, x, y, PICTURE, PICTURE),
-    at(label(`${t("LizzieFrame.saveAndLoad.rec")}${index}`), x + 5, y + 300, 65, 20),
-    at(name, x + 45, y + 300, 174, 20),
-    at(button(t("LizzieFrame.saveAndLoad.newRecord"), "recovery.new", create), x + 220, y + 300, 80, 20),
-  );
+  const small = button(t("LizzieFrame.saveAndLoad.newRecord"), "recovery.new", create);
+  small.classList.add("primary");
+  const cell = document.createElement("div");
+  cell.className = "rc-slot";
+  cell.append(big, row(label(`${t("LizzieFrame.saveAndLoad.rec")}${index}`), name, small));
+  return cell;
 }
 
 /** tempGamePanelLis: with 鼠标悬停放大缩略棋盘 on, resting 800 ms on a picture shows it at 600 x 600 at
  *  the pointer; moving onto another picture or off the pictures hides it. */
-function pointerMoved(e: MouseEvent, content: HTMLElement, cards: SlotView[], columns: number): void {
+function pointerMoved(e: MouseEvent): void {
   if (!state.view?.recovery.settings.zoomThumbnails) return;
-  const box = content.getBoundingClientRect();
-  const x = e.clientX - box.left;
-  const y = e.clientY - box.top;
+  const x = e.clientX;
+  const y = e.clientY;
   if (hover && hover.x === x && hover.y === y) return;
-  const i = cards.findIndex((_, k) => {
-    const cx = (k % columns) * CELL_W, cy = Math.floor(k / columns) * CELL_H + 20;
-    return cx < x && x < cx + PICTURE && cy < y && y < cy + PICTURE;
-  });
-  if (i < 0) {
+  const picture = (e.target as Element).closest<HTMLElement>(".rc-picture");
+  if (!picture) {
     if (hover) clearTimeout(hover.timer);
     hover = null;
     hideZoom();
     return;
   }
-  const key = slotKey(cards[i].slot);
+  const key = picture.dataset.key!.replace(/\.image$/, "");
   if (zoom && zoom.key !== key) hideZoom();
   if (hover) clearTimeout(hover.timer);
-  const timer = zoom ? 0 : window.setTimeout(() => showZoom(key, e.clientX, e.clientY), ZOOM_DELAY);
+  const timer = zoom ? 0 : window.setTimeout(() => showZoom(key, x, y), ZOOM_DELAY);
   hover = { key, x, y, timer };
 }
 

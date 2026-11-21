@@ -1,289 +1,101 @@
-/* AI 陪练 (HumanSlTrainingStyle with the light workspace colours of AppleStyleSupport: background
-   246,247,249, card white, border 213,220,218, text 31,41,38, muted 85,99,94, accent 15,118,110,
-   accent dark 18,107,98, accent soft 226,241,236, warning 191,75,48). Buttons are RoundedButtonUI:
-   arc 12, 7/14 px padding, bold; disabled fills blend 55% into the background, pressed or selected
-   ones 12% into black, hovered ones 10% into white. */
+/* AI 陪练: the setup dialog as grouped rows on the shared frame (design/dialog.css), and the
+   training bar on the bars' ground with capsules (the vocabulary of the bottom bar, stated here
+   with tokens). */
 
-/* ---- menu strip button (Menu.aiCoachButton: coach icon 18 px, 6 px gap, primary style) */
-#menubar .pill.coach {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  cursor: default;
-}
-#menubar .coach .coach-icon {
-  width: 18px;
-  height: 18px;
-  /* AppleStyleSupport.brightenIcon: every visible pixel becomes 224,228,234. */
-  filter: brightness(0) invert(0.9);
-}
-#menubar .coach:hover {
-  background: rgb(39, 132, 124);
-}
-#menubar .coach.selected {
-  background: rgb(13, 104, 97);
-}
-
-/* ---- buttons */
-.hs-button {
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: bold;
-  padding: 7px 14px;
-  border: 1px solid;
-  border-radius: 6px;
-  white-space: nowrap;
-  cursor: default;
-}
-.hs-button:focus-visible {
-  outline: 2px solid currentColor;
-  outline-offset: -5px;
-}
-.hs-button.primary {
-  background: rgb(15, 118, 110);
-  border-color: rgb(15, 118, 110);
-  color: #fff;
-}
-.hs-button.primary:hover:not(:disabled) {
-  background: rgb(39, 132, 124);
-}
-.hs-button.primary:active:not(:disabled) {
-  background: rgb(13, 104, 97);
-}
-.hs-button.primary:disabled {
-  background: rgb(142, 189, 186);
-}
-.hs-button.secondary {
-  background: #fff;
-  border-color: rgb(213, 220, 218);
-  color: rgb(31, 41, 38);
-}
-.hs-button.secondary:active:not(:disabled),
-.hs-button.secondary.selected {
-  background: rgb(224, 224, 224);
-}
-.hs-button.secondary:disabled {
-  background: rgb(251, 251, 252);
-  color: rgb(160, 165, 170);
-}
-.hs-button.danger {
-  background: rgb(191, 75, 48);
-  border-color: rgb(191, 75, 48);
-  color: #fff;
-}
-.hs-button.danger:hover:not(:disabled) {
-  background: rgb(197, 93, 69);
-}
-.hs-button.danger:disabled {
-  background: rgb(221, 170, 159);
-}
-
-/* ---- setup dialog (NewHumanSlGameDialog: 920 x 410, 500 with the fold, a download or the
-   startup, at least 860 x 390, all within the window less 40 px) */
+/* ---- setup dialog (NewHumanSlGameDialog): the title with its close box, the rows that scroll,
+   the footer band */
 .modal-box.humansl-dialog {
-  box-sizing: border-box;
-  width: min(920px, calc(100vw - 40px));
-  min-width: min(860px, calc(100vw - 40px));
+  width: min(600px, calc(100vw - 40px));
   max-width: none;
-  min-height: min(390px, calc(100vh - 40px));
+  max-height: calc(100vh - 40px);
   display: flex;
   flex-direction: column;
   padding-bottom: 0;
-  background: rgb(246, 247, 249);
   overflow: hidden;
 }
 .humansl-dialog:focus {
   outline: none;
 }
 .humansl-dialog [hidden] {
-  display: none !important;
+  display: none;
+}
+.hs-title > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.hs-title > span > .icon {
+  width: 16px;
+  height: 16px;
+  color: var(--ds-text-2);
 }
 .hs-setup {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 18px 22px;
-  color: rgb(31, 41, 38);
-  font-size: 12px;
+  padding: 4px 20px 16px;
 }
-.hs-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+.hs-subtitle {
+  margin: 0 0 12px;
+  color: var(--ds-text-2);
 }
-.hs-header-icon {
-  width: 42px;
-  height: 42px;
-  padding: 2px;
+.hs-more[aria-expanded="true"] {
+  border-color: var(--ds-accent-soft-line);
+  background-color: var(--ds-accent-soft);
+  color: var(--ds-accent-text);
 }
-.hs-copy {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-.hs-title {
-  font-size: 24px;
-  font-weight: bold;
-}
-.hs-subtitle,
-.hs-hint {
-  color: rgb(85, 99, 94);
-}
-.hs-hint {
-  font-size: 11px;
-}
-.hs-header-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  align-self: flex-start;
-}
-.hs-check {
+
+/* AI 对手: 按段位 / 职业风格, then the rank (级 / 段 and the number) or the style. */
+.hs-rank-panel {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-}
-.hs-check.disabled {
-  color: rgb(160, 165, 170);
-}
-/* buildForm: GridBag weights 0.18 / 0.34 / 0.16 / 0.15 / 0.17, 14 px between the columns */
-.hs-card {
-  flex: 1;
-  display: grid;
-  grid-template-columns: 18fr 34fr 16fr 15fr 17fr;
-  column-gap: 14px;
-  row-gap: 8px;
-  align-content: start;
-  padding: 18px 18px 14px;
-  background: #fff;
-  border: 1px solid rgb(213, 220, 218);
-  border-radius: 8px;
-}
-.hs-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 0;
-}
-.hs-label {
-  font-weight: bold;
-}
-.hs-choice,
-.hs-komi,
-.hs-rank {
-  box-sizing: border-box;
-  width: 100%;
-  height: 28px;
-  padding: 0 8px;
-  font: inherit;
-  border: 1px solid rgb(213, 220, 218);
-  border-radius: 4px;
-  background: #fff;
-  color: inherit;
+  gap: 8px;
 }
 .hs-rank {
-  width: 70px;
+  width: calc(var(--ds-size) * 5);
   text-align: right;
-  font-size: 14px;
-  font-weight: bold;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
-.hs-opponent,
-.hs-rank-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-}
-.hs-rank-panel {
-  gap: 4px;
-}
-.hs-segments {
-  display: flex;
-}
-.hs-segments .hs-button {
-  border-radius: 0;
-}
-.hs-segments .hs-button:first-child {
-  border-radius: 6px 0 0 6px;
-}
-.hs-segments .hs-button:last-child {
-  border-radius: 0 6px 6px 0;
-}
-.hs-rank-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.hs-start {
-  align-self: start;
-  margin-top: 20px;
-  min-width: 142px;
-  height: 44px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  font-size: 14px;
-}
-.hs-start-icon {
-  width: 20px;
-  height: 20px;
-  filter: brightness(0) invert(0.9);
-}
-.hs-summary,
-.hs-advanced,
-.hs-download {
-  grid-column: 1 / -1;
-}
+
+/* The model's state and the summary or the run's status. */
 .hs-summary {
   display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 5px;
-  padding-top: 10px;
-  border-top: 1px solid rgb(213, 220, 218);
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin-top: 16px;
 }
 .hs-model-status {
-  color: rgb(18, 107, 98);
-  font-weight: bold;
+  color: var(--ds-text-2);
+  font-weight: 600;
 }
 .hs-status {
   flex: 1;
-  text-align: center;
-  font-size: 11px;
-  color: rgb(85, 99, 94);
+  min-width: 50%;
+  color: var(--ds-text-2);
   overflow-wrap: anywhere;
 }
 .hs-status.error {
-  color: rgb(191, 75, 48);
+  color: var(--ds-danger-text);
 }
-.hs-advanced {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  column-gap: 14px;
-  align-items: end;
-  margin-top: 10px;
-}
-.hs-more-hint {
-  padding-bottom: 7px;
-}
-.hs-download {
+
+/* The download and the startup: the bar, its figures, 暂停 / 取消. */
+.hs-download:not([hidden]) {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  margin-top: 10px;
+  gap: 8px;
+  margin-top: 8px;
 }
 .hs-progress {
-  flex: 1;
   position: relative;
-  height: 18px;
+  flex: 1;
+  min-width: 160px;
+  height: 8px;
   overflow: hidden;
-  background: rgb(226, 241, 236);
+  border-radius: var(--ds-radius-s);
+  background: var(--ds-well);
 }
 .hs-progress-fill {
   position: absolute;
@@ -291,8 +103,9 @@
   bottom: 0;
   left: 0;
   width: 0;
-  background: rgb(15, 118, 110);
+  background: var(--ds-accent);
 }
+/* Indeterminate progress: the run slides back and forth while the length is unknown. */
 .hs-progress.indeterminate .hs-progress-fill,
 .hs-bar-thinking-run {
   width: 16%;
@@ -303,77 +116,112 @@
   to { left: 84%; }
 }
 .hs-progress-text {
-  position: relative;
-  display: block;
-  line-height: 18px;
-  text-align: center;
-  font-size: 11px;
-  color: rgb(18, 107, 98);
-}
-.hs-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  color: var(--ds-text-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-/* ---- training bar (HumanSlTrainingBar: 58 px, background 30,42,42, 7/14 px border, 16 px gaps) */
+/* The footer band: 更多设置 at its start, 开始训练 and 取消 at its end. */
+.humansl-dialog > .ds-footer {
+  flex: none;
+  margin: 0;
+  padding: 12px 20px;
+  border-top: 1px solid var(--ds-line);
+  background: var(--ds-chrome);
+}
+.humansl-dialog > .ds-footer button {
+  min-width: 76px;
+}
+.hs-start {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.hs-start .icon {
+  width: 14px;
+  height: 14px;
+}
+.hs-start .icon[hidden] {
+  display: none;
+}
+
+/* ---- training bar (HumanSlTrainingBar): the bottom bar's ground and height, capsules of
+   segments: the opponent, the clocks around the turn with the thinking line, the actions. */
 .hs-bar {
   flex: none;
-  box-sizing: border-box;
-  height: 58px;
+  height: calc(var(--ds-cap-h) + 18px);
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 7px 14px;
-  background: rgb(30, 42, 42);
-  color: #fff;
+  gap: 12px;
+  padding: 0 12px;
+  border-top: 1px solid var(--ds-line);
+  background: var(--ds-chrome);
+  white-space: nowrap;
 }
 .hs-bar[hidden] {
   display: none;
 }
+.hs-cap {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  height: var(--ds-cap-h);
+  border-radius: var(--ds-radius-cap);
+  background: var(--ds-raised);
+  box-shadow: var(--ds-shadow-cap);
+  overflow: hidden;
+}
 .hs-bar-identity {
   display: flex;
-  flex-direction: column;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
 }
 .hs-bar-caption {
-  font-size: 11px;
-  color: rgb(174, 193, 190);
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
 }
 .hs-bar-opponent {
-  font-size: 14px;
-  font-weight: bold;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+/* The clocks and the turn: three text segments, the clocks in tabular figures. */
 .hs-bar-status {
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
+  max-width: 560px;
+  margin: 0 auto;
 }
-.hs-bar-row {
+.hs-bar-status > span {
   display: flex;
   align-items: center;
-  gap: 24px;
   padding: 0 12px;
 }
+.hs-bar-status > span + span {
+  box-shadow: inset 1px 0 0 var(--ds-line);
+}
 .hs-bar-clock {
-  font-size: 13px;
-  font-weight: bold;
+  color: var(--ds-text-2);
+  font-variant-numeric: tabular-nums;
   white-space: pre;
 }
 .hs-bar-turn {
   flex: 1;
-  text-align: center;
-  font-size: 13px;
-  font-weight: bold;
-  color: rgb(213, 236, 230);
-}
-.hs-bar-thinking {
-  position: relative;
-  height: 3px;
-  margin: 3px 12px 0;
+  justify-content: center;
+  min-width: 0;
+  font-weight: 600;
   overflow: hidden;
-  background: rgb(64, 82, 80);
+}
+/* While the AI thinks: a line running along the capsule's bottom edge. */
+.hs-bar-thinking {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  overflow: hidden;
   visibility: hidden;
 }
 .hs-bar-thinking.on {
@@ -383,11 +231,31 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  background: rgb(15, 118, 110);
+  background: var(--ds-accent);
 }
-.hs-bar-actions {
-  display: flex;
-  gap: 8px;
+/* 停一手 / 重试 AI / 结束并复盘: segments with a line between them. */
+.hs-seg {
+  height: auto;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 0;
+  background-color: transparent;
+}
+.hs-seg + .hs-seg {
+  box-shadow: inset 1px 0 0 var(--ds-line);
+}
+.hs-seg:disabled {
+  background-color: transparent;
+}
+.hs-seg.danger {
+  color: var(--ds-danger-text);
+}
+.hs-seg.danger:hover:enabled {
+  background-image: none;
+  background-color: var(--ds-danger-soft);
+}
+.hs-seg:focus-visible {
+  outline-offset: -2px;
 }
 .hs-bar-actions [hidden] {
   display: none;

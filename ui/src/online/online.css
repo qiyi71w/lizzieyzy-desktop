@@ -1,4 +1,22 @@
-/* 打开在线链接 (OnlineDialog, 730x172, not resizable): wider than the shared modal maximum. */
-.modal-box.online-dialog { max-width: none; }
-.online-dialog .online-error { color: red; }
-.online-dialog .online-error[hidden] { display: none; }
+/* 在线棋谱 (OnlineDialog): grouped rows (design/dialog.css). 链接's field takes the whole row under
+   its name and prompt; a rejected link is said under the prompt in the danger colour. */
+.online-form {
+  width: min(560px, 92vw);
+}
+.online-url {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.online-url > .ds-row-control {
+  flex: 1 1 100%;
+}
+.online-url > .ds-row-control > input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.online-error {
+  color: var(--ds-danger-text);
+}
+.online-error[hidden] {
+  display: none;
+}

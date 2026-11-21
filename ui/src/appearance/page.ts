@@ -6,16 +6,21 @@
 // draft on its own canvas (pnlBoardPreview 4980-5197). 选点评估关注外框 (3923-3943) edits the
 // 选点重点研究 settings, not the theme, and is saved on its own.
 import { run, state } from "../app";
-import { appearanceCatalog, chooseAppearanceImage } from "../contract/client";
-import type { AppearanceCatalog, ThemeSettings } from "../contract/generated";
+import { appearanceCatalog, appearanceImages, chooseAppearanceImage } from "../contract/client";
+import type { AppearanceCatalog, AppearanceSettings, ThemeSettings } from "../contract/generated";
 import { ask, confirm, message } from "../dialogs";
+import { groupTitle, row as groupRow } from "../engine/controls";
 import { SETTINGS_PAGES, type SettingsDialog } from "../engine/settings";
 import { registerSettingTargets } from "../engine/settingsTargets";
-import { product, t } from "../i18n";
-import { cssColor, DEFAULT_BLUNDER_COLORS, DEFAULT_BLUNDER_THRESHOLDS, DEFAULT_THEME, LIZZIE_DEFAULT_FONT, opaque, SYSTEM_DEFAULT_FONT } from "./model";
-import { loadThemeImages, type LoadedImages } from "./state";
+import { isChinese, product, registerProduct, t } from "../i18n";
+import { cssColor, DEFAULT_BLUNDER_COLORS, DEFAULT_BLUNDER_THRESHOLDS, DEFAULT_THEME, JAVA_CLASSIC_THEME, LIZZIE_DEFAULT_FONT, opaque, SYSTEM_DEFAULT_FONT } from "./model";
+import type { LoadedImages } from "./state";
+import { stepper } from "../design/stepper";
+import { programStage, stageReady, stageWallpaper } from "../design/stage";
 
-/** ConfigSettingTargets THEME rows this page has (ConfigSettingTargets.java:61-86), in row order. */
+/** ConfigSettingTargets THEME rows this page has (ConfigSettingTargets.java:61-86), in row order,
+ *  with 设置 > 界面字体大小's row (its catalog id), which this product keeps here instead of Java's
+ *  SetFrameFontSize dialog. */
 const TARGETS = [
   "config.theme.current",
   "config.theme.winrate-width",
@@ -23,6 +28,7 @@ const TARGETS = [
   "config.theme.shadow",
   "config.theme.info-font",
   "config.theme.ui-font",
+  "menu.frameFontSize",
   "config.theme.winrate-font",
   "config.theme.background-image",
   "config.theme.board-image",
@@ -46,6 +52,74 @@ const TARGETS = [
 ] as const;
 type Target = (typeof TARGETS)[number];
 
+registerProduct({
+  ZhCn: { settingsFrameFont: "界面字体大小", settingsFrameFontSub: "菜单、面板和对话框的文字大小，可设 12–20，重新启动后生效" },
+  ZhTw: { settingsFrameFont: "介面字型大小", settingsFrameFontSub: "選單、面板和對話框的文字大小，可設 12–20，重新開啟後生效" },
+  EnUs: { settingsFrameFont: "Interface font size", settingsFrameFontSub: "Text size of menus, panels and dialogs, 12–20; takes effect after a restart" },
+  JaJp: { settingsFrameFont: "画面の文字サイズ", settingsFrameFontSub: "メニュー、パネル、ダイアログの文字サイズ（12〜20）。再起動後に反映されます" },
+  KoKr: { settingsFrameFont: "화면 글꼴 크기", settingsFrameFontSub: "메뉴, 패널, 대화 상자의 글자 크기(12–20). 다시 시작하면 적용됩니다" },
+  ThTh: { settingsFrameFont: "ขนาดตัวอักษรของหน้าจอ", settingsFrameFontSub: "ขนาดตัวอักษรของเมนู แผง และกล่องโต้ตอบ (12–20) มีผลหลังเปิดโปรแกรมใหม่" },
+});
+
+/** Accessible names of fields that share a row: a colour, its alpha, the shadow's switch. */
+registerProduct({
+  ZhCn: { themeFieldColor: "{0}：颜色", themeFieldOpacity: "{0}：不透明度", themeFieldShowShadow: "显示棋子阴影" },
+  ZhTw: { themeFieldColor: "{0}：顏色", themeFieldOpacity: "{0}：不透明度", themeFieldShowShadow: "顯示棋子陰影" },
+  EnUs: { themeFieldColor: "{0}: color", themeFieldOpacity: "{0}: opacity", themeFieldShowShadow: "Show stone shadows" },
+  JaJp: { themeFieldColor: "{0}：色", themeFieldOpacity: "{0}：不透明度", themeFieldShowShadow: "石の影を表示" },
+  KoKr: { themeFieldColor: "{0}: 색상", themeFieldOpacity: "{0}: 불투명도", themeFieldShowShadow: "돌 그림자 표시" },
+  ThTh: { themeFieldColor: "{0}: สี", themeFieldOpacity: "{0}: ความทึบ", themeFieldShowShadow: "แสดงเงาหิน" },
+});
+
+/** The visible names of 胜率曲线宽度's two fields: the 胜率图's win rate line and its score line. */
+registerProduct({
+  ZhCn: { themeWidthWinrate: "胜率", themeWidthScore: "目数" },
+  ZhTw: { themeWidthWinrate: "勝率", themeWidthScore: "目數" },
+  EnUs: { themeWidthWinrate: "Winrate", themeWidthScore: "Score" },
+  JaJp: { themeWidthWinrate: "勝率", themeWidthScore: "目差" },
+  KoKr: { themeWidthWinrate: "승률", themeWidthScore: "스코어" },
+  ThTh: { themeWidthWinrate: "อัตราชนะ", themeWidthScore: "คะแนน" },
+});
+
+/** 棋子阴影's row: the size is a percentage of the stone radius (paintPreview, BoardRenderer), so
+ *  the row says so and its field carries the unit. */
+registerProduct({
+  ZhCn: { themeShadowSub: "开启后按棋子半径的百分比设置阴影大小" },
+  ZhTw: { themeShadowSub: "開啟後按棋子半徑的百分比設定陰影大小" },
+  EnUs: { themeShadowSub: "Turn on the stone shadow; its size is a percentage of the stone radius" },
+  JaJp: { themeShadowSub: "石の影を表示し、大きさを石の半径に対する割合で設定します" },
+  KoKr: { themeShadowSub: "돌 그림자를 켜고 크기를 돌 반지름에 대한 비율로 설정합니다" },
+  ThTh: { themeShadowSub: "เปิดเงาหิน และกำหนดขนาดเป็นเปอร์เซ็นต์ของรัศมีหิน" },
+});
+
+/** 新增 and 删除 reopen the settings (Java's setVisible(false) + openConfigDialog2), dropping the
+ *  other pages' unsaved edits: the row and the delete confirmation say so before it happens. */
+registerProduct({
+  ZhCn: { themeManageSub: "{0}。新增或删除会立即执行，其他设置页未保存的修改会被放弃", themeDeleteDiscards: "删除会立即执行，其他设置页未保存的修改会被放弃。" },
+  ZhTw: { themeManageSub: "{0}。新增或刪除會立即執行，其他設定頁未儲存的修改會被捨棄", themeDeleteDiscards: "刪除會立即執行，其他設定頁未儲存的修改會被捨棄。" },
+  EnUs: { themeManageSub: "{0}. New and Delete take effect at once and discard unsaved changes on the other pages", themeDeleteDiscards: "Deleting takes effect at once and discards unsaved changes on the other settings pages." },
+  JaJp: { themeManageSub: "{0}。新規と削除はすぐに実行され、他のページの未保存の変更は破棄されます", themeDeleteDiscards: "削除はすぐに実行され、他の設定ページの未保存の変更は破棄されます。" },
+  KoKr: { themeManageSub: "{0}. 신규생성과 삭제는 바로 실행되며 다른 페이지의 저장하지 않은 변경은 버려집니다", themeDeleteDiscards: "삭제는 바로 실행되며 다른 설정 페이지의 저장하지 않은 변경은 버려집니다." },
+  ThTh: { themeManageSub: "{0} การสร้างใหม่และการลบมีผลทันที และจะทิ้งการเปลี่ยนแปลงที่ยังไม่บันทึกในหน้าอื่น", themeDeleteDiscards: "การลบมีผลทันที และจะทิ้งการเปลี่ยนแปลงที่ยังไม่บันทึกในหน้าตั้งค่าอื่น" },
+});
+
+/** The bundled Java classic theme's name in the theme list; it is stored as JAVA_CLASSIC_THEME. */
+const JAVA_CLASSIC_NAMES = {
+  ZhCn: { themeJavaClassic: "Java 经典" },
+  ZhTw: { themeJavaClassic: "Java 經典" },
+  EnUs: { themeJavaClassic: "Java Classic" },
+  JaJp: { themeJavaClassic: "Java クラシック" },
+  KoKr: { themeJavaClassic: "Java 클래식" },
+  ThTh: { themeJavaClassic: "Java คลาสสิก" },
+};
+registerProduct(JAVA_CLASSIC_NAMES);
+
+/** A theme as the list names it: 默认 and Java 经典 translated, every other theme as stored. */
+function themeName(name: string): string {
+  if (name === DEFAULT_THEME) return t("LizzieConfig.title.defaultTheme");
+  return name === JAVA_CLASSIC_THEME ? product("themeJavaClassic") : name;
+}
+
 /** readDefaultTheme's fixed image paths: the default theme's images are not editable (6313-6324). */
 const DEFAULT_PATHS = { background: "/assets/background.jpg", board: "/assets/board.png", black: "/assets/black0.png", white: "/assets/white0.png" };
 
@@ -56,39 +130,37 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, t
   return node;
 };
 
-/** createDesignSettingsCard: a titled card. Texts arrive translated (t with literal keys). */
+/** createDesignSettingsCard: a titled group. Texts arrive translated (t with literal keys). */
 function card(host: HTMLElement, title: string, subtitle: string): HTMLElement {
   const box = el("section", "appearance-card");
-  box.append(el("h3", undefined, title), el("p", "appearance-card-sub", subtitle));
+  groupTitle(box, title, subtitle);
   host.append(box);
   return box;
 }
 
-/** createDesignRow: title and sub line on the left, the controls on the right; rows with a
- *  ConfigSettingTargets id carry it for 功能搜索's row location. */
-function row(box: HTMLElement, target: Target | null, title: string, subtitle: string, ...controls: HTMLElement[]): HTMLElement {
-  const line = el("div", "appearance-row");
+/** createDesignRow: a grouped row; rows with a ConfigSettingTargets id carry it for 功能搜索's row
+ *  location. Rows holding a path, the preview or the rules table put them under their name
+ *  (appearance.css). */
+function row(box: HTMLElement, target: Target | null, title: string, subtitle: string, ...controls: (HTMLElement | string)[]): HTMLElement {
+  const line = groupRow(box, title, subtitle, ...controls);
   if (target) line.dataset.settingTarget = target;
-  const text = el("div", "appearance-row-text");
-  text.append(el("div", "appearance-row-title", title), el("div", "appearance-row-sub", subtitle));
-  const slot = el("div", "appearance-row-controls");
-  slot.append(...controls);
-  line.append(text, slot);
-  box.append(line);
   return line;
 }
 
+/** A check box drawn as a switch. */
 function check(key: string, label: string): HTMLInputElement {
-  const input = el("input");
+  const input = el("input", "ds-switch");
   input.type = "checkbox";
   input.dataset.key = key;
   input.setAttribute("aria-label", label);
   return input;
 }
 
+/** A switch after its text, or a radio before it (the radio is drawn by its segmented group). */
 function labelled(input: HTMLInputElement, label: string): HTMLLabelElement {
   const wrap = el("label", "appearance-check");
-  wrap.append(input, label);
+  if (input.type === "checkbox") wrap.append(label, input);
+  else wrap.append(input, label);
   return wrap;
 }
 
@@ -134,13 +206,15 @@ const intValue = (input: HTMLInputElement) => {
 };
 
 /** ColorLabel + 选择 (createColorControl, 4033-4053): the swatch opens the chooser; with alpha
- *  (ColorLabel useAplha) the alpha is edited beside it and written when not 255 (Theme.color2Array). */
+ *  (ColorLabel useAplha) the alpha is edited beside it and written when not 255 (Theme.color2Array).
+ *  `name` names the swatch; the alpha is "`subject`：不透明度". */
 interface ColorControl {
   root: HTMLElement;
   get(): number[];
   set(c: readonly number[]): void;
+  name(swatchName: string, subject?: string): void;
 }
-function colorControl(key: string, alpha: boolean, chooseButton: boolean): ColorControl {
+function colorControl(key: string, alpha: boolean, chooseButton: boolean, name: string, subject = name): ColorControl {
   const root = el("span", "appearance-color");
   const swatch = el("input");
   swatch.type = "color";
@@ -157,7 +231,7 @@ function colorControl(key: string, alpha: boolean, chooseButton: boolean): Color
       const v = Math.round(Number(opacity.value));
       opacity.value = String(Number.isFinite(v) ? Math.max(0, Math.min(255, v)) : 255);
     });
-    root.append(opacity);
+    root.append(stepper(opacity));
   }
   if (chooseButton) {
     const choose = el("button", "appearance-choose", t("ConfigDialog2.modern.chooseColor"));
@@ -166,7 +240,7 @@ function colorControl(key: string, alpha: boolean, chooseButton: boolean): Color
     root.append(choose);
   }
   const hex = (v: number) => v.toString(16).padStart(2, "0");
-  return {
+  const control: ColorControl = {
     root,
     get() {
       const v = swatch.value;
@@ -178,7 +252,13 @@ function colorControl(key: string, alpha: boolean, chooseButton: boolean): Color
       swatch.value = `#${hex(c[0])}${hex(c[1])}${hex(c[2])}`;
       opacity.value = String(c[3] ?? 255);
     },
+    name(swatchName, about = swatchName) {
+      swatch.setAttribute("aria-label", swatchName);
+      if (alpha) opacity.setAttribute("aria-label", product("themeFieldOpacity", about));
+    },
   };
+  control.name(name, subject);
+  return control;
 }
 
 /** A font combo box: Lizzie默认 (stored "Lizzie Default"), 系统默认 (stored "Dialog.plain"), then
@@ -332,6 +412,33 @@ function paintPreview(canvas: HTMLCanvasElement, v: ThemeSettings, images: Loade
   stone(x + square, y + square * 2, false, images.white);
 }
 
+/** The draft's preview images. A named theme's image that does not read is left out, so the
+ *  preview shows the pure colour or the plain stone instead (pnlBoardPreview 4994-5049, 5113-5115);
+ *  the core answers the default image only when neither the custom override nor the theme's own
+ *  file reads. An empty path is the default image, as on the board, and where the workbench shows
+ *  the program's own wallpaper for that default background (any theme but Java 经典) the preview
+ *  shows it too. */
+async function loadPreviewImages(settings: AppearanceSettings, draft: ThemeSettings): Promise<LoadedImages> {
+  const urls = await appearanceImages(settings, draft).catch(() => null);
+  if (!urls) return {};
+  const named = settings.theme !== DEFAULT_THEME;
+  const unread = (url: string, path: string, fallback: string) => named && path !== "" && url === fallback;
+  const decoded = (url: string, path: string, fallback: string): Promise<HTMLImageElement | undefined> => {
+    if (unread(url, path, fallback)) return Promise.resolve(undefined);
+    const img = new Image();
+    img.src = url;
+    return img.decode().then(() => img, () => undefined);
+  };
+  const linen = !unread(urls.background, draft.backgroundImage, DEFAULT_PATHS.background) && programStage(settings.theme === JAVA_CLASSIC_THEME, false, urls.background);
+  const [background, board, black, white] = await Promise.all([
+    linen ? stageReady.then(stageWallpaper) : decoded(urls.background, draft.backgroundImage, DEFAULT_PATHS.background),
+    decoded(urls.board, draft.boardImage, DEFAULT_PATHS.board),
+    decoded(urls.black, draft.blackStoneImage, DEFAULT_PATHS.black),
+    decoded(urls.white, draft.whiteStoneImage, DEFAULT_PATHS.white),
+  ]);
+  return { background, board, black, white };
+}
+
 // ------------------------------------------------------------------ page
 
 /** JOptionPane.showInputDialog(dialog, null, ConfigDialog2.inputThemeNameTitle, INFORMATION_MESSAGE)
@@ -363,10 +470,10 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   const add = el("button", undefined, t("ConfigDialog2.addTheme"));
   add.type = "button";
   add.dataset.key = "ConfigDialog2.addTheme";
-  const remove = el("button", undefined, t("ConfigDialog2.deleteTheme"));
+  const remove = el("button", "danger", t("ConfigDialog2.deleteTheme"));
   remove.type = "button";
   remove.dataset.key = "ConfigDialog2.deleteTheme";
-  row(profile, "config.theme.current", t("ConfigDialog2.modern.theme.current"), t("ConfigDialog2.modern.theme.currentSub"), themes, add, remove);
+  row(profile, "config.theme.current", t("ConfigDialog2.modern.theme.current"), product("themeManageSub", t("ConfigDialog2.modern.theme.currentSub")), themes, add, remove);
   const preview = el("canvas", "appearance-preview");
   preview.style.width = `${PREVIEW_W}px`;
   preview.style.height = `${PREVIEW_H}px`;
@@ -377,18 +484,34 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   const lines = card(host, t("ConfigDialog2.modern.theme.lines"), t("ConfigDialog2.modern.theme.linesSub"));
   const winrateWidth = spinner("settings.theme.winrateStrokeWidth", 0.1, 10, 0.1, t("LizzieConfig.title.winrateStrokeWidth"));
   const scoreWidth = spinner("settings.theme.scoreLeadStrokeWidth", 0.1, 10, 0.1, t("LizzieConfig.title.scoreLeadStrokeWidth"));
-  row(lines, "config.theme.winrate-width", t("ConfigDialog2.modern.theme.winrateWidth"), t("ConfigDialog2.modern.theme.winrateWidthSub"), winrateWidth, scoreWidth);
+  // Two widths in one row: each field has its line's name before it, the two kept together when
+  // the row wraps, and that line's name as its accessible name.
+  winrateWidth.setAttribute("aria-label", t("LizzieConfig.title.winrateStrokeWidth"));
+  scoreWidth.setAttribute("aria-label", t("LizzieConfig.title.scoreLeadStrokeWidth"));
+  const named = (name: string, field: HTMLInputElement) => {
+    const pair = el("span", "appearance-pair", name);
+    pair.append(stepper(field));
+    return pair;
+  };
+  row(lines, "config.theme.winrate-width", t("ConfigDialog2.modern.theme.winrateWidth"), t("ConfigDialog2.modern.theme.winrateWidthSub"),
+    named(product("themeWidthWinrate"), winrateWidth), named(product("themeWidthScore"), scoreWidth));
   const barWidth = spinner("settings.theme.minimumBlunderBarWidth", 1, 10, 1, t("LizzieConfig.title.minimumBlunderBarWidth"));
-  row(lines, "config.theme.blunder-width", t("ConfigDialog2.modern.theme.blunderWidth"), t("ConfigDialog2.modern.theme.blunderWidthSub"), barWidth);
+  row(lines, "config.theme.blunder-width", t("ConfigDialog2.modern.theme.blunderWidth"), t("ConfigDialog2.modern.theme.blunderWidthSub"), stepper(barWidth));
   const shadowLabel = t("LizzieConfig.title.shadowSize");
-  const showShadow = check("settings.theme.showStoneShadow", shadowLabel);
+  // The size field takes the row's name; the switch says what it turns on.
+  const showShadow = check("settings.theme.showStoneShadow", product("themeFieldShowShadow"));
   const shadowSize = spinner("settings.theme.shadowSize", 1, 150, 1, shadowLabel);
   showShadow.addEventListener("change", () => (shadowSize.disabled = !showShadow.checked));
-  row(lines, "config.theme.shadow", t("ConfigDialog2.modern.theme.shadow"), t("ConfigDialog2.modern.theme.shadowSub"), labelled(showShadow, shadowLabel), shadowSize);
+  row(lines, "config.theme.shadow", t("ConfigDialog2.modern.theme.shadow"), product("themeShadowSub"), showShadow, stepper(shadowSize), "%");
   const infoFont = fontCombo("settings.theme.fontName");
   row(lines, "config.theme.info-font", t("ConfigDialog2.modern.theme.infoFont"), t("ConfigDialog2.modern.theme.infoFontSub"), infoFont.select);
   const uiFont = fontCombo("settings.theme.uiFontName");
   row(lines, "config.theme.ui-font", t("ConfigDialog2.modern.theme.uiFont"), t("ConfigDialog2.modern.theme.uiFontSub"), uiFont.select);
+  // 设置 > 界面字体大小 (SetFrameFontSize.java:31-146): 12-20, saved for the next start.
+  const savedFrameSize = view.settings.appearance.frameFontSize;
+  const frameSize = spinner("settings.appearance.frameFontSize", 12, 20, 1, product("settingsFrameFont"));
+  frameSize.value = String(savedFrameSize);
+  row(lines, "menu.frameFontSize", product("settingsFrameFont"), product("settingsFrameFontSub"), stepper(frameSize));
   const winrateFont = fontCombo("settings.theme.winrateFontName");
   row(lines, "config.theme.winrate-font", t("ConfigDialog2.modern.theme.winrateFont"), t("ConfigDialog2.modern.theme.winrateFontSub"), winrateFont.select);
 
@@ -397,12 +520,12 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   const assetHint = t("ConfigDialog2.modern.theme.assetHint");
   const pureBackgroundLabel = t("LizzieConfig.title.chkPureBackground");
   const pureBackground = check("settings.theme.usePureBackground", pureBackgroundLabel);
-  const pureBackgroundColor = colorControl("settings.theme.pureBackgroundColor", false, false);
+  const pureBackgroundColor = colorControl("settings.theme.pureBackgroundColor", false, false, product("themeFieldColor", pureBackgroundLabel));
   const backgroundPath = pathControl("settings.theme.backgroundImage", redraw);
   row(assets, "config.theme.background-image", t("ConfigDialog2.modern.theme.backgroundImage"), assetHint, labelled(pureBackground, pureBackgroundLabel), pureBackgroundColor.root, backgroundPath.root);
   const pureBoardLabel = t("LizzieConfig.title.chkPureBoard");
   const pureBoard = check("settings.theme.usePureBoard", pureBoardLabel);
-  const pureBoardColor = colorControl("settings.theme.pureBoardColor", false, false);
+  const pureBoardColor = colorControl("settings.theme.pureBoardColor", false, false, product("themeFieldColor", pureBoardLabel));
   const boardPath = pathControl("settings.theme.boardImage", redraw);
   row(assets, "config.theme.board-image", t("ConfigDialog2.modern.theme.boardImage"), assetHint, labelled(pureBoard, pureBoardLabel), pureBoardColor.root, boardPath.root);
   const blackPath = pathControl("settings.theme.blackStoneImage", redraw);
@@ -429,7 +552,7 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   const colors = card(host, t("ConfigDialog2.modern.theme.colors"), t("ConfigDialog2.modern.theme.colorsSub"));
   const colorHint = t("ConfigDialog2.modern.colorRowHint");
   const colorRow = (target: Target, title: string, key: string) => {
-    const control = colorControl(key, true, true);
+    const control = colorControl(key, true, true, title);
     row(colors, target, title, colorHint, control.root);
     return control;
   };
@@ -453,10 +576,13 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
     input.dataset.key = `settings.theme.stoneIndicatorType.${value}`;
     return labelled(input, text);
   });
-  row(colors, "config.theme.stone-indicator", t("ConfigDialog2.modern.theme.indicator"), t("ConfigDialog2.modern.theme.indicatorSub"), ...indicatorInputs);
+  const indicatorChoices = el("span", "ds-seg");
+  indicatorChoices.setAttribute("role", "radiogroup");
+  indicatorChoices.append(...indicatorInputs);
+  row(colors, "config.theme.stone-indicator", t("ConfigDialog2.modern.theme.indicator"), t("ConfigDialog2.modern.theme.indicatorSub"), indicatorChoices);
   const commentNodeTitle = t("ConfigDialog2.modern.theme.commentNode");
   const showCommentNode = check("settings.theme.showCommentNodeColor", commentNodeTitle);
-  const commentNodeColor = colorControl("settings.theme.commentNodeColor", true, false);
+  const commentNodeColor = colorControl("settings.theme.commentNodeColor", true, false, product("themeFieldColor", commentNodeTitle), commentNodeTitle);
   row(colors, "config.theme.comment-node-color", commentNodeTitle, t("ConfigDialog2.modern.theme.commentNodeSub"), showCommentNode, commentNodeColor.root);
 
   // 选点评估关注外框.
@@ -496,6 +622,11 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
     selectedRule = k;
     rules.forEach((rule, n) => rule.tr.classList.toggle("selected", n === k));
   };
+  /** The fields of each rule carry its row number, so the rules' fields stay apart. */
+  const numberRules = () => rules.forEach((rule, k) => {
+    rule.threshold.setAttribute("aria-label", `${t("LizzieConfig.title.blunderThresholds")} ${k + 1}`);
+    rule.color.name(`${t("LizzieConfig.title.blunderColor")} ${k + 1}`);
+  });
   /** BlunderNodeTableModel.addRow: a threshold (empty for 添加) and its colour. */
   const addRule = (threshold: number | null, color: readonly number[]) => {
     const tr = el("tr");
@@ -504,10 +635,10 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
     input.step = "any";
     input.dataset.key = "settings.theme.blunderWinrateThreshold";
     input.value = threshold === null ? "" : String(threshold);
-    const control = colorControl("settings.theme.blunderNodeColor", true, false);
+    const control = colorControl("settings.theme.blunderNodeColor", true, false, t("LizzieConfig.title.blunderColor"));
     control.set(color);
     const a = el("td");
-    a.append(input);
+    a.append(stepper(input));
     const b = el("td");
     b.append(control.root);
     tr.append(a, b);
@@ -516,6 +647,7 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
     tr.addEventListener("focusin", () => selectRule(rules.indexOf(rule)));
     rules.push(rule);
     tbody.append(tr);
+    numberRules();
   };
   const setRules = (thresholds: readonly number[], colorsByRow: readonly (readonly number[])[]) => {
     tbody.replaceChildren();
@@ -534,6 +666,7 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
     if (selectedRule < 0 || selectedRule >= rules.length) return;
     rules[selectedRule].tr.remove();
     rules.splice(selectedRule, 1);
+    numberRules();
     selectRule(-1);
   };
   const resetRows = el("button", undefined, t("LizzieConfig.button.reset"));
@@ -660,16 +793,18 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
     };
   };
 
-  // 棋盘预览 repaints with the draft (Java's 100 ms timer); images are decoded again only when the
-  // image choices change, and only the newest request paints.
+  // 棋盘预览 repaints with the draft at once. Its images are decoded again 100 ms after the image
+  // choices last changed, typing included (Java repaints on a 100 ms timer, 5220-5231), and only
+  // the newest request paints.
   let previewKey = "";
   let previewImages: LoadedImages = {};
   let previewGeneration = 0;
   let previewPending = false;
+  let previewTimer = 0;
   function schedulePreview() {
     if (previewPending) return;
     previewPending = true;
-    requestAnimationFrame(async () => {
+    requestAnimationFrame(() => {
       previewPending = false;
       if (!preview.isConnected && !host.isConnected) return;
       const draft = collect();
@@ -679,14 +814,21 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
         ? { ...view.settings.appearance, theme: selected, customBoardImage: "", customBackgroundImage: "" }
         : { ...view.settings.appearance, theme: selected };
       const key = JSON.stringify([settings, draft.backgroundImage, draft.boardImage, draft.blackStoneImage, draft.whiteStoneImage]);
-      if (key !== previewKey) {
-        previewKey = key;
-        const mine = ++previewGeneration;
-        const loaded = await loadThemeImages(settings, draft);
-        if (mine !== previewGeneration) return;
-        previewImages = loaded.images;
+      if (key === previewKey) {
+        paintPreview(preview, draft, previewImages);
+        return;
       }
-      paintPreview(preview, collect(), previewImages);
+      // The first images load at once; until new ones arrive the preview keeps its last paint.
+      const delay = previewKey === "" ? 0 : 100;
+      previewKey = key;
+      const mine = ++previewGeneration;
+      window.clearTimeout(previewTimer);
+      previewTimer = window.setTimeout(async () => {
+        const loaded = await loadPreviewImages(settings, draft);
+        if (mine !== previewGeneration || (!preview.isConnected && !host.isConnected)) return;
+        previewImages = loaded;
+        paintPreview(preview, collect(), previewImages);
+      }, delay);
     });
   }
   // Every control's edit repaints the preview with the draft.
@@ -698,7 +840,7 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
     themes.replaceChildren();
     const names = catalog?.themes.map((e) => e.name) ?? [DEFAULT_THEME, ...(committed.name !== DEFAULT_THEME ? [committed.name] : [])];
     for (const name of names) {
-      const option = el("option", undefined, name === DEFAULT_THEME ? t("LizzieConfig.title.defaultTheme") : name);
+      const option = el("option", undefined, themeName(name));
       option.value = name;
       themes.append(option);
     }
@@ -731,7 +873,9 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   add.onclick = async () => {
     const name = await themeNameDialog();
     if (name === null) return;
-    const names = [t("LizzieConfig.title.defaultTheme"), ...(catalog?.themes.map((e) => e.name) ?? [])];
+    // Java compares the list's names; Java 经典 is also taken under its stored name and in every
+    // language, and stays taken after it is deleted.
+    const names = [t("LizzieConfig.title.defaultTheme"), JAVA_CLASSIC_THEME, ...Object.values(JAVA_CLASSIC_NAMES).map((n) => n.themeJavaClassic), ...(catalog?.themes.map((e) => e.name) ?? [])];
     if (names.some((n) => n.toLowerCase() === name.toLowerCase())) {
       await message(t("Message.title"), t("ConfigDialog2.duplicateThemeName"));
       return;
@@ -743,7 +887,7 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   // (4424-4425): the committed theme, or 默认 when it was the one deleted.
   remove.onclick = async () => {
     if (selected === DEFAULT_THEME) return;
-    if (!(await confirm(t("LizzieFrame.warning"), `${t("ConfigDialog2.deleteThemeWarning")}'${selected}' ?`))) return;
+    if (!(await confirm(t("LizzieFrame.warning"), `${t("ConfigDialog2.deleteThemeWarning")}'${themeName(selected)}' ?\n${product("themeDeleteDiscards")}`))) return;
     const result = await run({ type: "DeleteTheme", name: selected });
     if (result && result.type !== "Refused") await dialog.reopen("theme");
   };
@@ -754,6 +898,13 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
 
   return {
     save: async () => {
+      const size = Number(frameSize.value);
+      if (size !== (state.view?.settings.appearance.frameFontSize ?? savedFrameSize)) {
+        const result = await run({ type: "SetFrameFontSize", size });
+        if (!result || result.type === "Refused") return false;
+        // LizzieFrame.java:20751-20768: outside Chinese a size over 12 may not fit every label.
+        if (!isChinese() && size > 12) await message(t("Message.title"), t("menu.setFrameSizeAlart"));
+      }
       const nowTracking = state.view?.settings.tracking ?? tracking;
       if (outline.checked !== nowTracking.showOutline || Number(opacity.value) !== nowTracking.outlineOpacity) {
         const result = await run({ type: "SetTrackingSettings", settings: { ...nowTracking, showOutline: outline.checked, outlineOpacity: Number(opacity.value) } });

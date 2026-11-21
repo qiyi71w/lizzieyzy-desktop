@@ -1,42 +1,42 @@
-use super::Workbench;
+use super::{settings_error, Workbench, SETTINGS_SAVE_FAILED};
 use crate::api::{ApiError, ErrorKind};
 use crate::appearance::{self, AppearanceSettings, ThemeSettings};
 use crate::settings;
 
-fn io(error: std::io::Error) -> ApiError { ApiError::new(ErrorKind::Io, format!("saving theme failed: {error}")) }
+/// A theme folder write failed: the settings-file error, the cause on its second line.
+fn io(error: std::io::Error) -> ApiError { settings_error(SETTINGS_SAVE_FAILED, error) }
 
 impl Workbench {
-    /// ConfigDialog2.java:6191-6286: default edits belong to ui, named edits to theme.txt.
-    /// Persist both files before publishing the new projection; roll the theme back on failure.
+    /// ConfigDialog2.java:6191-6286: default edits belong to ui, named edits to theme.txt, whose
+    /// other keys stay (Theme.save). Persist both files before publishing the new projection; roll
+    /// the theme back on failure.
     pub fn set_appearance_settings(&mut self, mut appearance: AppearanceSettings, mut theme: ThemeSettings) -> Result<bool, ApiError> {
         if !appearance::valid_name(&appearance.theme) || !theme.valid()
             || (!(12..=20).contains(&appearance.frame_font_size) && appearance.frame_font_size != self.config.appearance.frame_font_size) {
             return Err(ApiError::new(ErrorKind::InvalidArgument,"appearance settings"));
         }
-        // Menu.java:745-769: entering Apple enables Morandi; entering classic disables Apple.
-        if appearance.apple_style && !self.config.appearance.apple_style { appearance.morandi_colors = true; }
-        if !appearance.morandi_colors && self.config.appearance.morandi_colors { appearance.apple_style = false; }
         if self.config.appearance == appearance && self.appearance_theme == theme { return Ok(false); }
         let images = appearance::capture_external_images(&self.storage, &mut appearance, &mut theme).map_err(io)?;
         let path = if appearance.theme == "default" { None } else { Some(appearance::theme_file(&self.storage,&appearance.theme).map_err(io)?) };
         let previous = if let Some(path) = &path {
             match std::fs::read(path) { Ok(bytes)=>Some(bytes),Err(e) if e.kind()==std::io::ErrorKind::NotFound=>None,Err(e)=>return Err(io(e)) }
         } else { None };
-        if let Some(path) = &path { settings::save_json(path,&appearance::to_java(&theme)).map_err(io)?; }
+        if let Some(path) = &path { settings::save_json(path,&appearance::to_java(&appearance.theme,previous.as_deref(),&theme)).map_err(io)?; }
         let default = appearance.theme == "default";
         let result = self.commit_config(|c| {
             c.appearance = appearance;
-            if default { c.appearance_defaults = theme.clone(); }
+            if default { c.appearance_defaults = theme; }
         });
         if let Err(error) = result {
             if let Some(path) = path {
                 let restored = match previous {Some(bytes)=>settings::write_atomic(&path,&bytes),None=>std::fs::remove_file(path)};
-                if let Err(restore) = restored { return Err(ApiError::new(ErrorKind::Io,format!("{error:?}; restoring theme failed: {restore}"))); }
+                if let Err(restore) = restored { return Err(ApiError::new(ErrorKind::Io,format!("{}\n{restore}",error.message))); }
             }
             return Err(error);
         }
         images.keep();
-        self.appearance_theme = theme;
+        // saveConfig reads the theme back from what was written (ConfigDialog2.java:6865-6866).
+        self.reload_appearance_theme();
         Ok(true)
     }
     /// LizzieFrame.java:20741-20768: persisted now, active only on restart.

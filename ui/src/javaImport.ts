@@ -1,7 +1,9 @@
 // Import of LizzieYzy Next (Java) settings: choose the Java settings folder, preview what is taken
 // over, left out or not usable, confirm credentials and replacements, then read the report.
-// Java has no counterpart; the dialog follows the engine dialogs' Swing form density. The core
-// reads and writes; this dialog only holds the user's choices until "导入".
+// Java has no counterpart; each step is grouped rows (engine/controls.ts) with the tables and
+// lists as full-width content, and a footer: 预览 or 导入 with 取消 (跳过 for the first-use offer),
+// then 关闭 under the report. The core reads and writes; this dialog only holds the user's choices
+// until "导入".
 import { run, state } from "./app";
 import type {
   EngineProblem,
@@ -16,7 +18,7 @@ import type {
 } from "./contract/generated";
 import { formPanel, message } from "./dialogs";
 import { product, t } from "./i18n";
-import { actions, button, checkbox, input } from "./engine/controls";
+import { button, checkbox, footer, groupTitle, input, primaryButton, row, switchRow } from "./engine/controls";
 import "./javaImport.css";
 
 let opened = false;
@@ -26,7 +28,7 @@ export async function openJavaImport(firstUse = false): Promise<void> {
   if (opened || !state.view) return;
   opened = true;
   const body = document.createElement("div");
-  body.className = "modal-body java-import";
+  body.className = "java-import";
   const dialog = formPanel(product("importTitle"), body);
   let declined = firstUse;
   try {
@@ -54,6 +56,27 @@ function failureText(f: ImportFailure): string {
   }
 }
 
+let names = 0;
+
+/** A row whose `wide` part (a folder path, the folders found) takes the whole line under its name
+ *  and `controls`; a path field is named by the row. */
+function wideRow(host: HTMLElement, title: string, wide: HTMLElement, ...controls: HTMLElement[]): HTMLElement {
+  const r = row(host, title, "", ...controls);
+  r.classList.add("java-import-wide");
+  const name = r.querySelector<HTMLElement>(".ds-row-title")!;
+  name.id ||= `java-import-name-${++names}`;
+  if (wide instanceof HTMLInputElement) wide.setAttribute("aria-labelledby", name.id);
+  r.append(wide);
+  return r;
+}
+
+/** A switch row for a choice the import makes only when asked, keyed `key`. */
+function choice(host: HTMLElement, label: string, key: string): HTMLInputElement {
+  const box = switchRow(host, label, "", false).input;
+  box.dataset.key = key;
+  return box;
+}
+
 /** Step 1: the Java settings folder. */
 function showSource(body: HTMLElement, firstUse: boolean, close: () => Promise<void>, started: () => void, folder = "", program: string | null = null): void {
   body.replaceChildren();
@@ -61,28 +84,25 @@ function showSource(body: HTMLElement, firstUse: boolean, close: () => Promise<v
   const path = input(folder || (state.view?.java_import.candidates[0] ?? ""));
   path.className = "java-import-path";
   path.dataset.key = "import-folder";
-  const row = document.createElement("div");
-  row.className = "java-import-row";
-  row.append(text("span", product("importFolder")), path, button(product("browse"), async () => {
+  wideRow(body, product("importFolder"), path, button(product("browse"), async () => {
     const r = await run({ type: "ChooseJavaFolder", program: false });
     if (r?.type === "FolderChosen") path.value = r.path;
   }));
-  body.append(row);
   const candidates = state.view?.java_import.candidates ?? [];
   if (candidates.length) {
     const found = document.createElement("div");
     found.className = "java-import-found";
-    found.append(text("span", product("importFound")));
     candidates.forEach((c, k) => {
       const b = button(c, () => { path.value = c; });
       b.dataset.key = `import-candidate-${k}`;
       found.append(b);
     });
-    body.append(found);
+    wideRow(body, product("importFound").replace(/\s*[:：]\s*$/, ""), found);
   }
   const error = text("p", "", "java-import-error");
+  error.setAttribute("role", "alert");
   body.append(error);
-  const preview = button(product("importPreview"), async () => {
+  const preview = primaryButton(product("importPreview"), async () => {
     error.textContent = "";
     if (!path.value.trim()) return;
     const r = await run({ type: "PreviewJavaImport", config_dir: path.value.trim(), program_dir: program });
@@ -90,7 +110,7 @@ function showSource(body: HTMLElement, firstUse: boolean, close: () => Promise<v
     else if (r?.type === "JavaImportPreview") showPreview(body, r.preview, firstUse, close, started, path.value.trim());
   });
   preview.dataset.key = "import-preview";
-  actions(body, preview, button(firstUse ? product("importSkip") : product("cancel"), close));
+  footer(body, { primary: preview, cancel: button(firstUse ? product("importSkip") : product("cancel"), close) });
   path.focus();
 }
 
@@ -121,7 +141,7 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   HumanEngineGame: "Menu.newGame",
   GameAiTime: "SetAiTimes.title",
   GameRandomStart: "SetAnaGameRandomStart.title",
-  AutoPlay: "BottomToolbar.detail.autoMove",
+  AutoPlay: "AutoPlay.title",
   WholeGameVisits: "WholeGameAnalysis.visits.label",
   Hawkeye: "Menu.hawkEye",
   // Menu.java:1163 界面 > 面板, 1427 恢复默认面板尺寸, 4509 底部工具栏.
@@ -171,9 +191,8 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, string>> = {
   Tsumego: "TsumeGoFrame.title",
   CaptureTsumego: "CaptureTsumeGoFrame.title",
   TopToolbar: "Menu.topToolBar",
-  // Menu.java:4897 底部工具栏 > 自定义内容, 4606 设置模块顺序 (literal Chinese, Chinese interface only).
+  // Menu.java:4897 底部工具栏 > 自定义内容.
   BottomButtons: "Menu.customToolbar",
-  DetailPanelOrder: "设置模块顺序",
   ProblemList: "Menu.commitPane",
   FlashRange: "Menu.flashAnalyzePartGame",
   EngineMatch: "EnginePkConfig.title",
@@ -246,7 +265,7 @@ function problemText(p: EngineProblem): string {
 /** The engine table; with `choose`, rows with credentials get the "复制凭据" box. */
 function engineTable(host: HTMLElement, engines: ImportEngineView[], choose: Map<number, HTMLInputElement> | null): void {
   if (!engines.length) return;
-  host.append(text("div", product("importEngines"), "java-import-section"));
+  groupTitle(host, product("importEngines"));
   const wrap = document.createElement("div");
   wrap.className = "engine-table-wrap java-import-engines";
   const table = document.createElement("table");
@@ -284,60 +303,28 @@ function showPreview(body: HTMLElement, p: ImportPreviewView, firstUse: boolean,
   body.append(text("p", product("importCounts", count(p.items, "Imported"), count(p.items, "Incompatible"), count(p.items, "NotMigrated")), "java-import-counts"));
   const credentials = new Map<number, HTMLInputElement>();
   engineTable(body, p.engines, credentials);
-  // The remembered AI 解说 API key (Java's secure-credentials) comes over only when chosen.
-  let commentaryKey: HTMLInputElement | null = null;
-  if (p.commentary_credential) {
-    const box = checkbox(product("importCopyCommentaryKey", p.commentary_credential.base_url || p.commentary_credential.source), false);
-    box.input.dataset.key = "import-commentary-key";
-    commentaryKey = box.input;
-    body.append(box.label);
-  }
-  // The 精析设置 remote engine's password, likewise only when chosen.
-  let analysisSsh: HTMLInputElement | null = null;
-  if (p.analysis_ssh_credential) {
-    const box = checkbox(product("importCopyAnalysisSshPassword", p.analysis_ssh_credential), false);
-    box.input.dataset.key = "import-analysis-ssh-password";
-    analysisSsh = box.input;
-    body.append(box.label);
-  }
-  // The Zhizi account's remembered sign-in token and password: each only when chosen on its own.
-  let cloudToken: HTMLInputElement | null = null;
-  let cloudPassword: HTMLInputElement | null = null;
-  if (p.cloud_credentials?.token) {
-    const box = checkbox(product("importCopyCloudToken", p.cloud_credentials.identifier, t("RemoteCompute.zhizi")), false);
-    box.input.dataset.key = "import-cloud-token";
-    cloudToken = box.input;
-    body.append(box.label);
-  }
-  if (p.cloud_credentials?.password) {
-    const box = checkbox(product("importCopyCloudPassword", p.cloud_credentials.identifier, t("RemoteCompute.zhizi")), false);
-    box.input.dataset.key = "import-cloud-password";
-    cloudPassword = box.input;
-    body.append(box.label);
-  }
-  // 跑谱贡献's account, password, custom-command passwords and 远程SSH password: only when chosen.
-  let contribution: HTMLInputElement | null = null;
-  if (p.contribution_credential) {
-    const box = checkbox(product("importCopyContribution", t("Menu.contributeMenu")), false);
-    box.input.dataset.key = "import-contribution-credentials";
-    contribution = box.input;
-    body.append(box.label);
-  }
+  // The credentials Java remembered: each comes over only when its switch is on.
+  const choices = document.createElement("div");
+  choices.className = "java-import-choices";
+  body.append(choices);
+  // The remembered AI 解说 API key (Java's secure-credentials).
+  const commentaryKey = p.commentary_credential
+    ? choice(choices, product("importCopyCommentaryKey", p.commentary_credential.base_url || p.commentary_credential.source), "import-commentary-key")
+    : null;
+  // The 精析设置 remote engine's password.
+  const analysisSsh = p.analysis_ssh_credential ? choice(choices, product("importCopyAnalysisSshPassword", p.analysis_ssh_credential), "import-analysis-ssh-password") : null;
+  // The Zhizi account's remembered sign-in token and password, each on its own.
+  const cloudToken = p.cloud_credentials?.token ? choice(choices, product("importCopyCloudToken", p.cloud_credentials.identifier, t("RemoteCompute.zhizi")), "import-cloud-token") : null;
+  const cloudPassword = p.cloud_credentials?.password ? choice(choices, product("importCopyCloudPassword", p.cloud_credentials.identifier, t("RemoteCompute.zhizi")), "import-cloud-password") : null;
+  // 跑谱贡献's account, password, custom-command passwords and 远程SSH password.
+  const contribution = p.contribution_credential ? choice(choices, product("importCopyContribution", t("Menu.contributeMenu")), "import-contribution-credentials") : null;
   // 快速启动 commands carrying passwords or tokens: the program list comes over only when chosen.
-  let quickLinks: HTMLInputElement | null = null;
-  if (p.quick_link_credential) {
-    const box = checkbox(product("importCopyQuickLinks", t("Menu.quickLinks")), false);
-    box.input.dataset.key = "import-quick-link-credentials";
-    quickLinks = box.input;
-    body.append(box.label);
-  }
+  const quickLinks = p.quick_link_credential ? choice(choices, product("importCopyQuickLinks", t("Menu.quickLinks")), "import-quick-link-credentials") : null;
   if (p.engines.some((e) => e.problems.some((x) => x.type === "ProgramNotFound" || x.type === "FileNotFound")) || p.program_dir) {
-    const row = document.createElement("div");
-    row.className = "java-import-row";
     const program = input(p.program_dir ?? "");
     program.className = "java-import-path";
     program.dataset.key = "import-program";
-    row.append(text("span", product("importProgramFolder")), program, button(product("browse"), async () => {
+    wideRow(body, product("importProgramFolder"), program, button(product("browse"), async () => {
       const r = await run({ type: "ChooseJavaFolder", program: true });
       if (r?.type === "FolderChosen") program.value = r.path;
     }), button(product("importRepreview"), async () => {
@@ -345,7 +332,6 @@ function showPreview(body: HTMLElement, p: ImportPreviewView, firstUse: boolean,
       if (r?.type === "JavaImportPreview") showPreview(body, r.preview, firstUse, close, started, folder);
       else if (r?.type === "JavaImportFailed") void message(product("importTitle"), failureText(r.failure), "warning");
     }));
-    body.append(row);
   }
   let replace: HTMLInputElement | null = null;
   if (p.replaces.length) {
@@ -363,14 +349,8 @@ function showPreview(body: HTMLElement, p: ImportPreviewView, firstUse: boolean,
   itemLists(body, p.items, false);
   slotList(body, p.recovery);
   // The Java slots come over only when chosen explicitly.
-  let recovery: HTMLInputElement | null = null;
-  if (p.recovery.some((s) => s.status === "Imported")) {
-    const choose = checkbox(product("javaImportRecovery"), false);
-    choose.input.dataset.key = "import-recovery";
-    recovery = choose.input;
-    body.append(choose.label);
-  }
-  const apply = button(product("importDo"), async () => {
+  const recovery = p.recovery.some((s) => s.status === "Imported") ? choice(body, product("javaImportRecovery"), "import-recovery") : null;
+  const apply = primaryButton(product("importDo"), async () => {
     const copy = [...credentials].filter(([, box]) => box.checked).map(([index]) => index);
     const r = await run({
       type: "ApplyJavaImport",
@@ -391,11 +371,12 @@ function showPreview(body: HTMLElement, p: ImportPreviewView, firstUse: boolean,
     }
   });
   apply.dataset.key = "import-apply";
-  apply.className = "primary";
   const updateApply = () => { apply.disabled = !!replace && !replace.checked; };
   replace?.addEventListener("change", updateApply);
   updateApply();
-  actions(body, apply, button(product("importBack"), () => showSource(body, firstUse, close, started, folder, p.program_dir)), button(firstUse ? product("importSkip") : product("cancel"), close));
+  // 返回 goes back a step without ending the dialog: it stands at the footer's start.
+  const back = button(product("importBack"), () => showSource(body, firstUse, close, started, folder, p.program_dir));
+  footer(body, { start: [back], primary: apply, cancel: button(firstUse ? product("importSkip") : product("cancel"), close) });
 }
 
 /** Step 3: what was imported. */
@@ -409,9 +390,9 @@ function showReport(body: HTMLElement, r: ImportReportView, close: () => Promise
   if (r.restart_required) body.append(text("p", t("Lizzie.hint.restart"), "java-import-restart"));
   itemLists(body, r.items, true);
   slotList(body, r.recovery);
+  // The import is done: only 关闭 is left.
   const done = button(product("close"), close);
   done.dataset.key = "import-close";
-  done.className = "primary";
-  actions(body, done);
+  footer(body, { cancel: done });
   done.focus();
 }

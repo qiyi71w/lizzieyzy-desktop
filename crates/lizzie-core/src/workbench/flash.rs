@@ -360,9 +360,11 @@ impl Workbench {
 
     // -------------------------------------------------------------------- ending
 
-    /// Every position was answered (`setResult`): browsing at the root steps to the first move,
-    /// and the foreground engine analyses again unless the user paused it.
+    /// Every position was answered (`setResult`): the analysed document is no engine game any
+    /// more ([`Workbench::analysis_request_completed`]), browsing at the root steps to the first
+    /// move, and the foreground engine analyses again unless the user paused it.
     fn flash_completed(&mut self, run: &Run) {
+        self.analysis_request_completed(run.doc);
         if run.doc == self.doc.id && self.cursor == ROOT {
             self.navigate(Navigation::Forward(1));
         }

@@ -3,17 +3,26 @@
 // the frame and the captured problem; these windows hold only their drafts.
 import { invoke } from "@tauri-apps/api/core";
 import { run, state } from "../app";
-import { isApiError } from "../contract/client";
+import { errorText } from "../errorText";
 import type { CaptureSettings, TsumegoAttacker, TsumegoFrameSettings, TsumegoKoThreat, TsumegoToPlay } from "../contract/generated";
-import { formPanel, message } from "../dialogs";
+import { closeBox, formPanel, message } from "../dialogs";
 import { parseJavaInt } from "../display/dialogs";
 import { choosePlacement } from "../editing/commands";
 import { edit } from "../editing/state";
-import { button } from "../engine/controls";
+import { button, footer, primaryButton, row, segmented } from "../engine/controls";
 import { plainJava } from "../engine/tuningText";
-import { product, t } from "../i18n";
+import { product, registerProduct, t } from "../i18n";
 import { messageNoModal } from "../match/dialogs";
 import "./tsumego.css";
+
+registerProduct({
+  ZhCn: { tsumegoCaptureStartFailed: "未能开始抓取死活题。" },
+  ZhTw: { tsumegoCaptureStartFailed: "未能開始抓取死活題。" },
+  EnUs: { tsumegoCaptureStartFailed: "Could not start capturing a tsumego." },
+  JaJp: { tsumegoCaptureStartFailed: "詰碁のキャプチャーを開始できませんでした。" },
+  KoKr: { tsumegoCaptureStartFailed: "사활 화면 캡처를 시작하지 못했습니다." },
+  ThTh: { tsumegoCaptureStartFailed: "เริ่มจับสึเมโกะไม่ได้" },
+});
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", text = ""): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -50,7 +59,7 @@ function intDocument(field: HTMLInputElement): void {
 function intField(value: number, key: string): HTMLInputElement {
   const field = el("input");
   field.type = "text";
-  field.size = 5;
+  field.inputMode = "numeric";
   field.value = String(value);
   field.dataset.key = key;
   intDocument(field);
@@ -65,20 +74,28 @@ function unfocusable(b: HTMLButtonElement): HTMLButtonElement {
 }
 
 /** A window of its own (JDialog / JFrame) inside the workbench: non-modal, above the workbench and
- *  below modal dialogs, with its title bar close button. */
-function windowBox(title: string, cls: string, close: () => void): HTMLDivElement {
+ *  below modal dialogs, the dialog frame with the close box in its title; Escape in the window is
+ *  the close box. `body` follows the title and scrolls under it; its footer is the window's button
+ *  row. */
+function windowBox(title: string, cls: string, close: () => void): { box: HTMLDivElement; body: HTMLDivElement } {
   const box = el("div", `modal-box engine-dialog tsumego-window ${cls}`);
   box.setAttribute("role", "dialog");
   box.setAttribute("aria-label", title);
   // Usable while WaitForAnalysis disables the main window, like the Java window.
   box.dataset.freeWindow = "";
   const head = el("div", "modal-title tsumego-title", title);
-  const x = el("button", "tsumego-close", "×");
-  x.setAttribute("aria-label", product("close"));
-  unfocusable(x).onclick = close;
+  const x = unfocusable(closeBox(close));
+  x.dataset.key = `${cls}.close`;
   head.append(x);
-  box.append(head);
-  return box;
+  const body = el("div", "tsumego-body");
+  box.append(head, body);
+  box.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || e.isComposing) return;
+    e.preventDefault();
+    e.stopPropagation();
+    close();
+  });
+  return { box, body };
 }
 
 // ------------------------------------------------------------------ 死活题
@@ -90,25 +107,15 @@ function closeTsumego(): void {
   tsumegoWindow = null;
 }
 
-/** A ButtonGroup of non-focusable radio buttons, one grid cell each, with their texts; `name`
- *  prefixes each choice's automation key. */
-function radios<T extends string>(name: string, value: T, choices: [T, string][]): { cells: HTMLElement[]; get: () => T } {
-  const inputs = choices.map(([choice, text]) => {
-    const radio = el("input");
-    radio.type = "radio";
-    radio.name = name;
-    radio.value = choice;
-    radio.checked = choice === value;
+/** A ButtonGroup of non-focusable radio buttons as one segmented control; `name` prefixes each
+ *  choice's automation key, which its segment carries. */
+function radios<T extends string>(name: string, value: T, choices: [T, string][]): { el: HTMLElement; get: () => T } {
+  const seg = segmented(name, choices, value);
+  seg.inputs.forEach((radio, k) => {
     radio.tabIndex = -1;
-    const label = el("label", "tsumego-radio");
-    label.dataset.key = `${name}.${choice}`;
-    label.append(radio, text);
-    return { radio, label };
+    radio.parentElement!.dataset.key = `${name}.${choices[k][0]}`;
   });
-  return {
-    cells: inputs.map((i) => i.label),
-    get: () => (inputs.find((i) => i.radio.checked)?.radio.value as T | undefined) ?? value,
-  };
+  return { el: seg.el, get: seg.value };
 }
 
 /** LizzieFrame.openTsumego: an open 死活题 window is replaced by a new one with the saved choices. */
@@ -116,9 +123,9 @@ export function openTsumego(): void {
   closeTsumego();
   const saved = state.view?.settings.tsumego.frame;
   if (!saved) return;
-  const box = windowBox(t("TsumeGoFrame.title"), "tsumego-frame", closeTsumego);
+  const { box, body } = windowBox(t("TsumeGoFrame.title"), "tsumego-frame", closeTsumego);
   box.dataset.name = "tsumego.frame";
-  const grid = el("div", "tsumego-grid");
+  // 先手方, 进攻方, 添加劫材 and 墙面间距 as one group of rows.
   const toPlay = radios<TsumegoToPlay>("tsumego.toPlay", saved.toPlay, [
     ["Keep", t("TsumeGoFrame.rdoKeepOn")],
     ["Black", t("TsumeGoFrame.rdoBlackToPlay")],
@@ -136,20 +143,17 @@ export function openTsumego(): void {
     ["None", t("TsumeGoFrame.rdoKoNone")],
   ]);
   const wall = intField(saved.wallDistance, "tsumego.wall");
-  wall.setAttribute("aria-label", t("TsumeGoFrame.lblWallDistance"));
-  grid.append(
-    el("span", "", t("TsumeGoFrame.lblToPlay")), ...toPlay.cells, el("span"),
-    el("span", "", t("TsumeGoFrame.lblAttacker")), ...attacker.cells, el("span"),
-    el("span", "", t("TsumeGoFrame.lblKoThreat")), ...koThreat.cells,
-    el("span", "", t("TsumeGoFrame.lblWallDistance")), wall,
-  );
+  row(body, t("TsumeGoFrame.lblToPlay"), "", toPlay.el);
+  row(body, t("TsumeGoFrame.lblAttacker"), "", attacker.el);
+  row(body, t("TsumeGoFrame.lblKoThreat"), "", koThreat.el);
+  row(body, t("TsumeGoFrame.lblWallDistance"), "", wall);
 
   const capture = unfocusable(button(t("TsumeGoFrame.btnCapture"), () => {
     openCaptureFrame();
     closeTsumego();
   }));
   capture.dataset.key = "tsumego.capture";
-  const confirm = button(t("TsumeGoFrame.btnConfirm"), () => {
+  const confirm = primaryButton(t("TsumeGoFrame.btnConfirm"), () => {
     const settings: TsumegoFrameSettings = {
       toPlay: toPlay.get(),
       attacker: attacker.get(),
@@ -163,11 +167,8 @@ export function openTsumego(): void {
   confirm.dataset.key = "tsumego.confirm";
   const cancel = button(t("TsumeGoFrame.btnCancel"), closeTsumego);
   cancel.dataset.key = "tsumego.cancel";
-  const right = el("div", "tsumego-buttons");
-  right.append(confirm, cancel);
-  const row = el("div", "tsumego-button-row");
-  row.append(capture, right);
-  box.append(grid, row);
+  // 屏幕抓取 ends this window by opening 抓取死活题.
+  footer(body, { primary: confirm, others: [capture], cancel });
 
   // The window takes its own keys, like a focused Swing dialog; Shift+T starts the capture.
   box.addEventListener("keydown", (e) => {
@@ -209,7 +210,7 @@ function closeCaptureFrame(): void {
  *  workbench; an open one is replaced. */
 export function openCaptureFrame(): void {
   closeCaptureFrame();
-  const box = windowBox(t("CaptureTsumeGoFrame.title"), "capture-frame", closeCaptureFrame);
+  const { box, body } = windowBox(t("CaptureTsumeGoFrame.title"), "capture-frame", closeCaptureFrame);
   box.dataset.key = "capture.frame";
   box.tabIndex = -1;
   const grid = el("div", "capture-grid");
@@ -224,11 +225,11 @@ export function openCaptureFrame(): void {
   });
   const settings = unfocusable(button(t("CaptureTsumeGoFrame.btnSettings"), () => void openCaptureSettings()));
   settings.dataset.key = "capture.settings";
-  const start = unfocusable(button(t("CaptureTsumeGoFrame.btnStart"), () => void startCapture()));
+  const start = unfocusable(primaryButton(t("CaptureTsumeGoFrame.btnStart"), () => void startCapture()));
   start.dataset.key = "capture.start";
-  const row = el("div", "capture-button-row");
-  row.append(settings, el("span", "capture-tip", t("CaptureTsumeGoFrame.lblTip")), start);
-  box.append(grid, row);
+  body.append(grid);
+  // 参数设置 and the tip leave the window open; 开始抓取 hides it.
+  footer(body, { start: [settings, el("span", "engine-hint", t("CaptureTsumeGoFrame.lblTip"))], primary: start });
   box.addEventListener("keydown", (e) => {
     e.stopPropagation();
     if (e.code === "KeyT" && e.shiftKey) {
@@ -241,13 +242,15 @@ export function openCaptureFrame(): void {
   box.focus();
 }
 
-/** 参数设置 over the instructions window: five IntDocument fields; 确定 saves them all only when
- *  each parses (else Menu.inputIntegerHint) and closes either way. */
+/** A Java label as a row name: without its trailing colon. */
+const named = (text: string) => text.replace(/\s*[:：]\s*$/, "");
+
+/** 参数设置 over the instructions window: five IntDocument fields as one group of rows; 确定 saves
+ *  them all only when each parses (else Menu.inputIntegerHint) and closes either way. */
 async function openCaptureSettings(): Promise<void> {
   const saved = state.view?.settings.tsumego.capture;
   if (!saved) return;
   const body = el("div", "capture-settings");
-  const grid = el("div", "capture-settings-grid");
   const fields = {
     blackOffset: intField(saved.blackOffset, "capture.blackOffset"),
     whiteOffset: intField(saved.whiteOffset, "capture.whiteOffset"),
@@ -255,21 +258,13 @@ async function openCaptureSettings(): Promise<void> {
     whitePercent: intField(saved.whitePercent, "capture.whitePercent"),
     grayOffset: intField(saved.grayOffset, "capture.grayOffset"),
   };
-  const labelled = (text: string, field: HTMLInputElement) => {
-    field.setAttribute("aria-label", text);
-    return [el("span", "", text), field];
-  };
-  grid.append(
-    ...labelled(t("CaptureTsumeGoSettings.lblBlackOffset"), fields.blackOffset),
-    ...labelled(t("CaptureTsumeGoSettings.lblWhiteOffset"), fields.whiteOffset),
-    ...labelled(t("CaptureTsumeGoSettings.lblBlackPercent"), fields.blackPercent),
-    ...labelled(t("CaptureTsumeGoSettings.lblWhitePercent"), fields.whitePercent),
-    ...labelled(t("CaptureTsumeGoSettings.lblGrayOffset"), fields.grayOffset),
-  );
-  const row = el("div", "capture-settings-buttons");
-  body.append(grid, row);
+  row(body, named(t("CaptureTsumeGoSettings.lblBlackOffset")), "", fields.blackOffset);
+  row(body, named(t("CaptureTsumeGoSettings.lblWhiteOffset")), "", fields.whiteOffset);
+  row(body, named(t("CaptureTsumeGoSettings.lblBlackPercent")), "", fields.blackPercent);
+  row(body, named(t("CaptureTsumeGoSettings.lblWhitePercent")), "", fields.whitePercent);
+  row(body, named(t("CaptureTsumeGoSettings.lblGrayOffset")), "", fields.grayOffset);
   const dialog = formPanel(t("CaptureTsumeGoSettings.title"), body);
-  const confirm = button(t("CaptureTsumeGoSettings.btnConfirm"), async () => {
+  const confirm = primaryButton(t("CaptureTsumeGoSettings.btnConfirm"), async () => {
     const values = Object.fromEntries(Object.entries(fields).map(([k, f]) => [k, parseJavaInt(f.value)]));
     if (Object.values(values).some((v) => v === null)) await message(t("Message.title"), t("Menu.inputIntegerHint"));
     else void run({ type: "SetCaptureSettings", settings: values as CaptureSettings });
@@ -278,7 +273,7 @@ async function openCaptureSettings(): Promise<void> {
   confirm.dataset.key = "capture.settingsConfirm";
   const cancel = button(t("CaptureTsumeGoSettings.btnCancel"), () => void dialog.close());
   cancel.dataset.key = "capture.settingsCancel";
-  row.append(confirm, cancel);
+  footer(body, { primary: confirm, cancel });
   await dialog.closed;
 }
 
@@ -296,6 +291,6 @@ export async function startCapture(): Promise<void> {
   try {
     await invoke("start_tsumego_capture");
   } catch (e) {
-    await message(t("Message.title"), `抓死活棋启动失败: ${isApiError(e) ? e.message : String(e)}`);
+    await message(t("Message.title"), `${product("tsumegoCaptureStartFailed")}\n${errorText(e)}`);
   }
 }

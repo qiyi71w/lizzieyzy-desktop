@@ -2,6 +2,7 @@
 // funds tables, 20 records a page, each table with 上一页 / page / 下一页 / 刷新. Closing it drops
 // the pages still loading.
 import type { CloudFailure, CreditPage, UsagePage } from "../contract/generated";
+import { icon } from "../design/icons";
 import { format, t } from "../i18n";
 import { account, closeOwner, duration, failureText, localTime, money, requestOwner } from "./service";
 import { button, el, openCloudWindow } from "./window";
@@ -26,8 +27,7 @@ export function openAccountDetails(initialTab: 0 | 1, lost: (failure: CloudFailu
     closeOwner(owner);
   });
   const root = el("div", "rc-details-root");
-  root.append(el("h2", "rc-details-title", title));
-  const tabs = el("div", "rc-details-tabs");
+  const tabs = el("div", "rc-tabs");
   tabs.setAttribute("role", "tablist");
   tabs.setAttribute("aria-label", title);
   tabs.title = t("RemoteCompute.account.detailsDescription");
@@ -61,10 +61,13 @@ export function openAccountDetails(initialTab: 0 | 1, lost: (failure: CloudFailu
     thead.append(head);
     grid.append(thead, body);
     scroll.append(grid);
-    const previous = button(t("RemoteCompute.account.previous"), "rc-details-button", `${key}.previous`, () => load(page - 1));
+    const previous = button(t("RemoteCompute.account.previous"), "", `${key}.previous`, () => load(page - 1));
     const label = el("span", "rc-details-page");
-    const next = button(t("RemoteCompute.account.next"), "rc-details-button", `${key}.next`, () => load(page + 1));
-    const refresh = button(t("RemoteCompute.account.refresh"), "rc-details-button", `${key}.refresh`, () => load(page));
+    const next = button(t("RemoteCompute.account.next"), "", `${key}.next`, () => load(page + 1));
+    const refresh = button("", "rc-icon-button", `${key}.refresh`, () => load(page));
+    refresh.append(icon("refresh"));
+    refresh.title = t("RemoteCompute.account.refresh");
+    refresh.setAttribute("aria-label", t("RemoteCompute.account.refresh"));
     const controls = el("div", "rc-details-controls");
     controls.append(previous, label, next, refresh);
     panel.append(scroll, controls);
@@ -143,7 +146,7 @@ export function openAccountDetails(initialTab: 0 | 1, lost: (failure: CloudFailu
 
   const panels = [usage.panel, credit.panel];
   const tabButtons = [t("RemoteCompute.account.usageTab"), t("RemoteCompute.account.creditTab")].map((name, i) => {
-    const tab = button(name, "rc-details-tab", `remote.details.tab${i}`, () => select(i as 0 | 1));
+    const tab = button(name, "rc-tab", `remote.details.tab${i}`, () => select(i as 0 | 1));
     tab.setAttribute("role", "tab");
     return tab;
   });

@@ -1,465 +1,511 @@
-/* Workbench styles. Colours and metrics measured from fixed Java cb53acc captures at 96 dpi. */
-/* Java's bundled winrate font (Utils.java:96-103), copied unchanged; see public/fonts/SOURCE.txt. */
+/* The main window: window bar, toolbar, workbench panes, bottom bar and menus, drawn with the
+   design tokens. Rectangles the layout code computes are set from TS. */
+@import "./design/base.css";
+
+/* The winrate font of the board marks, bundled from LizzieYzy Next; see public/fonts/SOURCE.txt. */
 @font-face {
   font-family: "Lizzie Winrate";
   src: url("/fonts/OpenSans-Semibold.ttf") format("truetype");
 }
-* {
-  box-sizing: border-box;
-}
 html,
 body {
-  margin: 0;
-  height: 100%;
   overflow: hidden;
-  background: rgb(244, 245, 247);
-  font-family: "DejaVu Sans", "Noto Sans CJK SC", "Microsoft YaHei", "PingFang SC", sans-serif;
-  font-size: 12px;
-  color: #111;
-  user-select: none;
-  cursor: default;
 }
 body {
   display: flex;
   flex-direction: column;
 }
 
-/* ---- window menu strip (WindowMenuStrip); sizes in the geometry block below */
+/* ---- window bar: the window's title bar on every platform. The LizzieYzy mark, the menus, the
+   title in the free space and, on Windows and Linux, the window buttons. One surface with the
+   toolbar below it. */
 #menubar {
   flex: none;
-  height: 38px;
+  height: var(--ds-bar-h);
   display: flex;
   align-items: center;
-  border-bottom: 1px solid rgb(221, 223, 227);
+  gap: 2px;
+  padding: 0 6px;
+  background: var(--ds-chrome);
 }
+/* The system's window buttons sit over the bar's left end, except in full screen. */
+:root[data-os="mac"]:not([data-fullscreen]) #menubar {
+  padding-left: 78px;
+}
+/* Windows' buttons run to the window's corner. */
+:root[data-os="windows"] #menubar {
+  padding-right: 0;
+}
+/* The mark: the application's icon. */
+.app-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 24px;
+  margin-right: 2px;
+}
+.app-mark img {
+  width: 18px;
+  height: 18px;
+  pointer-events: none;
+}
+/* The menus' own box (role=menubar), spaced like the bar's items. */
+#menubar .menu-strip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+/* width: the text's width plus 20, set by menubar.ts */
 #menubar .m {
-  border-radius: 4px;
+  position: relative;
+  flex: none;
+  height: 24px;
+  line-height: 24px;
+  text-align: center;
+  border-radius: var(--ds-radius);
 }
 #menubar .m:hover {
-  background: rgb(226, 230, 236);
+  background: var(--ds-hover);
 }
-#menubar .pill {
-  border-radius: 6px;
-  font-weight: bold;
-  font-size: 12px;
+#menubar .m.open {
+  background: var(--ds-pressed);
 }
-#menubar .coach {
-  background: rgb(15, 118, 110);
-  color: #fff;
+/* A menu a narrow window has no room for stands in 更多菜单 (menubar.ts) instead. */
+#menubar .m.overflowed {
+  display: none;
 }
-#menubar .commentary {
-  background: #fff;
-  cursor: default;
+#menubar .m-overflow {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  color: var(--ds-text-2);
 }
-#menubar .commentary:hover {
-  background: rgb(242, 244, 243);
+/* The window title in the bar's free space, one line: the game in the interface's text, which
+   windowBar.ts places on the window's centre line when it fits, and at the far end the analysis,
+   smaller and quieter, left out part by part when it does not fit. Presses go to the title, the
+   drag region. */
+#windowTitle {
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  white-space: nowrap;
+}
+#windowTitle > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+.title-game {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--ds-text);
+}
+.title-detail {
+  flex: none;
+  margin-left: auto;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+  font-variant-numeric: tabular-nums;
+}
+.window-buttons {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 6px;
+}
+.window-buttons.leading {
+  order: -1;
+  margin: 0 8px 0 0;
+}
+.window-buttons button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-radius);
+  background-color: transparent;
+  color: var(--ds-text-2);
+}
+.window-buttons button:hover {
+  background-color: var(--ds-hover);
+  color: var(--ds-text);
+}
+.window-buttons svg {
+  width: 10px;
+  height: 10px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+}
+.window-buttons .close:hover {
+  background: var(--ds-danger);
+  color: var(--ds-on-accent);
+}
+/* Windows: full-height buttons to the corner, as the system's own. */
+:root[data-os="windows"] .window-buttons {
+  align-self: stretch;
+  gap: 0;
+}
+:root[data-os="windows"] .window-buttons button {
+  width: 46px;
+  height: 100%;
+  border-radius: 0;
+}
+/* A window that draws its own frame needs its own edge while it is not maximized, and shows the
+   resize direction there (windowBar.ts). */
+:root[data-frame="own"]:not([data-maximized]) body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  border: 1px solid var(--ds-line-strong);
+  pointer-events: none;
+}
+/* While the pointer is in that edge band: a transparent layer over every other layer, taking the
+   presses and carrying the resize direction's cursor (windowBar.ts). */
+.window-edge {
+  position: fixed;
+  inset: 0;
+  z-index: 1001;
 }
 
-/* ---- double-menu toolbar (Menu.doubleMenu), wraps like WrapLayout */
+/* ---- toolbar: two rows of capsules, each row wrapping by capsule. The upper row holds the icon
+   groups and the search field, the lower one the game controls, the engine parameters and the
+   text buttons. */
 #toolbar {
   flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 2px 8px 8px;
+  background: var(--ds-chrome);
+  border-bottom: 1px solid var(--ds-line);
+}
+.tb-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  align-content: flex-start;
-  border-bottom: 1px solid rgb(221, 223, 227);
+  gap: 6px 8px;
 }
-.tb-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid rgb(205, 209, 214);
-  border-radius: 5px;
-  background: #fff;
-}
-/* Config.menuIconSize: 16 / 20 / 24 for frame font 12 / 13-16 / larger (Config.java:1873); the
-   black/white toggle draws its icon at menuIconSize + 8 (Menu.java:3674-3680) */
-.tb-icon img {
-  width: var(--menu-icon-size, 16px);
-  height: var(--menu-icon-size, 16px);
-}
-.tb-icon.bw {
-  overflow: hidden;
-}
-.tb-icon.bw img {
-  width: calc(var(--menu-icon-size, 16px) + 8px);
-  height: calc(var(--menu-icon-size, 16px) + 8px);
+.tb-row > * {
   flex: none;
 }
-.tb-pill {
-  border-radius: 7px;
-  border: 1px solid rgb(122, 170, 233);
-  background: rgb(226, 240, 236);
-  white-space: nowrap;
-}
-.tb-pill.plain {
-  border-color: rgb(205, 209, 214);
-  background: #fff;
-}
-.tb-pill.small {
-  border-radius: 10px;
-  border-color: rgb(205, 209, 214);
-  background: #fff;
-}
-.tb-pill.disabled {
-  color: rgb(170, 170, 170);
-  border-color: rgb(205, 209, 214);
-  background: rgb(246, 246, 246);
-}
-/* AppleStyleSupport.markDanger (结束对局, 认输): the bottom bar's danger colours. */
-.tb-pill.danger {
-  border-color: rgb(240, 180, 190);
-  background: rgb(253, 235, 238);
-}
-/* byoyomiTime: Font(sysDefaultFontName, BOLD, 15). */
-.tb-label.tb-clock {
-  font-size: 15px;
-  font-weight: bold;
-  white-space: pre;
-}
-.tb-label {
-  font-size: 12px;
-  white-space: nowrap;
-}
-.tb-input {
-  width: 46px;
-  height: 22px;
-  border: 1px solid rgb(205, 209, 214);
-  border-radius: 6px;
-  text-align: center;
-  font: inherit;
-  color: rgb(150, 170, 200);
-  background: #fff;
-}
-.tb-check {
-  width: 16px;
-  height: 16px;
-  margin: 0 2px;
-  accent-color: rgb(97, 160, 245);
-}
-.tb-group,
-.tb-buttons {
-  display: inline-flex;
-  align-items: center;
-  column-gap: 3px;
-  white-space: nowrap;
-}
-.tb-checklabel {
-  display: inline-flex;
-  align-items: center;
-  font-size: 12px;
-  white-space: nowrap;
-}
-/* komi spinner: two stacked 15 x 11 arrow buttons (Menu.java:9649-9653) */
-.tb-spin {
-  display: inline-flex;
-  flex-direction: column;
-  width: 15px;
-  height: 22px;
-}
-.tb-spin i {
+/* Pushes what follows to the row's end. */
+.tb-row > .tb-grow {
   flex: 1;
-  position: relative;
 }
-.tb-spin i::after {
-  content: "";
-  position: absolute;
-  left: 3px;
-  border: 4.5px solid transparent;
-}
-.tb-spin i:first-child::after {
-  bottom: 1px;
-  border-bottom: 5px solid #000;
-}
-.tb-spin i:last-child::after {
-  top: 1px;
-  border-top: 5px solid #000;
-}
-
-/* ---- Java chrome geometry. Sizes and gaps are Swing component bounds read from the running fixed
-   Java (Windows 96 dpi and Linux X11, 1500x900 and 1065x700). The toolbar is the same on both:
-   TopHeaderPanel WrapLayout hgap 3 / vgap 2, leading separator 10x24, three button groups
-   (FlowLayout hgap 2), separators 8x22, komi 96x20, pda 111x23, wrn 99x23, check boxes 52x17, small
-   buttons 40x17. Menu strip from x 18, gap 8, buttons 25 high (26 on Windows); AI buttons 107 / 83
-   x 26 (Windows 109 / 85). */
-#menubar {
-  padding-left: 18px;
-  gap: 8px;
-  font-size: 12px;
-}
-/* width: text width + 20 (MenuButton EmptyBorder 5/10), set by menubar.ts */
-#menubar .m {
-  height: 25px;
-  line-height: 25px;
-  padding: 0;
-  text-align: center;
-  font-weight: bold;
-}
-#menubar .pill {
-  height: 26px;
-  width: 107px;
-  margin-left: 0;
-  padding: 0;
-  line-height: 24px;
-  text-align: center;
-  border: 1px solid transparent;
-}
-#menubar .commentary {
-  width: 83px;
-  margin-left: 0;
-  padding: 0;
-  border-color: rgb(214, 218, 224);
-}
-/* rows at y 2 (24 high) and 28 (23 high), border line at 51: 52 px like TopHeaderPanel at 38..90 */
-#toolbar {
-  padding: 2px 3px 0 3px;
-  column-gap: 3px;
-  row-gap: 2px;
-}
-#toolbar > *,
-#toolbar .tb-run > * {
-  flex: none;
-}
-/* 自动换行 off: one row 9999 wide, the rest cut off without a scroll bar (LizzieFrame.java:14503-14507) */
+/* 自动换行 off: one row, the rest cut off without a scroll bar */
 #toolbar.nowrap {
-  flex-wrap: nowrap;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
   overflow: clip;
 }
-.tb-buttons {
-  column-gap: 2px;
-  padding: 0 2px;
-}
-.tb-sep {
-  width: 8px;
-  height: 22px;
-  background: linear-gradient(rgb(213, 220, 218), rgb(213, 220, 218)) 4px 4px / 1px 15px no-repeat;
-}
-.tb-sep.lead {
-  width: 10px;
-  height: 24px;
-  background-position: 5px 4px;
-  background-size: 1px 17px;
-}
-/* JToolBar.Separator after the komi panel: occupies 8x20 but paints nothing outside a JToolBar */
-.tb-sep.dash {
-  height: 20px;
-  background: none;
-}
-/* addSeparator(new Dimension(2, 0)) closing the 限制 group: a 2 px gap with no line */
-.tb-sep.gap {
-  width: 2px;
-  background: none;
-}
-/* A run of optional top-toolbar items (自定义内容); its items wrap one by one */
-.tb-run {
+#toolbar.nowrap .tb-row {
   display: contents;
 }
+#toolbar.nowrap .tb-grow {
+  display: none;
+}
+
+/* A capsule: one raised surface holding a group of related controls as segments. A segment that
+   starts a new part of the group carries the dividing line on its left edge; the first segment's
+   line falls outside the capsule, whichever segments are hidden. */
+.tb-cap {
+  display: inline-flex;
+  align-items: stretch;
+  height: var(--ds-cap-h);
+  border-radius: var(--ds-radius-cap);
+  background: var(--ds-raised);
+  box-shadow: var(--ds-shadow-cap);
+  white-space: nowrap;
+  overflow: hidden;
+}
+.tb-cap > .tb-pill,
+.tb-cap > .tb-pill + *,
+.tb-cap > .tb-group,
+.tb-cap > .tb-group + *,
+.tb-cap > .tb-cut {
+  margin-left: -1px;
+  box-shadow: inset 1px 0 0 var(--ds-line);
+}
+/* Focus and the function-search highlight stay inside the capsule, which clips. */
+.tb-cap :focus-visible,
+.tb-cap .located {
+  outline-offset: -2px;
+}
+/* The markup tools follow their button as segments of the same capsule. */
+.tb-markup {
+  display: contents;
+}
+
+/* Icon segments: the icon in the secondary text colour until the pointer is on it. */
 .tb-icon {
-  width: 20px;
-  height: 20px;
-}
-.tb-icon.w22,
-.tb-icon.bw {
-  width: 22px;
-}
-.tb-icon.force {
-  width: 24px;
-}
-.tb-icon.more {
-  width: 12px;
-}
-.tb-pill {
-  height: 20px;
-  line-height: 18px;
-  padding: 0;
-  font-size: 12px;
-  text-align: center;
-}
-.tb-pill.w80 {
-  width: 80px;
-}
-/* JButton icon + text centred as one group, default 4 px icon-text gap */
-.tb-pill.search {
-  width: 84px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  column-gap: 4px;
+  width: calc(var(--menu-icon-size, 16px) + 14px);
+  color: var(--ds-text-2);
 }
-.tb-pill.newgame {
-  width: 52px;
+.tb-icon:hover {
+  background-color: var(--ds-hover);
+  color: var(--ds-text);
 }
-.tb-pill.pause,
-.tb-pill.small {
+.tb-icon:active {
+  background-color: var(--ds-pressed);
+}
+/* A selected toggle: the accent wash and the accent ink. */
+.tb-icon.on,
+.tb-pill.on {
+  background-color: var(--ds-accent-soft);
+  color: var(--ds-accent-text);
+}
+/* An on text segment's text is 600, as the bottom bar's (DESIGN.md 开着的开关). */
+.tb-pill.on {
+  font-weight: 600;
+}
+.tb-icon.on:active {
+  background-image: linear-gradient(var(--ds-pressed), var(--ds-pressed));
+}
+/* The arrow that opens a button's options sits close to that button. */
+.tb-icon:has(+ .tb-icon.more) {
+  justify-content: flex-end;
+  padding-right: 2px;
+}
+.tb-icon.more {
+  width: 15px;
+  justify-content: flex-start;
+  padding-left: 2px;
+}
+.tb-icon.more .icon {
+  width: 9px;
+  height: 9px;
+  stroke-width: 1.8;
+}
+/* A button whose capability this client does not have yet. */
+.tb-icon.unavailable,
+.tb-pill.unavailable {
+  color: var(--ds-text-off);
+}
+
+/* Text segments. */
+.tb-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 11px;
+}
+.tb-pill:hover {
+  background-color: var(--ds-hover);
+}
+.tb-pill:active {
+  background-color: var(--ds-pressed);
+}
+/* A text segment led by an icon (AI 陪练, AI 解说) */
+.tb-pill:has(> .icon) {
+  gap: 5px;
+  padding-left: 9px;
+}
+.tb-pill > .icon {
+  width: 14px;
+  height: 14px;
+  color: var(--ds-text-2);
+}
+.tb-pill.on > .icon {
+  color: currentColor;
+}
+.tb-pill.disabled {
+  color: var(--ds-text-off);
+  background-color: transparent;
+}
+/* 结束对局, 认输: the danger ink, and its wash under the pointer */
+.tb-pill.danger {
+  color: var(--ds-danger-text);
+}
+.tb-pill.danger:hover {
+  background-color: var(--ds-danger-soft);
+}
+/* "…": the options of the value before it, without a line between them */
+.tb-cap > .tb-icon.pda-more {
+  width: 24px;
+  margin-left: -2px;
+  box-shadow: none;
+}
+
+/* A parameter: its name, a check box when it can be switched off, and its value field. */
+.tb-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 3px 0 10px;
+}
+.tb-label {
+  color: var(--ds-text-2);
+  white-space: nowrap;
+}
+/* The caption of a set of choices (限制, 分析, 选点). */
+.tb-group.choices > .tb-label {
+  color: var(--ds-text-3);
+}
+.tb-group.choices {
+  gap: 10px;
+  padding-right: 11px;
+}
+.tb-label.tb-clock {
+  font-size: var(--ds-size-xl);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ds-text);
+  white-space: pre;
+}
+/* A value field inside a capsule: the shared stepper (design/stepper.ts) at the capsule's inner
+   height. 贴目, 激进度 and 广度 share one width, so their values line up. */
+.tb-group .ds-stepper {
+  height: calc(var(--ds-cap-h) - 6px);
+  border-radius: var(--ds-radius-in);
+}
+.tb-group .ds-stepper:has(> input:disabled) {
+  border-color: var(--ds-line);
+  background-color: transparent;
+}
+.tb-group .ds-stepper-arrows {
+  width: 16px;
+}
+/* One number per field: centred in it, as the move field in the bottom bar. */
+.tb-input {
+  width: 44px;
+  padding: 0 4px;
+  text-align: center;
+  font-weight: 600;
+}
+.tb-input:disabled {
+  font-weight: 400;
+}
+.tb-input.custom-pda {
+  width: 54px;
+}
+.tb-input.time-limit {
   width: 40px;
 }
-.tb-pill.small {
-  height: 17px;
-  line-height: 15px;
-  padding: 0;
-}
-/* more2 "..." beside PDA (Menu.java:9664-9672, middle font 23 x 23). */
-.tb-pill.small.pda-more {
-  width: 23px;
-  margin-left: 2px;
-}
-/* lblCustomPda + txtPDA (Menu.java:5944-5946, 9676-9679: right-aligned, middle font 60 wide). */
-.tb-group.custom-pda {
-  column-gap: 4px;
-}
-.tb-group.custom-pda .tb-input {
-  width: 60px;
-  text-align: right;
-}
-.tb-group {
-  column-gap: 0;
-}
-.tb-group .tb-check {
-  width: 16px;
-  height: 16px;
-  margin: 2px 3px;
-}
-.tb-group.komi {
-  position: relative;
-  width: 96px;
-  height: 20px;
-}
-.tb-group.komi > * {
-  position: absolute;
-}
-.tb-group.komi .tb-label {
-  left: 1px;
-  top: 1px;
-  width: 35px;
-  line-height: 18px;
-}
-.tb-group.komi .tb-input {
-  left: 31px;
-  top: 0;
-  width: 48px;
-  height: 19px;
-}
-.tb-group.komi .tb-spin {
-  left: 66px;
-  top: -1px;
-}
-.tb-group.pda,
-.tb-group.wrn {
-  height: 23px;
-}
-.tb-group.pda .tb-label {
-  width: 41px;
-}
-.tb-group.wrn .tb-label {
-  width: 29px;
-}
-.tb-group.pda .tb-input,
-.tb-group.wrn .tb-input {
-  width: 48px;
-  height: 23px;
-}
-/* txtTimeLimit 50 wide, txtPlayOutsLimit 80 wide (Menu.java:6525-6526, 6568-6569) */
-.tb-input.time-limit {
-  width: 50px;
-}
 .tb-input.visit-limit {
-  width: 80px;
+  width: 66px;
 }
-/* AppleStyleSupport.errorFieldBackground: out of range or not a number. */
-.tb-group.pda .tb-input.invalid,
-.tb-group.wrn .tb-input.invalid {
-  background: rgb(255, 0, 0);
+/* Out of range or not a number: the stepper turns red around it. */
+.tb-input.invalid {
+  color: var(--ds-danger-text);
 }
-:root[data-chrome="apple"] .tb-group .tb-input.invalid {
-  background: rgba(180, 50, 50, 0.314);
+.tb-check {
+  margin: 0;
 }
-#toolbar > .tb-label,
-#toolbar .tb-label.candidate {
-  width: 27px;
-}
+/* A choice: its box and its name. The name is dimmer while the choice is off. */
 .tb-checklabel {
-  width: 52px;
-  height: 17px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ds-text-2);
+  white-space: nowrap;
 }
-/* chkTime / chkPlayOut / chkShowWinrate…: their text's width plus 4 (Menu.java:6505-6510, 9818-9823) */
-.tb-checklabel.fit {
+.tb-checklabel:has(:checked) {
+  color: var(--ds-text);
+}
+.tb-checklabel:has(:disabled) {
+  color: var(--ds-text-off);
+}
+
+/* 搜索功能: a field-shaped button at the upper row's end; the icon alone in a narrow window. */
+.tb-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 220px;
+  height: var(--ds-cap-h);
+  padding: 0 9px;
+  border-radius: var(--ds-radius-cap);
+  background: var(--ds-field);
+  box-shadow: inset 0 0 0 1px var(--ds-line-strong);
+  color: var(--ds-text-3);
+  white-space: nowrap;
+}
+.tb-search:hover {
+  box-shadow: inset 0 0 0 1px var(--ds-text-3);
+}
+.tb-search .icon {
+  width: 14px;
+  height: 14px;
+}
+.tb-search.collapsed {
   width: auto;
-  padding-right: 4px;
+  padding: 0 8px;
 }
-/* txtKomi is an enabled field: black text, unlike the disabled KataGo parameter fields */
-#komiField {
-  color: #000;
-}
-
-/* Windows: Dialog maps to Arial + Microsoft YaHei; workspace controls use Microsoft YaHei 12
-   (AppleStyleSupport.java:659-675). */
-:root[data-os="windows"] body,
-:root[data-os="windows"] #table table {
-  font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
-}
-:root[data-os="windows"] #menubar {
-  font: 12px Arial, "Microsoft YaHei", sans-serif;
-}
-:root[data-os="windows"] #menubar .m {
-  height: 26px;
-  line-height: 26px;
-}
-:root[data-os="windows"] #menubar .pill {
-  width: 109px;
-  font-family: "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
-}
-:root[data-os="windows"] #menubar .commentary {
-  width: 85px;
+.tb-search.collapsed .label {
+  display: none;
 }
 
-/* ---- main panel: absolute children positioned from InFrameLayout; the wallpaper and frosted
-   containers are a background image set per size (main.ts installBackground) */
+/* ---- workbench: absolute children positioned by the layout code over the stage's wallpaper
+   and its cards (design/stage.ts, paintBackground); the board rests on it with a shadow, the
+   panes are transparent sections of their card */
 #main {
   flex: 1;
   position: relative;
   overflow: hidden;
+  background-color: var(--ds-stage);
 }
 #main > canvas,
 #main > div {
   position: absolute;
 }
+#board,
+#board2,
+#sub,
+#main > canvas.quad {
+  box-shadow: var(--ws-board-shadow);
+}
 
-/* comment / problem-move panel: SidebarPanel.paintComponent fills comment-background-color
-   (0,0,0,200) as a square and outlines it with rowSeparatorColor (255,255,255,28); the text takes
-   comment-font-color and, when above 0, comment-font-size (LizzieFrame.java:11292-11304). The
-   appearance module sets the variables from the committed theme. */
+/* Comment and problem-move pane: a section of its card, on the card's own comment layer
+   (`--ws-comment-ground`, none except under Java 经典). The appearance module sets
+   --comment-background, --comment-color, --comment-font-size and --theme-accent-underline when
+   the theme chooses its own; they win over the card's look. */
 #comment {
-  background: var(--comment-background, rgba(0, 0, 0, 0.784));
-  color: var(--comment-color, #fff);
-  border: 1px solid rgba(255, 255, 255, 0.11);
-  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  background: var(--comment-background, var(--ws-comment-ground));
+  color: var(--comment-color, var(--ds-text));
 }
-/* SidebarHeaderPanel classic layout: a 48 px header (SidebarHeaderPanel.java:28-37); label
-   position measured on the Linux capture. A narrow panel wraps the side filter onto a second
-   32 px row (CLASSIC_ROW_HEIGHT). */
+/* The tabs: two small text segments, the selected one on the well at weight 600. */
 #comment .tabs {
   flex: none;
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-start;
-  min-height: 48px;
-  padding: 21px 9px 0 19px;
-  gap: 17px 22px;
-  font-size: 12px;
-  color: rgb(200, 200, 200);
+  align-items: center;
+  min-height: 34px;
+  padding: 4px 6px 0;
+  gap: 4px 2px;
   outline: none;
 }
 #comment .tab {
+  padding: 0 8px;
+  line-height: 24px;
+  border-radius: var(--ds-radius-in);
+  color: var(--comment-color, var(--ds-text-3));
   cursor: default;
 }
+#comment .tab:hover {
+  background: var(--ds-hover);
+}
 #comment .tab.on {
-  color: #fff;
-  font-weight: bold;
-  border-bottom: 2px solid rgb(90, 140, 220);
-  padding-bottom: 3px;
+  background: var(--ds-well);
+  box-shadow: inset 0 -2px 0 var(--theme-accent-underline, transparent);
+  color: var(--comment-color, var(--ds-text));
+  font-weight: 600;
 }
 #commentPage {
   flex: 1;
@@ -469,174 +515,197 @@ body {
 }
 #commentText {
   flex: 1;
-  padding: 8px 9px;
-  font-size: var(--comment-font-size, 14px);
-  line-height: 1.3;
+  padding: 8px 14px 10px;
+  font-size: var(--comment-font-size, var(--ds-size-l));
+  line-height: 1.6;
   white-space: pre-wrap;
   overflow-y: auto;
   outline: none;
   user-select: text;
 }
-/* candidate table (SuggestionTableScrollPane): workspace border, header without grid, 128-grey grid,
-   dialog text colour (LizzieFrame.refreshSuggestionTableStyle; colours measured on Windows) */
+/* Candidate list: column widths and row colours come from table.ts. Horizontal hairlines only;
+   the header stays put over the rows on the card as it reads over the wallpaper. The scroll bar
+   is the thin thumb of these rules on every platform: WebView2 would draw its system bar with
+   arrows for the standard scrollbar-width / scrollbar-color properties, so they are not set. */
 #table {
-  background: #fff;
   overflow-x: hidden;
   overflow-y: scroll;
-  scrollbar-width: thin;
-  scrollbar-color: rgb(200, 200, 200) rgb(235, 235, 235);
-  border: 1px solid rgb(213, 220, 218);
+  background-color: var(--ws-table-ground);
+  color: var(--ds-text);
+}
+#table::-webkit-scrollbar {
+  width: 8px;
+}
+#table::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: var(--ds-radius-s);
+  background: var(--ws-scroll-thumb) padding-box;
+}
+#table tbody tr:hover td {
+  background-color: var(--ds-hover);
 }
 #table table {
   border-collapse: separate;
   border-spacing: 0;
   table-layout: fixed;
-  font-size: 12px;
-  font-family: "DejaVu Sans", "Noto Sans CJK SC", sans-serif;
-  color: rgb(31, 41, 38);
+  font-variant-numeric: tabular-nums;
 }
 #table th {
   position: sticky;
   top: 0;
   z-index: 1;
-  padding: 0;
-  font-weight: normal;
-  background: rgb(246, 247, 249);
-}
-#table td {
-  padding: 0;
-  text-align: center;
-  border: solid rgb(128, 128, 128);
-  border-width: 0 1px 1px 0;
-  position: relative;
+  padding: 0 8px 0 0;
+  border-bottom: 1px solid var(--ws-panel-line);
+  background: var(--ws-panel-solid);
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+  font-weight: 400;
+  text-align: right;
   white-space: nowrap;
   overflow: hidden;
-}
-#table th {
+  text-overflow: ellipsis;
   user-select: none;
 }
 #table td {
+  position: relative;
+  padding: 0 8px 0 0;
+  border-bottom: 1px solid var(--ws-panel-line);
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: default;
 }
-#table::-webkit-scrollbar {
-  width: 8px;
+#table tbody tr:last-child td {
+  border-bottom: 0;
 }
-#table::-webkit-scrollbar-track {
-  background: rgb(235, 235, 235);
+/* 序号 is as wide as its labels (table.ts rankColumnWidth): no right padding, the next column's
+   right-aligned figures leave the gap. */
+#table th:first-child,
+#table td:first-child {
+  padding: 0 0 0 8px;
+  text-align: left;
 }
-#table::-webkit-scrollbar-thumb {
-  background: rgb(200, 200, 200);
+#table th:last-child,
+#table td:last-child {
+  padding-right: 12px;
+}
+/* The actual move's row shows all its figures: its rank with a smaller 实战 note under it, a
+   smaller change before each value (actualParts). A figure cell too narrow for both breaks
+   between them, and only there. */
+#table tr.actual td {
+  padding-block: 3px;
+  line-height: 1.25;
+  white-space: normal;
+  word-break: keep-all;
+}
+#table .actual-note {
+  margin-right: 4px;
+  font-size: var(--ds-size-s);
+}
+#table td:first-child .actual-note {
+  display: block;
+  margin-right: 0;
+  word-break: normal;
 }
 
-/* ---- bottom toolbar (BottomToolbar): 26 px main bar, buttons absolutely placed by layoutBottomBar */
+/* ---- bottom bar: one row (this rule's height). layoutBottomBar places the buttons and lays a
+   capsule under each run of related ones. */
 #bottombar {
   flex: none;
   position: relative;
-  height: 26px;
-  background: #fff;
+  height: calc(var(--ds-cap-h) + 18px);
+  border-top: 1px solid var(--ds-line);
+  background: var(--ds-chrome);
   overflow: hidden;
   white-space: nowrap;
 }
-.bb {
-  position: absolute;
-  top: 0;
-  height: 26px;
-  line-height: 24px;
-  text-align: center;
-  font-size: 12px;
-  border: 1px solid rgb(205, 209, 214);
-  border-radius: 5px;
-  background: #fff;
-}
-.bb.primary {
-  border-color: rgb(122, 170, 233);
-  background: rgb(226, 240, 236);
-}
-.bb.danger {
-  border-color: rgb(240, 180, 190);
-  background: rgb(253, 235, 238);
-}
-/* analyse button: ready2/playing2 icon and label centred as one group (JButton icon-text gap 4) */
-.bb.icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  column-gap: 4px;
-}
-.bb.icon img {
-  width: 16px;
-  height: 16px;
-  flex: none;
-}
+.bb-cap,
+.bb,
 #moveInput {
   position: absolute;
-  top: 2px;
-  width: 56px;
-  height: 22px;
-  border: 1px solid rgb(205, 209, 214);
-  border-radius: 4px;
-  font: inherit;
-  text-align: center;
+  top: 9px;
+  height: var(--ds-cap-h);
 }
-/* 详细工具栏 button (BottomToolbar.java:815-822, 5200-5203): 24x22 at (10, 2), flat, its arrow icon */
-.bb.detail {
-  left: 10px;
-  top: 2px;
-  width: 24px;
-  height: 22px;
+.bb-cap {
+  border-radius: var(--ds-radius-cap);
+  background: var(--ds-raised);
+  box-shadow: var(--ds-shadow-cap);
+  pointer-events: none;
+}
+/* A segment of its capsule: the hover wash follows the capsule's corners at its two ends. */
+.bb {
   display: flex;
   align-items: center;
   justify-content: center;
-  border: none;
-  border-radius: 0;
-  background: rgba(0, 0, 0, 0.04);
+  column-gap: 5px;
 }
-/* 显示顺序设置 (ToolbarPositionConfig): a label and a 1–3 choice per panel */
-.panel-order label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 4px 0;
+.bb.first {
+  border-top-left-radius: var(--ds-radius-cap);
+  border-bottom-left-radius: var(--ds-radius-cap);
 }
-/* 详细工具栏 panels (BottomToolbar.java:1556-1572): 44 px high, a 1 px black line border, their
-   components at Java's absolute bounds */
-.bb-detail,
-.bb-detail-group {
-  position: absolute;
-  box-sizing: border-box;
-  font-size: 12px;
+.bb.last {
+  border-top-right-radius: var(--ds-radius-cap);
+  border-bottom-right-radius: var(--ds-radius-cap);
 }
-.bb-detail {
-  border: 1px solid #000;
+.bb.joined {
+  box-shadow: inset 1px 0 0 var(--ds-line);
 }
-.bb-detail > *,
-.bb-detail-group > * {
-  position: absolute;
-  box-sizing: border-box;
-  margin: 0;
-  line-height: 18px;
-  white-space: nowrap;
+.bb:hover {
+  background-color: var(--ds-hover);
 }
-.bb-detail label {
-  display: flex;
-  align-items: center;
+.bb:active {
+  background-color: var(--ds-pressed);
 }
-.bb-detail input[type="checkbox"] {
-  margin: 0 2px;
+/* Segments touch: the keyboard ring sits inside the one that has the focus. */
+.bb:focus-visible {
+  outline-offset: -2px;
 }
-.bb-detail input[type="text"],
-.bb-detail select {
-  padding: 0 2px;
-  font: inherit;
-  border: 1px solid rgb(122, 138, 153);
+/* A display switch that is on */
+.bb.on {
+  background-color: var(--ds-accent-soft);
+  color: var(--ds-accent-text);
+  font-weight: 600;
 }
-.bb-detail button {
-  padding: 0;
-  font: inherit;
+.bb.danger {
+  color: var(--ds-danger-text);
+}
+.bb.danger:hover {
+  background-color: var(--ds-danger-soft);
+}
+.bb.unavailable {
+  color: var(--ds-text-off);
+}
+/* The step buttons around the move field */
+.bb.nav {
+  color: var(--ds-text-2);
+}
+.bb.nav:hover {
+  color: var(--ds-text);
+}
+.bb .icon {
+  width: 16px;
+  height: 16px;
+}
+/* The move field stands inside the navigation capsule. */
+#moveInput {
+  top: 12px;
+  height: calc(var(--ds-cap-h) - 6px);
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--ds-radius-in);
+  background-color: var(--ds-field);
+  box-shadow: inset 0 0 0 1px var(--ds-line-strong);
+  text-align: center;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+#moveInput:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--ds-accent);
+  outline-offset: 0;
 }
 
-/* ---- in-frame separators (InFrameLeftoverDragHandles): transparent hot zones over the seams */
+/* ---- seams between panes: transparent hot zones the pointer resizes with */
 .panel-handle {
   z-index: 3;
   background: transparent;
@@ -648,37 +717,28 @@ body {
 .panel-handle.seam {
   cursor: n-resize;
 }
-/* holding X: the key list over the workbench (LizzieFrame.drawControls) */
+/* holding X: the key list over the workbench */
 #controls {
   z-index: 4;
   pointer-events: none;
 }
 
-/* ---- menu dropdowns (Swing JPopupMenu on the fixed build: white, grey border, 25 px rows,
-   12 px text indented past the check column, full-width separators) */
-/* Menu font: Font(Config.sysDefaultFontName, PLAIN, frame-font-size) (Menu.java:245) at the size
-   this session started with (界面字体大小 applies after a restart, LizzieFrame.java:20764-20767). */
-#menubar .m {
-  position: relative;
-  font-size: var(--frame-font-size, 12px);
-}
-.dropdown .mi {
-  font-size: var(--frame-font-size, 12px);
-}
-#menubar .m.open {
-  background: rgb(226, 230, 236);
-}
+/* ---- menus: the bar's dropdowns, their submenus and the popups under toolbar buttons. A dropdown
+   taller than its room scrolls inside (menubar.ts sets max-height). */
 .dropdown {
   position: absolute;
   left: 0;
   top: 100%;
   z-index: 20;
-  min-width: 160px;
-  padding: 2px 0;
-  background: #fff;
-  border: 1px solid rgb(160, 165, 170);
-  box-shadow: 1px 2px 4px rgba(0, 0, 0, 0.18);
-  font-weight: normal;
+  min-width: 168px;
+  padding: 4px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-radius: var(--ds-radius-menu);
+  background: var(--ds-raised);
+  box-shadow: var(--ds-shadow-pop);
+  color: var(--ds-text);
+  font-weight: 400;
   text-align: left;
   line-height: normal;
   white-space: nowrap;
@@ -686,9 +746,12 @@ body {
 .dropdown.empty {
   display: none;
 }
+/* A submenu sits in the window, outside its menu's scrolling box; menubar.ts placeSub puts it
+   beside its row. */
 .dropdown .dropdown {
-  left: 100%;
-  top: -3px;
+  position: fixed;
+  left: 0;
+  top: 0;
 }
 .mi {
   position: relative;
@@ -696,244 +759,75 @@ body {
   align-items: center;
   height: 25px;
   padding: 0 28px 0 0;
+  border-radius: var(--ds-radius-s);
 }
-.mi:hover:not(.disabled) {
-  background: rgb(226, 230, 236);
+/* The active row: the one under the pointer or reached by the keys (menubar.ts setActiveRow). Its
+   wash is the focus indicator, so a focused row draws no ring; a row located by function search
+   keeps its gold line. */
+.mi.active {
+  background: var(--ds-hover);
+}
+.dropdown .mi:focus-visible:not(.located) {
+  outline: none;
+}
+/* Items that destroy record content: the danger ink, and its wash when active. */
+.mi.danger:not(.disabled) {
+  color: var(--ds-danger-text);
+}
+.mi.danger.active {
+  background: var(--ds-danger-soft);
 }
 .mi .mark {
   flex: none;
-  width: 32px;
+  width: 28px;
   text-align: center;
-  font-size: 11px;
+  font-size: var(--ds-size-s);
 }
 .mi.sub::after {
   content: "";
   position: absolute;
-  right: 14px;
+  right: 10px;
   border: 4px solid transparent;
-  border-left: 4px solid #000;
+  border-left: 4px solid var(--ds-text-2);
 }
 .mi.disabled {
-  color: rgb(160, 160, 160);
+  color: var(--ds-text-off);
 }
 .mi.disabled.sub::after {
-  border-left-color: rgb(160, 160, 160);
+  border-left-color: var(--ds-text-off);
 }
 .dropdown .sep {
   height: 1px;
-  margin: 3px 4px;
-  background: rgb(160, 165, 170);
+  margin: 4px 8px;
+  background: var(--ds-line);
 }
-/* ---- modal dialogs (JOptionPane roles) */
-#dialog {
-  position: fixed;
-  inset: 0;
-  z-index: 30;
-}
-.modal {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.modal-box {
-  min-width: 320px;
-  max-width: 640px;
-  background: rgb(244, 245, 247);
-  border: 1px solid rgb(160, 165, 170);
-  border-radius: 6px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-  padding-bottom: 12px;
-}
-.modal-title {
-  padding: 8px 12px;
-  font-size: 13px;
-  font-weight: bold;
-  border-bottom: 1px solid rgb(221, 223, 227);
-}
-.modal-body {
-  padding: 14px 16px 0;
-  white-space: pre-wrap;
-  user-select: text;
-  overflow-wrap: anywhere;
-}
-/* Utils.showMsgNoModalForTime */
-.timed-notice {
-  position: fixed;
-  z-index: 30;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  max-width: min(520px, 90vw);
-}
-.modal-buttons {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 14px 16px 0;
-}
-.modal-buttons button,
-.diagnostics button {
-  min-width: 72px;
-  height: 24px;
-  font: inherit;
-  border: 1px solid rgb(205, 209, 214);
-  border-radius: 5px;
-  background: #fff;
-}
-.modal-buttons button.primary {
-  border-color: rgb(122, 170, 233);
-  background: rgb(226, 240, 236);
-}
-.diagnostics .diag-section {
-  margin-top: 10px;
-  font-weight: bold;
-}
-.diagnostics .diag-section:first-child {
-  margin-top: 0;
-}
-.diagnostics .diag-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 6px;
-  white-space: normal;
-}
-/* checkRow: the label, then its state and box at the row's end; modules and scopes sit
-   under their switch. */
-.diagnostics label.diag-check {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  gap: 8px;
-}
-.diagnostics label.diag-check > span:first-child {
-  flex: 1;
-}
-.diagnostics .diag-row.diag-indent {
-  padding-left: 20px;
-}
-.diagnostics .diag-note {
-  margin-top: 6px;
-  white-space: pre-line;
-  color: rgb(100, 100, 100);
-}
-.diagnostics button:disabled {
-  color: rgb(160, 160, 160);
-}
-.diagnostics code {
-  font-size: 11px;
-}
-
-/* ---- toolbar popups (JPopupMenu below a toolbar button, e.g. rankMarkPopup) */
 .popup-anchor {
   position: fixed;
   z-index: 20;
   width: 0;
-  font-size: 12px;
   height: 0;
 }
 .popup-anchor > .dropdown {
   top: 0;
 }
-/* rankCustomMove's text field inside the menu item */
+/* A text field or a button inside a menu item */
 .mi .mi-field {
   width: 40px;
   height: 20px;
   margin-left: 4px;
-  font: inherit;
-  border: 1px solid rgb(160, 165, 170);
   padding: 0 2px;
+  border-radius: var(--ds-radius-s);
 }
-/* 自定义布局's 设置 button inside the menu item (JFontButton with zero margins) */
 .mi .mi-button {
   height: 20px;
   margin-left: 8px;
   padding: 0 6px;
-  font: inherit;
-}
-/* SetCustomMode: GridLayout(12, 2, 45, 4) of labels and controls, 12 px dialog padding */
-.custom-mode-grid {
-  display: grid;
-  grid-template-columns: auto auto;
-  column-gap: 45px;
-  row-gap: 4px;
-  align-items: center;
-  padding: 12px 12px 0;
-  font-size: 12px;
-}
-.custom-mode-grid input[type="range"] {
-  width: 100px;
+  border-radius: var(--ds-radius-s);
 }
 
-/* ---- board display dialogs: Swing null layouts at their setBounds */
-.modal-body.display-abs {
-  position: relative;
-  box-sizing: content-box;
-  padding: 0;
-  margin: 6px 0 0;
-  white-space: nowrap;
-  font-size: 12px;
-}
-.display-abs > * {
-  position: absolute;
-  box-sizing: border-box;
-  margin: 0;
-  font: inherit;
-}
-.display-abs input[type="text"] {
-  padding: 0 2px;
-  border: 1px solid rgb(160, 165, 170);
-}
-.display-abs input.invalid {
-  background: red;
-}
-.display-label {
-  display: flex;
-  align-items: center;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.display-choice {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-/* 初始化设置 (FirstUseSettings): JFont* controls at Config.frameFontSize, the red lblHint, the "?"
-   helpers with settings.png, the close box */
-.init-settings .modal-title { display: flex; justify-content: space-between; align-items: center; }
-.init-settings .modal-body.display-abs { overflow: hidden; font-size: var(--frame-font-size, 12px); }
-.init-settings .display-abs select, .init-settings .display-abs button { padding: 0 2px; }
-.init-close { border: 0; background: none; font: inherit; padding: 0 4px; cursor: pointer; }
-.display-abs .init-hint { color: red; }
-.display-abs .init-help { display: flex; align-items: center; justify-content: center; padding: 0; }
-.display-abs .init-help img { width: 16px; height: 16px; }
-.display-abs .init-order { padding: 0; }
-.display-preview {
-  display: block;
-}
+/* A JOptionPane input: the message, then the field. */
 .display-input input {
   width: 100%;
-  box-sizing: border-box;
   margin-top: 8px;
-  font: inherit;
 }
-/* SetDelayShowCandidates: FlowLayout row (EmptyBorder 5) above the 应用 / 取消 row */
-.display-delay-row {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 5px;
-}
-.display-delay-row label {
-  display: inline-flex;
-  align-items: center;
-}
-.display-buttons {
-  display: flex;
-  justify-content: center;
-  gap: 5px;
-  padding-top: 5px;
-}
+

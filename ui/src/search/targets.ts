@@ -11,7 +11,7 @@ import { COMMANDS } from "../commands";
 import type { FunctionMatch } from "../contract/generated";
 import { dialogOpen, message } from "../dialogs";
 import { openSettingsAt, settingTargetAvailable } from "../engine/settingsTargets";
-import { isChinese, product, t } from "../i18n";
+import { product, t } from "../i18n";
 import { resourceView } from "../setup/dialog";
 import { markupToolsShown, setEditing } from "../editing/state";
 import { revealToolbar } from "../workbench/panels";
@@ -165,7 +165,6 @@ function noMainlineMove(): boolean {
 function entryReason(id: string): Reason | null {
   const view = state.view;
   if (!view) return { key: "FunctionSearch.unavailable.application" };
-  if (id.startsWith("legacy.") && !isChinese()) return TOOLBAR;
   const engine = view.engine.foreground;
   switch (id) {
     // The double menu's game controls and 终止人机对局 (LizzieFrame.java:13178-13187).
@@ -175,10 +174,7 @@ function entryReason(id: string): Reason | null {
     case "toolbar.game-resign":
     case "game.stop-human":
       return view.game ? null : { key: "FunctionSearch.unavailable.game" };
-    // 引擎对战 (LizzieFrame.java:13202-13205, 13272-13275): menu items stay enabled like Java's.
-    case "legacy.engine-game-pause":
-    case "legacy.engine-game-intervene":
-      return matchPlaying(view) ? null : { key: "FunctionSearch.unavailable.game" };
+    // 引擎对战 (LizzieFrame.java:13272-13275): menu items stay enabled like Java's.
     case "menu.pauseEngineGame":
     case "menu.changeEngineGameNumbers":
     case "menu.breakEngineGame":
@@ -245,8 +241,6 @@ function entryReason(id: string): Reason | null {
     case "menu.moveNumberAlwaysFromOne":
     case "menu.showAllMoveNumberInBranch":
       return view.settings.display.moveNumbers === -1 ? { key: "FunctionSearch.unavailable.allMoveNumbers" } : null;
-    case "toolbar.detailed":
-      return isChinese() ? null : CONTEXT;
     default:
       return null;
   }
@@ -270,8 +264,7 @@ function dependencyReason(id: string): Reason | null {
 }
 
 /** A toolbar control inside a tool group its own setting switched off. The whole toolbar being
- *  hidden does not count (locating shows it), nor the markup buttons, which locating shows too, nor
- *  the 详细工具栏's controls, which locating expands. */
+ *  hidden does not count (locating shows it), nor the markup buttons, which locating shows too. */
 function groupHidden(control: HTMLElement): boolean {
   for (let el = control.parentElement; el && el.id !== "toolbar" && el.id !== "bottombar"; el = el.parentElement) {
     if (getComputedStyle(el).display === "none") return true;
@@ -284,7 +277,7 @@ function unavailableReason(m: FunctionMatch, kind: DestinationKind | null, absen
   if (dialogOpen(search ?? undefined)) return { key: "FunctionSearch.unavailable.modal" };
   if (absent) return UNAVAILABLE;
   if (kind === "context") return state.view.settings.edit.showRightMenu ? null : CONTEXT;
-  if (kind === "toolbar" && !revealsMarkup(m.id) && !KATA_GROUPS[m.id] && !TOP_GROUP_OF[m.id] && !m.id.startsWith("legacy.") && groupHidden(toolbarControl(m.id)!)) return TOOLBAR;
+  if (kind === "toolbar" && !revealsMarkup(m.id) && !KATA_GROUPS[m.id] && !TOP_GROUP_OF[m.id] && groupHidden(toolbarControl(m.id)!)) return TOOLBAR;
   const reason = entryReason(m.id);
   if (reason) return reason;
   // A real toolbar control disabled for now (广度 while the engine is not free for it).
@@ -330,9 +323,9 @@ function revealsMarkup(id: string): boolean {
 }
 
 /** BottomToolbar.locateFunction / Menu.locateTopFunction: shows the toolbar (and the markup tools
- *  for a markup button, the 详细工具栏 for its controls), then scrolls to and focuses the control
- *  with the gold line. A bottom button not on the bar is located in 更多. The control is not
- *  clicked and no saved setting changes. */
+ *  for a markup button), then scrolls to and focuses the control with the gold line. A bottom
+ *  button not on the bar is located in 更多. The control is not clicked and no saved setting
+ *  changes. */
 async function locateToolbarControl(id: string): Promise<Reason | null> {
   const control = toolbarControl(id);
   if (!control) return TOOLBAR;
@@ -344,7 +337,7 @@ async function locateToolbarControl(id: string): Promise<Reason | null> {
   } else if (top && revealTopGroup(top)) renderToolbar();
   if (revealsMarkup(id) && !markupToolsShown()) setEditing({ markupRevealed: true });
   const bottom = !!control.closest("#bottombar");
-  await revealToolbar(!bottom ? "top" : id.startsWith("legacy.") ? "detail" : "bottom");
+  await revealToolbar(bottom ? "bottom" : "top");
   // A 同步 popup item: the popup opens over the bar whether or not 同步 itself is on it.
   if (control.dataset.function !== id) return locateLivePopupItem(id) ? null : TARGET_MISSING;
   if (bottom && control.isConnected && control.getClientRects().length === 0 && locateHiddenButton(id)) return null;

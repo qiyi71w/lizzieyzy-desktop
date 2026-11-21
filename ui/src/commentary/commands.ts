@@ -3,9 +3,10 @@
 // (CommentDisplayRenderer). The core owns the dialog state; the window shows it.
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
-import { state, subscribe } from "../app";
+import { state } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
 import type { WorkbenchView } from "../contract/generated";
+import { icon } from "../design/icons";
 import { language, t } from "../i18n";
 import { markdownToHtml, plainTextToHtml } from "./markdown";
 import {
@@ -77,27 +78,26 @@ export function commentaryReport() {
   return { open: shown, window: shown ? report : null };
 }
 
-/** The menu strip's AI 解说 button (Menu.aiCommentaryButton): secondary style, the short label
- *  when the strip is narrower than 900 px (refreshAiFeatureLabels). */
+/** The toolbar's AI 解说 button (Menu.aiCommentaryButton): the short label in a window narrower
+ *  than 900 px (refreshAiFeatureLabels). */
 export function buildCommentaryButton(): HTMLElement {
   const pill = document.createElement("span");
-  pill.className = "pill commentary";
+  pill.className = "tb-pill commentary";
   pill.dataset.key = "toolbar.aiCommentary";
   pill.dataset.function = "analysis.commentary";
   pill.title = t("Menu.aiCommentary");
   pill.setAttribute("role", "button");
   pill.setAttribute("aria-label", t("Menu.aiCommentary"));
   pill.setAttribute("aria-description", t("Teacher.subtitle"));
+  const label = document.createElement("span");
+  pill.append(icon("spark"), label);
   pill.addEventListener("mousedown", (e) => e.preventDefault());
   pill.onclick = () => void openCommentary();
-  const strip = document.getElementById("menubar");
   const update = () => {
-    const width = strip?.clientWidth ?? 0;
-    const text = width > 0 && width < 900 ? t("Menu.aiCommentary.short") : t("Menu.aiCommentary");
-    if (pill.textContent !== text) pill.textContent = text;
+    const text = window.innerWidth < 900 ? t("Menu.aiCommentary.short") : t("Menu.aiCommentary");
+    if (label.textContent !== text) label.textContent = text;
   };
-  subscribe(update);
-  if (strip) new ResizeObserver(update).observe(strip);
+  window.addEventListener("resize", update);
   update();
   return pill;
 }

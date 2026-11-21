@@ -4,6 +4,7 @@
 // this module sends HumanSl commands and shows its view.
 import { registerViewHandler, state, subscribe } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
+import { icon } from "../design/icons";
 import { message, timedMessage } from "../dialogs";
 import { t } from "../i18n";
 import { mountTrainingBar, refreshTrainingBar } from "./bar";
@@ -36,40 +37,33 @@ Object.assign(COMMANDS, {
   "game.ai-coach": { run: aiCoachAction },
 } satisfies Record<string, CommandEntry>);
 
-/** The menu strip's AI 陪练 button: 准备中… while the model downloads or the companion starts,
+/** The toolbar's AI 陪练 button: 准备中… while the model downloads or the companion starts,
  *  陪练中 (selected) during the game and its exit, else AI 陪练. */
 export function buildAiCoachButton(): HTMLElement {
   const pill = document.createElement("span");
-  pill.className = "pill coach";
+  pill.className = "tb-pill coach";
   pill.dataset.key = "toolbar.aiCoach";
   pill.title = t("Menu.aiCoach.tip");
   pill.setAttribute("role", "button");
   pill.setAttribute("aria-description", t("Menu.aiCoach.tip"));
-  const icon = document.createElement("img");
-  icon.className = "coach-icon";
-  icon.src = "/assets/ui/ai-coach/coach-target.png";
-  icon.alt = "";
   const label = document.createElement("span");
-  pill.append(icon, label);
+  pill.append(icon("spark"), label);
   pill.addEventListener("mousedown", (e) => e.preventDefault());
   pill.onclick = aiCoachAction;
-  const strip = document.getElementById("menubar");
   const update = () => {
     const session = state.view?.human_sl;
     const playing = humanSlGameActive();
-    // refreshAiFeatureLabels (Menu.java:11171-11181): a strip narrower than 900 px shows the short
+    // refreshAiFeatureLabels (Menu.java:11171-11181): a window narrower than 900 px shows the short
     // idle label; the session labels are kept.
-    const width = strip?.clientWidth ?? 0;
-    const idle = width > 0 && width < 900 ? t("Menu.aiCoach.short") : t("Menu.aiCoach");
+    const idle = window.innerWidth < 900 ? t("Menu.aiCoach.short") : t("Menu.aiCoach");
     const text = playing ? t("Menu.aiCoach.playing") : humanSlUi.downloading || session ? t("Menu.aiCoach.preparing") : idle;
     if (label.textContent !== text) label.textContent = text;
-    pill.classList.toggle("selected", playing);
+    pill.classList.toggle("on", playing);
     pill.setAttribute("aria-pressed", String(playing));
   };
   subscribe(update);
   onHumanSlUiChange(update);
-  // The strip's componentResized listener re-evaluates the label.
-  if (strip) new ResizeObserver(update).observe(strip);
+  window.addEventListener("resize", update);
   update();
   return pill;
 }

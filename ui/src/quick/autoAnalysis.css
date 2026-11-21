@@ -1,10 +1,36 @@
-.auto-analysis-dialog { padding: 12px; font: 12px Arial, "Microsoft YaHei", sans-serif; }
-.auto-analysis-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; min-width: 320px; grid-auto-rows: 21px; align-items: center; }
-.auto-analysis-grid > label { white-space: nowrap; }
-.auto-analysis-grid input[type="text"] { width: 100%; min-width: 0; height: 23px; box-sizing: border-box; }
-.auto-analysis-grid input[type="checkbox"] { justify-self: start; margin: 0 3px; }
-.auto-analysis-inline { display: flex; align-items: center; gap: 4px; }
-.auto-analysis-inline > input[type="text"] { width: 90px; }
-.auto-analysis-dialog .engine-actions { justify-content: flex-end; margin-top: 12px; gap: 4px; }
-.auto-analysis-notice { position: fixed; z-index: 220; left: 50%; top: 35%; transform: translate(-50%, -50%); padding: 16px 24px; min-width: 220px; white-space: pre-wrap; text-align: center; }
-.auto-analysis-notice button { display: block; margin: 12px auto 0; }
+/* 自动分析, 加强分析条件 and 批量精析: untitled groups of rows (design/dialog.css) with a gap between
+   them. Then the confirmation and tip dialogs' message, and the run's notices. The frame, the rows
+   and the button row are design/dialog.css. */
+.auto-analysis-dialog {
+  width: min(560px, 90vw);
+}
+.auto-analysis-group + .auto-analysis-group {
+  margin-top: 12px;
+}
+
+.auto-analysis-message {
+  max-width: 480px;
+}
+.auto-analysis-message > p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+/* A notice of the run over the workbench, without a scrim: a message that closes by itself, or a
+   non-modal Message window in the shared dialog frame (title with its close box, body, 关闭). */
+.auto-analysis-notice {
+  position: fixed;
+  z-index: 220;
+  left: 50%;
+  top: 35%;
+  transform: translate(-50%, -50%);
+  max-width: min(520px, 90vw);
+}
+.auto-analysis-notice.timed {
+  padding: 14px 16px 16px;
+}
+.auto-analysis-notice.timed > p {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

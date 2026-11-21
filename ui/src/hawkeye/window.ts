@@ -6,17 +6,17 @@ import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { appMenuKey } from "../appMenuKey";
 import type { Command, DisplaySettings, HawkeyePeriod, HawkeyeSettings, MoveEvaluation } from "../contract/generated";
-import { isChinese, setLanguage, t } from "../i18n";
-import { bindColumnResize, layoutColumns } from "../analysis/suggestionsFrame";
+import { product, registerProduct, setLanguage, t } from "../i18n";
+import { bindColumnResize, layoutColumns, namedFace } from "../analysis/suggestionsFrame";
+import { icon } from "../design/icons";
 import { frameCoordinate, playouts } from "../workbench/paint";
-import { mountCharts, type ChartPanel } from "./charts";
+import { mountCharts, tabList, type ChartPanel } from "./charts";
 import { dialogTargets, openDialog, openSetThreshold, openStatisticsThreshold, openMatchAiHelp, refreshDialogs } from "./dialogs";
 import {
   HAWKEYE_DATA_EVENT,
   HAWKEYE_INPUT_EVENT,
   HAWKEYE_SUB_INPUT_EVENT,
   HAWKEYE_SUB_LABEL,
-  UI_FONT,
   fixed,
   settingsCommand,
   type HawkeyeInput,
@@ -24,39 +24,24 @@ import {
   type HawkeyeReport,
 } from "./model";
 import { mountStatistics } from "./statistics";
+import "../design/window";
+import { applyTypeSizes } from "../design/theme";
+import "../design/dialog.css";
+import "../design/stage.css";
+import "./hawkeye.css";
 
-/** The 详细列表's preferred widths (MoveListFrame.java:1272-1280); later columns keep JTable's 75. */
-const DETAIL_WIDTHS = [52, 50, 57, 72, 77, 70, 70, 70, 70, 75, 75, 75];
+registerProduct({
+  ZhCn: { hawkeyePeriods: "范围", hawkeyeHideLists: "隐藏列表", hawkeyeShowLists: "显示列表", hawkeyeSortSwing: "{0}：波动幅度最大的在前", hawkeyeSortGain: "{0}：上升最多的在前", hawkeyeSortLoss: "{0}：下降最多的在前", hawkeyeSortAscending: "{0}：升序", hawkeyeSortDescending: "{0}：降序" },
+  ZhTw: { hawkeyePeriods: "範圍", hawkeyeHideLists: "隱藏列表", hawkeyeShowLists: "顯示列表", hawkeyeSortSwing: "{0}：波動幅度最大的在前", hawkeyeSortGain: "{0}：上升最多的在前", hawkeyeSortLoss: "{0}：下降最多的在前", hawkeyeSortAscending: "{0}：遞增排序", hawkeyeSortDescending: "{0}：遞減排序" },
+  EnUs: { hawkeyePeriods: "Range", hawkeyeHideLists: "Hide lists", hawkeyeShowLists: "Show lists", hawkeyeSortSwing: "{0}: largest swing first", hawkeyeSortGain: "{0}: largest gain first", hawkeyeSortLoss: "{0}: largest loss first", hawkeyeSortAscending: "{0}: ascending", hawkeyeSortDescending: "{0}: descending" },
+  JaJp: { hawkeyePeriods: "範囲", hawkeyeHideLists: "リストを隠す", hawkeyeShowLists: "リストを表示", hawkeyeSortSwing: "{0}：変動幅の大きい順", hawkeyeSortGain: "{0}：上昇の大きい順", hawkeyeSortLoss: "{0}：下落の大きい順", hawkeyeSortAscending: "{0}：昇順", hawkeyeSortDescending: "{0}：降順" },
+  KoKr: { hawkeyePeriods: "범위", hawkeyeHideLists: "목록 숨기기", hawkeyeShowLists: "목록 표시", hawkeyeSortSwing: "{0}: 변동 폭이 큰 순", hawkeyeSortGain: "{0}: 상승 폭이 큰 순", hawkeyeSortLoss: "{0}: 하락 폭이 큰 순", hawkeyeSortAscending: "{0}: 오름차순", hawkeyeSortDescending: "{0}: 내림차순" },
+  ThTh: { hawkeyePeriods: "ช่วง", hawkeyeHideLists: "ซ่อนรายการ", hawkeyeShowLists: "แสดงรายการ", hawkeyeSortSwing: "{0}: ผันผวนมากที่สุดก่อน", hawkeyeSortGain: "{0}: เพิ่มขึ้นมากที่สุดก่อน", hawkeyeSortLoss: "{0}: ลดลงมากที่สุดก่อน", hawkeyeSortAscending: "{0}: เรียงจากน้อยไปมาก", hawkeyeSortDescending: "{0}: เรียงจากมากไปน้อย" },
+});
 
-const STYLE = `
-html, body { margin: 0; height: 100%; overflow: hidden; background: #eee; font-family: ${UI_FONT}; font-size: 12px; }
-.hk-tabs { display: flex; height: 20px; align-items: flex-end; background: #eee; border-bottom: 1px solid #999; user-select: none; }
-.hk-tab { padding: 1px 9px; margin-right: 1px; border: 1px solid #aaa; border-bottom: none; background: #ddd; font-size: 12px; cursor: default; white-space: nowrap; }
-.hk-tab.sel { background: #fff; position: relative; top: 1px; }
-#hk-top { position: absolute; left: 0; top: 0; right: 0; }
-#hk-pages { position: absolute; left: 0; right: 0; top: 21px; }
-.hk-page { position: absolute; inset: 0; }
-.hk-scroll { position: absolute; overflow-x: hidden; overflow-y: auto; background: #fff; }
-.hk-scroll table { border-collapse: separate; border-spacing: 0; table-layout: fixed; }
-/* tables (MoveListFrame.java:320-325): row height Config.menuHeight, header
-   Font(uiFontName, PLAIN, max(frameFontSize, 13)), cells Font(uiFontName, BOLD, max(frameFontSize, 14));
-   the main window sends the values with every payload */
-.hk-scroll th { position: sticky; top: 0; z-index: 1; height: var(--hk-row, 20px); padding: 0; font-weight: normal; font-family: var(--hk-ui-font, inherit); font-size: var(--hk-head-size, 13px);
-  background: rgb(238, 238, 238); border: solid rgb(128, 128, 128); border-width: 0 1px 1px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; user-select: none; }
-.hk-scroll td { height: var(--hk-row, 20px); padding: 0; text-align: center; font-weight: bold; font-family: var(--hk-ui-font, inherit); font-size: var(--hk-cell-size, 14px); color: #000; background: #fff;
-  border: solid rgb(128, 128, 128); border-width: 0 1px 1px 0; white-space: nowrap; overflow: hidden; cursor: default; }
-#hk-filter { position: absolute; left: 0; right: 0; height: 24px; display: flex; align-items: center; justify-content: center; gap: 1px; white-space: nowrap; background: #eee; user-select: none; }
-#hk-filter button { height: 20px; padding: 0 2px; font: inherit; font-size: 12px; }
-#hk-filter button.icon { width: 20px; padding: 0; display: flex; align-items: center; justify-content: center; }
-#hk-filter label { display: inline-flex; align-items: center; }
-#hk-filter input[type=checkbox] { margin: 0 2px; }
-#hk-filter input[type=text] { width: 3em; height: 16px; font: inherit; font-size: 12px; padding: 0 2px; }
-#hk-filter select { height: 20px; box-sizing: border-box; padding: 0 2px; line-height: 18px; font: inherit; font-size: 12px; }
-#hk-bottom { position: absolute; left: 0; right: 0; bottom: 0; }
-.hk-menu { position: fixed; z-index: 50; background: #fff; border: 1px solid #888; box-shadow: 2px 2px 3px rgba(0,0,0,.3); padding: 2px 0; font-size: 12px; }
-.hk-menu div { padding: 3px 18px; cursor: default; }
-.hk-menu div:hover { background: rgb(184, 207, 229); }
-`;
+/** The 详细列表's preferred widths (MoveListFrame.java:1272-1280, with 手数 widened to its longest
+ *  header, "MoveNum"); later columns keep JTable's 75. */
+const DETAIL_WIDTHS = [52, 64, 57, 72, 77, 70, 70, 70, 70, 75, 75, 75];
 
 /** Sort state shared by the three lists, as Java keeps it on the frame. */
 interface Sort {
@@ -77,16 +62,17 @@ function diffText(v: number): string {
   return `${v > 0 ? "+" : "-"}${fixed(Math.abs(v), 2)}${v > 0 ? "↑" : "↓"}`;
 }
 
-/** ColorTableCellRenderer: the colour of a 胜率波动 / 目数波动 cell from its shown number. */
+/** ColorTableCellRenderer: the class of a 胜率波动 / 目数波动 cell from its shown number, as the
+ *  colour hawkeye.css gives it. */
 function diffColor(text: string, gain: number, thresholds: number[]): string {
   const v = Number.parseFloat(text.substring(0, text.length - 1));
-  if (v >= gain) return "rgb(0,170,170)";
-  if (v <= thresholds[4]) return "rgb(165,25,160)";
-  if (v <= thresholds[3]) return "rgb(175,16,19)";
-  if (v <= thresholds[2]) return "rgb(105,162,34)";
-  if (v <= thresholds[1]) return "rgb(150,150,0)";
-  if (v <= thresholds[0]) return "rgb(180,120,45)";
-  return "rgb(0,150,0)";
+  if (v >= gain) return "var(--hk-diff-gain)";
+  if (v <= thresholds[4]) return "var(--hk-diff-5)";
+  if (v <= thresholds[3]) return "var(--hk-diff-4)";
+  if (v <= thresholds[2]) return "var(--hk-diff-3)";
+  if (v <= thresholds[1]) return "var(--hk-diff-2)";
+  if (v <= thresholds[0]) return "var(--hk-diff-1)";
+  return "var(--hk-diff-even)";
 }
 
 /** The raw change Java keeps in `NodeInfo.diffWinrate` / `scoreMeanDiff` (0 before it is known);
@@ -191,7 +177,34 @@ function minHeaders(black: boolean, katago: boolean): string[] {
     : [...head, t("Movelistframe.minTableColumnAiScore")];
 }
 
-/** A JTable in a JScrollPane: header, rows, click and right-click. */
+/** How one cell is drawn: its text and ground colours (empty for the table's own) and whether it
+ *  holds the figure the row is listed for. */
+interface CellLook {
+  fg: string;
+  bg: string;
+  key: boolean;
+}
+
+/** How the rows are sorted by a header. A change column (胜率波动 / 目数波动) goes through
+ *  `magnitude` (|Δ| largest first, whatever the sign), `descending` (the largest gain first) and
+ *  `ascending` (the largest loss first); the colour column groups the sides (`grouped`). */
+type SortState = "magnitude" | "descending" | "ascending" | "grouped" | "none";
+
+/** The visible mark of each state after the header's name: the direction's chevron, after |Δ|
+ *  for `magnitude`; none for the colour grouping. */
+const SORT_MARKS: Record<SortState, () => (Node | string)[]> = {
+  magnitude: () => ["|Δ|", icon("chevron-down")],
+  descending: () => [icon("chevron-down")],
+  ascending: () => [icon("chevron-up")],
+  grouped: () => [],
+  none: () => [],
+};
+
+/** A JTable in a JScrollPane: header, rows, click and right-click. `categorical` names the columns
+ *  that hold words (colour, coordinate): they align left, the numbers right. The header row and
+ *  the body are one Tab stop each: ←/→ (Home/End) move between the headers and Enter/Space sorts
+ *  as a header click does; ↑/↓ (Home/End) move the selected row and Enter/Space chooses it as a
+ *  row click does. */
 class ListTable {
   readonly scroll = document.createElement("div");
   private readonly table = document.createElement("table");
@@ -202,12 +215,23 @@ class ListTable {
   rows: Row[] = [];
   widths: number[] = [];
   preferred: number[] | null = null;
+  /** The header that holds the header row's Tab stop. */
+  private headCursor = 0;
+  /** The selected row (-1: none), and the row of the move marked on the board, where the
+   *  selection starts. */
+  private cursor = -1;
+  private current = -1;
+  /** The column the rows are sorted by (-1: none). */
+  private sorted = -1;
 
-  constructor(key: string, onSort: (column: number) => void, onRow: (row: Row) => void, onMenu: (x: number, y: number) => void, onColumns?: (w: number[]) => void) {
+  constructor(key: string, private readonly categorical: number[], onSort: (column: number) => void, onRow: (row: Row) => void, onMenu: (x: number, y: number) => void, onColumns?: (w: number[]) => void) {
     this.scroll.className = "hk-scroll";
     this.scroll.dataset.key = key;
     const thead = document.createElement("thead");
     this.head = thead.insertRow();
+    this.head.dataset.key = `${key}.header`;
+    this.body.tabIndex = 0;
+    this.body.dataset.key = `${key}.rows`;
     this.table.append(this.colgroup, thead, this.body);
     this.scroll.append(this.table);
     if (onColumns) {
@@ -223,14 +247,77 @@ class ListTable {
       const cell = (ev.target as HTMLElement).closest("th");
       if (cell) onSort((cell as HTMLTableCellElement).cellIndex);
     });
+    this.head.addEventListener("focusin", (ev) => {
+      const cell = (ev.target as HTMLElement).closest("th");
+      if (cell) this.markHeader((cell as HTMLTableCellElement).cellIndex);
+    });
+    // The keys stay here: the window's own handler does not see them.
+    this.head.addEventListener("keydown", (ev) => {
+      const n = this.head.cells.length;
+      const k = this.headCursor;
+      let to: number;
+      if (ev.key === "ArrowRight") to = Math.min(k + 1, n - 1);
+      else if (ev.key === "ArrowLeft") to = Math.max(k - 1, 0);
+      else if (ev.key === "Home") to = 0;
+      else if (ev.key === "End") to = n - 1;
+      else if (ev.key === "Enter" || ev.key === " ") to = -1;
+      else return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (!n) return;
+      if (to < 0) onSort(k);
+      else this.head.cells[to].focus();
+    });
     this.body.addEventListener("click", (ev) => {
       const tr = (ev.target as HTMLElement).closest("tr");
-      if (tr) onRow(this.rows[tr.sectionRowIndex]);
+      if (!tr) return;
+      this.select(tr.sectionRowIndex);
+      onRow(this.rows[tr.sectionRowIndex]);
+    });
+    // A press focuses the body itself, not through the cell under the pointer: WebKit would keep
+    // that cell as where Tab starts from, and Shift+Tab would land on the body again.
+    this.body.addEventListener("mousedown", (ev) => {
+      if (ev.button !== 0) return;
+      ev.preventDefault();
+      this.body.focus({ preventScroll: true });
+    });
+    // Focus starts the selection at the marked move without scrolling: a mouse press focuses the
+    // body before its click lands on the row under the pointer.
+    this.body.addEventListener("focus", () => {
+      if (this.cursor < 0 && this.rows.length) this.select(Math.max(this.current, 0), false);
+    });
+    this.body.addEventListener("keydown", (ev) => {
+      const n = this.rows.length;
+      let to: number;
+      if (ev.key === "ArrowDown") to = Math.min(this.cursor + 1, n - 1);
+      else if (ev.key === "ArrowUp") to = Math.max(this.cursor - 1, 0);
+      else if (ev.key === "Home") to = 0;
+      else if (ev.key === "End") to = n - 1;
+      else if (ev.key === "Enter" || ev.key === " ") to = -1;
+      else return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (!n) return;
+      if (to >= 0) this.select(to);
+      else if (this.cursor >= 0) onRow(this.rows[this.cursor]);
     });
     this.scroll.addEventListener("contextmenu", (ev) => {
       ev.preventDefault();
       if ((ev.target as HTMLElement).closest("tbody, thead") || ev.target === this.scroll) onMenu(ev.clientX, ev.clientY);
     });
+  }
+
+  /** Moves the header row's Tab stop to column `k`. */
+  private markHeader(k: number): void {
+    this.headCursor = k;
+    [...this.head.cells].forEach((th, i) => (th.tabIndex = i === k ? 0 : -1));
+  }
+
+  /** Selects row `k`, scrolled into view when `reveal`. */
+  private select(k: number, reveal = true): void {
+    this.cursor = k;
+    [...this.body.rows].forEach((tr, i) => tr.classList.toggle("selected", i === k));
+    if (reveal) this.body.rows[k]?.scrollIntoView({ block: "nearest" });
   }
 
   private apply(w: number[]): void {
@@ -239,12 +326,29 @@ class ListTable {
     [...this.colgroup.children].forEach((col, k) => ((col as HTMLElement).style.width = `${w[k] ?? 0}px`));
   }
 
-  /** JTable's fit of the preferred widths into the viewport, or equal shares without them. */
+  /** JTable's fit of the preferred widths into the viewport, or equal shares without them. The
+   *  sorted column keeps room for its whole name and sort mark; the other columns give it what
+   *  it lacks in equal shares. */
   layout(): void {
     const width = this.scroll.clientWidth;
     const n = this.headers.length;
     if (!n || width <= 0) return;
-    this.apply(layoutColumns(this.preferred ?? Array.from({ length: n }, () => 75), width));
+    const fitted = layoutColumns(this.preferred ?? Array.from({ length: n }, () => 75), width);
+    const th = this.head.cells[this.sorted];
+    const name = th?.querySelector<HTMLElement>(".hk-th-name");
+    const mark = th?.querySelector<HTMLElement>(".hk-sort");
+    if (th && name && mark) {
+      const style = getComputedStyle(th);
+      const gap = parseFloat(getComputedStyle(name.parentElement ?? th).columnGap) || 0;
+      const need = Math.ceil(name.scrollWidth + gap + mark.offsetWidth + parseFloat(style.paddingLeft) + parseFloat(style.paddingRight));
+      if (need > fitted[this.sorted]) {
+        const rest = layoutColumns(fitted.filter((_, i) => i !== this.sorted), width - need);
+        rest.splice(this.sorted, 0, need);
+        this.apply(rest);
+        return;
+      }
+    }
+    this.apply(fitted);
   }
 
   setHeaders(headers: string[], preferred: number[] | null): void {
@@ -252,27 +356,78 @@ class ListTable {
     this.headers = headers;
     this.preferred = preferred;
     this.colgroup.replaceChildren(...headers.map(() => document.createElement("col")));
-    this.head.replaceChildren(...headers.map((text) => {
+    this.head.replaceChildren(...headers.map((text, column) => {
       const th = document.createElement("th");
-      th.textContent = text;
+      // The name gives way to the sort mark where the column is narrow (hawkeye.css).
+      const name = document.createElement("span");
+      name.className = "hk-th-name";
+      name.textContent = text;
+      const mark = document.createElement("span");
+      mark.className = "hk-sort";
+      mark.setAttribute("aria-hidden", "true");
+      const label = document.createElement("span");
+      label.append(name, mark);
+      th.append(label);
       th.title = text;
+      th.dataset.key = `${this.head.dataset.key}.${column}`;
+      th.classList.toggle("cat", this.categorical.includes(column));
       return th;
     }));
+    this.markHeader(Math.max(0, Math.min(this.headCursor, headers.length - 1)));
     this.layout();
   }
 
-  setRows(rows: Row[], color: (row: Row, column: number) => { fg: string; bg: string }): void {
+  /** Marks the header of the column the rows are sorted by (`change`: a three-state change
+   *  column): `aria-sort`, the state's mark after the name and a title that says the order; a
+   *  change column's accessible name says it too, as `aria-sort` cannot tell its states apart. */
+  setSort(column: number, state: SortState, change: boolean): void {
+    let marked = false;
+    [...this.head.cells].forEach((th, i) => {
+      const text = this.headers[i] ?? "";
+      const own = i === column ? state : "none";
+      if (own === "none") th.removeAttribute("aria-sort");
+      else th.setAttribute("aria-sort", own === "magnitude" || own === "grouped" ? "other" : own);
+      if (th.dataset.sort !== own) {
+        th.dataset.sort = own;
+        th.querySelector(".hk-sort")?.replaceChildren(...SORT_MARKS[own]());
+        marked = true;
+      }
+      let title = text;
+      if (change && own === "magnitude") title = product("hawkeyeSortSwing", text);
+      else if (change && own === "descending") title = product("hawkeyeSortGain", text);
+      else if (change && own === "ascending") title = product("hawkeyeSortLoss", text);
+      else if (own === "descending") title = product("hawkeyeSortDescending", text);
+      else if (own === "ascending") title = product("hawkeyeSortAscending", text);
+      th.title = title;
+      if (change && own !== "none") th.setAttribute("aria-label", title);
+      else th.removeAttribute("aria-label");
+    });
+    // A new mark changes what the sorted column needs (layout).
+    this.sorted = state === "none" ? -1 : column;
+    if (marked) this.layout();
+  }
+
+  /** The rows with their looks; `current` is the row of the move marked on the board (-1: none).
+   *  The selection follows its move through a re-sort or an update. */
+  setRows(rows: Row[], look: (row: Row, column: number) => CellLook, current: number): void {
+    const was = this.rows[this.cursor];
+    this.cursor = was ? rows.findIndex((r) => r.pinned === was.pinned && r.e.node === was.e.node) : -1;
+    this.current = current;
     this.rows = rows;
     while (this.body.rows.length > rows.length) this.body.deleteRow(this.body.rows.length - 1);
     rows.forEach((r, k) => {
       const tr = this.body.rows[k] ?? this.body.insertRow();
+      tr.classList.toggle("selected", k === this.cursor);
       while (tr.cells.length > r.cells.length) tr.deleteCell(tr.cells.length - 1);
       r.cells.forEach((text, column) => {
         const td = tr.cells[column] ?? tr.insertCell();
         if (td.textContent !== text) td.textContent = text;
-        const c = color(r, column);
-        td.style.color = c.fg;
-        td.style.background = c.bg;
+        const c = look(r, column);
+        // Through properties, so the focused list's selected row (hawkeye.css) draws over them.
+        td.style.setProperty("--hk-fg", c.fg);
+        td.style.setProperty("--hk-bg", c.bg);
+        td.classList.toggle("cat", this.categorical.includes(column));
+        td.classList.toggle("key", c.key);
       });
     });
   }
@@ -286,16 +441,34 @@ class ListTable {
   texts(): string[][] {
     return this.rows.map((r) => r.cells);
   }
+
+  /** Each row's vertical middle in the window, where a click lands on it (acceptance report). */
+  rowMiddles(): number[] {
+    return [...this.body.rows].map((row) => {
+      const box = row.getBoundingClientRect();
+      return Math.round(box.top + box.height / 2);
+    });
+  }
 }
 
 export function bootHawkeye(): void {
-  const style = document.createElement("style");
-  style.textContent = STYLE;
-  document.head.append(style);
-
   const self = getCurrentWebviewWindow();
   const inputEvent = self.label === HAWKEYE_SUB_LABEL ? HAWKEYE_SUB_INPUT_EVENT : HAWKEYE_INPUT_EVENT;
   const send = (input: HawkeyeInput) => void emitTo("main", inputEvent, input);
+  // The window is built on the first payload, whose language its fixed texts (page tabs, filter
+  // bar) are in; the language does not change within a session.
+  let receive: ((payload: HawkeyePayload) => void) | null = null;
+  void self.listen<HawkeyePayload>(HAWKEYE_DATA_EVENT, (e) => {
+    if (!receive) {
+      setLanguage(e.payload.language);
+      receive = mount(send);
+    }
+    receive(e.payload);
+  }).then(() => send({ type: "ready" }));
+}
+
+/** Builds the window; returns what takes each payload from the main window. */
+function mount(send: (input: HawkeyeInput) => void): (payload: HawkeyePayload) => void {
   const run = (command: Command) => send({ type: "run", command });
   const display = (change: Partial<DisplaySettings>) => send({ type: "display", change });
 
@@ -317,20 +490,20 @@ export function bootHawkeye(): void {
   for (const page of [statsPage, simplePage, detailPage]) page.className = "hk-page";
   pages.append(statsPage, simplePage, detailPage);
   const pageTabs = [t("Movelistframe.statisticsPanel"), t("Movelistframe.topPanle.simpleList"), t("Movelistframe.topPanle.detailList")].map((text, k) => {
-    const tab = document.createElement("span");
+    const tab = document.createElement("button");
     tab.className = "hk-tab";
     tab.textContent = text;
     tab.dataset.key = `hawkeye.page.${k}`;
-    tab.onclick = () => {
-      if (!data || data.settings.topPage === k) return;
-      // changeListener2: 简易列表 sorts by 胜率波动 (2), 详细列表 by 胜率波动 (3).
-      if (k === 1) sort.column = 2;
-      if (k === 2) sort.column = 3;
-      reportLayout();
-      settings({ topPage: k });
-    };
     tabs.append(tab);
     return tab;
+  });
+  const markPage = tabList(tabs, pageTabs, (k) => {
+    if (!data || data.settings.topPage === k) return;
+    // changeListener2: 简易列表 sorts by 胜率波动 (2), 详细列表 by 胜率波动 (3).
+    if (k === 1) sort.column = 2;
+    if (k === 2) sort.column = 3;
+    reportLayout();
+    settings({ topPage: k });
   });
   top.append(tabs, pages);
 
@@ -369,9 +542,10 @@ export function bootHawkeye(): void {
   menu.append(exportItem);
   const showMenu = (table: ListTable) => (x: number, y: number) => {
     menuTable = table;
-    menu.style.left = `${x}px`;
-    menu.style.top = `${y}px`;
     menu.hidden = false;
+    // Inside the window, beside the pointer.
+    menu.style.left = `${Math.max(0, Math.min(x, window.innerWidth - menu.offsetWidth))}px`;
+    menu.style.top = `${Math.max(0, Math.min(y, window.innerHeight - menu.offsetHeight))}px`;
   };
   document.addEventListener("mousedown", (ev) => {
     if (!menu.contains(ev.target as Node)) menu.hidden = true;
@@ -379,11 +553,12 @@ export function bootHawkeye(): void {
 
   const katago = () => !!data?.pane.katago;
   const minSort = (column: number) => sortBy(column, column === 2 || (katago() && column === 3));
-  const black: ListTable = new ListTable("hawkeye.simple.black", minSort, onRow, (x, y) => showMenu(black)(x, y));
-  const white: ListTable = new ListTable("hawkeye.simple.white", minSort, onRow, (x, y) => showMenu(white)(x, y));
+  const black: ListTable = new ListTable("hawkeye.simple.black", [1], minSort, onRow, (x, y) => showMenu(black)(x, y));
+  const white: ListTable = new ListTable("hawkeye.simple.white", [1], minSort, onRow, (x, y) => showMenu(white)(x, y));
   simplePage.append(black.scroll, white.scroll);
   const detail: ListTable = new ListTable(
     "hawkeye.detail",
+    [0, 2],
     (column) => sortBy(column, column === 3 || (katago() && column === 4)),
     onRow,
     (x, y) => showMenu(detail)(x, y),
@@ -391,21 +566,29 @@ export function bootHawkeye(): void {
   );
   detailPage.append(detail.scroll);
 
-  // The filter bar (MoveListFrame.java:1406-1428).
+  // The filter bar (MoveListFrame.java:1406-1428). Java keeps its controls out of the focus
+  // (setFocusable(false)) so Y and Q reach the frame; here they take the focus and the keys still
+  // reach the window (the key handler below). Each label with its field, the sides, the periods
+  // and the custom range is one group the bar never breaks; it wraps between groups only.
   const filter = document.createElement("div");
   filter.id = "hk-filter";
+  const group = (tag: "span" | "label", ...children: (Node | string)[]) => {
+    const g = document.createElement(tag);
+    g.className = "hk-group";
+    g.append(...children);
+    return g;
+  };
   const button = (key: string, text: string, action: () => void) => {
     const b = document.createElement("button");
+    b.type = "button";
     b.dataset.key = key;
     b.textContent = text;
-    b.tabIndex = -1;
     b.onclick = action;
     return b;
   };
   const hideMove = button("hawkeye.hideMove", "", () => data && settings({ showList: !data.settings.showList }));
   hideMove.className = "icon";
-  const hideIcon = document.createElement("img");
-  hideMove.append(hideIcon);
+  const hideIcons = { up: icon("chevron-up"), down: icon("chevron-down") };
   const tableThreshold = button("hawkeye.tableThreshold", t("Movelistframe.btnSetTabelThresold"), () => data && openSetThreshold(data, { run, display }));
   const statThreshold = button("hawkeye.statisticsThreshold", t("Movelistframe.btnSetStatisticsThresold"), () => data && openStatisticsThreshold(data, { run, display }));
   const sideBox = (key: string, label: string) => {
@@ -413,8 +596,9 @@ export function bootHawkeye(): void {
     const box = document.createElement("input");
     box.type = "checkbox";
     box.dataset.key = key;
-    box.tabIndex = -1;
-    wrap.append(label, box);
+    const name = document.createElement("span");
+    name.textContent = label;
+    wrap.append(name, box);
     return { wrap, box };
   };
   const blackBox = sideBox("hawkeye.black", t("Movelistframe.checkBlackFilter"));
@@ -426,7 +610,6 @@ export function bootHawkeye(): void {
   branchLabel.textContent = t("Movelistframe.lblShowBranch");
   const branch = document.createElement("select");
   branch.dataset.key = "hawkeye.branch";
-  branch.tabIndex = -1;
   for (const [value, text] of [["Main", t("Movelistframe.lblShowBranchItemMain")], ["Current", t("Movelistframe.lblShowBranchItemCurrent")]]) {
     const o = document.createElement("option");
     o.value = value;
@@ -442,19 +625,27 @@ export function bootHawkeye(): void {
     ["End", t("Movelistframe.end")],
     ["Custom", t("Movelistframe.chkCustom")],
   ];
+  // Java's ButtonGroup of check boxes always has exactly one chosen: a radio group here, under a
+  // label of its own.
+  const periodLabel = document.createElement("span");
+  periodLabel.id = "hk-period-label";
+  periodLabel.textContent = product("hawkeyePeriods");
+  const periodGroup = document.createElement("span");
+  periodGroup.className = "hk-choices";
+  periodGroup.setAttribute("role", "radiogroup");
+  periodGroup.setAttribute("aria-labelledby", periodLabel.id);
   const periodBoxes = periods.map(([period, text]) => {
     const wrap = document.createElement("label");
     const box = document.createElement("input");
-    box.type = "checkbox";
+    box.type = "radio";
+    box.name = "hk-period";
     box.dataset.key = `hawkeye.period.${period}`;
-    box.tabIndex = -1;
-    // A ButtonGroup of check boxes: choosing one clears the others; the chosen one stays chosen.
-    box.onclick = (ev) => {
-      ev.preventDefault();
-      if (data && data.settings.period !== period) settings({ period });
+    box.onchange = () => {
+      if (box.checked && data && data.settings.period !== period) settings({ period });
     };
     wrap.append(box, text);
-    return { period, wrap, box };
+    periodGroup.append(wrap);
+    return { period, box };
   });
   /** IntDocument fields: only an integer is taken; the middle and opening ends turn red otherwise. */
   const intField = (key: string, apply: (v: number) => Partial<HawkeyeSettings>, red: boolean) => {
@@ -463,23 +654,33 @@ export function bootHawkeye(): void {
     f.dataset.key = key;
     f.addEventListener("input", () => {
       const ok = /^-?\d+$/.test(f.value.trim());
-      if (red) f.style.background = ok ? "#fff" : "red";
+      if (red) f.classList.toggle("invalid", !ok);
       if (ok) settings(apply(Number.parseInt(f.value.trim(), 10)));
     });
     return f;
   };
   const customStart = intField("hawkeye.customStart", (v) => ({ customStart: v }), false);
   const customEnd = intField("hawkeye.customEnd", (v) => ({ customEnd: v }), false);
-  const dash = document.createElement("span");
-  dash.textContent = "-";
-  const openingLabel = document.createElement("span");
-  openingLabel.textContent = t("Movelistframe.openingEndMove");
   const opening = intField("hawkeye.openingEndMove", (v) => ({ openingEndMove: v }), true);
-  const middleLabel = document.createElement("span");
-  middleLabel.textContent = t("Movelistframe.middleEndMove");
   const middle = intField("hawkeye.middleEndMove", (v) => ({ middleEndMove: v }), true);
-  filter.append(hideMove, tableThreshold, statThreshold, blackBox.wrap, whiteBox.wrap, branchLabel, branch,
-    ...periodBoxes.map((p) => p.wrap), customStart, dash, customEnd, openingLabel, opening, middleLabel, middle);
+  const sideGroup = group("span", blackBox.wrap, whiteBox.wrap);
+  sideGroup.classList.add("hk-choices");
+  filter.append(
+    group("span", hideMove, tableThreshold, statThreshold),
+    sideGroup,
+    group("label", branchLabel, branch),
+    group("span", periodLabel, periodGroup),
+    group("span", customStart, "-", customEnd),
+    group("label", t("Movelistframe.openingEndMove"), opening),
+    group("label", t("Movelistframe.middleEndMove"), middle),
+  );
+  // Enter turns a check box or radio button as Space does.
+  filter.addEventListener("keydown", (ev) => {
+    const el = ev.target;
+    if (ev.key !== "Enter" || !(el instanceof HTMLInputElement) || (el.type !== "checkbox" && el.type !== "radio")) return;
+    ev.preventDefault();
+    el.click();
+  });
 
   // ---------------------------------------------------------------- bottom: charts
   const bottom = document.createElement("div");
@@ -501,7 +702,9 @@ export function bootHawkeye(): void {
     filter.style.bottom = `${bottomHeight}px`;
     top.hidden = !s.showList;
     top.style.height = `${Math.max(0, h - bottomHeight - filter.offsetHeight)}px`;
-    pages.style.height = `${Math.max(0, h - bottomHeight - filter.offsetHeight - 21)}px`;
+    const tabsHeight = tabs.offsetHeight;
+    pages.style.top = `${tabsHeight}px`;
+    pages.style.height = `${Math.max(0, h - bottomHeight - filter.offsetHeight - tabsHeight)}px`;
     const pw = pages.clientWidth, ph = pages.clientHeight;
     const half = Math.floor(pw / 2);
     Object.assign(black.scroll.style, { left: "0px", top: "0px", width: `${half}px`, height: `${ph}px` });
@@ -521,7 +724,6 @@ export function bootHawkeye(): void {
   const render = () => {
     const p = data;
     if (!p) return;
-    setLanguage(p.language);
     const s = p.settings;
     const pane = p.pane;
     if (p.layout !== layout) {
@@ -534,7 +736,7 @@ export function bootHawkeye(): void {
       const saved = p.columns.length === count ? p.columns : p.columns.length >= 9 ? [...p.columns.slice(0, 9), ...DETAIL_WIDTHS.slice(9, count)] : null;
       detail.setHeaders(detailHeaders(pane.katago), saved ?? DETAIL_WIDTHS.slice(0, count));
     } else detail.setHeaders(detailHeaders(pane.katago), detail.preferred);
-    pageTabs.forEach((tab, k) => tab.classList.toggle("sel", s.topPage === k));
+    markPage(s.topPage);
     statsPage.hidden = s.topPage !== 0;
     simplePage.hidden = s.topPage !== 1;
     detailPage.hidden = s.topPage !== 2;
@@ -543,33 +745,48 @@ export function bootHawkeye(): void {
 
     const mark = p.mark;
     const marked = (e: MoveEvaluation) => !!mark && e.point.x === mark.x && e.point.y === mark.y;
-    const colorOf = (diffColumns: [number, number | null]) => (row: Row, column: number) => {
-      let bg = "#fff";
-      let fg = "#000";
-      if (row.pinned) bg = "rgb(220,220,220)";
-      else if (marked(row.e)) bg = "rgb(238,221,130)";
-      if (!row.pinned || column === diffColumns[0] || column === diffColumns[1]) {
-        if (column === diffColumns[0]) fg = diffColor(row.cells[column], 3, p.winLoss);
-        else if (column === diffColumns[1]) fg = diffColor(row.cells[column], 1.5, p.scoreLoss);
-      }
-      return { fg, bg };
+    // The pinned current move on the sunken ground; the move marked on the board as the selection,
+    // its other figures in the selection's text colour. The change columns keep their class colour.
+    const lookOf = (diffColumns: [number, number | null]) => (row: Row, column: number): CellLook => {
+      const isMarked = !row.pinned && marked(row.e);
+      const bg = row.pinned ? "var(--ds-sunken)" : isMarked ? "var(--ds-accent-soft)" : "";
+      const key = column === diffColumns[0] || column === diffColumns[1];
+      let fg = isMarked ? "var(--ds-accent-text)" : "";
+      if (column === diffColumns[0]) fg = diffColor(row.cells[column], 3, p.winLoss);
+      else if (column === diffColumns[1]) fg = diffColor(row.cells[column], 1.5, p.scoreLoss);
+      return { fg, bg, key };
     };
     const moves = pane.moves;
     const simple = pane.rows.map((i) => moves[i]);
     const minKeyNow = minKey(sort.column, pane.katago, sort);
     const toRows = (list: MoveEvaluation[], cells: (e: MoveEvaluation) => string[]) => list.map((e) => ({ e, cells: cells(e), pinned: false }));
-    black.setRows(toRows(sorted(simple.filter((e) => e.mover === "Black"), minKeyNow, sort, false), (e) => minCells(e, p)),
-      colorOf([2, pane.katago ? 3 : null]));
-    white.setRows(toRows(sorted(simple.filter((e) => e.mover === "White"), minKeyNow, sort, false), (e) => minCells(e, p)),
-      colorOf([2, pane.katago ? 3 : null]));
+    const markedRow = (rows: Row[]) => rows.findIndex((r) => !r.pinned && marked(r.e));
+    const blackRows = toRows(sorted(simple.filter((e) => e.mover === "Black"), minKeyNow, sort, false), (e) => minCells(e, p));
+    const whiteRows = toRows(sorted(simple.filter((e) => e.mover === "White"), minKeyNow, sort, false), (e) => minCells(e, p));
+    black.setRows(blackRows, lookOf([2, pane.katago ? 3 : null]), markedRow(blackRows));
+    white.setRows(whiteRows, lookOf([2, pane.katago ? 3 : null]), markedRow(whiteRows));
+    const detailKeyNow = detailKey(sort.column, pane.katago, sort);
     const detailRows = toRows(
-      sorted(pane.detail_rows.map((i) => moves[i]), detailKey(sort.column, pane.katago, sort), sort, sort.column === 0),
+      sorted(pane.detail_rows.map((i) => moves[i]), detailKeyNow, sort, sort.column === 0),
       (e) => detailCells(e, p),
     );
     if (pane.pinned !== null) detailRows.unshift({ e: moves[pane.pinned], cells: detailCells(moves[pane.pinned], p), pinned: true });
-    detail.setRows(detailRows, colorOf([3, pane.katago ? 4 : null]));
+    detail.setRows(detailRows, lookOf([3, pane.katago ? 4 : null]), markedRow(detailRows));
+    // The sorted header's state as the rows read: a key orders larger first unless `sort.sorted`;
+    // 手数 and the 目数 columns order by a negated key; a change column's |Δ| order and the colour
+    // order are neither direction.
+    const sortState = (keyed: boolean, threeState: boolean, negated: boolean): SortState =>
+      !keyed ? "none" : threeState && sort.origin ? "magnitude" : sort.sorted !== negated ? "ascending" : "descending";
+    const c = sort.column;
+    const minChange = c === 2 || (pane.katago && c === 3);
+    const minState = sortState(!!minKeyNow, minChange, c === 0);
+    black.setSort(c, minState, minChange);
+    white.setSort(c, minState, minChange);
+    const detailChange = c === 3 || (pane.katago && c === 4);
+    detail.setSort(c, c === 0 ? "grouped" : sortState(!!detailKeyNow, detailChange, c === 1 || (pane.katago && (c === 7 || c === 8))), detailChange);
 
-    hideIcon.src = s.showList ? "/assets/up.png" : "/assets/down.png";
+    hideMove.replaceChildren(s.showList ? hideIcons.up : hideIcons.down);
+    hideMove.setAttribute("aria-label", product(s.showList ? "hawkeyeHideLists" : "hawkeyeShowLists"));
     tableThreshold.hidden = s.topPage === 0;
     statThreshold.hidden = s.topPage !== 0;
     blackBox.box.checked = p.black;
@@ -607,7 +824,7 @@ export function bootHawkeye(): void {
         return {
           key: el.dataset.key ?? "",
           text: el.textContent ?? "",
-          checked: el instanceof HTMLInputElement && el.type === "checkbox" ? el.checked : undefined,
+          checked: el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio") ? el.checked : undefined,
           value: el instanceof HTMLInputElement && el.type === "text" ? el.value : el instanceof HTMLSelectElement ? el.value : undefined,
           x: Math.round(r.left + r.width / 2),
           y: Math.round(r.top + r.height / 2),
@@ -615,10 +832,12 @@ export function bootHawkeye(): void {
       });
     const page = data.settings.topPage;
     const rows = page === 2 ? detail.texts() : page === 1 ? [...black.texts(), ...white.texts()] : [];
+    const rowMiddles = page === 2 ? detail.rowMiddles() : page === 1 ? [...black.rowMiddles(), ...white.rowMiddles()] : [];
     const r: HawkeyeReport = {
       topPage: page,
       chart: data.settings.chart,
       rows,
+      rowMiddles,
       dialog: openDialog(),
       targets: [...own, ...charts.targets(), ...statistics.targets(), ...dialogTargets()],
     };
@@ -628,10 +847,15 @@ export function bootHawkeye(): void {
     send({ type: "report", report: r });
   };
 
-  // Keys of the frame and its tables (MoveListFrame.java:1562-1690): Y closes, Q 总在最前.
+  // Keys of the frame and its tables (MoveListFrame.java:1562-1690): Y closes, Q 总在最前, wherever
+  // the focus is except in a field that takes typing.
   document.addEventListener("keydown", (ev) => {
-    const target = ev.target as HTMLElement;
-    if (appMenuKey(ev) || target instanceof HTMLInputElement || target instanceof HTMLSelectElement) return;
+    const target = ev.target;
+    const typing =
+      target instanceof HTMLTextAreaElement ||
+      (target instanceof HTMLInputElement && !["checkbox", "radio", "button"].includes(target.type)) ||
+      (target instanceof HTMLElement && target.isContentEditable);
+    if (appMenuKey(ev) || typing) return;
     if (ev.code === "KeyY" || ev.code === "KeyQ") {
       ev.preventDefault();
       send({ type: "key", code: ev.code });
@@ -639,18 +863,20 @@ export function bootHawkeye(): void {
   });
   document.addEventListener("contextmenu", (ev) => ev.preventDefault());
 
-  void self.listen<HawkeyePayload>(HAWKEYE_DATA_EVENT, (e) => {
-    data = e.payload;
-    const root = document.documentElement.style;
-    root.setProperty("--hk-row", `${data.menuHeight}px`);
-    root.setProperty("--hk-ui-font", data.fonts.ui);
-    root.setProperty("--hk-head-size", `${Math.max(data.frameFontSize, 13)}px`);
-    root.setProperty("--hk-cell-size", `${Math.max(data.frameFontSize, 14)}px`);
-    document.documentElement.lang = isChinese() ? "zh" : "en";
-    render();
-  }).then(() => send({ type: "ready" }));
   window.addEventListener("resize", () => {
     place();
     report();
   });
+  return (payload) => {
+    data = payload;
+    const root = document.documentElement.style;
+    // The session's 界面字体大小 sizes the type scale, Config.menuHeight the list rows; a font the
+    // theme names replaces the interface face in the lists.
+    applyTypeSizes(data.frameFontSize);
+    root.setProperty("--hk-row", `${data.menuHeight}px`);
+    const face = namedFace(data.fonts.ui);
+    if (face) root.setProperty("--hk-ui-font", face);
+    else root.removeProperty("--hk-ui-font");
+    render();
+  };
 }

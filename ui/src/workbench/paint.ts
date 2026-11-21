@@ -21,9 +21,10 @@ import type {
   TreeNodeView,
 } from "../contract/generated";
 import { language, t } from "../i18n";
-import { appearance, onAppearanceChange } from "../appearance/state";
-import { chineseClassicLabel, cssColor, customFont, drawChineseClassicMarkers, javaHue, localeFonts, opaque, rankColor, reverseColor, themedFont } from "../appearance/model";
-import type { BoardGeom, Rect } from "./layout";
+import { appearance, frameMetrics, onAppearanceChange } from "../appearance/state";
+import { chineseClassicLabel, cssColor, customFont, drawChineseClassicMarkers, javaHue, localeFonts, opaque, rankColor, reverseColor, sameRgba, THEME_DEFAULT, themeColor, themedFont } from "../appearance/model";
+import { stagePalette, stageWallpaper, type StagePalette } from "../design/stage";
+import { CARD_RADIUS, type BoardGeom, type Rect } from "./layout";
 
 const COLS = "ABCDEFGHJKLMNOPQRSTUVWXYZ";
 const COLS_WITH_I = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -81,6 +82,17 @@ const weightOf = (family: string, bold = false) => (bold || (winrateBold && fami
 export function themeFonts(): { ui: string; info: string } {
   return { ui: UI_FONT, info: PLAYOUTS_FONT };
 }
+/** Whether the theme names its ui-font-name / font-name (not Lizzie Default). */
+let uiNamed = false;
+let infoNamed = false;
+/** The face of the panels' interface text (提子, 胜率条, 胜率图, 状态, 变化树, 双引擎状态): the theme's
+ *  ui-font-name (`ui`) or font-name (`info`) when it names one, else the design system's
+ *  `--ds-font`. The board's own texts keep the Java fonts above. */
+export function panelFont(role: "ui" | "info" | "plain" = "plain"): string {
+  if (role === "ui" && uiNamed) return UI_FONT;
+  if (role === "info" && infoNamed) return PLAYOUTS_FONT;
+  return stagePalette().font || GRAPH_FONT;
+}
 
 /** The committed theme as the painters use it (Config.readThemeVaule, Config.java:2241-2285): the
  *  values the Java default theme loads until the first appearance arrives. */
@@ -93,12 +105,9 @@ const look = {
   indicator: 1,
   bestHue: 0.5,
   bestColor: "rgb(255,0,0)",
-  morandi: false,
-  apple: false,
   chinese: false,
   customBoard: false,
   showCommentNode: true,
-  commentNode: "rgb(0,0,255)",
   board: undefined as HTMLImageElement | undefined,
   themeBoard: undefined as HTMLImageElement | undefined,
   background: undefined as HTMLImageElement | undefined,
@@ -124,6 +133,8 @@ onAppearanceChange(() => {
   UI_FONT = themedFont(th.uiFontName, dialog, dialog);
   PLAYOUTS_FONT = themedFont(th.fontName, dialog, dialog);
   winrateBold = customFont(th.winrateFontName);
+  uiNamed = customFont(th.uiFontName);
+  infoNamed = customFont(th.fontName);
   // A configured winrate font is a BOLD Font of its own: its stack ends with the bundled font so it
   // never equals the plain UI / info stack of the same family.
   WINRATE_FONT = winrateBold ? `${themedFont(th.winrateFontName, LIZZIE_WINRATE_FONT, dialog)}, "Lizzie Winrate"` : LIZZIE_WINRATE_FONT;
@@ -136,13 +147,9 @@ onAppearanceChange(() => {
     indicator: th.stoneIndicatorType,
     bestHue: javaHue(th.bestMoveColor),
     bestColor: cssColor(reverseColor(th.bestMoveColor)),
-    // Menu.java:747-751: Apple style turns the Morandi colours on.
-    morandi: a.settings.morandiColors || a.settings.appleStyle,
-    apple: a.settings.appleStyle,
     chinese: a.settings.boardStyle === "ChineseClassic",
     customBoard: a.customBoard,
     showCommentNode: th.showCommentNodeColor,
-    commentNode: cssColor(th.commentNodeColor),
     glassLevel: a.settings.glassEffectLevel,
     backgroundFilter: th.backgroundFilter,
     glassBlur: th.glassBlurRadius,
@@ -408,7 +415,7 @@ function liquidEffects(g: CanvasRenderingContext2D, r: Rect) {
   highlight.addColorStop(1, "rgba(255,255,255,0)");
   g.fillStyle = highlight;
   g.beginPath();
-  g.roundRect(r.x, r.y, r.w, r.h, 8);
+  g.roundRect(r.x, r.y, r.w, r.h, CARD_RADIUS);
   g.fill();
   const top = g.createLinearGradient(0, r.y, 0, r.y + 15);
   top.addColorStop(0, "rgba(0,0,0,0.157)");
@@ -426,31 +433,72 @@ function liquidEffects(g: CanvasRenderingContext2D, r: Rect) {
   g.fill();
 }
 
-/** LizzieFrame.createBackground (wallpaper tiled from the panel origin) plus drawContainer for each
- * panel (LizzieFrame.java:8221-8245): with Apple style or glass-effect-level above 0,
- * GlassEffectRenderer.drawGlassPanel (corner 16) FROSTED (glass-blur-radius 10) or, from level 2,
- * LIQUID (liquid-blur-radius 15 plus its highlight and inner shadows), overlay (24,24,26,102),
- * border (255,255,255,26), highlight (255,255,255,77); at level 0 without Apple style only the
- * region blurred by the theme's background-filter. The pure background colour replaces the
- * wallpaper and the containers; Apple style darkens the wallpaper with (20,20,20,160)
- * (LizzieFrame.java:8197-8208).
+/** The workbench's cards (DESIGN.md 工作台卡片, layout.cardLayout) and the 1 px dividers between
+ *  the sections of a card. */
+export interface StageCards {
+  cards: Rect[];
+  dividers: Rect[];
+}
+
+/** The card shadow's blur, downward offset and inward spread (DESIGN.md Elevation: a soft
+ *  downward shadow, no halo). */
+const CARD_SHADOW = { blur: 22, offset: 8, spread: 10 };
+
+/** One card: on the program's own stage its soft downward shadow, outside the card only (a CSS
+ *  box-shadow does not show through its box), then the translucent ground and the half-pixel edge. */
+function drawCard(g: CanvasRenderingContext2D, r: Rect, p: StagePalette, w: number, h: number) {
+  if (p.builtin) {
+    const dpr = window.devicePixelRatio || 1;
+    // The casting shape is drawn off the canvas; its shadow is offset back under the card.
+    const away = w + h + 100;
+    g.save();
+    g.beginPath();
+    g.rect(0, 0, w, h);
+    g.roundRect(r.x, r.y, r.w, r.h, CARD_RADIUS);
+    g.clip("evenodd");
+    g.shadowColor = p.cardShadow;
+    g.shadowBlur = CARD_SHADOW.blur * dpr;
+    g.shadowOffsetX = away * dpr;
+    g.shadowOffsetY = CARD_SHADOW.offset * dpr;
+    g.fillStyle = "#000";
+    g.beginPath();
+    const s = CARD_SHADOW.spread;
+    g.roundRect(r.x + s - away, r.y + s, Math.max(1, r.w - 2 * s), Math.max(1, r.h - 2 * s), CARD_RADIUS);
+    g.fill();
+    g.restore();
+  }
+  g.fillStyle = p.panel;
+  g.beginPath();
+  g.roundRect(r.x, r.y, r.w, r.h, CARD_RADIUS);
+  g.fill();
+  g.strokeStyle = p.cardEdge;
+  g.lineWidth = 1;
+  g.stroke();
+}
+
+/** LizzieFrame.createBackground (wallpaper tiled from the panel origin), then the cards and the
+ * dividers between their sections. The program's own stage tiles its wallpaper for the colour
+ * mode and leaves it sharp under the cards. The pure background colour replaces the wallpaper and
+ * Java's containers (LizzieFrame.java:8197-8208). Over a wallpaper the user chose, the glass
+ * setting treats the ground of each card as drawContainer did Java's containers
+ * (LizzieFrame.java:8221-8245): with glass-effect-level above 0, GlassEffectRenderer.drawGlassPanel
+ * FROSTED (glass-blur-radius 10) or, from level 2, LIQUID (liquid-blur-radius 15 plus its
+ * highlight and inner shadows) with the theme's overlay, border and highlight; at level 0 only
+ * the region blurred by the theme's background-filter.
  * Painted once per size into a detached canvas and returned as a PNG blob: a live full-window canvas
  * layer would be recomposited every frame by WebKitGTK. */
-export function paintBackground(w: number, h: number, glass: Rect[]): Promise<Blob | null> {
+export function paintBackground(w: number, h: number, stage: StageCards): Promise<Blob | null> {
+  const p = stagePalette();
   const canvas = document.createElement("canvas");
   const g = prepare(canvas, { x: 0, y: 0, w, h });
-  if (look.pureBackground) {
+  if (look.pureBackground && !p.builtin) {
     g.fillStyle = look.pureBackground;
     g.fillRect(0, 0, w, h);
-    glass = [];
-  } else {
-    drawTexture(g, look.background, 0, 0, w, h, 0, 0);
-    if (look.apple) {
-      g.fillStyle = "rgba(20,20,20,0.627)";
-      g.fillRect(0, 0, w, h);
-    }
-  }
-  const glassy = look.apple || look.glassLevel > 0;
+  } else drawTexture(g, p.builtin ? stageWallpaper() : look.background, 0, 0, w, h, 0, 0);
+  // The glass setting acts only on a stage the user chose: the program's own stage never frosts
+  // its cards (DESIGN.md: 卡片不模糊背后的壁纸), whatever glass-effect-level says.
+  const glass = p.builtin || look.pureBackground ? [] : stage.cards;
+  const glassy = look.glassLevel > 0;
   const liquid = look.glassLevel >= 2;
   for (const r of glass) {
     if (r.w <= 0 || r.h <= 0 || r.x < 0 || r.y < 0 || r.x + r.w > w || r.y + r.h > h) continue;
@@ -459,28 +507,29 @@ export function paintBackground(w: number, h: number, glass: Rect[]): Promise<Bl
       if (look.backgroundFilter > 0) blurRegion(g, r, look.backgroundFilter);
       continue;
     }
-    // drawGlassPanel: the theme's glass values (Theme.java:738-767); the panel corner is the 16
-    // drawContainer passes, not glass-corner-radius.
     const radius = liquid ? look.liquidBlur : look.glassBlur;
     if (radius > 0) blurRegion(g, r, radius);
     g.fillStyle = look.glassOverlay;
     g.beginPath();
-    g.roundRect(r.x, r.y, r.w, r.h, 8);
+    g.roundRect(r.x, r.y, r.w, r.h, CARD_RADIUS);
     g.fill();
     g.strokeStyle = look.glassBorder;
     g.lineWidth = 1;
     g.beginPath();
-    g.roundRect(r.x + 0.5, r.y + 0.5, r.w, r.h, 8);
+    g.roundRect(r.x + 0.5, r.y + 0.5, r.w, r.h, CARD_RADIUS);
     g.stroke();
     const light = g.createLinearGradient(0, r.y, 0, r.y + r.h * 0.3);
     light.addColorStop(0, look.glassHighlight);
     light.addColorStop(1, "rgba(255,255,255,0)");
     g.fillStyle = light;
     g.beginPath();
-    g.roundRect(r.x + 1, r.y + 1, r.w - 2, i(r.h / 3), 8);
+    g.roundRect(r.x + 1, r.y + 1, r.w - 2, i(r.h / 3), CARD_RADIUS);
     g.fill();
     if (liquid) liquidEffects(g, r);
   }
+  for (const r of stage.cards) drawCard(g, r, p, w, h);
+  g.fillStyle = p.line;
+  for (const d of stage.dividers) g.fillRect(d.x, d.y, d.w, d.h);
   const { promise, resolve } = Promise.withResolvers<Blob | null>();
   canvas.toBlob(resolve);
   return promise;
@@ -691,29 +740,25 @@ function scoreDiff(diff: number): string {
   return diff > 0 ? `+${javaDouble(rounded)}` : diff < 0 ? `-${javaDouble(rounded)}` : javaDouble(Math.round(diff * 10) / 10 + 0);
 }
 
-/** MoveRankDefinition boardMarkRadiusFactor; the colours follow use-morandi-colors (rankColor). */
+/** MoveRankDefinition boardMarkRadiusFactor; the colours are rankColor's. */
 const RANK_RADIUS: Record<MoveRank, number> = { Best: 0.1, Good: 0.1, Normal: 0.1225, Inaccuracy: 0.145, Mistake: 0.1675, Blunder: 0.19 };
 
-/** Selection squares: allowed blue, avoided red, alpha 45, in their use-morandi-colors shades
- *  (BoardRenderer.java:1172-1177, 1201-1212). */
-const REGION_COLOR = {
-  classic: { allow: "rgba(0,0,120,0.1765)", avoid: "rgba(120,0,0,0.1765)" },
-  morandi: { allow: "rgba(120,168,168,0.1765)", avoid: "rgba(176,112,112,0.1765)" },
-};
+/** Selection squares: allowed blue, avoided red, alpha 45 (BoardRenderer.java:1172-1177,
+ *  1201-1212). */
+const REGION_COLOR = { allow: "rgba(0,0,120,0.1765)", avoid: "rgba(120,0,0,0.1765)" };
 
 /** drawAllSelectedRectByCoords and the dragged drawSelectedRect: a square of the square width
  *  centred on each point, the dragged rectangle over the points it covers. */
 function drawRegion(g: CanvasRenderingContext2D, s: BoardScene, X: (x: number) => number, Y: (y: number) => number, sq: number, report: BoardReport): void {
   const half = i(sq / 2);
-  const colors = look.morandi ? REGION_COLOR.morandi : REGION_COLOR.classic;
   if (s.region?.points.length) {
-    g.fillStyle = s.region.allow ? colors.allow : colors.avoid;
+    g.fillStyle = s.region.allow ? REGION_COLOR.allow : REGION_COLOR.avoid;
     for (const p of s.region.points) g.fillRect(X(p.x) - half, Y(p.y) - half, sq, sq);
     report.region = { allow: s.region.allow, points: s.region.points.length };
   }
   const d = s.selecting;
   if (d) {
-    g.fillStyle = d.allow ? colors.allow : colors.avoid;
+    g.fillStyle = d.allow ? REGION_COLOR.allow : REGION_COLOR.avoid;
     g.fillRect(X(d.from.x) - half, Y(d.from.y) - half, sq * (d.to.x - d.from.x + 1), sq * (d.to.y - d.from.y + 1));
     report.selecting = d;
   }
@@ -739,7 +784,7 @@ function drawTracking(g: CanvasRenderingContext2D, s: BoardScene, X: (x: number)
     const cx = X(x), cy = Y(y);
     const marker: BoardReport["tracked"][number] = { x, y, outline: null, progress: null, cancelling: false };
     if (s.tracking.showOutline) {
-      marker.outline = p.rank ? rankColor(p.rank, look.morandi) : "rgb(112,118,124)";
+      marker.outline = p.rank ? rankColor(p.rank) : "rgb(112,118,124)";
       g.globalAlpha = s.tracking.outlineOpacity / 100;
       g.setLineDash([Math.max(4.5, sq * 0.14), Math.max(3, sq * 0.09)]);
       g.lineWidth = qualityWidth;
@@ -1701,7 +1746,7 @@ function drawRankMarks(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardGeo
   const hiddenByBranch = (p: number) => !!preview && (!preview.stones[p] || preview.numbers.has(p));
   for (const m of s.overlay.ranks) {
     if (hiddenByBranch(m.point.y * cols + m.point.x)) continue;
-    g.fillStyle = rankColor(m.rank, look.morandi);
+    g.fillStyle = rankColor(m.rank);
     // drawMoveRankMarkCircle (BoardRenderer.java:644-657): the last move's mark is the triangle
     // with stone-indicator-type 0.
     if (m.last && look.indicator === 0) indicatorTriangle(g, X(m.point.x), Y(m.point.y), r, true);
@@ -1845,8 +1890,9 @@ function drawMarks(g: CanvasRenderingContext2D, scene: BoardScene, px: (p: numbe
 }
 
 /** BoardRenderer.drawName (BoardRenderer.java:802-934): both name stones (the side to move drawn on
- * top), the black name in black, the white name in white with a 2 px black outline. Names longer
- * than 0.43 of the board are cut by the Java step. */
+ *  top), the black name left of them and the white name right of them, both in the board's ink;
+ *  the stones beside them tell the sides apart. Names longer than 0.43 of the board are cut by the
+ *  Java step. */
 function drawName(g: CanvasRenderingContext2D, scene: BoardScene, ox: number, oy: number, geo: BoardGeom) {
   const { size, margin, stoneRadius: r, square, n } = geo;
   g.font = `${i(Math.min(28, (margin * 53) / 100))}px ${GRAPH_FONT}`;
@@ -1871,19 +1917,9 @@ function drawName(g: CanvasRenderingContext2D, scene: BoardScene, ox: number, oy
   const baseY = oy - margin + size + i((r * 13) / 8) + i((fm.ascent + fm.descent + 2) / 4);
   g.textAlign = "left";
   g.textBaseline = "alphabetic";
-  if (black) {
-    g.fillStyle = "#000";
-    g.fillText(black, ox + i(size / 2) - width(black) - i((margin * 4) / 5), baseY);
-  }
-  if (white) {
-    const x = ox + i(size / 2) + i((margin * 4) / 5) + 1;
-    g.strokeStyle = "#000";
-    g.lineWidth = 2;
-    g.lineJoin = "miter";
-    g.strokeText(white, x, baseY);
-    g.fillStyle = "#fff";
-    g.fillText(white, x, baseY);
-  }
+  g.fillStyle = "#000";
+  if (black) g.fillText(black, ox + i(size / 2) - width(black) - i((margin * 4) / 5), baseY);
+  if (white) g.fillText(white, ox + i(size / 2) + i((margin * 4) / 5) + 1, baseY);
 }
 
 // ------------------------------------------------------------------ sub board
@@ -2096,15 +2132,136 @@ function drawSubHeat(g: CanvasRenderingContext2D, s: SubBoardScene, X: (x: numbe
   }
 }
 
-/** LizzieFrame.drawStringMid (LizzieFrame.java:12392-12429), aboveOrBelow 0: the 12 px ui font is
- * scaled to span maxW, capped at maxH and at frameFontSize + 6, centred on x. */
-function stringMid(g: CanvasRenderingContext2D, s: string, x: number, y: number, maxH: number, maxW: number) {
-  g.font = `12px ${GRAPH_FONT}`;
-  let size = Math.min(maxH, Math.round((12 * maxW) / g.measureText(s).width));
-  if (Math.round(size) > 18) size = 18;
-  g.font = `${size}px ${GRAPH_FONT}`;
-  const fm = javaMetrics(g);
-  g.fillText(s, x - i(Math.round(g.measureText(s).width) / 2), y + i((fm.ascent - fm.descent) / 2));
+/** The panels' type scale, the interface's steps (DESIGN.md Typography): Label (caption), Body,
+ *  Title (the figures beside a name), Headline. */
+function typeScale(): { label: number; body: number; large: number; headline: number } {
+  const type = frameMetrics().type;
+  return { label: type.s, body: type.size, large: type.l, headline: type.xl };
+}
+
+/** Side padding of a card section's content: 14 px, 12 where the section is narrow. */
+function sidePad(w: number): number {
+  return w >= 240 ? 14 : 12;
+}
+
+/** A number with its name (数字带说明规则): the name at Label size in text3, then the figure at
+ *  weight 600 with tabular figures in `color` (text without one). */
+interface Figure {
+  name: string;
+  value: string;
+  color?: string;
+}
+
+/** Name to figure, and figure to the next name. */
+const FIGURE_GAP = 4;
+const FIGURES_GAP = 10;
+
+/** A resource label used as a figure's name: without its trailing colon. */
+function nameOf(label: string): string {
+  return label.replace(/\\?[:：]\s*$/, "").trim();
+}
+
+/** Width of `figures` side by side, names at `label` px and figures at `size` px. */
+function figuresWidth(g: CanvasRenderingContext2D, figures: Figure[], label: number, size: number, family: string): number {
+  let width = 0;
+  figures.forEach((f, k) => {
+    if (k > 0) width += FIGURES_GAP;
+    g.font = `${label}px ${family}`;
+    if (f.name) width += g.measureText(f.name).width + (f.value ? FIGURE_GAP : 0);
+    g.font = `600 ${size}px ${family}`;
+    width += tabularWidth(g, f.value);
+  });
+  return width;
+}
+
+/** Draws `figures` side by side from `x` on the baseline `y`. */
+function drawFigures(g: CanvasRenderingContext2D, figures: Figure[], x: number, y: number, label: number, size: number, family: string, p: StagePalette) {
+  g.textAlign = "left";
+  g.textBaseline = "alphabetic";
+  figures.forEach((f, k) => {
+    if (k > 0) x += FIGURES_GAP;
+    g.font = `${label}px ${family}`;
+    if (f.name) {
+      g.fillStyle = p.text3;
+      g.fillText(f.name, x, y);
+      x += g.measureText(f.name).width + (f.value ? FIGURE_GAP : 0);
+    }
+    g.font = `600 ${size}px ${family}`;
+    g.fillStyle = f.color ?? p.text;
+    fillTabular(g, f.value, x, y);
+    x += tabularWidth(g, f.value);
+  });
+}
+
+/** `text` cut with "..." to fit `maxWidth` in the current font (truncateStatusText's cut): the
+ *  longest prefix that fits with the dots, or nothing when the dots alone do not fit. */
+function elide(g: CanvasRenderingContext2D, text: string, maxWidth: number): string {
+  const measure = (s: string) => Math.round(g.measureText(s).width);
+  if (measure(text) <= maxWidth) return text;
+  const dots = measure("...");
+  if (dots > maxWidth) return "";
+  let low = 0;
+  let high = text.length;
+  while (low < high) {
+    const middle = i((low + high + 1) / 2);
+    if (measure(text.substring(0, middle)) + dots <= maxWidth) low = middle;
+    else high = middle - 1;
+  }
+  const prefix = text.substring(0, low).trim();
+  return prefix ? `${prefix}...` : "...";
+}
+
+/** The engine dot (live or idle) of `d` px centred on (x, y). */
+function engineDot(g: CanvasRenderingContext2D, x: number, y: number, d: number, live: boolean, p: StagePalette) {
+  g.fillStyle = live ? p.live : p.idle;
+  circle(g, x, y, d / 2);
+  g.fill();
+}
+
+/** The game header's sizes at one scale. */
+interface HeaderSizes {
+  stone: number;
+  label: number;
+  body: number;
+  large: number;
+  gap: number;
+  dot: number;
+}
+
+/** The widest digit's advance in the current font: canvas text has no font-variant-numeric, so
+ *  tabular figures are laid out by hand. */
+function digitAdvance(g: CanvasRenderingContext2D): number {
+  let widest = 0;
+  for (const d of "0123456789") widest = Math.max(widest, g.measureText(d).width);
+  return widest;
+}
+
+/** A string's parts for tabular figures: each digit alone (group 1), and every run between
+ *  digits whole, so it is measured and shaped as one text (combining marks stay on their letters). */
+const TABULAR_PARTS = /([0-9])|[^0-9]+/g;
+
+/** Width of `s` with tabular figures (fillTabular). */
+export function tabularWidth(g: CanvasRenderingContext2D, s: string): number {
+  const digit = digitAdvance(g);
+  let width = 0;
+  for (const [part, figure] of s.matchAll(TABULAR_PARTS)) width += figure ? digit : g.measureText(part).width;
+  return Math.round(width);
+}
+
+/** fillText with tabular figures: every digit centred in the widest digit's advance, the text
+ *  between digits drawn as one run. */
+export function fillTabular(g: CanvasRenderingContext2D, s: string, x: number, y: number) {
+  const digit = digitAdvance(g);
+  for (const [part, figure] of s.matchAll(TABULAR_PARTS)) {
+    const own = g.measureText(part).width;
+    if (figure) {
+      g.fillText(part, x + (digit - own) / 2, y);
+      x += digit;
+    } else {
+      g.fillText(part, x, y);
+      x += own;
+    }
+  }
 }
 
 export interface CapturedScene {
@@ -2132,69 +2289,144 @@ export function javaDouble(v: number): string {
   return Number.isInteger(v) ? v.toFixed(1) : String(v);
 }
 
-/** Double.parseDouble: surrounding blanks allowed, a signed decimal with an optional exponent and
- *  float / double suffix; NaN and Infinity are refused (Java's limits reject them too). */
+/** Double.parseDouble: surrounding blanks allowed, a signed decimal with an optional exponent or a
+ *  hex significand with its binary exponent (0x1.8p3), then an optional float / double suffix;
+ *  NaN and Infinity are refused (Java's limits reject them too). */
 export function parseJavaDouble(text: string): number | null {
-  const s = text.trim();
-  if (!/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?[fFdD]?$/.test(s)) return null;
-  const v = Number(s.replace(/[fFdD]$/, ""));
+  const s = text.trim().replace(/[fFdD]$/, "");
+  const hex = /^([+-]?)0[xX]([0-9a-fA-F]*)\.?([0-9a-fA-F]*)[pP]([+-]?\d+)$/.exec(s);
+  let v: number;
+  if (hex) {
+    const [, sign, whole, fraction, exponent] = hex;
+    if (!whole && !fraction) return null;
+    const significand = parseInt(whole + fraction, 16);
+    v = (sign === "-" ? -1 : 1) * (significand && significand * 2 ** (Number(exponent) - 4 * fraction.length));
+  } else if (/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(s)) v = Number(s);
+  else return null;
   return Number.isFinite(v) ? v : null;
 }
 
-/** LizzieFrame.drawCaptured (LizzieFrame.java:9098-9375): captures, rules caption, komi and
- * the live pondering dot. Stored analysis is intentionally independent of this indicator. */
+/** The smallest text the panels draw (DESIGN.md: nothing below Label; 9 px at the smallest
+ *  interface size a short section allows). */
+const MIN_TEXT = 9;
+
+/** LizzieFrame.drawCaptured (LizzieFrame.java:9098-9375) as the card's game header: Black on the
+ *  left and White on the right, each a flat stone (the side to move full size, the other smaller,
+ *  as Java draws it) with its 提子 beside it and its AI总评分 below; in the middle the engine dot
+ *  with the rules caption (else the move number) and the komi under it. The small strip of 四方图 /
+ *  思考模式 has no capture counts. The dot shows pondering; stored analysis is independent of it.
+ *  Text shrinks to fit, never under MIN_TEXT; a section too short or narrow for that drops rows
+ *  instead: first the second row (吻合度, 贴目; the small strip moves 吻合度 beside its stones
+ *  while that fits), then the caption (the dot stays). */
 export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedScene) {
-  const { w: width, h: height } = r;
-  g.fillStyle = "rgba(0,0,0,0.51)";
-  g.fillRect(0, 0, width, height);
-  g.strokeStyle = "rgba(0,0,0,0.51)";
-  g.lineWidth = 1;
-  g.beginPath();
-  g.moveTo(i(width / 2) - 1 + 0.5, 3);
-  g.lineTo(i(width / 2) - 1 + 0.5, height - 1);
-  g.stroke();
-  const blacksTurn = s.toPlay === "Black";
-  const diam0 = i(Math.min(i(width / 2), height) / 3);
-  const small = i(diam0 / 2);
-  const big = i((small * 3) / 2);
-  const diam = i((diam0 * 3) / 2);
-  const bd = i(((blacksTurn ? big : small) * 3) / 2);
-  const wd = i(((blacksTurn ? small : big) * 3) / 2);
-  const oval = (color: string, cx: number, d: number) => {
-    g.fillStyle = color;
-    circle(g, cx - i(d / 2) + d / 2, i((diam - d) / 2) + d / 2, d / 2);
-    g.fill();
+  const { w, h } = r;
+  if (w < 10 || h < 5) return;
+  const p = stagePalette();
+  const family = panelFont();
+  const type = typeScale();
+  const pad = sidePad(w);
+  const room = w - 2 * pad;
+  const side = (captures: number, score: number | null) => ({
+    top: s.small ? [] : [{ name: nameOf(t("LizzieFrame.captures")), value: String(captures) }],
+    bottom: score === null ? [] : [{ name: nameOf(t("LizzieFrame.AIscore")), value: score.toFixed(1) }],
+  });
+  const black = side(s.blackCaptures, s.aiScoreBlack);
+  const white = side(s.whiteCaptures, s.aiScoreWhite);
+  const komi: Figure[] = [{ name: nameOf(t("Menu.komi")), value: javaDouble(s.komi) }];
+  const moveNumber: Figure[] = [{ name: nameOf(t("BottomToolbar.move")), value: String(s.moveNumber) }];
+  const STONE = 20;
+  const sizes = (k: number): HeaderSizes => ({
+    stone: STONE * k,
+    label: Math.max(MIN_TEXT, type.label * k),
+    body: Math.max(MIN_TEXT, type.body * k),
+    large: Math.max(MIN_TEXT, type.large * k),
+    gap: 8 * k,
+    dot: Math.max(3, 6 * k),
+  });
+  const captionWidth = (z: HeaderSizes) => {
+    if (!s.rules) return figuresWidth(g, moveNumber, z.label, z.body, family);
+    g.font = `${z.body}px ${family}`;
+    return g.measureText(s.rules).width;
   };
-  oval("#000", i(width / 4), bd);
-  oval("#fff", i((width * 3) / 4), wd);
-  const statusDiam = i(height / 4) < 10 ? i(height / 4) : 10;
-  g.fillStyle = s.analysing ? "#00ff00" : "#ff0000";
-  circle(g, i(width / 2) - 1 - i(statusDiam / 2) + statusDiam / 2, i((height * 7) / 26) + i((diam - statusDiam) / 2) + statusDiam / 2, statusDiam / 2);
-  g.fill();
-  g.fillStyle = "#fff";
-  g.textAlign = "left";
-  g.textBaseline = "alphabetic";
-  if (s.small) {
-    // The small strip has no capture counts; AI总评分 sits lower and larger, komi and the
-    // move / rules caption use min(w * 0.4, h * 0.85) * 0.2 capped at frameFontSize + 6.
-    if (s.aiScoreBlack !== null) stringMid(g, aiScoreText(s.aiScoreBlack), i(width / 4), i((height * 5) / 7), i((height * 2) / 5), i((width * 4) / 10));
-    if (s.aiScoreWhite !== null) stringMid(g, aiScoreText(s.aiScoreWhite), i((width * 3) / 4), i((height * 5) / 7), i((height * 2) / 5), i((width * 4) / 10));
-    g.font = `${i(Math.min(18, Math.max(Math.min(width * 0.4, height * 0.85) * 0.2, 11)))}px ${GRAPH_FONT}`;
-    const komi = javaDouble(s.komi);
-    g.fillText(komi, i(width / 2) - 1 - i(Math.round(g.measureText(komi).width) / 2), i((height * 15) / 16));
-    const caption = s.rules ?? `${s.moveNumber}`;
-    g.fillText(caption, i(width / 2) - 1 - i(Math.round(g.measureText(caption).width) / 2), i((height * 5) / 16));
-    return;
+  // The layouts from the fullest: both rows, then one row with and without the caption.
+  const tops: [Figure[], Figure[]] = [black.top, white.top];
+  const plans = [
+    { twoRows: true, caption: true, top: tops },
+    ...(s.small
+      ? [
+          { twoRows: false, caption: true, top: [black.bottom, white.bottom] as [Figure[], Figure[]] },
+          { twoRows: false, caption: true, top: tops },
+          { twoRows: false, caption: false, top: tops },
+        ]
+      : [
+          { twoRows: false, caption: true, top: tops },
+          { twoRows: false, caption: false, top: tops },
+        ]),
+  ];
+  /** The space between the two sides and the middle, which does not scale with the text. */
+  const FIXED = 2 * 12;
+  const layout = (plan: (typeof plans)[number]) => {
+    // Stone row, 6 px, figure row (or the stone row alone); the scale follows the height.
+    let k = Math.max(0.3, Math.min(1, plan.twoRows ? (h - 8) / (STONE + 6 + type.large * 1.35) : (h - 4) / STONE));
+    const needed = (z: HeaderSizes) => {
+      const sideW = (top: Figure[], bottom: Figure[]) =>
+        Math.max(z.stone + (top.length ? z.gap + figuresWidth(g, top, z.label, z.large, family) : 0), plan.twoRows ? figuresWidth(g, bottom, z.label, z.large, family) : 0);
+      const middle = Math.max(z.dot + (plan.caption ? 5 * k + captionWidth(z) : 0), plan.twoRows ? figuresWidth(g, komi, z.label, z.body, family) : 0);
+      return 2 * Math.max(sideW(plan.top[0], black.bottom), sideW(plan.top[1], white.bottom)) + middle + FIXED;
+    };
+    // Only the scaled part shrinks; the text's own rounding may leave a pixel over, so a little
+    // more is taken.
+    for (let n = 0; n < 4 && needed(sizes(k)) > room; n++) k = Math.max(0.3, k * ((room - FIXED) / (needed(sizes(k)) - FIXED)) - 0.005);
+    const z = sizes(k);
+    const tall = plan.twoRows ? z.stone + 6 * k + Math.round(z.large * 1.35) : Math.max(z.stone, Math.round(z.large * 1.2));
+    return { k, z, fits: needed(z) <= room && tall <= h - 2 };
+  };
+  let plan = plans[plans.length - 1];
+  let { k, z } = layout(plan);
+  for (const candidate of plans) {
+    const laid = layout(candidate);
+    if (!laid.fits) continue;
+    [plan, k, z] = [candidate, laid.k, laid.z];
+    break;
   }
-  stringMid(g, `${t("LizzieFrame.captures")}${s.blackCaptures}`, i(width / 4), i((height * 28) / 32), i(height / 6), i((width * 3) / 10));
-  stringMid(g, `${t("LizzieFrame.captures")}${s.whiteCaptures}`, i((width * 3) / 4), i((height * 28) / 32), i(height / 6), i((width * 3) / 10));
-  if (s.aiScoreBlack !== null) stringMid(g, aiScoreText(s.aiScoreBlack), i(width / 4), i((height * 19) / 32), i(height / 5), i((width * 4) / 10));
-  if (s.aiScoreWhite !== null) stringMid(g, aiScoreText(s.aiScoreWhite), i((width * 3) / 4), i((height * 19) / 32), i(height / 5), i((width * 4) / 10));
-  g.font = `${i(Math.max(11, height * 0.18))}px ${GRAPH_FONT}`;
-  const komi = javaDouble(s.komi);
-  g.fillText(komi, i(width / 2) - 1 - i(Math.round(g.measureText(komi).width) / 2), i((height * 7) / 8));
-  const caption = s.rules ?? `${s.moveNumber}`;
-  stringMid(g, caption, i(width / 2) - 1, i((height * 3) / 10), i(height / 5), i(width / 2));
+  const lineB = Math.round(z.large * 1.35);
+  // The rows share the section's spare height with its edges, up to 14 px between them, so they
+  // stand apart instead of huddling in the middle.
+  const gapB = Math.min(14 * k, Math.max(6 * k, (h - z.stone - lineB) / 3));
+  const rowA = plan.twoRows ? Math.max(0, (h - (z.stone + gapB + lineB)) / 2) + z.stone / 2 : h / 2;
+  const baseA = Math.round(rowA + z.large * 0.36);
+  const baseB = Math.round(rowA + z.stone / 2 + gapB + lineB / 2 + z.large * 0.36);
+  const stone = (cx: number, toPlay: boolean, fill: string, edge: string) => {
+    const d = toPlay ? z.stone : z.stone * 0.75;
+    g.fillStyle = fill;
+    circle(g, cx, rowA, d / 2);
+    g.fill();
+    g.strokeStyle = edge;
+    g.lineWidth = 1;
+    circle(g, cx, rowA, d / 2 - 0.5);
+    g.stroke();
+  };
+  stone(pad + z.stone / 2, s.toPlay === "Black", p.stoneBlack, p.stoneBlackEdge);
+  stone(w - pad - z.stone / 2, s.toPlay === "White", p.stoneWhite, p.stoneWhiteEdge);
+  drawFigures(g, plan.top[0], pad + z.stone + z.gap, baseA, z.label, z.large, family, p);
+  drawFigures(g, plan.top[1], w - pad - z.stone - z.gap - figuresWidth(g, plan.top[1], z.label, z.large, family), baseA, z.label, z.large, family, p);
+  if (plan.twoRows) {
+    drawFigures(g, black.bottom, pad, baseB, z.label, z.large, family, p);
+    drawFigures(g, white.bottom, w - pad - figuresWidth(g, white.bottom, z.label, z.large, family), baseB, z.label, z.large, family, p);
+    drawFigures(g, komi, i(w / 2 - figuresWidth(g, komi, z.label, z.body, family) / 2), baseB, z.label, z.body, family, p);
+  }
+  // The middle: the dot and the caption.
+  const start = i(w / 2 - (z.dot + (plan.caption ? 5 * k + captionWidth(z) : 0)) / 2);
+  engineDot(g, start + z.dot / 2, rowA, z.dot, s.analysing, p);
+  if (!plan.caption) return;
+  const captionBase = Math.round(rowA + z.body * 0.36);
+  if (s.rules) {
+    g.font = `${z.body}px ${family}`;
+    g.fillStyle = p.text2;
+    g.textAlign = "left";
+    g.textBaseline = "alphabetic";
+    g.fillText(s.rules, start + z.dot + 5 * k, captionBase);
+  } else drawFigures(g, moveNumber, start + z.dot + 5 * k, captionBase, z.label, z.body, family, p);
 }
 
 /** What the statistics panel shows, from core projections only. */
@@ -2231,193 +2463,262 @@ function javaSigned(v: number): string {
   return `${v > 0 ? "+" : "-"}${Math.abs(v).toFixed(1)}`;
 }
 
-/** LizzieFrame.drawMoveStatistics (LizzieFrame.java:8702-9025) outside play mode: the score and
- *  last-move line, the black/white bar with its 10% dashed grid, the change marker and the
- *  percentages. Unknown values are left out instead of being drawn as zero. */
+/** LizzieFrame.drawMoveStatistics (LizzieFrame.java:8702-9025) outside play mode, as a card
+ *  section: both win rates as headline figures at the two ends with the move number between them
+ *  (when it moved here from the captured panel and fits), the black/white bar with its centre
+ *  tick and, under it, the last move's change from the win rate before it (gain or loss colour,
+ *  pointing to the win rate now); then the score lead at the left and the last move's rank and
+ *  changes at the right, a loss in the loss colour. Unknown values are left out instead of being
+ *  drawn as zero. `report.text` is Java's line of the same values. */
 export function paintStat(g: CanvasRenderingContext2D, r: Rect, s: StatScene): StatReport {
   const { w, h } = r;
   const report: StatReport = { text: "", bar: null, change: null, moveNumber: false };
   if (w < 10 || h < 5) return report;
-  g.fillStyle = "rgba(0,0,0,0.51)";
-  g.fillRect(0, 0, w, h);
-  g.strokeStyle = "rgba(0,0,0,0.51)";
-  g.lineWidth = 1;
-  g.beginPath();
-  g.moveTo(1, 1.5);
-  g.lineTo(w - 1, 1.5);
-  g.stroke();
-  const x0 = 2, y0 = 2;
-  const width = w - 4;
-  const height = h - 4;
+  const p = stagePalette();
+  const leadName = s.leadWithKomi ? t("LizzieFrame.scoreLeadWithKomi") : t("LizzieFrame.scoreLeadJustScore");
+  const lastName = `${t("LizzieFrame.display.lastMove")}${s.matched ? `(#${s.matched})` : "(#  )"}`;
   let text = "";
-  if (s.kata && s.lead !== null) text += `${s.leadWithKomi ? t("LizzieFrame.scoreLeadWithKomi") : t("LizzieFrame.scoreLeadJustScore")}${s.lead.toFixed(1)}`;
-  text += ` ${t("LizzieFrame.display.lastMove")}${s.matched ? `(#${s.matched})` : "(#  )"}`;
+  if (s.kata && s.lead !== null) text += `${leadName}${s.lead.toFixed(1)}`;
+  text += ` ${lastName}`;
   if (s.change !== null) {
     text += `: ${javaSigned(s.change)}%`;
     if (s.kata && s.scoreChange !== null) text += ` ${javaSigned(s.scoreChange)}${t("LizzieFrame.pts")}`;
   }
   report.text = text;
-  // LizzieFrame.drawString: fit width * 20 / 21 at 12 px, capped at height / 4 and frame font + 4
-  g.font = `12px ${GRAPH_FONT}`;
-  const fit = Math.round((12 * i((width * 20) / 21)) / g.measureText(text).width);
-  g.font = `${Math.min(i(height / 4), fit, 16)}px ${GRAPH_FONT}`;
-  let fm = javaMetrics(g);
-  g.fillStyle = "#fff";
-  g.textAlign = "left";
-  g.textBaseline = "alphabetic";
-  g.fillText(text, x0, y0 + i((height * 17) / 20) + i((fm.ascent - fm.descent) / 2));
-  const textWidth = (str: string) => Math.round(g.measureText(str).width);
-  const moveNumber = String(s.moveNumber);
+
+  const family = panelFont();
+  const ui = panelFont("ui");
+  const type = typeScale();
+  const pad = sidePad(w);
+  const room = w - 2 * pad;
+  const lead: Figure[] = s.kata && s.lead !== null ? [{ name: nameOf(leadName), value: s.lead.toFixed(1) }] : [];
+  const last: Figure[] = [{ name: lastName, value: "" }];
+  if (s.change !== null) {
+    last[0].value = `${javaSigned(s.change)}%`;
+    if (s.change < 0) last[0].color = p.loss;
+    if (s.kata && s.scoreChange !== null)
+      last.push({ name: "", value: `${javaSigned(s.scoreChange)}${t("LizzieFrame.pts")}`, ...(s.scoreChange < 0 ? { color: p.loss } : {}) });
+  }
+  const moveNumber: Figure[] = [{ name: nameOf(t("BottomToolbar.move")), value: String(s.moveNumber) }];
+  // Headline row, 6 px, the bar, 8 px (the change marker), the note row; the scale follows the
+  // height, text never under MIN_TEXT. Without room for the note row at that size (height, or
+  // width for the lead and the last move side by side) the row is left out, and the percentages
+  // and the bar take the height with room for the change marker under the bar.
+  const rows = (note: boolean) => {
+    const k = Math.max(0.3, Math.min(1, note ? (h - 6) / (type.headline * 1.25 + 6 + 10 + 8 + type.body * 1.4) : (h - 4) / (type.headline * 1.25 + 6 + 10 + 6)));
+    const headline = Math.max(MIN_TEXT, type.headline * k);
+    const label = Math.max(MIN_TEXT, type.label * k);
+    const body = Math.max(MIN_TEXT, type.body * k);
+    const barH = Math.max(4, Math.round(10 * k));
+    const rowH1 = Math.round(headline * 1.25);
+    const rowH3 = note ? Math.round(body * 1.4) : 0;
+    const total = rowH1 + 6 * k + barH + (note ? 8 * k + rowH3 : 6);
+    return { k, headline, label, body, barH, rowH1, rowH3, total };
+  };
+  let z = rows(true);
+  const notesW = figuresWidth(g, lead, z.label, z.body, family) + figuresWidth(g, last, z.label, z.body, family) + (lead.length ? 12 : 0);
+  const note = z.total <= h - 2 && notesW <= room;
+  if (!note) z = rows(false);
+  const { k, headline, label, body, barH, rowH1, rowH3, total } = z;
+  // Spare height goes to the two gaps around the bar as well as the edges, up to 6 px each.
+  const extra = Math.min(6 * k, Math.max(0, (h - total - 4) / 4));
+  const top = Math.max(0, (h - total - 2 * extra) / 2);
+  const base1 = Math.round(top + rowH1 / 2 + headline * 0.36);
+  const barY = Math.round(top + rowH1 + 6 * k + extra);
+  const base3 = Math.round(barY + barH + 8 * k + extra + rowH3 / 2 + body * 0.36);
+
+  // The note row: the lead at the left, the last move at the right.
+  if (note) {
+    drawFigures(g, lead, pad, base3, label, body, family, p);
+    drawFigures(g, last, w - pad - figuresWidth(g, last, label, body, family), base3, label, body, family, p);
+  }
+
+  const moveW = figuresWidth(g, moveNumber, label, body, family);
+  const centreMove = (ends: number) => {
+    if (!s.moveNumberDown || room < ends + moveW + 24) return;
+    drawFigures(g, moveNumber, i(w / 2 - moveW / 2), base1, label, body, family, p);
+    report.moveNumber = true;
+  };
   if (s.black === null) {
-    if (s.moveNumberDown) {
-      g.font = `${i(Math.min(width * 0.63, height) * 0.24)}px ${UI_FONT}`;
-      fm = javaMetrics(g);
-      const swM = textWidth(moveNumber);
-      if (width > 2 * swM) {
-        g.fillText(moveNumber, x0 + i((width - swM) / 2), y0 + i(height / 6) + i((fm.ascent - fm.descent) / 2));
-        report.moveNumber = true;
-      }
-    }
+    centreMove(0);
     return report;
   }
-  const maxW = width;
-  const barW = i((s.black * maxW) / 100);
-  const barWW = i(((100 - s.black) * maxW) / 100);
-  const barY = y0 + i(height / 3), barH = i(height / 3);
-  const bx = x0, wx = bx + barW;
-  g.fillStyle = "#fff";
-  g.fillRect(wx, barY, barWW, barH);
-  g.fillStyle = "#000";
-  g.fillRect(bx, barY, barW, barH);
-  if (s.change !== null && s.before !== null) {
-    const lastX = bx + i((s.before * maxW) / 100);
-    const diffX = Math.min(wx, lastX), diffW = Math.abs(wx - lastX);
-    if (diffW > 0) {
-      const big = barH > 30, k = big ? 5 : 3, tip = big ? 7 : 5;
-      const gain = s.change >= 0;
-      report.change = gain ? "gain" : "loss";
-      const color = gain ? "#0f0" : "#f00";
-      g.strokeStyle = color;
-      g.fillStyle = color;
-      g.lineWidth = big ? 2 : 1;
-      const o = big ? 0 : 0.5;
-      const line = (xa: number, xb: number) => {
-        g.beginPath();
-        g.moveTo(xa, barY + o);
-        g.lineTo(xb + 1, barY + o);
-        g.stroke();
-      };
-      const triangle = (xs: number, xTip: number, yTip: number) => {
-        g.beginPath();
-        g.moveTo(xs, barY + 1 - k);
-        g.lineTo(xs, barY + 1 + k);
-        g.lineTo(xTip, yTip);
-        g.closePath();
-        g.fill();
-      };
-      // The arrow points from the win rate before the move to the one now (rightTri).
-      if (wx > lastX) {
-        if (diffW > 3) line(diffX, diffX + diffW - 3);
-        triangle(Math.max(diffX, diffX + diffW - tip), diffX + diffW, barY);
-      } else {
-        const end = diffX + diffW - 1;
-        if (diffW > 3) line(diffX + 2, end);
-        triangle(Math.min(end + 1, diffX + tip), diffX, barY + 1);
-      }
-      if (diffW > tip) {
-        g.strokeStyle = "rgb(128,128,128)";
-        g.beginPath();
-        g.moveTo(lastX + o, barY);
-        g.lineTo(lastX + o, barY + barH);
-        g.stroke();
-      }
-    }
-  }
-  g.font = `${i(Math.min(maxW * 0.63, height) * 0.24)}px ${UI_FONT}`;
-  fm = javaMetrics(g);
-  const fontHeight = fm.ascent - fm.descent;
-  const textY = y0 + barH - i((barH - fontHeight) / 2);
   const winB = `${s.black.toFixed(1)}%`, winW = `${(100 - s.black).toFixed(1)}%`;
   report.bar = { black: winB, white: winW };
-  g.fillStyle = "#fff";
-  g.fillText(winB, bx + 4, textY);
-  const swW = textWidth(winW);
-  g.fillText(winW, bx + maxW - swW - 4, textY);
-  if (s.moveNumberDown) {
-    const swM = textWidth(moveNumber);
-    if (maxW > 2 * swM + textWidth(winB) + swW) {
-      g.fillText(moveNumber, bx + i((maxW - swM) / 2), textY);
-      report.moveNumber = true;
+  g.font = `600 ${headline}px ${ui}`;
+  g.fillStyle = p.text;
+  g.textAlign = "left";
+  g.textBaseline = "alphabetic";
+  const winWWidth = tabularWidth(g, winW);
+  const winBWidth = tabularWidth(g, winB);
+  fillTabular(g, winB, pad, base1);
+  fillTabular(g, winW, w - pad - winWWidth, base1);
+  centreMove(winBWidth + winWWidth);
+
+  // The bar: White's track with its edge inside, Black's share over it, the centre tick.
+  const radius = barH / 2;
+  const barW = i((s.black * room) / 100);
+  g.fillStyle = p.stoneWhite;
+  g.beginPath();
+  g.roundRect(pad, barY, room, barH, radius);
+  g.fill();
+  g.strokeStyle = p.stoneWhiteEdge;
+  g.lineWidth = 1;
+  g.beginPath();
+  g.roundRect(pad + 0.5, barY + 0.5, room - 1, barH - 1, radius - 0.5);
+  g.stroke();
+  g.save();
+  g.beginPath();
+  g.roundRect(pad, barY, room, barH, radius);
+  g.clip();
+  g.fillStyle = p.stoneBlack;
+  g.fillRect(pad, barY, barW, barH);
+  g.restore();
+  g.fillStyle = p.barGrid;
+  g.fillRect(pad + i(room / 2), barY - 3, 1, barH + 6);
+
+  // The change: a 2 px line under the bar from the win rate before the move to the one now,
+  // ending in an arrowhead.
+  if (s.change !== null && s.before !== null) {
+    const nowX = pad + barW;
+    const lastX = pad + i((s.before * room) / 100);
+    if (nowX !== lastX) {
+      const gain = s.change >= 0;
+      report.change = gain ? "gain" : "loss";
+      const y = barY + barH + 3;
+      const d = nowX > lastX ? 1 : -1;
+      const tip = Math.min(4, Math.abs(nowX - lastX));
+      g.fillStyle = gain ? p.gain : p.loss;
+      g.fillRect(Math.min(lastX, nowX - d * tip), y - 1, Math.abs(nowX - lastX) - tip, 2);
+      g.beginPath();
+      g.moveTo(nowX, y);
+      g.lineTo(nowX - d * tip, y - 2.5);
+      g.lineTo(nowX - d * tip, y + 2.5);
+      g.closePath();
+      g.fill();
     }
   }
-  // winRateGridLines = 9 dashed grey lines at the tenths (maxBarwidth / 10 in int arithmetic).
-  g.strokeStyle = "rgb(128,128,128)";
-  g.lineWidth = 1;
-  g.setLineDash([4, 4]);
-  g.beginPath();
-  for (let k = 1; k <= 9; k++) {
-    const x = bx + k * i(maxW / 10) + 0.5;
-    g.moveTo(x, barY);
-    g.lineTo(x, barY + barH);
-  }
-  g.stroke();
-  g.setLineDash([]);
   return report;
 }
 
-/** drawMoveStatistics in play mode (LizzieFrame.java:8705-8736): the darkened strip and, while the
- *  human's clock runs, its text centred in it (drawString fitted to the strip, at most frame
- *  font + 4). */
+/** drawMoveStatistics in play mode (LizzieFrame.java:8705-8736): while the human's clock runs,
+ *  its text centred in the section, fitted to the width, at most the headline size. */
 export function paintPlayStat(g: CanvasRenderingContext2D, r: Rect, clock: string | null): void {
   const { w, h } = r;
-  if (w < 10 || h < 5) return;
-  g.fillStyle = "rgba(0,0,0,0.51)";
-  g.fillRect(0, 0, w, h);
-  g.strokeStyle = "rgba(0,0,0,0.51)";
-  g.lineWidth = 1;
-  g.beginPath();
-  g.moveTo(1, 1.5);
-  g.lineTo(w - 1, 1.5);
-  g.stroke();
-  if (!clock) return;
-  g.font = `12px ${UI_FONT}`;
-  g.font = `${Math.min(h, (12 * w) / g.measureText(clock).width, 16)}px ${UI_FONT}`;
-  const fm = javaMetrics(g);
-  g.fillStyle = "#fff";
+  if (w < 10 || h < 5 || !clock) return;
+  const p = stagePalette();
+  const font = panelFont("ui");
+  g.font = `600 12px ${font}`;
+  const size = Math.min(h, (12 * (w - 2 * sidePad(w))) / tabularWidth(g, clock), typeScale().headline);
+  g.font = `600 ${size}px ${font}`;
+  g.fillStyle = p.text;
   g.textAlign = "left";
   g.textBaseline = "alphabetic";
-  g.fillText(clock, i((w - Math.round(g.measureText(clock).width)) / 2), i(h / 2) + i((fm.ascent - fm.descent) / 2));
+  fillTabular(g, clock, i((w - tabularWidth(g, clock)) / 2), Math.round(h / 2 + size * 0.36));
 }
 
-/** Pondering status lines at ponderingY (LizzieFrame.drawPonderingState). */
-export function paintStatus(g: CanvasRenderingContext2D, r: Rect, lines: string[]) {
-  const lh = Math.max(14, i(r.h / 3));
-  // LizzieFrame.createStatusFont (LizzieFrame.java:8432-8448): Config.fontName first.
-  g.font = `${i(lh * 0.78)}px ${PLAYOUTS_FONT}`;
-  g.textBaseline = "middle";
+/** Pondering status lines (LizzieFrame.drawPonderingState) as a card section, centred in the
+ *  status area: the engine line at Title weight, the other lines at Label size in text3. With
+ *  `live` known (the engine's own status, not a loading or recovery message), the second line's
+ *  pondering state sits right of the engine name after the live / idle dot, and its hotkey joins
+ *  the hint, on one line where both fit. `speed`, the analysing engine's search speed, follows the
+ *  engine name at Label size in text3 when it fits whole. Without room for full lines they share
+ *  the height at the largest scale that fits, the hotkey and hint pairing up again where the
+ *  smaller text lets them, the text never under 9 px; each line is cut with "..." to the width.
+ *  The face is the theme's font-name when it names one (LizzieFrame.createStatusFont,
+ *  LizzieFrame.java:8432-8448). */
+export function paintStatus(g: CanvasRenderingContext2D, r: Rect, lines: string[], live: boolean | null, speed: string) {
+  if (!lines.length) return;
+  const { w, h } = r;
+  const p = stagePalette();
+  const family = panelFont("info");
+  const type = typeScale();
+  const pad = sidePad(w);
+  const room = w - 2 * pad;
+  const [title, ...others] = lines;
+  let state: string | null = null;
+  let notes = others;
+  if (live !== null && others.length) {
+    const space = t("LizzieFrame.display.space");
+    const hotkey = others[0].endsWith(space);
+    state = (hotkey ? others[0].slice(0, -space.length) : others[0]).trim();
+    notes = [...(hotkey ? [space.trim()] : []), ...others.slice(1)];
+  }
+  const rowsAt = (label: number) => {
+    g.font = `${label}px ${family}`;
+    return notes.length >= 2 && g.measureText(notes[0]).width + 16 + g.measureText(notes[1]).width <= room
+      ? [[notes[0], notes[1]], ...notes.slice(2).map((s) => [s])]
+      : notes.map((s) => [s]);
+  };
+  const fit = (rows: string[][]) => Math.min(1, (h - 8) / (type.body * 1.5 + rows.length * type.label * 1.45));
+  let rows = rowsAt(type.label);
+  let k = fit(rows);
+  // Smaller text may pair the hotkey and the hint, which leaves a larger scale.
+  for (let scale = 1; k < 1 && scale > k; scale -= 0.05) {
+    const paired = rowsAt(Math.max(9, type.label * scale));
+    if (fit(paired) >= scale) {
+      [rows, k] = [paired, scale];
+      break;
+    }
+  }
+  const body = Math.max(9, type.body * k);
+  const label = Math.max(9, type.label * k);
+  const lh1 = Math.round(body * 1.5);
+  const lh2 = Math.round(label * 1.45);
+  let y = Math.max(2, (h - lh1 - rows.length * lh2) / 2);
   g.textAlign = "left";
-  lines.forEach((s, k) => {
-    const tw = g.measureText(s).width;
-    g.fillStyle = "rgba(0,0,0,0.6)";
-    g.fillRect(0, k * lh, tw + 4, lh - 1);
-    g.fillStyle = "#fff";
-    g.fillText(s, 1, k * lh + lh / 2);
-  });
+  g.textBaseline = "middle";
+  let stateW = 0;
+  if (state !== null && live !== null) {
+    g.font = `${body}px ${family}`;
+    const shown = elide(g, state, room * 0.6);
+    const x = w - pad - g.measureText(shown).width;
+    g.fillStyle = p.text2;
+    g.fillText(shown, x, y + lh1 / 2);
+    engineDot(g, x - 8, y + lh1 / 2, 6, live, p);
+    stateW = w - pad - x + 11 + 12;
+  }
+  g.font = `600 ${body}px ${family}`;
+  g.fillStyle = p.text;
+  const name = elide(g, title, room - stateW);
+  g.fillText(name, pad, y + lh1 / 2);
+  if (speed) {
+    const x = pad + g.measureText(name).width + 8;
+    g.font = `${label}px ${family}`;
+    if (x + tabularWidth(g, speed) <= w - pad - stateW) {
+      g.fillStyle = p.text3;
+      fillTabular(g, speed, x, y + lh1 / 2);
+    }
+  }
+  y += lh1;
+  g.font = `${label}px ${family}`;
+  g.fillStyle = p.text3;
+  for (const row of rows) {
+    if (row.length === 2) {
+      g.fillText(row[0], pad, y + lh2 / 2);
+      g.fillText(row[1], w - pad - g.measureText(row[1]).width, y + lh2 / 2);
+    } else g.fillText(elide(g, row[0], room), pad, y + lh2 / 2);
+    y += lh2;
+  }
 }
 
 /** LizzieFrame.drawPonderingStateForExtraMode2 (LizzieFrame.java:8324-8354) with fitStatusFont /
  *  truncateStatusText (8405-8430, 8553-8577): one status box of 双引擎模式 at (x, y) of a panel
- *  `panelW` x `panelH`. The font (plain, `size`) shrinks to at most 10 to fit the width left on its
- *  board's side (`split`, where the right board starts), then the text is cut with "..."; the box
- *  is translucent black with a 1px outline, the text white and centred. Returns the text as drawn
- *  and its width (0: nothing). Java split at half the panel, so a window wider than the two boards
- *  cut the secondary engine's box (starting at the right board) down to a few characters. */
-export function paintDualStrip(g: CanvasRenderingContext2D, text: string, x: number, y: number, size: number, split: number, panelW: number, panelH: number): { text: string; width: number } {
+ *  `panelW` x `panelH`. The font is the panels' Body size (Java's 18 px box reached over the
+ *  players' names under a board that fills the panel's height); it shrinks to at most 10 to fit
+ *  the width left on its board's side (`split`, where the right board starts), then the text is
+ *  cut with "..."; the box is a small rounded patch of the card ground, the text primary and
+ *  centred. Returns the text as drawn and its width (0: nothing). Java split at half the panel, so
+ *  a window wider than the two boards cut the secondary engine's box (starting at the right board)
+ *  down to a few characters. */
+export function paintDualStrip(g: CanvasRenderingContext2D, text: string, x: number, y: number, split: number, panelW: number, panelH: number): { text: string; width: number } {
   const rightEdge = x < split ? split : panelW;
   const maxWidth = Math.max(1, rightEdge - x - 4);
-  // fitStatusFont over createStatusFont (LizzieFrame.java:8405-8448): Config.fontName first.
-  const font = (px: number) => `${px}px ${PLAYOUTS_FONT}`;
+  // fitStatusFont over createStatusFont (LizzieFrame.java:8405-8448): the theme's font-name first.
+  const family = panelFont("info");
+  const font = (px: number) => `${px}px ${family}`;
   const measure = (s: string) => Math.round(g.measureText(s).width);
+  const size = typeScale().body;
   let px = size;
   g.font = font(px);
   const measured = measure(text);
@@ -2427,22 +2728,7 @@ export function paintDualStrip(g: CanvasRenderingContext2D, text: string, x: num
     g.font = font(px);
     while (px > least && measure(text) > maxWidth) g.font = font(--px);
   }
-  let shown = text;
-  if (measure(shown) > maxWidth) {
-    const dots = measure("...");
-    if (dots > maxWidth) shown = "";
-    else {
-      let low = 0;
-      let high = text.length;
-      while (low < high) {
-        const middle = i((low + high + 1) / 2);
-        if (measure(text.substring(0, middle)) + dots <= maxWidth) low = middle;
-        else high = middle - 1;
-      }
-      const prefix = text.substring(0, low).trim();
-      shown = prefix ? `${prefix}...` : "...";
-    }
-  }
+  const shown = elide(g, text, maxWidth);
   const stringWidth = measure(shown);
   if (stringWidth <= 0) return { text: "", width: 0 };
   const { ascent, descent } = javaMetrics(g);
@@ -2451,12 +2737,12 @@ export function paintDualStrip(g: CanvasRenderingContext2D, text: string, x: num
   const height = Math.max(i(fontHeight * 1.2), 1);
   const drawX = Math.max(0, Math.min(x, panelW - width));
   const drawY = Math.max(0, Math.min(y, Math.max(0, panelH - height - 4)));
-  g.fillStyle = "rgba(0,0,0,0.51)";
-  g.fillRect(drawX, drawY, width, height);
-  g.strokeStyle = "rgba(0,0,0,0.51)";
-  g.lineWidth = 1;
-  g.strokeRect(drawX + 0.5, drawY + 0.5, width, height);
-  g.fillStyle = "#fff";
+  const p = stagePalette();
+  g.fillStyle = p.panel;
+  g.beginPath();
+  g.roundRect(drawX - 4, drawY, width + 8, height, 4);
+  g.fill();
+  g.fillStyle = p.text;
   g.textAlign = "left";
   g.textBaseline = "alphabetic";
   g.fillText(shown, drawX + (width - stringWidth) / 2, drawY + i((height - fontHeight) / 2) + ascent);
@@ -2478,12 +2764,16 @@ interface TreeWalk {
   numbers: number;
 }
 
-const [TREE_YS, TREE_XS, TREE_DOT, TREE_CENTER, TREE_RING] = [20, 20, 11, 5, 15];
+/** Row and lane spacing, node size and the first lane's left edge: Java's 20 px plus room for a
+ *  three-digit move number at the Label size left of the trunk. */
+const [TREE_YS, TREE_XS, TREE_DOT, TREE_X0] = [20, 20, 11, 24];
 
 /** VariationTree.drawTree / VariationTreeBig.drawTree from `start` at (`posx`, `posy`), Java's lane
  *  allocation. Nodes left of `minX` or above the top are not drawn. `fit` is the whole-tree view:
- *  the first node also obeys that, the main line stops above `maxY`, and the current node takes
- *  VariationTreeBig's red (or reversed 错误节点 colour) centre instead of the black one. */
+ *  the first node also obeys that and the main line stops above `maxY`. Every node is the same
+ *  size. A node without an 错误节点 colour (it or the move before it not evaluated) is hollow; a
+ *  commented node carries a small dot of the comment-node colour at its upper right; only the
+ *  current node has a ring, in the interface's text colour (the root square an accent centre). */
 function walkTree(
   nodes: Map<number, TreeNodeView>,
   start0: number,
@@ -2499,7 +2789,20 @@ function walkTree(
   w: number,
   h: number,
 ): TreeWalk {
-  const [YS, XS, DOT, CENTER, RING] = [TREE_YS, TREE_XS, TREE_DOT, TREE_CENTER, TREE_RING];
+  const [YS, XS, DOT] = [TREE_YS, TREE_XS, TREE_DOT];
+  const p = stagePalette();
+  const commentDot = themeColor(appearance()?.theme.commentNodeColor, THEME_DEFAULT.commentNode, p.commentNode);
+  // While the theme keeps its 错误节点 colours, each level takes the stage's colour for it.
+  const themeNodes = appearance()?.theme.blunderNodeColors;
+  const defaults = THEME_DEFAULT.blunderNodes;
+  const ownNodes = !!themeNodes && (themeNodes.length !== defaults.length || themeNodes.some((c, k) => !sameRgba(c, defaults[k])));
+  const nodeFill = (c: number[]) => {
+    const level = ownNodes ? -1 : defaults.findIndex((d) => sameRgba(c, d));
+    return level >= 0 ? p.treeNodes[level] : cssColor(c);
+  };
+  const lineColor = (n: number) => (line.has(n) ? p.treeLine : p.treeLineOff);
+  const labelSize = typeScale().label;
+  const labelFont = `${labelSize}px ${panelFont("ui")}`;
   const node = (n: number) => nodes.get(n)!;
   const kids = (n: number) => node(n).children;
   const moveNo = (n: number) => {
@@ -2524,37 +2827,67 @@ function walkTree(
       g.lineTo(x2 + 0.5, y2 + 0.5);
       g.stroke();
     });
-  /** Font(uiFontName, PLAIN, 9) in white, left of a trunk node or above a branch's first node. */
-  const label = (n: number, x: (k: number) => number, y: number) => {
+  /** The move number in secondary text at the panels' Label size: `left` ends clear of a trunk
+   *  node's current ring, level with its centre; `above` is centred over a branch's first node. */
+  const label = (n: number, x: number, y: number, place: "left" | "above") => {
     const k = node(n).number;
     if (!numbers || k === 0) return;
     walk.numbers++;
     ops.push((g) => {
-      g.font = `9px ${UI_FONT}`;
-      g.fillStyle = "#fff";
-      g.textAlign = "left";
+      g.font = labelFont;
+      g.fillStyle = p.text2;
       g.textBaseline = "alphabetic";
-      g.fillText(`${k}`, x(k), y);
+      if (place === "left") {
+        g.textAlign = "right";
+        g.fillText(`${k}`, x - 5, y + 5.5 + labelSize * 0.36);
+      } else {
+        g.textAlign = "center";
+        g.fillText(`${k}`, x + 5.5, y - 5);
+      }
     });
   };
   const dot = (n: number, x: number, y: number) => {
     const dim = !line.has(n);
     const commented = look.showCommentNode && node(n).has_comment;
     const projected = nodeColors.get(n);
-    const fill = projected ? cssColor(projected) : "#fff";
+    const fill = projected ? nodeFill(projected) : null;
     ops.push((g) => {
-      const disc = (color: string, d: number) => {
-        g.fillStyle = color;
-        circle(g, x + 5.5, y + 5.5, d / 2);
+      const cx = x + 5.5, cy = y + 5.5;
+      if (fill) {
+        g.fillStyle = fill;
+        circle(g, cx, cy, DOT / 2);
         g.fill();
-      };
-      if (commented) disc(look.commentNode, RING);
-      disc(fill, DOT);
-      if (dim) disc("rgba(0,0,0,0.153)", commented ? RING : DOT);
-      if (n !== current) return;
-      // VariationTreeBig: the reversed 错误节点 colour, red on a white node, one pixel larger
-      if (fit) disc(projected ? cssColor(reverseColor(projected)) : "rgb(255,0,0)", CENTER + 2);
-      else disc("#000", CENTER);
+      } else {
+        circle(g, cx, cy, DOT / 2 - 0.75);
+        g.fillStyle = p.treeEmpty;
+        g.fill();
+        g.strokeStyle = p.treeLine;
+        g.lineWidth = 1.5;
+        g.stroke();
+      }
+      if (dim) {
+        g.fillStyle = p.treeDim;
+        circle(g, cx, cy, DOT / 2);
+        g.fill();
+      }
+      if (n === current) {
+        g.strokeStyle = p.text;
+        g.lineWidth = 1.5;
+        circle(g, cx, cy, DOT / 2 + 2.25);
+        g.stroke();
+      }
+      if (commented) {
+        // The comment dot, set off from the node (and the current node's ring) by a rim of the
+        // panel's colour.
+        g.globalAlpha = dim ? 0.5 : 1;
+        circle(g, cx + 4, cy - 4, 2.5);
+        g.fillStyle = commentDot;
+        g.fill();
+        g.strokeStyle = p.panelSolid;
+        g.lineWidth = 1.25;
+        g.stroke();
+        g.globalAlpha = 1;
+      }
     });
     if (!fit) grow(x, y);
   };
@@ -2574,7 +2907,7 @@ function walkTree(
     lanes[lane] = mn;
     walk.maxLane = Math.max(walk.maxLane, lane);
     const x = posx + lane * XS;
-    const color = line.has(start) ? "#fff" : "rgb(103,103,103)";
+    const color = lineColor(start);
     visit(start, x, posy, lane);
     if (lane > 0) {
       if (lane - startLane > 0 || variation > 1) {
@@ -2585,17 +2918,17 @@ function walkTree(
     if (!fit || shown(x, posy)) {
       if (node(start).parent !== null) {
         dot(start, x, posy);
-        label(start, (k) => (k < 10 ? x + 3 : k >= 100 ? x - 3 : x), posy - 5);
+        label(start, x, posy, "above");
       } else {
-        // root: square, red centre while it is the displayed node
+        // root: square, an accent centre while it is the displayed node
         ops.push((g) => {
-          g.fillStyle = color;
+          g.fillStyle = line.has(start) ? p.treeNode : p.treeLineOff;
           g.fillRect(x, posy, DOT, DOT);
-          g.strokeStyle = "#000";
+          g.strokeStyle = p.lineStrong;
           g.lineWidth = 1;
           g.strokeRect(x - 0.5, posy - 0.5, DOT + 1, DOT + 1);
           if (start === current) {
-            g.fillStyle = "rgb(255,0,0)";
+            g.fillStyle = p.accent;
             g.fillRect(x + 2, posy + 2, DOT - 4, DOT - 4);
           }
         });
@@ -2609,8 +2942,8 @@ function walkTree(
       visit(n, x, posy, lane);
       if (!shown(x, posy)) continue;
       dot(n, x, posy);
-      segment(x + 5, posy - 1, x + 5, posy - YS + 11, line.has(n) ? "#fff" : "rgb(103,103,103)");
-      label(n, (k) => (k < 10 ? x - 7 : k >= 100 ? x - 13 : x - 10), posy - 1);
+      segment(x + 5, posy - 1, x + 5, posy - YS + 11, lineColor(n));
+      label(n, x, posy, "left");
     }
     while (n !== start) {
       n = node(n).parent!;
@@ -2626,9 +2959,10 @@ function walkTree(
  * whole tree laid out from the root at (20, 20) with Java's lane allocation, shown through the scroll
  * pane that renderVarTree positions on the current node (LizzieFrame.java:13942-13975) unless the
  * user scrolled it (`scroll`). Nodes off the current line are dimmed; with show-comment-node-color
- * commented nodes get the comment-node-color ring, and every node is filled with the 错误节点
+ * commented nodes carry a dot of the comment-node colour, and every node is filled with the 错误节点
  * colour the core projects for it (`nodeColors`, LizzieFrame.getBlunderNodeColor 11465-11536 with
- * Board.updateIsBest; VariationTree.java:136-158), white without one; 显示分支面板上的手数 (`numbers`)
+ * Board.updateIsBest; VariationTree.java:136-158), hollow without one;
+ * the current node carries an ink ring; 显示分支面板上的手数 (`numbers`)
  * writes each node's core display number beside it (VariationTree.java:159-176, 285-304).
  * 设置最大宽度 (`maxWidth`, setTreeMaxLimit 13894-13908): a layout that wide is cut off there and
  * reported `tooWide` (Board.setBigBranch). Returns node centres (panel coordinates) for click
@@ -2646,15 +2980,14 @@ export function paintTree(
   maxWidth: number,
 ): { hits: Map<string, number>; viewport: TreeViewport; numbers: number; tooWide: boolean } {
   const { w, h } = r;
-  g.fillStyle = "rgba(0,0,0,0.51)";
-  g.fillRect(0, 0, w, h);
-  let walk = walkTree(nodes, root, current, line, numbers, nodeColors, 20, 20, 0, Infinity, false, w, h);
+  const p = stagePalette();
+  let walk = walkTree(nodes, root, current, line, numbers, nodeColors, TREE_X0, 20, 0, Infinity, false, w, h);
   const tooWide = walk.maxX >= maxWidth;
   const maxX = tooWide ? maxWidth : walk.maxX;
   // VariationTree.draw: with the current lane taken as 0 (getCurLane from the root), the tree
-  // moves left only when the cut width is under 51 px.
-  const shift = Math.max(0, TREE_XS + 20 + TREE_DOT - maxX);
-  if (shift > 0) walk = walkTree(nodes, root, current, line, numbers, nodeColors, 20 - shift, 20, 0, Infinity, false, w, h);
+  // moves left only when the cut width is under the first lane's end.
+  const shift = Math.max(0, TREE_XS + TREE_X0 + TREE_DOT - maxX);
+  if (shift > 0) walk = walkTree(nodes, root, current, line, numbers, nodeColors, TREE_X0 - shift, 20, 0, Infinity, false, w, h);
   const { hits, ops, curX, curY, maxY } = walk;
   // JScrollPane with AS_NEEDED bars of DemoScrollBarUI width 9; the horizontal bar is off when the
   // pane is under 100 px high (LizzieFrame.java:13976-13983).
@@ -2684,29 +3017,18 @@ export function paintTree(
   }
   const vertical = vbar ? scrollbar(viewH, maxY, top) : null;
   const horizontal = hbar ? scrollbar(viewW, maxX, left) : null;
-  // DemoScrollBarUI: arrow buttons, black track, thumb (230,230,250) at 0.7
-  const arrows = (a: string, b: string, x1: number, y1: number, x2: number, y2: number, horiz: boolean) => {
-    g.fillStyle = "rgb(238,238,238)";
-    g.fillRect(x1, y1, horiz ? ARROW : SCROLLBAR, horiz ? SCROLLBAR : ARROW);
-    g.fillRect(x2, y2, horiz ? ARROW : SCROLLBAR, horiz ? SCROLLBAR : ARROW);
-    if (images[a]?.naturalWidth) g.drawImage(images[a], x1 + (horiz ? 1 : 0), y1 + (horiz ? 0 : 1));
-    if (images[b]?.naturalWidth) g.drawImage(images[b], x2 + (horiz ? 2 : 0), y2 + (horiz ? 0 : 2));
-  };
+  // DemoScrollBarUI's geometry (arrow zones at both ends, the track between them) drawn as a thin
+  // rounded thumb only; the arrow zones still step when pressed.
+  g.fillStyle = p.scrollThumb;
   if (vertical) {
-    const sx = w - SCROLLBAR;
-    arrows("smallUp.png", "smallDown.png", sx, 0, sx, viewH - ARROW, false);
-    g.fillStyle = "#000";
-    g.fillRect(sx, ARROW, SCROLLBAR, vertical.track);
-    g.fillStyle = "rgba(230,230,250,0.7)";
-    g.fillRect(sx, ARROW + vertical.thumbStart, SCROLLBAR, vertical.thumb);
+    g.beginPath();
+    g.roundRect(w - SCROLLBAR + 2, ARROW + vertical.thumbStart, SCROLLBAR - 4, vertical.thumb, (SCROLLBAR - 4) / 2);
+    g.fill();
   }
   if (horizontal) {
-    const sy = h - SCROLLBAR;
-    arrows("smallLeft.png", "smallRight.png", 0, sy, viewW - ARROW, sy, true);
-    g.fillStyle = "#000";
-    g.fillRect(ARROW, sy, horizontal.track, SCROLLBAR);
-    g.fillStyle = "rgba(230,230,250,0.7)";
-    g.fillRect(ARROW + horizontal.thumbStart, sy, horizontal.thumb, SCROLLBAR);
+    g.beginPath();
+    g.roundRect(ARROW + horizontal.thumbStart, h - SCROLLBAR + 2, horizontal.thumb, SCROLLBAR - 4, (SCROLLBAR - 4) / 2);
+    g.fill();
   }
   return { hits: visible, viewport: { top, left, maxX, maxY, viewW, viewH, vertical, horizontal }, numbers: walk.numbers, tooWide };
 }
@@ -2726,8 +3048,6 @@ export function paintTreeFit(
   nodeColors: Map<number, number[]>,
 ): { hits: Map<string, number>; viewport: TreeViewport; numbers: number } {
   const { w, h } = r;
-  g.fillStyle = "rgba(0,0,0,0.51)";
-  g.fillRect(0, 0, w, h);
   const viewport: TreeViewport = { top: 0, left: 0, maxX: w, maxY: h, viewW: w, viewH: h, vertical: null, horizontal: null };
   if (w <= 0 || h <= 0) return { hits: new Map(), viewport, numbers: 0 };
   const node = (n: number) => nodes.get(n)!;
@@ -2750,7 +3070,7 @@ export function paintTreeFit(
   }
   // The dummy drawing finds the current lane and the widest lane.
   const { curLane: lane, maxLane } = walkTree(nodes, start, current, line, numbers, nodeColors, 0, posy, 0, h, true, w, h);
-  const x0 = 20;
+  const x0 = TREE_X0;
   let startx = x0;
   const over = (lane + 1) * TREE_XS + x0 + TREE_DOT - w;
   if (over > 0) startx -= over;

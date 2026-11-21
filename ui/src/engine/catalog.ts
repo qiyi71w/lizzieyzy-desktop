@@ -1,14 +1,16 @@
-// MoreEngines.java:151-169, 621-877: form above the catalog, immediate catalog operations.
+// MoreEngines.java:151-169, 621-877: the selected entry's fields above the catalog, immediate
+// catalog operations.
 import { run, state } from "../app";
 import type { EngineProfile, EngineStartup } from "../contract/generated";
 import { chooseSave, confirm, formPanel } from "../dialogs";
-import { t } from "../i18n";
+import { product, t } from "../i18n";
 import { openAutoSetup } from "../setup/dialog";
 import { onTuningChange, tuningView } from "../setup/performance";
 import { configureGtp } from "./gtpConfig";
 import { scanEngine } from "./scan";
 import { tuningText } from "./tuningText";
-import { actions, button, checkbox, field, input } from "./controls";
+import { stepper } from "../design/stepper";
+import { actions, button, footer, input, primaryButton, row, switchBox, switchRow } from "./controls";
 import { aboutRemoteButton, RemoteFields } from "./remote";
 
 let opened = false;
@@ -23,43 +25,64 @@ export async function openMoreEngines(): Promise<void> {
     let selected = engines.length ? 0 : -1;
     const body = document.createElement("div");
     body.className = "engine-catalog";
-    const form = document.createElement("div");
-    form.className = "engine-form";
+    // Java's labels end in a colon; a row's name does not.
+    const caption = (text: string) => text.replace(/\\?[:：]\s*$/, "");
+    const radioGroup = (...labels: HTMLLabelElement[]) => {
+      const el = document.createElement("span"); el.className = "ds-seg"; el.setAttribute("role", "radiogroup"); el.append(...labels); return el;
+    };
+    // The selected entry in two columns of groups: what runs (名称, 命令行, 初始命令, its threads)
+    // at the start; the board, loading and the SSH connection at the end.
+    const columns = document.createElement("div"); columns.className = "engine-catalog-columns";
+    const start = document.createElement("div"), end = document.createElement("div");
+    const program = document.createElement("div"), threads = document.createElement("div"), board = document.createElement("div"), ssh = document.createElement("div");
+    start.append(program, threads); end.append(board, ssh); columns.append(start, end);
     const name = input("");
     const command = document.createElement("textarea");
-    command.rows = 5;
+    command.rows = 3;
     let scanBusy = false, gtpBusy = false;
     const initial = input("");
     initial.placeholder = t("MoreEngines.initialCommandHint");
     const width = input(19, "number"); width.min = "2"; width.max = "52";
     const height = input(19, "number"); height.min = "2"; height.max = "52";
     const komi = input(7.5, "number"); komi.step = "0.5";
-    const preload = checkbox(t("MoreEngines.lblpreload"), false);
-    const defaultEngine = checkbox(t("MoreEngines.lbldefault"), false);
-    field(form, t("MoreEngines.lblName"), name);
-    field(form, t("MoreEngines.lblCommand"), command);
-    field(form, t("MoreEngines.lblInitialCommand"), initial);
-    actions(form, preload.label, defaultEngine.label);
-    const size = document.createElement("div"); size.className = "engine-size";
-    field(size, t("MoreEngines.lblWidth"), width);
-    field(size, t("MoreEngines.lblHeight"), height);
-    field(size, t("MoreEngines.lblKomi"), komi);
-    form.append(size);
+    const scan = button(t("MoreEngines.scan"), async () => {
+      const entryId = engines[selected]?.id; scanBusy = true; updatePolicy();
+      try { const scanned = await scanEngine(); if (scanned !== null && engines[selected]?.id === entryId) { command.value = scanned; updatePolicy(); } }
+      finally { scanBusy = false; updatePolicy(); }
+    }); scan.dataset.key = "engine.scan";
+    const gtp = button(t("MoreEngines.gtpConfig"), async () => {
+      const entry = engines[selected]; if (!entry) return;
+      gtpBusy = true; updatePolicy(); gtp.textContent = t("GtpEngineConfig.detecting");
+      try { await configureGtp(entry.id); }
+      finally { gtpBusy = false; gtp.textContent = t("MoreEngines.gtpConfig"); updatePolicy(); }
+    }); gtp.dataset.key = "engine.gtpConfig";
+    row(program, caption(t("MoreEngines.lblName")), "", name);
+    // 命令行 and 初始命令 take a line of their own under the row's name, named after it.
+    command.setAttribute("aria-label", caption(t("MoreEngines.lblCommand")));
+    initial.setAttribute("aria-label", caption(t("MoreEngines.lblInitialCommand")));
+    row(program, caption(t("MoreEngines.lblCommand")), "", scan, gtp).append(command);
+    row(program, caption(t("MoreEngines.lblInitialCommand")), "").append(initial);
+    row(board, t("MoreEngines.lblWidth"), "", stepper(width));
+    row(board, t("MoreEngines.lblHeight"), "", stepper(height));
+    row(board, t("MoreEngines.lblKomi"), "", stepper(komi));
+    const preload = switchRow(board, t("MoreEngines.lblpreload"), "", false);
+    const defaultEngine = switchRow(board, t("MoreEngines.lbldefault"), "", false);
     // 远程引擎 (MoreEngines.java:479-493): the command runs on the SSH host as written.
-    const remoteEngine = checkbox(t("MoreEngines.chkRemoteEngine"), false);
-    remoteEngine.input.dataset.key = "engine.remoteEngine";
+    const remoteEngine = switchBox(false);
+    remoteEngine.dataset.key = "engine.remoteEngine";
+    remoteEngine.setAttribute("aria-label", t("MoreEngines.chkRemoteEngine"));
+    row(ssh, t("MoreEngines.chkRemoteEngine"), "", aboutRemoteButton(), remoteEngine);
     const remote = new RemoteFields({
       host: "IP", port: t("MoreEngines.lblPort"), user: t("MoreEngines.rdoUserName"),
       password: t("MoreEngines.lblPassword"), key: t("MoreEngines.rdoKeygen"), browse: t("MoreEngines.scanKeygen"),
-    }, "radio", "engine.remote");
-    const remoteRow = document.createElement("div"); remoteRow.className = "engine-actions engine-remote";
-    const span = (text: string) => { const el = document.createElement("span"); el.textContent = text; return el; };
-    remoteRow.append(remoteEngine.label, aboutRemoteButton(), span("IP"), remote.host, span(remote.labels.port), remote.port, span(remote.labels.user), remote.user);
-    const authRow = document.createElement("div"); authRow.className = "engine-actions engine-remote";
-    authRow.append(remote.passwordLabel, remote.password, remote.keyLabel, remote.browse);
-    form.append(remoteRow, authRow);
-    remoteEngine.input.onchange = () => { remote.setEnabled(remoteEngine.input.checked); updatePolicy(); };
-    const policyRow = document.createElement("div"); policyRow.className = "engine-actions";
+    }, "engine.remote");
+    remote.port.inputMode = "numeric";
+    row(ssh, remote.labels.host, "", remote.host);
+    row(ssh, remote.labels.port, "", remote.port);
+    row(ssh, remote.labels.user, "", remote.user);
+    // 密码 / 密钥 is the row's choice; the field or 浏览 it enables stands at the end.
+    row(ssh, radioGroup(remote.passwordLabel, remote.keyLabel), "", remote.password, remote.browse);
+    remoteEngine.onchange = () => { remote.setEnabled(remoteEngine.checked); updatePolicy(); };
     const cfg = input("CFG", "radio"), benchmark = input("BENCHMARK", "radio");
     cfg.name = benchmark.name = "engine-thread-source";
     cfg.dataset.key = "engine.thread.cfg"; benchmark.dataset.key = "engine.thread.benchmark";
@@ -74,8 +97,10 @@ export async function openMoreEngines(): Promise<void> {
       await dialog.close();
       await openAutoSetup("performance", { engineId: entry.id });
     }); benchmarkButton.dataset.key = "engine.performance";
-    policyRow.append(cfgLabel, benchmarkLabel, benchmarkButton); form.append(policyRow);
-    const policyStatus = document.createElement("small"); policyStatus.className = "engine-thread-status"; form.append(policyStatus);
+    // 按引擎设置线程: CFG or the benchmark's recommendation; what the choice means under the name.
+    const threadSource = radioGroup(cfgLabel, benchmarkLabel);
+    const policyRow = row(threads, t("EngineThreadPolicy.settings"), "", threadSource, benchmarkButton);
+    const policyStatus = document.createElement("span"); policyStatus.className = "ds-row-sub engine-thread-status"; policyRow.firstElementChild!.append(policyStatus);
     const selectSource = async (source: "CFG" | "BENCHMARK") => {
       const entry = engines[selected]; if (!entry) return;
       await run({ type: "Tuning", op: { type: "SetThreadSource", engine_id: entry.id, source } });
@@ -83,18 +108,6 @@ export async function openMoreEngines(): Promise<void> {
     };
     cfg.onchange = () => { if (cfg.checked) void selectSource("CFG"); };
     benchmark.onchange = () => { if (benchmark.checked) void selectSource("BENCHMARK"); };
-    const scan = button(t("MoreEngines.scan"), async () => {
-      const entryId = engines[selected]?.id; scanBusy = true; updatePolicy();
-      try { const scanned = await scanEngine(); if (scanned !== null && engines[selected]?.id === entryId) { command.value = scanned; updatePolicy(); } }
-      finally { scanBusy = false; updatePolicy(); }
-    }); scan.dataset.key = "engine.scan";
-    const gtp = button(t("MoreEngines.gtpConfig"), async () => {
-      const entry = engines[selected]; if (!entry) return;
-      gtpBusy = true; updatePolicy(); gtp.textContent = t("GtpEngineConfig.detecting");
-      try { await configureGtp(entry.id); }
-      finally { gtpBusy = false; gtp.textContent = t("MoreEngines.gtpConfig"); updatePolicy(); }
-    }); gtp.dataset.key = "engine.gtpConfig";
-    actions(form, scan, gtp);
     const updatePolicy = () => {
       const entry = engines[selected];
       const profile = tuningView()?.profiles.find((item) => item.engineId === entry?.id);
@@ -102,9 +115,9 @@ export async function openMoreEngines(): Promise<void> {
       const recommendation = policy?.["katago-benchmark-threads"] ?? 0;
       const draftLocal = !!entry && /^(?:"[^"\n]*katago[^"\n]*"|'[^'\n]*katago[^'\n]*'|\S*katago\S*)(?:\s|$)/i.test(command.value.trim()) && !command.value.includes("://");
       const local = draftLocal;
-      const remote = remoteEngine.input.checked || /(?:^|\s)ssh\s|:\/\//i.test(command.value);
+      const remote = remoteEngine.checked || /(?:^|\s)ssh\s|:\/\//i.test(command.value);
       policyRow.hidden = !entry || (!draftLocal && !remote && !!command.value.trim() && !/katago/i.test(command.value));
-      cfgLabel.hidden = benchmarkLabel.hidden = remote; benchmarkButton.hidden = remote;
+      threadSource.hidden = benchmarkButton.hidden = remote;
       cfg.checked = !local || policy?.source !== "BENCHMARK"; benchmark.checked = local && policy?.source === "BENCHMARK";
       cfg.disabled = !local;
       benchmark.disabled = !local || (recommendation <= 0 && policy?.source !== "BENCHMARK");
@@ -115,7 +128,7 @@ export async function openMoreEngines(): Promise<void> {
       scan.disabled = !entry || scanBusy; gtp.disabled = !entry || gtpBusy;
     };
     command.dataset.key = "engine.command"; command.addEventListener("input", updatePolicy);
-    body.append(form);
+    body.append(columns);
     const tableWrap = document.createElement("div"); tableWrap.className = "engine-table-wrap";
     const table = document.createElement("table"); table.className = "engine-table";
     tableWrap.append(table);
@@ -124,7 +137,7 @@ export async function openMoreEngines(): Promise<void> {
       ...engines[selected], name: name.value, command: command.value, initialCommand: initial.value,
       preload: preload.input.checked, isDefault: defaultEngine.input.checked,
       width: Number(width.value), height: Number(height.value), komi: Number(komi.value),
-      ssh: remoteEngine.input.checked ? remote.read() : undefined,
+      ssh: remoteEngine.checked ? remote.read() : undefined,
     });
     const persist = async (): Promise<boolean> => {
       const result = await run({ type: "SaveEngineSettings", engines, startup });
@@ -170,11 +183,11 @@ export async function openMoreEngines(): Promise<void> {
     };
     const load = () => {
       const entry = engines[selected];
-      for (const control of [name, command, initial, width, height, komi, preload.input, defaultEngine.input, remoteEngine.input]) control.disabled = !entry;
+      for (const control of [name, command, initial, width, height, komi, preload.input, defaultEngine.input, remoteEngine]) control.disabled = !entry;
       name.value = entry?.name ?? ""; command.value = entry?.command ?? ""; initial.value = entry?.initialCommand ?? "";
       width.value = String(entry?.width ?? 19); height.value = String(entry?.height ?? 19); komi.value = String(entry?.komi ?? 7.5);
       preload.input.checked = entry?.preload ?? false; defaultEngine.input.checked = entry?.isDefault ?? false;
-      remoteEngine.input.checked = !!entry?.ssh; remote.set(entry?.ssh); remote.setEnabled(!!entry?.ssh);
+      remoteEngine.checked = !!entry?.ssh; remote.set(entry?.ssh); remote.setEnabled(!!entry?.ssh);
       updatePolicy();
       table.replaceChildren();
       const header = table.createTHead().insertRow();
@@ -203,6 +216,12 @@ export async function openMoreEngines(): Promise<void> {
       const next = Math.max(0, Math.min(engines.length - 1, target));
       await edit(() => { engines.splice(next, 0, engines.splice(selected, 1)[0]); selected = next; });
     };
+    // 删除 removes the entry from the catalog: the danger button, after its confirmation.
+    const remove = button(t("MoreEngines.delete"), async () => {
+      if (selected < 0 || !(await confirm(t("MoreEngines.deleteHint6"), t("MoreEngines.deleteHint5")))) return;
+      await edit(() => { engines.splice(selected, 1); selected = Math.min(selected, engines.length - 1); });
+    });
+    remove.classList.add("danger");
     actions(body,
       button(t("MoreEngines.add"), async () => {
         if (!(await dirty())) return;
@@ -211,18 +230,14 @@ export async function openMoreEngines(): Promise<void> {
           selected = 0;
         });
       }),
-      button(t("MoreEngines.delete"), async () => {
-        if (selected < 0 || !(await confirm(t("MoreEngines.deleteHint6"), t("MoreEngines.deleteHint5")))) return;
-        await edit(() => { engines.splice(selected, 1); selected = Math.min(selected, engines.length - 1); });
-      }),
+      remove,
       button(t("MoreEngines.moveFirst"), () => reorder(0)), button(t("MoreEngines.moveLast"), () => reorder(engines.length - 1)),
       button(t("MoreEngines.moveUp"), () => reorder(selected - 1)), button(t("MoreEngines.moveDown"), () => reorder(selected + 1)),
       button(t("MoreEngines.moveUp5"), () => reorder(selected - 5)), button(t("MoreEngines.moveDown5"), () => reorder(selected + 5)),
-      button(t("MoreEngines.save"), async () => { if (await save()) load(); }));
+      primaryButton(t("MoreEngines.save"), async () => { if (await save()) load(); }));
     body.append(tableWrap);
-    const radios = document.createElement("div"); radios.className = "engine-actions"; radios.append(t("ChooseMoreEngine.lblchooseStart"));
     const startupRadios: HTMLInputElement[] = [];
-    for (const [value, text] of [["Default", t("MoreEngines.lblrdoDefault")], ["Last", t("ChooseMoreEngine.lblrdoLast")], ["Empty", t("ChooseMoreEngine.lblrdoNone")], ["Manual", t("ChooseMoreEngine.lblrdoMannul")]] as const) {
+    const startupLabels = ([["Default", t("MoreEngines.lblrdoDefault")], ["Last", t("ChooseMoreEngine.lblrdoLast")], ["Empty", t("ChooseMoreEngine.lblrdoNone")], ["Manual", t("ChooseMoreEngine.lblrdoMannul")]] as const).map(([value, text]) => {
       const radio = input(value, "radio"); radio.name = "engine-startup"; radio.checked = startup === value;
       radio.onchange = async () => {
         const previous = startup;
@@ -232,11 +247,15 @@ export async function openMoreEngines(): Promise<void> {
         for (const other of startupRadios) other.checked = other.value === previous;
       };
       startupRadios.push(radio);
-      const label = document.createElement("label"); label.append(radio, text); radios.append(label);
-    }
-    body.append(radios);
+      const label = document.createElement("label"); label.append(radio, text); return label;
+    });
+    row(body, caption(t("ChooseMoreEngine.lblchooseStart")), "", radioGroup(...startupLabels));
     const dialog = formPanel(t("MoreEngines.title"), body, dirty);
-    actions(body, button(t("MoreEngines.exit"), () => dialog.close()));
+    // Catalog operations apply at once and the entry's fields ask before they are left, so the
+    // window only closes.
+    const close = button(product("close"), () => void dialog.close());
+    close.dataset.key = "engine.close";
+    footer(body, { cancel: close });
     load();
     const unsubscribe = onTuningChange(() => {
       const saved = state.view?.settings.engine.engines;
@@ -271,6 +290,6 @@ export async function chooseEngine(manual = false, secondary = false): Promise<v
     await dialog.close();
   };
   select.ondblclick = load;
-  actions(body, button(manual ? t("loadEngine.ok") : t("ChooseMoreEngine.ok"), load), button(t("loadEngine.noEngine"), () => dialog.close()));
+  footer(body, { primary: primaryButton(manual ? t("loadEngine.ok") : t("ChooseMoreEngine.ok"), load), cancel: button(t("loadEngine.noEngine"), () => dialog.close()) });
   await dialog.closed;
 }

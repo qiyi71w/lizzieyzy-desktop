@@ -15,21 +15,41 @@
   height: 100%;
   pointer-events: none;
 }
-/* btnPanel: FlowLayout(RIGHT, 0, 0) at the top; each button an icon of menuIconSize * 2 inside an
-   EmptyBorder(5, 5, 5, 5), filled with the button colour (the panel itself is transparent). */
+/* btnPanel at the top right: one capsule of the bars (DESIGN 胶囊) with the three pens, 撤销, 清空
+   and 关闭 as icon segments; the chosen pen is a lit toggle. */
 #painting .paint-buttons {
   position: absolute;
-  top: 0;
-  right: 0;
+  top: 8px;
+  right: 8px;
   display: flex;
+  height: var(--ds-cap-h);
+  overflow: hidden;
+  border-radius: var(--ds-radius-cap);
+  background: var(--ds-raised);
+  box-shadow: var(--ds-shadow-cap);
 }
 #painting .paint-btn {
-  display: block;
-  padding: 5px;
-  line-height: 0;
-  background: rgb(238, 238, 238);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  color: var(--ds-text-2);
 }
-#painting .paint-btn img {
-  width: calc(var(--menu-icon-size, 16px) * 2);
-  height: calc(var(--menu-icon-size, 16px) * 2);
+#painting .paint-btn + .paint-btn {
+  border-left: 1px solid var(--ds-line);
+}
+#painting .paint-btn .icon {
+  width: 16px;
+  height: 16px;
+}
+#painting .paint-btn:hover {
+  background: var(--ds-hover);
+  color: var(--ds-text);
+}
+#painting .paint-btn:active {
+  background: var(--ds-pressed);
+}
+#painting .paint-btn.on {
+  background: var(--ds-accent-soft);
+  color: var(--ds-accent-text);
 }

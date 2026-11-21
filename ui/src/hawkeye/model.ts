@@ -92,6 +92,8 @@ export interface HawkeyeReport {
   topPage: number;
   chart: number;
   rows: string[][];
+  /** The vertical middle in the window of each of `rows`. */
+  rowMiddles: number[];
   dialog: string | null;
   targets: { key: string; text: string; checked?: boolean; value?: string; x: number; y: number }[];
 }
@@ -108,9 +110,6 @@ export function fixed(v: number, digits: number): string {
   if (v === -Infinity) return "-Infinity";
   return v.toFixed(digits);
 }
-
-/** Bar / text colours shared by the statistics panel, the dialogs and the cell renderers. */
-export const LOSS_COLORS = ["rgb(22,222,0)", "rgb(158,232,34)", "rgb(222,222,0)", "rgb(200,140,50)", "rgb(172,16,19)", "rgb(85,25,80)"];
 
 /** Config.sysDefaultFontName (Dialog) as the main window resolves it. */
 export const UI_FONT = navigator.userAgent.includes("Windows")

@@ -1,22 +1,31 @@
-// 批量分析进度表 window (AnalysisTable.java): five buttons over a six-column table whose first
-// row is the record being analysed. It draws what the main window relays and reports every
-// click; the main window decides the command.
+// 批量分析进度表 window (AnalysisTable.java): five buttons in the window's button bar over a
+// six-column table whose first row is the record being analysed. It draws what the main window
+// relays and reports every click; the main window decides the command.
+import "../design/window";
 import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { BatchMove } from "../contract/generated";
-import { UI_FONT } from "../hawkeye/model";
-import { isChinese, setLanguage, t } from "../i18n";
+import { product, registerProduct, setLanguage, t } from "../i18n";
 import { BATCH_DATA_EVENT, BATCH_INPUT_EVENT, type BatchButton, type BatchInput, type BatchPayload, type BatchReport } from "./model";
 import "./batch.css";
 
-/** The top buttons: key, text and bounds (x, width; y 2, height 25). Literal t() calls keep the
- *  keys in the Java string extraction. */
-const BUTTONS: [BatchButton, () => string, number, number][] = [
-  ["stopGo", () => t("AnalysisTable.stopGo"), 10, 100],
-  ["stopStart", () => t("AnalysisTable.stopStart"), 110, 100],
-  ["stopStartAnalysisMode", () => t("AnalysisTable.stopStartAnalysisMode"), 210, 130],
-  ["addFile", () => t("AnalysisTable.addFile"), 340, 100],
-  ["clearAllFiles", () => t("AnalysisTable.clearAllFiles"), 440, 100],
+registerProduct({
+  ZhCn: { batchTableEmpty: "队列里没有棋谱。点“{0}”加入要分析的棋谱。" },
+  ZhTw: { batchTableEmpty: "佇列裡沒有棋譜。點「{0}」加入要分析的棋譜。" },
+  EnUs: { batchTableEmpty: "No records are queued. Use “{0}” to add records to analyse." },
+  JaJp: { batchTableEmpty: "キューに棋譜がありません。「{0}」で分析する棋譜を追加します。" },
+  KoKr: { batchTableEmpty: "대기 중인 기보가 없습니다. '{0}' 버튼으로 분석할 기보를 추가하세요." },
+  ThTh: { batchTableEmpty: "ไม่มีไฟล์ในคิว ใช้ “{0}” เพื่อเพิ่มไฟล์ที่จะวิเคราะห์" },
+});
+
+/** The top buttons: key, text and look (开始/结束 is the window's main action, 清空 empties the
+ *  queue). Literal t() calls keep the keys in the Java string extraction. */
+const BUTTONS: [BatchButton, () => string, "" | "primary" | "danger"][] = [
+  ["stopGo", () => t("AnalysisTable.stopGo"), ""],
+  ["stopStart", () => t("AnalysisTable.stopStart"), "primary"],
+  ["stopStartAnalysisMode", () => t("AnalysisTable.stopStartAnalysisMode"), ""],
+  ["addFile", () => t("AnalysisTable.addFile"), ""],
+  ["clearAllFiles", () => t("AnalysisTable.clearAllFiles"), "danger"],
 ];
 
 /** The row buttons' columns: text (also the header), action and the rows (index, count) where
@@ -29,17 +38,15 @@ const ROW_ACTIONS: [() => string, BatchMove | "Remove", (row: number, count: num
 ];
 
 export function bootBatchTable(): void {
-  document.body.style.fontFamily = UI_FONT;
   const send = (input: BatchInput) => void emitTo("main", BATCH_INPUT_EVENT, input);
 
   const bar = document.createElement("div");
   bar.id = "bt-buttons";
   const buttons = new Map<BatchButton, HTMLButtonElement>();
-  for (const [key, , x, width] of BUTTONS) {
+  for (const [key, , look] of BUTTONS) {
     const b = document.createElement("button");
     b.dataset.key = `batchTable.${key}`;
-    b.style.left = `${x}px`;
-    b.style.width = `${width}px`;
+    if (look) b.className = look;
     b.onclick = () => send({ type: "button", button: key });
     buttons.set(key, b);
     bar.append(b);
@@ -48,15 +55,20 @@ export function bootBatchTable(): void {
   scroll.id = "bt-scroll";
   const table = document.createElement("table");
   const columns = document.createElement("colgroup");
-  for (const width of [40, 300, 40, 40, 40, 40]) {
+  // The number, the file name taking the rest, then the four row actions sized to their text.
+  for (const cls of ["bt-col-number", "bt-col-name", "bt-col-action", "bt-col-action", "bt-col-action", "bt-col-action"]) {
     const col = document.createElement("col");
-    col.style.width = `${width / 5}%`;
+    col.className = cls;
     columns.append(col);
   }
   const head = document.createElement("thead");
   const body = document.createElement("tbody");
   table.append(columns, head, body);
   scroll.append(table);
+  // 增加棋谱 is the way to fill an empty queue; the hint says so under the header.
+  const empty = document.createElement("div");
+  empty.className = "bt-empty";
+  scroll.append(empty);
   document.body.append(bar, scroll);
 
   let lastReport = "";
@@ -80,7 +92,6 @@ export function bootBatchTable(): void {
 
   const render = (p: BatchPayload) => {
     setLanguage(p.language);
-    document.documentElement.lang = isChinese() ? "zh" : "en";
     // resetAnalysisMode: 暂停/继续 and 开始/结束 wait while a 批量精析 runs.
     const flash = p.running?.mode === "Flash";
     for (const [key, text] of BUTTONS) {
@@ -114,7 +125,7 @@ export function bootBatchTable(): void {
         tr.append(number, name);
         for (const [label, action, enabled] of ROW_ACTIONS) {
           const td = document.createElement("td");
-          td.className = "bt-action";
+          td.className = action === "Remove" ? "bt-action bt-remove" : "bt-action";
           const b = document.createElement("button");
           b.textContent = label();
           b.dataset.key = `batchTable.${action}.${row}`;
@@ -127,6 +138,8 @@ export function bootBatchTable(): void {
         return tr;
       }),
     );
+    empty.hidden = p.items.length > 0;
+    empty.textContent = product("batchTableEmpty", t("AnalysisTable.addFile"));
     report(rows);
   };
 

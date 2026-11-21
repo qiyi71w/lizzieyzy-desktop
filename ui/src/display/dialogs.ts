@@ -1,22 +1,26 @@
-// Board display dialogs: JOptionPane integer inputs (下一手提示需要计算量, 落子评价 显示最后多手),
-// 设置显示手数 (MovenumberDialog.java), 设置变化图回放间隔 (SetReplayTime.java), 延迟显示候选点
-// (SetDelayShowCandidates.java) and 自定义信息顺序 (SuggestionInfoOrderSettings.java). Each applies
-// through SetDisplaySettings and closes; validation follows the Java dialog.
+// Board display dialogs: the JOptionPane integer input (落子评价 显示最后多手), 设置显示手数
+// (MovenumberDialog.java) and 自定义信息顺序 (SuggestionInfoOrderSettings.java), as grouped rows
+// (engine/controls.ts) with 确定 and 取消 in the footer. Each applies through SetDisplaySettings and
+// closes; validation follows the Java dialog. 延迟显示候选点 (SetDelayShowCandidates.java) is a row
+// of 综合设置 (settingsPage.ts).
 import { state } from "../app";
 import type { DisplaySettings } from "../contract/generated";
 import { setDisplay } from "../commands";
 import { ask, formPanel, message } from "../dialogs";
+import { button, footer, groupTitle, primaryButton, row, segmented, switchRow } from "../engine/controls";
 import { isChinese, product, registerProduct, t } from "../i18n";
 import { GRAPH_FONT, images, javaDouble, playouts } from "../workbench/paint";
-import { delayCandidates, setCandidates } from "./state";
+import "./dialogs.css";
 
-// The JDK's own JOptionPane.showInputDialog title (OptionPane.inputDialogTitle).
+// The JDK's own JOptionPane.showInputDialog title (OptionPane.inputDialogTitle), and the title of
+// 自定义信息顺序's group of the candidate's three lines.
 registerProduct({
-  ZhCn: { inputTitle: "输入" },
-  ZhTw: { inputTitle: "輸入" },
-  EnUs: { inputTitle: "Input" },
-  JaJp: { inputTitle: "入力" },
-  KoKr: { inputTitle: "입력" },
+  ZhCn: { inputTitle: "输入", infoOrderLines: "显示顺序" },
+  ZhTw: { inputTitle: "輸入", infoOrderLines: "顯示順序" },
+  EnUs: { inputTitle: "Input", infoOrderLines: "Order" },
+  JaJp: { inputTitle: "入力", infoOrderLines: "表示順序" },
+  KoKr: { inputTitle: "입력", infoOrderLines: "표시 순서" },
+  ThTh: { inputTitle: "ป้อนข้อมูล", infoOrderLines: "ลำดับการแสดง" },
 });
 
 /** Integer.parseInt: an optionally signed decimal int, nothing else. */
@@ -61,97 +65,52 @@ export function fieldValue(field: HTMLInputElement): number {
   return Number.parseInt(s, 10);
 }
 
-/** A null-layout Swing panel: children placed at their setBounds. */
-export function absolute(width: number, height: number): HTMLDivElement {
-  const panel = document.createElement("div");
-  panel.className = "modal-body display-abs";
-  panel.style.width = `${width}px`;
-  panel.style.height = `${height}px`;
-  return panel;
-}
-
-export function place<T extends HTMLElement>(panel: HTMLElement, el: T, x: number, y: number, w: number, h: number): T {
-  el.style.left = `${x}px`;
-  el.style.top = `${y}px`;
-  el.style.width = `${w}px`;
-  el.style.height = `${h}px`;
-  panel.append(el);
-  return el;
-}
-
-export function labelEl(text: string): HTMLSpanElement {
-  const l = document.createElement("span");
-  l.className = "display-label";
-  l.textContent = text;
-  l.title = text;
-  return l;
-}
-
-export function button(text: string): HTMLButtonElement {
-  const b = document.createElement("button");
-  b.textContent = text;
-  return b;
-}
-
-/** getRootPane().setDefaultButton: Enter anywhere in the dialog presses it. */
-function defaultButton(body: HTMLElement, action: () => void): void {
-  body.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      action();
-    }
-  });
-}
-
-/** 手数 > 自定义 (MovenumberDialog, frame 172x105): an empty field; 确定 with 0 or less (or blank)
- *  turns the field red with 无效的数字 and keeps the dialog; otherwise the last n numbers show. */
+/** 手数 > 自定义 (MovenumberDialog): an empty field; 确定 (or Enter in the field, formPanel) with
+ *  0 or less (or blank) turns the field red with 无效的数字 under it and keeps the dialog (the next
+ *  edit clears both); otherwise the last n numbers show. */
 export function openMoveNumberDialog(): void {
-  const panel = absolute(156, 66);
-  place(panel, labelEl(t("MovenumberDialog.lblChangeTo")), 10, 10, 118, 20);
-  const field = place(panel, document.createElement("input"), 100, 11, 43, 20);
+  const body = document.createElement("div");
+  body.className = "display-dialog";
+  const field = document.createElement("input");
   field.type = "text";
-  field.setAttribute("aria-label", t("MovenumberDialog.lblChangeTo"));
+  field.inputMode = "numeric";
   digitsOnly(field);
-  const ok = place(panel, button(t("MovenumberDialog.okButton")), 35, 38, 83, 23);
-  const dialog = formPanel(t("MovenumberDialog.title"), panel);
+  row(body, t("MovenumberDialog.lblChangeTo").replace(/\s*[:：]\s*$/, ""), "", field);
+  const error = document.createElement("p");
+  error.className = "display-error";
+  error.id = "display-move-number-error";
+  error.setAttribute("role", "alert");
+  error.hidden = true;
+  body.append(error);
+  const ok = primaryButton(t("MovenumberDialog.okButton"), () => apply());
+  ok.dataset.key = "moveNumber.ok";
+  const dialog = formPanel(t("MovenumberDialog.title"), body);
+  const cancel = button(product("cancel"), () => void dialog.close());
+  cancel.dataset.key = "moveNumber.cancel";
+  footer(body, { primary: ok, cancel });
+  field.addEventListener("input", () => {
+    field.classList.remove("invalid");
+    field.removeAttribute("aria-invalid");
+    field.removeAttribute("aria-errormessage");
+    error.hidden = true;
+  });
   const apply = () => {
     const n = fieldValue(field);
     if (n <= 0) {
       field.classList.add("invalid");
-      field.title = t("LizzieChangeMove.txtMoveNumber.error");
+      field.setAttribute("aria-invalid", "true");
+      field.setAttribute("aria-errormessage", error.id);
+      error.textContent = t("LizzieChangeMove.txtMoveNumber.error");
+      error.hidden = false;
       return;
     }
     void dialog.close();
     setDisplay({ moveNumbers: n });
   };
-  ok.onclick = apply;
-  defaultButton(panel, apply);
-}
-
-/** 推荐点 > 设置变化图回放间隔 (SetReplayTime, frame 357x130): milliseconds; blank reads as 0. */
-export function openReplayIntervalDialog(): void {
-  const s = state.view?.settings.display;
-  if (!s) return;
-  const panel = absolute(341, 91);
-  place(panel, labelEl(t("SetReplayTime.lblInterval")), 92, 18, 104, 20);
-  const field = place(panel, document.createElement("input"), 187, 19, 70, 19);
-  field.type = "text";
-  field.value = String(Math.trunc(s.replayIntervalSeconds * 1000));
-  field.setAttribute("aria-label", t("SetReplayTime.lblInterval"));
-  digitsOnly(field);
-  const ok = place(panel, button(t("SetReplayTime.okButton")), 138, 50, 74, 29);
-  const dialog = formPanel(t("SetReplayTime.title"), panel);
-  const apply = () => {
-    const ms = fieldValue(field);
-    void dialog.close();
-    setDisplay({ replayIntervalSeconds: ms / 1000 });
-  };
-  ok.onclick = apply;
-  defaultButton(panel, apply);
 }
 
 /** DoubleDocument: the text must stay a (partial) decimal number. */
-function decimalOnly(field: HTMLInputElement): void {
+export function decimalOnly(field: HTMLInputElement): void {
   field.addEventListener("beforeinput", (e) => {
     if (!e.inputType.startsWith("insert")) return;
     const inserted = e.data ?? e.dataTransfer?.getData("text/plain") ?? "";
@@ -160,48 +119,6 @@ function decimalOnly(field: HTMLInputElement): void {
     const next = field.value.slice(0, start) + inserted + field.value.slice(end);
     if (!/^-?\d*\.?\d*$/.test(next)) e.preventDefault();
   });
-}
-
-/** 推荐点 > 延迟显示候选点 (SetDelayShowCandidates, packed): the check box enables the seconds field;
- *  应用 saves both (an unparsable field keeps the old seconds), then hides the candidates for the
- *  delay when on, or shows them when off. */
-export function openCandidatesDelayDialog(): void {
-  const s = state.view?.settings.display;
-  if (!s) return;
-  const body = document.createElement("div");
-  body.className = "modal-body display-delay";
-  const row = document.createElement("div");
-  row.className = "display-delay-row";
-  const check = document.createElement("input");
-  check.type = "checkbox";
-  check.checked = s.delayCandidates;
-  const checkLabel = document.createElement("label");
-  checkLabel.append(check, t("SetDelayShowCandidates.lblDelayCandidates"));
-  const field = document.createElement("input");
-  field.type = "text";
-  field.size = 10;
-  field.title = t("SetDelayShowCandidates.txtDelayCandidates.tooltips");
-  field.value = javaDouble(s.delayCandidatesSeconds);
-  field.disabled = !s.delayCandidates;
-  decimalOnly(field);
-  check.onchange = () => (field.disabled = !check.checked);
-  row.append(checkLabel, field);
-  const buttons = document.createElement("div");
-  buttons.className = "display-buttons";
-  const apply = button(t("SetDelayShowCandidates.apply"));
-  const cancel = button(t("SetDelayShowCandidates.cancel"));
-  buttons.append(apply, cancel);
-  body.append(row, buttons);
-  const dialog = formPanel(t("SetDelayShowCandidates.title"), body);
-  cancel.onclick = () => void dialog.close();
-  apply.onclick = () => {
-    const parsed = Number(field.value.trim());
-    const seconds = field.value.trim() !== "" && Number.isFinite(parsed) ? parsed : s.delayCandidatesSeconds;
-    void dialog.close();
-    setDisplay({ delayCandidates: check.checked, delayCandidatesSeconds: seconds });
-    if (check.checked) delayCandidates(seconds);
-    else setCandidates(true, true);
-  };
 }
 
 // ------------------------------------------------------------------ 自定义信息顺序
@@ -395,47 +312,40 @@ function paintPreview(canvas: HTMLCanvasElement, order: [number, number, number]
   drawSample(g, { winrate: 46.5, playouts: 730, score: 0, order, show }, 350, 100, "rgba(11,227,0,0.929)", 1, false);
 }
 
-/** 推荐点 > 自定义信息顺序 (SuggestionInfoOrderSettings, frame 480x366, not resizable): a live
- *  preview, the three shown-item check boxes and one radio per row and item. 确定 saves the check
- *  boxes, then the order only when every row has a different item (otherwise wrongSettingsHint and
- *  the dialog stays). The preview keeps the last valid order. `saved` gets the saved check boxes
- *  after either 确定 (setChkSuggestionInfo of the dialog that opened it). */
+/** 推荐点 > 自定义信息顺序 (SuggestionInfoOrderSettings): a live preview, a switch per shown item,
+ *  then one row per line of the candidate with its item as a segmented choice. 确定 saves the
+ *  switches, then the order only when every line has a different item (otherwise
+ *  wrongSettingsHint and the dialog stays). The preview keeps the last valid order. `saved` gets
+ *  the saved switches after either 确定 (setChkSuggestionInfo of the dialog that opened it). */
 export function openInfoOrderDialog(saved?: (shows: Pick<DisplaySettings, "suggestionWinrate" | "suggestionPlayouts" | "suggestionScore">) => void): void {
   const s = state.view?.settings.display;
   if (!s) return;
-  const panel = absolute(480, 327);
-  const canvas = place(panel, document.createElement("canvas"), 0, 0, 480, 170);
-  canvas.className = "display-preview";
-  place(panel, labelEl(t("SuggestionInfoOrderSettings.lblSuggestionInfo")), 10, 177, 124, 25);
-  const columns: [string, number, number][] = [
-    [t("SuggestionInfoOrderSettings.rdoWinrate"), 114, 103],
-    [t("SuggestionInfoOrderSettings.rdoPlayouts"), 230, 113],
-    [t("SuggestionInfoOrderSettings.rdoScoreLead"), 360, 121],
-  ];
-  const control = (type: "checkbox" | "radio", text: string, x: number, y: number, w: number, name = "") => {
-    const label = place(panel, document.createElement("label"), x, y, w, 23);
-    label.className = "display-choice";
-    const input = document.createElement("input");
-    input.type = type;
-    if (name) input.name = name;
-    label.append(input, text);
-    return input;
-  };
-  const checks = columns.map(([text, x, w]) => control("checkbox", text, x, 178, w));
-  [s.suggestionWinrate, s.suggestionPlayouts, s.suggestionScore].forEach((v, k) => (checks[k].checked = v));
-  const rowLabels = ["SuggestionInfoOrderSettings.lblFirstRow", "SuggestionInfoOrderSettings.lblSecondRow", "SuggestionInfoOrderSettings.lblThirdRow"];
-  rowLabels.forEach((key, row) => place(panel, labelEl(t(key)), 10, 205 + row * 30, 124, 25));
-  // radios[item][row]; each row is a ButtonGroup.
-  const radios = columns.map(([text, x, w], item) =>
-    [0, 1, 2].map((row) => {
-      const radio = control("radio", text, x, 208 + row * 30, w, `infoRow${row}`);
-      radio.checked = s.suggestionInfoOrder[item] === row + 1;
-      return radio;
-    }),
-  );
-  const ok = place(panel, button(t("SuggestionInfoOrderSettings.okButton")), 150, 301, 93, 25);
-  const cancel = place(panel, button(t("SuggestionInfoOrderSettings.cancelButton")), 250, 301, 93, 25);
-  const chosen = (): [number, number, number] => radios.map((rows) => rows.findIndex((r) => r.checked) + 1) as [number, number, number];
+  const caption = (text: string) => text.replace(/\s*[:：]\s*$/, "");
+  const body = document.createElement("div");
+  body.className = "info-order";
+  const canvas = document.createElement("canvas");
+  canvas.setAttribute("role", "img");
+  canvas.setAttribute("aria-label", caption(t("SuggestionInfoOrderSettings.preview")));
+  body.append(canvas);
+  const columns = [t("SuggestionInfoOrderSettings.rdoWinrate"), t("SuggestionInfoOrderSettings.rdoPlayouts"), t("SuggestionInfoOrderSettings.rdoScoreLead")];
+  groupTitle(body, caption(t("SuggestionInfoOrderSettings.lblSuggestionInfo")));
+  const shown = [s.suggestionWinrate, s.suggestionPlayouts, s.suggestionScore];
+  const checks = columns.map((text, item) => switchRow(body, text, "", shown[item]).input);
+  checks.forEach((box, item) => (box.dataset.key = `infoOrder.show.${item}`));
+  groupTitle(body, product("infoOrderLines"));
+  // One segmented choice per line; lines[row].inputs[item] is that item on that line.
+  const lines = [t("SuggestionInfoOrderSettings.lblFirstRow"), t("SuggestionInfoOrderSettings.lblSecondRow"), t("SuggestionInfoOrderSettings.lblThirdRow")].map((text, line) => {
+    const item = s.suggestionInfoOrder.findIndex((v) => v === line + 1);
+    const choice = segmented(`infoRow${line}`, columns.map((c, k) => [String(k), c]), item < 0 ? "" : String(item));
+    choice.inputs.forEach((radio, k) => (radio.dataset.key = `infoOrder.line.${line}.${k}`));
+    row(body, caption(text), "", choice.el);
+    return choice;
+  });
+  const ok = primaryButton(t("SuggestionInfoOrderSettings.okButton"), () => {});
+  ok.dataset.key = "infoOrder.ok";
+  const cancel = button(t("SuggestionInfoOrderSettings.cancelButton"), () => {});
+  cancel.dataset.key = "infoOrder.cancel";
+  const chosen = (): [number, number, number] => columns.map((_, item) => lines.findIndex((l) => l.inputs[item].checked) + 1) as [number, number, number];
   const valid = ([w, p, sc]: number[]) => w > 0 && p > 0 && sc > 0 && w !== p && p !== sc && sc !== w;
   let previewOrder: [number, number, number] = s.suggestionInfoOrder;
   const repaint = () => {
@@ -443,9 +353,10 @@ export function openInfoOrderDialog(saved?: (shows: Pick<DisplaySettings, "sugge
     if (valid(order)) previewOrder = order;
     paintPreview(canvas, previewOrder, checks.map((c) => c.checked) as [boolean, boolean, boolean]);
   };
-  panel.addEventListener("change", repaint);
+  body.addEventListener("change", repaint);
   repaint();
-  const dialog = formPanel(t("SuggestionInfoOrderSettings.title"), panel);
+  const dialog = formPanel(t("SuggestionInfoOrderSettings.title"), body);
+  footer(body, { primary: ok, cancel });
   cancel.onclick = () => void dialog.close();
   ok.onclick = async () => {
     const shows = { suggestionWinrate: checks[0].checked, suggestionPlayouts: checks[1].checked, suggestionScore: checks[2].checked };

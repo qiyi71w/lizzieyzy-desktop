@@ -5,31 +5,52 @@
   top: 0;
   z-index: 40;
 }
-.context-menu .mi .mark img {
-  display: block;
+.context-menu .mi .mark .icon {
   margin: 0 auto;
   width: 16px;
   height: 16px;
 }
+/* A greyed item greys its region colours too; stones keep their colours. */
+.context-menu .mi.disabled .mark .icon {
+  --icon-allow: var(--ds-text-off);
+  --icon-avoid: var(--ds-text-off);
+}
 
-/* Comment edit pane (LizzieFrame.java:821-826): borderless JTextPane, LIGHT_GRAY background and
-   white text in the comment font, replacing the comment view while editing. */
+/* A checked item: the check drawn in the check column in the item's text colour (greyed with it). */
+.context-menu .mi.checked > .mark::before {
+  content: "";
+  display: block;
+  width: 4.5px;
+  height: 8.5px;
+  margin: -3px auto 0;
+  border: solid currentColor;
+  border-width: 0 1.5px 1.5px 0;
+  border-radius: 0 0 1px 0;
+  transform: rotate(40deg);
+}
+/* Comment edit pane (LizzieFrame.java:821-826), replacing the comment view while editing: a field
+   inside the card section, its text at the section's 14 px side padding, in the comment font. */
 #comment .comment-edit {
   flex: 1;
   min-height: 0;
-  margin: 0;
-  padding: 8px 9px;
+  margin: 4px 8px 8px;
+  padding: 6px;
   border: none;
+  border-radius: var(--ds-radius);
   outline: none;
   resize: none;
-  background: rgb(192, 192, 192);
-  color: #fff;
+  background: var(--ds-field);
+  box-shadow: inset 0 0 0 1px var(--ds-line-strong);
+  color: var(--ds-text);
   font: inherit;
-  font-size: 14px;
-  line-height: 1.3;
+  font-size: var(--comment-font-size, var(--ds-size-l));
+  line-height: 1.6;
   white-space: pre-wrap;
   overflow-y: auto;
   user-select: text;
+}
+#comment .comment-edit:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--ds-accent);
 }
 
 /* Stone being moved (BoardRenderer.drawmovestone): the stone image on the hovered point. */

@@ -3,7 +3,7 @@ import { state } from "../app";
 import type { ExperimentalBackend, ResourceCommand, ResourceOutcome, ResourcesView } from "../contract/generated";
 import { confirm } from "../dialogs";
 import { product, t } from "../i18n";
-import type { SetupCard, SetupContext } from "./card";
+import { tagged, type SetupCard, type SetupContext } from "./card";
 import { assetBackends, currentPackage, packageTarget, planSetup, resourceCommand, resourceView, setupStatus } from "./dialog";
 import { action, actions, javaFormat, node, row, section, size } from "./setupText";
 
@@ -38,13 +38,15 @@ export function accelerationCard(ctx: SetupContext): SetupCard {
       const target = state.view?.settings.engine.engines.find((p) => p.id === ctx.engineId);
       const directed = node("p", target ? javaFormat(t("AutoSetup.tensorRtDirectedTarget"), target.name) : t("AutoSetup.tensorRtTargetStale"), "setup-chip"); directed.setAttribute("aria-label", t("AutoSetup.tensorRtDirectedTargetAccessibleName")); directed.title = t("AutoSetup.tensorRtDirectedTargetAccessibleDescription"); card.append(directed);
     }
-    row(card, t("AutoSetup.nvidiaRuntime"), !windows ? t("AutoSetup.nvidiaRuntimeNotApplicable") : cuda?.missing.length ? `${t("AutoSetup.nvidiaRuntimeMissing")} ${cuda.missing.join(", ")}` : cuda ? t("AutoSetup.nvidiaRuntimeReady") : product("setupUnknown"), true);
-    const gpu = row(card, t("AutoSetup.nvidiaGpu"), r.detecting ? t("AutoSetup.gpuDetecting") : r.machine?.nvidiaGpus.length ? r.machine.nvidiaGpus.map((g) => `${g.name} · ${g.driver ?? product("setupUnknown")} · ${g.memoryMib == null ? product("setupUnknown") : size(Number(g.memoryMib) * 1024 ** 2)}${g.compute ? ` · CC ${g.compute.major}.${g.compute.minor}` : ""}`).join("\n") : t("AutoSetup.gpuDetectNotFound"), true);
+    // Each runtime: not applicable off Windows or not known yet, missing pieces, or ready.
+    tagged(row(card, t("AutoSetup.nvidiaRuntime"), !windows ? t("AutoSetup.nvidiaRuntimeNotApplicable") : cuda?.missing.length ? `${t("AutoSetup.nvidiaRuntimeMissing")} ${cuda.missing.join(", ")}` : cuda ? t("AutoSetup.nvidiaRuntimeReady") : product("setupUnknown")), !windows || !cuda ? "neutral" : cuda.missing.length ? "missing" : "ready");
+    const gpu = row(card, t("AutoSetup.nvidiaGpu"), r.detecting ? t("AutoSetup.gpuDetecting") : r.machine?.nvidiaGpus.length ? r.machine.nvidiaGpus.map((g) => `${g.name} · ${g.driver ?? product("setupUnknown")} · ${g.memoryMib == null ? product("setupUnknown") : size(Number(g.memoryMib) * 1024 ** 2)}${g.compute ? ` · CC ${g.compute.major}.${g.compute.minor}` : ""}`).join("\n") : t("AutoSetup.gpuDetectNotFound"));
+    if (r.detecting) tagged(gpu, "neutral"); else if (!r.machine?.nvidiaGpus.length) tagged(gpu, "missing");
     gpu.setAttribute("aria-label", t("AutoSetup.tensorRtGpuAdviceAccessibleName")); gpu.title = t("AutoSetup.tensorRtGpuAdviceAccessibleDescription");
-    const runtime = row(card, t("AutoSetup.tensorRtRuntimeStatus"), !windows ? notApplicable : trt?.missing.length ? `${t("AutoSetup.tensorRtRuntimeNotReady")} · ${trt.missing.join(", ")}` : trt ? t("AutoSetup.tensorRtRuntimeReady") : product("setupUnknown"), true);
+    const runtime = tagged(row(card, t("AutoSetup.tensorRtRuntimeStatus"), !windows ? notApplicable : trt?.missing.length ? `${t("AutoSetup.tensorRtRuntimeNotReady")} · ${trt.missing.join(", ")}` : trt ? t("AutoSetup.tensorRtRuntimeReady") : product("setupUnknown")), !windows || !trt ? "neutral" : trt.missing.length ? "missing" : "ready");
     runtime.setAttribute("aria-label", t("AutoSetup.tensorRtRuntimeAccessibleName")); runtime.title = t("AutoSetup.tensorRtRuntimeAccessibleDescription");
-    row(card, t("AutoSetup.tensorRtCompanionStatus"), !windows ? notApplicable : companion ? t("AutoSetup.tensorRtCompanionReady") : t("AutoSetup.tensorRtCompanionMissing"), true);
-    row(card, t("AutoSetup.tensorRtEngineStatus"), !windows ? notApplicable : engine ? t("AutoSetup.tensorRtEngineReady") : t("AutoSetup.tensorRtEngineMissing"), true);
+    tagged(row(card, t("AutoSetup.tensorRtCompanionStatus"), !windows ? notApplicable : companion ? t("AutoSetup.tensorRtCompanionReady") : t("AutoSetup.tensorRtCompanionMissing")), !windows ? "neutral" : companion ? "ready" : "missing");
+    tagged(row(card, t("AutoSetup.tensorRtEngineStatus"), !windows ? notApplicable : engine ? t("AutoSetup.tensorRtEngineReady") : t("AutoSetup.tensorRtEngineMissing")), !windows ? "neutral" : engine ? "ready" : "missing");
     const missingActivation: string[] = [];
     if (!r.machine?.nvidiaGpus.length) missingActivation.push(t("AutoSetup.tensorRtMissingNvidiaGpu"));
     if (!trt || trt.missing.length) missingActivation.push(t("AutoSetup.tensorRtMissingRuntime"));
@@ -54,15 +56,18 @@ export function accelerationCard(ctx: SetupContext): SetupCard {
     if (!r.inventory.gtpConfig) missingActivation.push(t("AutoSetup.tensorRtMissingGtpConfig"));
     const ready = !!windows && !missingActivation.length;
     const active = !!engine && r.currentSetup.executable === engine.executable;
-    row(card, t("AutoSetup.tensorRtActivationStatus"), !windows ? notApplicable : active ? t("AutoSetup.tensorRtProfileActive") : ready ? t("AutoSetup.tensorRtProfileInactive") : `${t("AutoSetup.tensorRtProfileNotReady")} · ${missingActivation.join(", ")}`, true);
+    tagged(row(card, t("AutoSetup.tensorRtActivationStatus"), !windows ? notApplicable : active ? t("AutoSetup.tensorRtProfileActive") : ready ? t("AutoSetup.tensorRtProfileInactive") : `${t("AutoSetup.tensorRtProfileNotReady")} · ${missingActivation.join(", ")}`), !windows || ready && !active ? "neutral" : active ? "ready" : "missing");
     const experimentalAsset = r.packages.find((a) => assetBackends(a).includes(selected));
     const labels: Record<ExperimentalBackend, string> = { "direct-ml": t("AutoSetup.experimentalDirectMl"), "open-vino-gpu": t("AutoSetup.experimentalOpenVinoGpu"), "open-vino-npu": t("AutoSetup.experimentalOpenVinoNpu"), "rocm-gfx103x": t("AutoSetup.experimentalRocmGfx103x"), "rocm-gfx110x": t("AutoSetup.experimentalRocmGfx110x"), "rocm-gfx1151": t("AutoSetup.experimentalRocmGfx1151"), "rocm-gfx120x": t("AutoSetup.experimentalRocmGfx120x") };
     const experimentalPackage = experimentalAsset && currentPackage(r, experimentalAsset.id, selected);
-    row(card, t("AutoSetup.experimentalBackendStatus"), `${labels[selected]} · ${experimentalPackage ? r.currentSetup.executable === experimentalPackage.executable ? t("AutoSetup.experimentalBackendActive") : t("AutoSetup.experimentalBackendInstalled") : t("AutoSetup.experimentalBackendNotInstalled")}`, true);
+    const experimentalActive = !!experimentalPackage && r.currentSetup.executable === experimentalPackage.executable;
+    tagged(row(card, t("AutoSetup.experimentalBackendStatus"), `${labels[selected]} · ${experimentalPackage ? experimentalActive ? t("AutoSetup.experimentalBackendActive") : t("AutoSetup.experimentalBackendInstalled") : t("AutoSetup.experimentalBackendNotInstalled")}`), experimentalActive ? "ready" : "neutral");
     const repair = action("setup.acceleration.repair", t("AutoSetup.repairTensorRt"), async () => {
       if (await confirm(t("AutoSetup.tensorRtRepairConfirmTitle"), javaFormat(t("AutoSetup.tensorRtRepairConfirmMessage"), "3.7 GB", t("AutoSetup.tensorRtGpuHint")))) await resourceCommand({ type: "RepairTensorRt", confirmed: true });
     }, !!windows); repair.title = t("AutoSetup.repairTensorRtTooltip"); repair.setAttribute("aria-label", t("AutoSetup.repairTensorRtAccessibleName")); repair.setAttribute("aria-description", t("AutoSetup.repairTensorRtAccessibleDescription"));
     const enable = action("setup.acceleration.enable", t("AutoSetup.enableTensorRt"), () => activate("windows-tensorrt", "EnableTensorRt"), ready && !active); enable.title = t("AutoSetup.enableTensorRtTooltip"); enable.setAttribute("aria-label", t("AutoSetup.enableTensorRtAccessibleName")); enable.setAttribute("aria-description", t("AutoSetup.enableTensorRtAccessibleDescription"));
+    // TensorRT's next step on Windows: switch to it once every piece is here, else install them.
+    if (windows && !active) (ready ? enable : repair).classList.add("primary");
     card.append(node("h4", t("AutoSetup.installTensorRt")), node("p", t("AutoSetup.accelerationTensorRtHint"), "setup-hint")); actions(card, repair, enable);
     card.append(node("h4", t("AutoSetup.experimentalBackends")), node("p", t("AutoSetup.experimentalBackendHint"), "setup-hint"));
     const selector = node("select"); selector.dataset.key = "setup.acceleration.backend";

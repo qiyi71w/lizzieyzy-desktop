@@ -103,7 +103,7 @@ function previousMove(): ContextItem {
   return {
     key: "RightClickMenu.previousMove",
     label: game ? t("RightClickMenu.regretOne") : t("RightClickMenu.previousMove"),
-    icon: "left.png",
+    icon: "back",
     run: game ? () => void run({ type: "Game", op: { type: "Regret" } }) : () => undo(1),
   };
 }
@@ -121,14 +121,14 @@ function pointMenu(point: Point): ContextEntry[] {
       "sep",
       ...priorityMenuEntries(point),
       previousMove(),
-      { key: "RightClickMenu.findMove", label: t("RightClickMenu.findMove"), icon: "search.png", run: () => void edit({ op: "FindMove", point, any_branch: true }) },
-      { key: "RightClickMenu.addblack", label: t("RightClickMenu.addblack"), icon: "smallblack1.png", run: () => void edit({ op: "Insert", point, color: "Black" }) },
-      { key: "RightClickMenu.addwhite", label: t("RightClickMenu.addwhite"), icon: "smallwhite.png", run: () => void edit({ op: "Insert", point, color: "White" }) },
+      { key: "RightClickMenu.findMove", label: t("RightClickMenu.findMove"), icon: "search", run: () => void edit({ op: "FindMove", point, any_branch: true }) },
+      { key: "RightClickMenu.addblack", label: t("RightClickMenu.addblack"), icon: "stone-black", run: () => void edit({ op: "Insert", point, color: "Black" }) },
+      { key: "RightClickMenu.addwhite", label: t("RightClickMenu.addwhite"), icon: "stone-white", run: () => void edit({ op: "Insert", point, color: "White" }) },
     ];
-  if (v.editing.can_redo) entries.push({ key: "RightClickMenu.reedit", label: t("RightClickMenu.reedit"), icon: "right.png", run: () => void edit({ op: "RedoEdit" }) });
-  if (v.editing.can_undo) entries.push({ key: "RightClickMenu.cleanupedit", label: t("RightClickMenu.cleanupedit"), icon: "left.png", run: () => void edit({ op: "UndoEdit" }) });
+  if (v.editing.can_redo) entries.push({ key: "RightClickMenu.reedit", label: t("RightClickMenu.reedit"), icon: "forward", run: () => void edit({ op: "RedoEdit" }) });
+  if (v.editing.can_undo) entries.push({ key: "RightClickMenu.cleanupedit", label: t("RightClickMenu.cleanupedit"), icon: "back", run: () => void edit({ op: "UndoEdit" }) });
   if (v.editing.can_undo || v.editing.can_redo)
-    entries.push({ key: "RightClickMenu.cleanedittemp", label: t("RightClickMenu.cleanedittemp"), icon: "recycle.png", run: () => void edit({ op: "ClearEditCache" }) });
+    entries.push({ key: "RightClickMenu.cleanedittemp", label: t("RightClickMenu.cleanedittemp"), icon: "clear-all", run: () => void edit({ op: "ClearEditCache" }) });
   if (preview && v.game?.kind !== "Analysis")
     entries.push({ key: "RightClickMenu.addSuggestionAsBranch", label: t("RightClickMenu.addSuggestionAsBranch"), run: () => void edit({ op: "AddVariationAsBranch", moves: preview }) });
   return entries;
@@ -146,7 +146,7 @@ function stoneMenu(point: Point): ContextEntry[] {
     { key: "RightClickMenu2.review", label: t("RightClickMenu2.review"), run: () => pressStone(point, true) },
     "sep",
     previousMove(),
-    { key: "RightClickMenu2.findStone", label: t("RightClickMenu2.findStone"), icon: "upSearch.png", run: () => void edit({ op: "FindMove", point, any_branch: true }) },
+    { key: "RightClickMenu2.findStone", label: t("RightClickMenu2.findStone"), icon: "go-to-move", run: () => void edit({ op: "FindMove", point, any_branch: true }) },
   ];
 }
 

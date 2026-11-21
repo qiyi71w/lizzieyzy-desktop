@@ -1,10 +1,16 @@
-// 超级鹰眼 bottom panel (MoveListFrame.java `bottomPanel`): the JTabbedPane with the nine chart
-// tabs, each holding `matchPanel` (the chart, `draw`) and the 60 px `matchPanelmin` (`drawMin` and
-// its controls; absent on the 翻车现场 tabs). Everything painted comes from the payload; the
-// panel keeps only the mouse-over state and the text of its fields while they are edited.
+// 超级鹰眼 bottom panel (MoveListFrame.java `bottomPanel`): the nine chart tabs, each holding
+// `matchPanel` (the chart, `draw`) and the 60 px `matchPanelmin` (`drawMin` and its controls;
+// absent on the 翻车现场 tabs). Everything painted comes from the payload; the panel keeps only
+// the mouse-over state and the text of its fields while they are edited. The painters take the
+// window's tokens (stage.css graph and stone colours, hawkeye.css match areas and loss classes)
+// and repaint when the colour mode changes.
 import type { Command, DisplaySettings, HawkeyeStage, HistoryPoint, MoveEvaluation, Stone } from "../contract/generated";
-import { t } from "../i18n";
-import { fixed, settingsCommand, UI_FONT, type HawkeyePayload } from "./model";
+import { namedFace } from "../analysis/suggestionsFrame";
+import { icon } from "../design/icons";
+import { onThemeChange, token } from "../design/theme";
+import { product, registerProduct, t } from "../i18n";
+import { fillTabular, tabularWidth } from "../workbench/paint";
+import { fixed, settingsCommand, type HawkeyePayload } from "./model";
 
 export interface ChartActions {
   /** Core commands: { type: "Hawkeye", op: { type: "GotoMoveNumber", document, number } } for curve press/drag, { type: "Hawkeye", op: { type: "GotoMove", document, node } } for a 翻车现场 slot (node = pane.moves[mistake.index].node), { type: "Navigate", nav: { op: "Back"|"Forward", count: 1 } } for the wheel, SetHawkeyeSettings via settingsCommand(...) for chart tab / detail toggle / diff ranges. */
@@ -32,6 +38,40 @@ interface Target {
   value?: string;
   x: number;
   y: number;
+}
+
+registerProduct({
+  ZhCn: { hawkeyeHideChart: "隐藏图表", hawkeyeShowChart: "显示图表", hawkeyeMoves: "手", hawkeyeNoSamples: "0手，尚无可计算的样本" },
+  ZhTw: { hawkeyeHideChart: "隱藏圖表", hawkeyeShowChart: "顯示圖表", hawkeyeMoves: "手", hawkeyeNoSamples: "0手，尚無可計算的樣本" },
+  EnUs: { hawkeyeHideChart: "Hide chart", hawkeyeShowChart: "Show chart", hawkeyeMoves: " moves", hawkeyeNoSamples: " 0 moves, nothing to compute yet" },
+  JaJp: { hawkeyeHideChart: "グラフを隠す", hawkeyeShowChart: "グラフを表示", hawkeyeMoves: "手", hawkeyeNoSamples: "0手、まだ計算できるサンプルがありません" },
+  KoKr: { hawkeyeHideChart: "차트 숨기기", hawkeyeShowChart: "차트 표시", hawkeyeMoves: " 수", hawkeyeNoSamples: " 0 수, 아직 계산할 표본이 없습니다" },
+  ThTh: { hawkeyeHideChart: "ซ่อนกราฟ", hawkeyeShowChart: "แสดงกราฟ", hawkeyeMoves: " ตา", hawkeyeNoSamples: " 0 ตา ยังไม่มีตัวอย่างให้คำนวณ" },
+});
+
+/** Tab buttons as a tablist (this window's page, chart and loss tabs): the selected tab is the
+ *  strip's one Tab stop; Left/Right (Home/End) move to the neighbouring tab and select it,
+ *  Enter/Space and a click select the focused one. Returns what marks the selected tab. */
+export function tabList(strip: HTMLElement, tabs: HTMLButtonElement[], select: (k: number) => void): (selected: number) => void {
+  strip.setAttribute("role", "tablist");
+  const n = tabs.length;
+  tabs.forEach((tab, k) => {
+    tab.type = "button";
+    tab.setAttribute("role", "tab");
+    tab.addEventListener("click", () => select(k));
+    tab.addEventListener("keydown", (ev) => {
+      const to = ev.key === "ArrowRight" ? (k + 1) % n : ev.key === "ArrowLeft" ? (k + n - 1) % n : ev.key === "Home" ? 0 : ev.key === "End" ? n - 1 : -1;
+      if (to < 0) return;
+      ev.preventDefault();
+      tabs[to].focus();
+      select(to);
+    });
+  });
+  return (selected) =>
+    tabs.forEach((tab, k) => {
+      tab.setAttribute("aria-selected", String(k === selected));
+      tab.tabIndex = k === selected ? 0 : -1;
+    });
 }
 
 // ------------------------------------------------------------------ constants
@@ -62,42 +102,78 @@ function tabLabel(chart: number): string {
   }
 }
 
-/** Config.frameFontSize (default 12): the tab labels and the 翻车现场 texts. */
-const FRAME_FONT_SIZE = 12;
 /** matchPanelmin height (MoveListFrame.java:627, 2071). */
 const MIN_HEIGHT = 60;
-/** Metal (Ocean) JTabbedPane as the Java screenshots show it: an 18 px tab run, a content border
- *  of one dark line, one white line and two lines of the selected-tab colour on top, two lines of
- *  that colour and the outer border on the other sides. */
-const TAB_ROW = 18;
-const CONTENT_TOP = 4;
-const INSET = 3;
-/** Tab width = label width + this (measured on j05-hawkeye.png). */
-const TAB_PAD = 21;
-const PANEL_BG = "rgb(246,247,249)";
-const TAB_BG = "rgb(238,238,238)";
-const OCEAN_SELECTED = "rgb(200,221,242)";
-const OCEAN_DARK = "rgb(99,130,191)";
-const OCEAN_BORDER = "rgb(122,138,153)";
-
-// java.awt.Color constants used by draw / drawMin
-const BLACK = "rgb(0,0,0)";
-const WHITE = "rgb(255,255,255)";
-const GRAY = "rgb(128,128,128)";
-const LIGHT_GRAY = "rgb(192,192,192)";
-const YELLOW = "rgb(255,255,0)";
-const ORANGE = "rgb(255,200,0)";
-const CYAN = "rgb(0,255,255)";
-const MAGENTA = "rgb(255,0,255)";
-const RED = "rgb(255,0,0)";
-/** new Color(150, 150, 150): the chart background (MoveListFrame.java:3305). */
-const CHART_BG = "rgb(150,150,150)";
-/** defaultScoreColor (MoveListFrame.java:248). */
-const SCORE_COLOR = "rgb(255,0,0)";
-const MATCH_BLACK = "rgba(0,0,255,0.392)";
-const MATCH_WHITE = "rgba(0,255,0,0.392)";
 const DOT_RADIUS = 3;
 const DASH = [4];
+/** The width of the plotted lines. */
+const SERIES = 1.5;
+
+/** The type scale's sizes in px (--ds-size-s, --ds-size, --ds-size-l, --ds-size-xl) for canvas
+ *  text; --ds-size follows 界面字体大小. */
+export function typeSizes(): { s: number; m: number; l: number; xl: number } {
+  const m = Number.parseFloat(token("--ds-size")) || 12;
+  return { s: m - 1, m, l: m + 1, xl: m + 3 };
+}
+
+/** What the charts paint with, read from the tokens of the current colour mode. */
+interface Palette {
+  /** Plot ground, hairline grid, dashed midline and axis lines, axis numbers. */
+  ground: string;
+  grid: string;
+  baseline: string;
+  axis: string;
+  text: string;
+  label: string;
+  /** The current move's guide, the hovered one's guide and dot. */
+  guide: string;
+  hover: string;
+  /** 胜率 line inside the 统计 range, and outside it or across unanalysed moves. */
+  line: string;
+  lineOff: string;
+  /** 目数 line and its value, the current move's loss. */
+  score: string;
+  scoreText: string;
+  loss: string;
+  stoneBlack: string;
+  stoneBlackEdge: string;
+  stoneWhite: string;
+  stoneWhiteEdge: string;
+  matchBlack: string;
+  matchWhite: string;
+  face: string;
+  sizes: { s: number; m: number; l: number; xl: number };
+}
+
+let palette: Palette | null = null;
+onThemeChange(() => (palette = null));
+
+function currentPalette(): Palette {
+  palette ??= {
+    ground: token("--ds-panel"),
+    grid: token("--ws-graph-grid"),
+    baseline: token("--ws-graph-baseline"),
+    axis: token("--ds-text-3"),
+    text: token("--ds-text"),
+    label: token("--ds-text-2"),
+    guide: token("--ws-graph-guide"),
+    hover: token("--ws-graph-hover"),
+    line: token("--ws-winrate-line"),
+    lineOff: token("--ds-text-3"),
+    score: token("--ws-score-line"),
+    scoreText: token("--ws-graph-score-text"),
+    loss: token("--ws-loss"),
+    stoneBlack: token("--ws-stone-black"),
+    stoneBlackEdge: token("--ws-stone-black-edge"),
+    stoneWhite: token("--ws-stone-white"),
+    stoneWhiteEdge: token("--ws-stone-white-edge"),
+    matchBlack: token("--hk-match-black"),
+    matchWhite: token("--hk-match-white"),
+    face: token("--ds-font"),
+    sizes: typeSizes(),
+  };
+  return palette;
+}
 
 /** Java `(int)` of a double: NaN is 0, out of range saturates. */
 function jint(v: number): number {
@@ -121,12 +197,17 @@ function parseJava(text: string): number | null {
 
 // ------------------------------------------------------------------ Graphics2D on a canvas
 
-/** The few Graphics2D operations MoveListFrame paints with, on Java's pixel grid. */
+/** The few Graphics2D operations MoveListFrame paints with, on Java's pixel grid, and the stone
+ *  marks the charts draw each side with. */
 class G {
-  /** fonts: Lizzie.config.uiFontName / fontName as the main window resolved them. */
-  constructor(readonly c: CanvasRenderingContext2D, readonly fonts: { ui: string; info: string }) {
+  /** fonts: Lizzie.config.uiFontName / fontName when the theme names them, else the interface
+   *  face. */
+  readonly fonts: { ui: string; info: string };
+
+  constructor(readonly c: CanvasRenderingContext2D, readonly p: Palette, fonts: { ui: string; info: string }) {
     c.textBaseline = "alphabetic";
     c.textAlign = "left";
+    this.fonts = { ui: namedFace(fonts.ui) ?? p.face, info: namedFace(fonts.info) ?? p.face };
   }
 
   color(s: string): void {
@@ -141,9 +222,9 @@ class G {
     this.c.lineCap = dash ? "butt" : "square";
   }
 
-  /** Font(family, BOLD|PLAIN, size): Config.sysDefaultFontName unless a theme font is named. */
-  font(size: number, bold: boolean, family: string = UI_FONT): void {
-    this.c.font = `${bold ? "bold " : ""}${size}px ${family}`;
+  /** A size of the type scale, at weight 600 or 400. */
+  font(size: "s" | "m" | "l", bold = false, family: string = this.p.face): void {
+    this.c.font = `${bold ? "600 " : ""}${this.p.sizes[size]}px ${family}`;
   }
 
   line(x1: number, y1: number, x2: number, y2: number): void {
@@ -178,6 +259,59 @@ class G {
     this.c.fillText(s, x, y);
   }
 
+  /** Text on a rim of the plot ground, so it reads over the lines and areas under it. */
+  haloText(s: string, x: number, y: number, color: string): void {
+    this.c.save();
+    this.c.setLineDash([]);
+    this.c.lineJoin = "round";
+    this.c.lineWidth = 3;
+    this.c.strokeStyle = this.p.ground;
+    this.c.strokeText(s, x, y);
+    this.c.restore();
+    this.c.fillStyle = color;
+    this.c.fillText(s, x, y);
+  }
+
+  /** A side's bar: the stone colour inside its 1 px rim (the rim alone when too thin for both). */
+  stoneRect(x: number, y: number, w: number, h: number, black: boolean): void {
+    this.color(black ? this.p.stoneBlackEdge : this.p.stoneWhiteEdge);
+    this.rect(x, y, w, h);
+    this.color(black ? this.p.stoneBlack : this.p.stoneWhite);
+    if (w > 2 && h > 2) this.rect(x + 1, y + 1, w - 2, h - 2);
+  }
+
+  /** A side's dot or marker: the stone colour with its rim. */
+  stoneOval(x: number, y: number, w: number, h: number, black: boolean): void {
+    this.color(black ? this.p.stoneBlack : this.p.stoneWhite);
+    this.oval(x, y, w, h);
+    if (w <= 0 || h <= 0) return;
+    this.c.lineWidth = 1;
+    this.c.setLineDash([]);
+    this.c.strokeStyle = black ? this.p.stoneBlackEdge : this.p.stoneWhiteEdge;
+    this.c.stroke();
+  }
+
+  /** A side's line in the current stroke width, cased in the stone's rim colour. */
+  stoneLine(x1: number, y1: number, x2: number, y2: number, black: boolean): void {
+    const width = this.c.lineWidth;
+    this.c.beginPath();
+    this.c.moveTo(x1, y1);
+    this.c.lineTo(x2, y2);
+    this.c.lineWidth = width + 1.5;
+    this.c.strokeStyle = black ? this.p.stoneBlackEdge : this.p.stoneWhiteEdge;
+    this.c.stroke();
+    this.c.lineWidth = width;
+    this.c.strokeStyle = black ? this.p.stoneBlack : this.p.stoneWhite;
+    this.c.stroke();
+  }
+
+  /** A side's value after a small flat stone of its colour. */
+  stoneLabel(s: string, x: number, y: number, black: boolean): void {
+    const d = 8;
+    this.stoneOval(x, y - this.ascentMinusDescent() / 2 - d / 2, d, d, black);
+    this.haloText(s, x + d + 3, y, this.p.text);
+  }
+
   /** FontMetrics.stringWidth. */
   width(s: string): number {
     return Math.round(this.c.measureText(s).width);
@@ -208,7 +342,7 @@ function fit(canvas: HTMLCanvasElement, w: number, h: number, fonts: { ui: strin
   const c = canvas.getContext("2d")!;
   c.setTransform(dpr, 0, 0, dpr, 0, 0);
   c.clearRect(0, 0, w, h);
-  return new G(c, fonts);
+  return new G(c, currentPalette(), fonts);
 }
 
 // ------------------------------------------------------------------ the selected line
@@ -277,6 +411,22 @@ function convertHeight(d: number): number {
   return (2 / 8.0) * 100 + ((Math.abs(d) - 20.0) / (8.0 * 80)) * 100.0;
 }
 
+/** A score lead as the win-rate graph writes it (WinrateGraph.formatScoreLead): B+ / W+ and one
+ *  decimal, a bare 0.0 when even. */
+function scoreLead(black: number): string {
+  const magnitude = fixed(Math.abs(black), 1);
+  if (magnitude === "0.0") return magnitude;
+  return (black > 0 ? t("WinrateGraph.scoreLeadBlackPrefix") : t("WinrateGraph.scoreLeadWhitePrefix")) + magnitude;
+}
+
+/** A text's ink on the canvas. */
+interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 /** Java `params` after a complete `draw`: what `moveNumber` and the 翻车现场 slots use. */
 interface Params {
   posx: number;
@@ -300,11 +450,9 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
   let posy = 0;
   let width = W;
   let height = H;
-  g.color(CHART_BG);
+  const P = g.p;
+  g.color(P.ground);
   g.rect(posx, posy, chart !== 0 ? width + 5 : width + 2, height);
-  // the border line, still in the background colour (MoveListFrame.java:3322-3334)
-  g.stroke(1);
-  g.line(posx + 1, posy + 1, posx - 1 + width, posy + 1);
   const origH = height;
   const origW = width;
 
@@ -318,58 +466,49 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
     else height -= 16;
     if (chart === 2 || chart === 3) {
       g.stroke(1);
-      g.color(WHITE);
+      g.color(P.baseline);
       g.line(0, posy, origW + 5, posy);
       g.line(0, posy + height, origW + 5, posy + height);
     }
   }
 
-  // grid lines and their labels (MoveListFrame.java:3363-3451)
-  g.color(WHITE);
-  g.stroke(1, DASH);
+  // grid lines and their labels (MoveListFrame.java:3363-3451): hairlines, the middle or zero
+  // line dashed, the base the bars stand on solid.
   let gridLines = 3;
   if (chart === 2 || chart === 3) gridLines = 7;
   if (chart === 4) gridLines = 4;
   if (chart > 4) gridLines = 5;
   if (chart >= 7) gridLines = 3;
-  g.font(10, true);
+  g.font("s");
+  const gridLine = (x1: number, y: number, x2: number, kind: "grid" | "mid" | "base") => {
+    g.stroke(1, kind === "mid" ? DASH : undefined);
+    g.color(kind === "grid" ? P.grid : P.baseline);
+    g.line(x1, y, x2, y);
+  };
+  const axisText = (text: string, y: number) => {
+    g.color(P.axis);
+    g.text(text, 3, y + 3);
+  };
   for (let i = 1; i <= gridLines; i++) {
     const percent = (i * 100.0) / (gridLines + 1);
     const y = posy + height - jint((height * percent) / 100);
     if (chart === 2 || chart === 3) {
-      const label = ["+20", "+5", "0", "-5", "-10", "-20", "-50"][i - 1];
-      if (i === 3) g.stroke(1);
-      g.text(label, 3, y + 3);
-      g.line(posx, y, posx + width - 3, y);
-      g.stroke(1, DASH);
+      gridLine(posx, y, posx + width - 3, i === 3 ? "mid" : "grid");
+      axisText(["+20", "+5", "0", "-5", "-10", "-20", "-50"][i - 1], y);
     } else if (chart === 4) {
-      if (i === 1) {
-        g.stroke(1);
-        g.line(0, y, posx + width, y);
-        g.stroke(1, DASH);
-      } else {
-        g.color(LIGHT_GRAY);
-        g.line(posx + 17, y, posx + width - 25, y);
-        g.color(WHITE);
-        g.text(String(idiv(100 * (i - 1), 4)), 3, y + 3);
+      if (i === 1) gridLine(0, y, posx + width, "base");
+      else {
+        gridLine(posx + 17, y, posx + width - 25, "grid");
+        axisText(String(idiv(100 * (i - 1), 4)), y);
       }
     } else if (chart > 4 && chart < 7) {
-      if (i === 2) {
-        g.color(WHITE);
-        g.stroke(1);
-        g.line(0, y, posx + width, y);
-        g.stroke(1, DASH);
-        g.color(LIGHT_GRAY);
-      } else if (i > 2) {
-        g.color(LIGHT_GRAY);
-        g.line(posx, y, posx + width - 25, y);
-      }
+      if (i === 2) gridLine(0, y, posx + width, "base");
+      else if (i > 2) gridLine(posx, y, posx + width - 25, "grid");
     } else {
-      if (chart >= 7) {
-        g.color(GRAY);
-        g.line(posx, y, posx + width, y);
-      } else g.line(posx, y, posx + width - 25, y);
-      if (chart < 5) g.text(String(idiv(100 * i, 4)), 3, y + 3);
+      if (chart >= 7) gridLine(posx, y, posx + width, "grid");
+      else gridLine(posx, y, posx + width - 25, i === 2 ? "mid" : "grid");
+      // 胜率吻合 labels its scale after the curves are laid out (below)
+      if (chart === 1) axisText(String(idiv(100 * i, 4)), y);
     }
   }
 
@@ -380,7 +519,7 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
   }
   if (chart === 5 || chart === 6) return null; // the rest of draw paints nothing for these
 
-  g.stroke(2);
+  g.stroke(SERIES);
   const total = line.total;
   const cur = currentOf(p);
   const first = p.firstMove;
@@ -402,17 +541,104 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
     trueNumMoves = end - 1;
   }
   if (numMoves < trueNumMoves) numMoves = trueNumMoves;
-  if (trueNumMoves < 1) return null;
-  const firstNodeAnalyzed = line.points.has(1);
   width = chart === 0 ? width - 30 : width - 35;
   const xOf = (n: number) => posx + idiv(n * width, numMoves);
   const yOf = (wr: number) => posy + height - jint((wr * height) / 100);
 
+  // 胜率吻合's score line spans ±maxScore over the plot's height.
+  const katago = p.pane.katago;
+  let maxScore = 30;
+  let scored = false;
+  if (chart === 0 && katago)
+    for (const pt of line.points.values()) {
+      if (pt.black.score_lead !== null) scored = true;
+      if (pt.score_lead !== null && Math.abs(pt.score_lead) > maxScore) maxScore = Math.abs(pt.score_lead);
+    }
+  const scoreY = (s: number) => {
+    const v = s > maxScore ? maxScore : s < 0 && Math.abs(s) > maxScore ? -maxScore : s;
+    return posy + idiv(height, 2) - jint((v * height) / 2 / maxScore);
+  };
+  // 胜率吻合's current and mouse-over positions (curMouseOverNode), each with its win rate and
+  // score lead (MoveListFrame.java:5843-5941): laid out here, painted over the curves.
+  const hm = hover.move ?? -1;
+  const hoverAt = chart === 0 && hm !== cur && hm >= 2 && hm <= total ? line.points.get(hm) : undefined;
+  const readouts: (() => void)[] = [];
+  const readoutBoxes: Box[] = [];
+  if (chart === 0 && trueNumMoves >= 1) {
+    const shift = (katago ? 9 : 3) * DOT_RADIUS;
+    const put = (text: string, x: number, y: number, size: "m" | "l", color: string) => {
+      g.font(size, true, g.fonts.ui);
+      const ink = g.c.measureText(text);
+      readoutBoxes.push({ x: x - 2, y: y - ink.actualBoundingBoxAscent - 2, w: ink.width + 4, h: ink.actualBoundingBoxAscent + ink.actualBoundingBoxDescent + 4 });
+      readouts.push(() => {
+        g.font(size, true, g.fonts.ui); // MoveListFrame.java:5860, 5891, 5906, 5929
+        g.haloText(text, x, y, color);
+      });
+    };
+    const values = (pt: HistoryPoint, n: number, dot: string) => {
+      const wr = pt.black.winrate;
+      put(fixed(wr, 1) + "%", xOf(n) - shift, yOf(wr) + (wr > 50 ? 6 * DOT_RADIUS : -2 * DOT_RADIUS), "l", P.text);
+      readouts.push(() => {
+        g.color(dot);
+        g.oval(xOf(n) - DOT_RADIUS, yOf(wr) - DOT_RADIUS, DOT_RADIUS * 2, DOT_RADIUS * 2);
+      });
+      const s = katago ? pt.black.score_lead : null;
+      if (s === null) return;
+      const text = scoreLead(s);
+      g.font("m", true, g.fonts.ui);
+      // Java steps back 13 px over the last two moves; the B+ / W+ text also stops at the edge.
+      put(text, Math.min(numMoves - n < 2 ? xOf(n) - 13 : xOf(n), origW - g.width(text)), scoreY(s), "m", P.scoreText);
+    };
+    const curAt = cur >= 2 && cur <= total ? line.points.get(cur) : undefined;
+    if (curAt) {
+      // The current position's values give way to the mouse-over ones they would overlap.
+      g.font("l", true, g.fonts.ui);
+      const mPosX = hoverAt ? xOf(hm - 1) - shift : -1;
+      if (Math.abs(xOf(cur - 1) - shift - mPosX) > g.width(fixed(curAt.black.winrate, 1) + "%")) values(curAt, cur - 1, P.line);
+    }
+    if (hoverAt) values(hoverAt, hm - 1, P.hover);
+  }
+  if (chart === 0) {
+    // 胜率吻合's scale, as the main window's win-rate graph labels it: tabular labels just above
+    // the 75 / 50 / 25 % lines (the midline's alone where the quarters are closer than a line of
+    // text), the win rate at the left edge, the score lead at ±maxScore / 2 and 0 at the right
+    // edge where it clears the win rate's. A label a readout covers is left out.
+    g.font("s");
+    const labelH = g.height();
+    const descent = Math.ceil(g.c.measureText("0").fontBoundingBoxDescent);
+    const quarterY = (k: number) => posy + height - jint((height * k * 25) / 100);
+    const quarters = quarterY(2) - quarterY(3) >= labelH + 2;
+    const right = origW - 1;
+    const label = (text: string, x: number, base: number, color: string) => {
+      const ink = g.c.measureText(text);
+      const box = { x, y: base - ink.actualBoundingBoxAscent - 1, w: tabularWidth(g.c, text), h: ink.actualBoundingBoxAscent + ink.actualBoundingBoxDescent + 2 };
+      if (readoutBoxes.some((r) => r.x < box.x + box.w && box.x < r.x + r.w && r.y < box.y + box.h && box.y < r.y + r.h)) return;
+      g.color(color);
+      fillTabular(g.c, text, x, base);
+    };
+    const half = fixed(maxScore / 2, 1).replace(/\.0$/, "");
+    const rows: [number, string, string][] = [
+      [3, "75%", t("WinrateGraph.scoreLeadBlackPrefix") + half],
+      [2, "50%", "0"],
+      [1, "25%", t("WinrateGraph.scoreLeadWhitePrefix") + half],
+    ];
+    for (const [k, win, score] of rows) {
+      const y = quarterY(k);
+      if (k === 2 ? y - posy < labelH + 2 : !quarters) continue;
+      const base = y - 2 - descent;
+      label(win, 3, base, P.axis);
+      const w = tabularWidth(g.c, score);
+      if (scored && 3 + tabularWidth(g.c, win) + 8 <= right - w) label(score, right - w, base, P.scoreText);
+    }
+  }
+  if (trueNumMoves < 1) return null;
+  const firstNodeAnalyzed = line.points.has(1);
+
   if (chart === 7 || chart === 8) {
     const list = chart === 7 ? p.pane.winrate_mistakes : p.pane.score_mistakes;
-    g.font(FRAME_FONT_SIZE - 2, false);
+    g.font("s");
     const heightFont = g.ascentMinusDescent();
-    g.color(WHITE);
+    g.color(P.baseline);
     g.stroke(1);
     g.line(0, height - heightFont - 10, width, height - heightFont - 10);
     list.forEach((m, i) => {
@@ -430,16 +656,9 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
   let lastWrSave = 50;
   let lastMatchValueB = 0;
   let lastMatchValueW = 0;
-  let cwr = -1;
-  let cmovenum = -1;
-  let cScore = -500;
-  let mmovenum = -1;
-  let mwr = -1;
-  let mScore = -500;
   let cmovenumCase2 = -1;
   let cdiffwinCase2 = 0;
   let cConvertHeight = 0;
-  const hoverMove = hover.move;
   const single = p.black !== p.white;
 
   for (let k = end; k > 0 && (chart === 0 || chart === 1 || k >= first); k--) {
@@ -453,7 +672,7 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
         if (k <= last && k - 1 >= first && mv?.match_ai) {
           const black = mv.mover === "Black";
           if ((black && p.black) || (!black && p.white)) {
-            g.color(black ? MATCH_BLACK : MATCH_WHITE);
+            g.color(black ? P.matchBlack : P.matchWhite);
             const edge = black ? origH : 0;
             const convert = lastOkMove - movenum > 1 ? wr + (lastWr - wr) / (lastOkMove - movenum) : lastWr;
             // the previous position's win rate as Black's (MoveListFrame.java:5283-5286, 5340, 5376)
@@ -465,25 +684,18 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
         if (lastOkMove > 0) {
           const inRange = k + 1 <= last && k >= first;
           if (lastNodeOk) {
-            g.color(inRange ? CYAN : ORANGE);
+            g.color(inRange ? P.line : P.lineOff);
             g.line(xOf(lastOkMove), yOf(lastWr), xOf(movenum), yOf(wr));
           } else {
-            g.color(ORANGE);
+            g.color(P.lineOff);
             const lostMoves = lastOkMove - movenum;
             if (lostMoves < 35)
               g.line(xOf(lastOkMove), yOf(lastWr), xOf(movenum + 1), posy + height - jint(((wr - (wr - lastWr) / lostMoves) * height) / 100));
-            g.color(inRange ? CYAN : ORANGE);
+            g.color(inRange ? P.line : P.lineOff);
             const a = jint((lastWr * height) / 100);
             const b = jint((wr * height) / 100);
             g.line(xOf(movenum + 1), posy + height - a + idiv((a - b) * (lostMoves - 1), lostMoves), xOf(movenum), yOf(wr));
           }
-        }
-        if (k === cur) {
-          cwr = wr;
-          cmovenum = movenum;
-        } else if (k === hoverMove) {
-          mwr = wr;
-          mmovenum = movenum;
         }
         lastWr = wr;
         lastNodeOk = true;
@@ -505,14 +717,14 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
       const analyzed = black ? rb.count : rw.count;
       const matchValue = black ? blackValue : whiteValue;
       if (analyzed >= 1) {
-        g.color(black ? "rgba(0,0,0,0.784)" : "rgba(255,255,255,0.784)");
         const lastMatchValue = black ? lastMatchValueB : lastMatchValueW;
         if (k !== total)
-          g.line(
+          g.stoneLine(
             xOf(movenum + 2),
             posy + height - jint(((lastMatchValue > 0 ? lastMatchValue : matchValue) * height) / 100),
             xOf(movenum),
             jint(posy + height - (matchValue * height) / 100),
+            black,
           );
       }
       if (!Number.isNaN(blackValue)) lastMatchValueB = blackValue;
@@ -520,20 +732,18 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
       if (k === cur) {
         const x = posx + idiv((cur - 1) * width, numMoves);
         g.stroke(1, DASH);
-        g.color(YELLOW);
+        g.color(P.guide);
         g.line(x, 0, x, posy + origH);
-        g.color(BLACK);
-        g.text(String(cur), x + 3, posy + origH - 10);
-        g.stroke(2);
-        g.font(15, true, g.fonts.info); // Font(Lizzie.config.fontName, BOLD, 15), MoveListFrame.java:5473
+        g.font("s", true);
+        g.haloText(String(cur), x + 3, posy + origH - 10, P.text);
+        g.stroke(SERIES);
+        g.font("l", true, g.fonts.info); // Font(Lizzie.config.fontName, BOLD, 15), MoveListFrame.java:5473
         const hi = posy + height - jint((Math.max(lastMatchValueB, lastMatchValueW) * height) / 100) - 4;
         const lo = posy + height - jint((Math.min(lastMatchValueB, lastMatchValueW) * height) / 100) + 16;
         const bx = xOf(movenum) - 5;
         const blackHigh = lastMatchValueB >= lastMatchValueW;
-        g.color(BLACK);
-        if (rb.count >= 1) g.text(fixed(lastMatchValueB, 1), bx, blackHigh ? hi : lo);
-        g.color(WHITE);
-        if (rw.count >= 1) g.text(fixed(lastMatchValueW, 1), bx, blackHigh ? lo : hi);
+        if (rb.count >= 1) g.stoneLabel(fixed(lastMatchValueB, 1), bx, blackHigh ? hi : lo, true);
+        if (rw.count >= 1) g.stoneLabel(fixed(lastMatchValueW, 1), bx, blackHigh ? lo : hi, false);
       }
     } else {
       // 胜率损失分布 / 目数损失分布: the loss of the move played here (MoveListFrame.java:5516-5659)
@@ -544,27 +754,22 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
       let drawn = false;
       let convert = 0;
       if (mv?.analyzed && Math.abs(diff) > 0) {
-        if (mv.mover === "Black" && p.black) {
-          g.color(BLACK);
-          drawn = true;
-        } else if (mv.mover === "White" && p.white) {
-          g.color(WHITE);
-          drawn = true;
-        }
+        const black = mv.mover === "Black";
+        drawn = black ? p.black : p.white;
         if (drawn) {
           convert = convertHeight(diff);
           if (score) convert = Math.min(100, Math.max(-100, convert));
           const x = posx + jint(((movenum + (single ? 0.5 : 1)) * width) / numMoves);
           const w = idiv((single ? 2 : 1) * width, numMoves) - (single ? 1 : 0);
           const base = posy + height - idiv(height * 3, 8);
-          if (diff > 0) g.rect(x, base, w, jint((convert * height) / 100));
-          else g.rect(x, jint(base + (convert * height) / 100), w, jint((Math.abs(convert) * height) / 100));
+          if (diff > 0) g.stoneRect(x, base, w, jint((convert * height) / 100), black);
+          else g.stoneRect(x, jint(base + (convert * height) / 100), w, jint((Math.abs(convert) * height) / 100), black);
         }
       }
       if (cur > 0 && k === cur - 1) {
         const x = posx + jint(((movenum + 1.5) * width) / numMoves);
         g.stroke(1, DASH);
-        g.color(YELLOW);
+        g.color(P.guide);
         g.line(x, 0, x, posy + origH);
       }
       if (k + 1 === cur && drawn) {
@@ -578,8 +783,8 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
   }
 
   // move number ticks (MoveListFrame.java:5679-5756)
-  g.color(WHITE);
-  g.font(10, true, g.fonts.ui); // Font(Lizzie.config.uiFontName, BOLD, 10), MoveListFrame.java:5680
+  g.color(P.axis);
+  g.font("s", false, g.fonts.ui); // Font(Lizzie.config.uiFontName, BOLD, 10), MoveListFrame.java:5680
   const step = numMoves <= 100 ? 10 : 20;
   if (chart === 2 || chart === 3) {
     // String concatenation as Java does: "0" + 10 → "010" (MoveListFrame.java:5685-5687)
@@ -587,17 +792,15 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
     for (let i = 1; i <= idiv(numMoves, step); i++)
       g.text(prefix + String(i * step), posx + idiv((i * step - 1) * width, numMoves) + 3, posy + origH - 5);
     const x = posx + idiv((cur - 1 - (first - 1 > 0 ? first : 0)) * width, numMoves);
-    g.color(BLACK);
-    g.font(10, true);
-    g.text(String(cur), x + 3, posy + origH - 5);
+    g.font("s", true);
+    g.haloText(String(cur), x + 3, posy + origH - 5, P.text);
     if (cmovenumCase2 > 0) {
-      g.font(13, true, g.fonts.info); // MoveListFrame.java:5715
+      g.font("m", true, g.fonts.info); // MoveListFrame.java:5715
       const text = fixed(cdiffwinCase2, 1);
       const mw = g.width(text);
-      g.color(RED);
       const x2 = posx + jint(((cmovenumCase2 + 1.5) * width) / numMoves - idiv(mw, 2));
-      if (cdiffwinCase2 <= 0) g.text(text, x2, jint(posy + height + 13 - idiv(height * 3, 8)));
-      else g.text("+" + text, x2, jint(posy + height + 13 + (cConvertHeight / 100) * height - idiv(height * 3, 8)));
+      if (cdiffwinCase2 <= 0) g.haloText(text, x2, jint(posy + height + 13 - idiv(height * 3, 8)), P.loss);
+      else g.haloText("+" + text, x2, jint(posy + height + 13 + (cConvertHeight / 100) * height - idiv(height * 3, 8)), P.loss);
     }
   } else {
     for (let i = 1; i <= idiv(numMoves, step); i++)
@@ -608,37 +811,32 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
     // the current and mouse-over positions, the score line (MoveListFrame.java:5757-5941)
     let x = posx + idiv((cur - 1) * width, numMoves);
     g.stroke(1, DASH);
-    g.color(YELLOW);
+    g.color(P.guide);
     g.line(x, 0, x, posy + origH);
-    g.color(BLACK);
-    g.text(String(cur), x + 3, posy + origH - 10);
-    if (mmovenum > 0 && hoverMove !== null) {
-      x = posx + idiv((hoverMove - 1) * width, numMoves);
-      g.color(WHITE);
+    g.font("s", true);
+    g.haloText(String(cur), x + 3, posy + origH - 10, P.text);
+    if (hoverAt) {
+      x = posx + idiv((hm - 1) * width, numMoves);
+      g.stroke(1, DASH);
+      g.color(P.hover);
       g.line(x, 0, x, posy + origH);
-      g.color(BLACK);
-      g.text(String(hoverMove), x + 3, posy + origH - 10);
+      g.haloText(String(hm), x + 3, posy + origH - 10, P.text);
     }
-    g.stroke(2);
+    g.stroke(SERIES);
     if (lastOkMoveSave > 0 && !firstNodeAnalyzed) {
-      g.color(ORANGE);
+      g.color(P.lineOff);
       g.line(posx, posy + height - idiv(50 * height, 100), xOf(lastOkMoveSave), yOf(lastWrSave));
     }
 
-    let maxScore = 30;
-    const katago = p.pane.katago;
     if (katago) {
-      for (const pt of line.points.values()) if (pt.score_lead !== null && Math.abs(pt.score_lead) > maxScore) maxScore = Math.abs(pt.score_lead);
       let lastScore = -500;
       let lastOk = -1;
       let n = total - 1;
       for (let k = total; k > 0; k--, n--) {
         const s = line.points.get(k)?.black.score_lead;
         if (s === undefined || s === null) continue;
-        if (k === cur) cScore = s;
-        else if (k === hoverMove) mScore = s;
         if (lastOk > 0 && Math.abs(n - lastOk) < 25 && lastScore > -500) {
-          g.color(SCORE_COLOR);
+          g.color(P.score);
           // dashed from a position off the main trunk (MoveListFrame.java:5829-5831)
           const offTrunk = p.pane.off_trunk_from !== null && k >= p.pane.off_trunk_from;
           if (offTrunk) g.stroke(1, DASH);
@@ -649,39 +847,7 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
         lastOk = n;
       }
     }
-    function scoreY(s: number): number {
-      const v = s > maxScore ? maxScore : s < 0 && Math.abs(s) > maxScore ? -maxScore : s;
-      return posy + idiv(height, 2) - jint((v * height) / 2 / maxScore);
-    }
-    const shift = (katago ? 9 : 3) * DOT_RADIUS;
-    const mPosX = mmovenum > 0 ? xOf(mmovenum) - shift : -1;
-    const textY = (wr: number) => posy + (height - jint((wr * height) / 100)) + (wr > 50 ? 6 * DOT_RADIUS : -2 * DOT_RADIUS);
-    const scoreText = (s: number, n: number) => {
-      g.color(WHITE);
-      g.font(13, true, g.fonts.ui); // MoveListFrame.java:5891, 5929
-      g.text(fixed(s, 1), numMoves - n < 2 ? xOf(n) - 13 : xOf(n), scoreY(s));
-    };
-    if (cmovenum > 0) {
-      g.font(16, true, g.fonts.ui); // MoveListFrame.java:5860
-      const wrString = fixed(cwr, 1);
-      const strWidth = g.width(wrString);
-      const cPosX = xOf(cmovenum) - shift;
-      if (Math.abs(cPosX - mPosX) > strWidth) {
-        g.color(BLACK);
-        g.text(wrString, cPosX, textY(cwr));
-        g.color(MAGENTA);
-        g.oval(xOf(cmovenum) - DOT_RADIUS, posy + height - jint((cwr * height) / 100) - DOT_RADIUS, DOT_RADIUS * 2, DOT_RADIUS * 2);
-        if (cScore > -500) scoreText(cScore, cmovenum);
-      }
-    }
-    if (mmovenum > 0) {
-      g.font(16, true, g.fonts.ui); // MoveListFrame.java:5906
-      g.color(BLACK);
-      g.text(fixed(mwr, 1), mPosX, textY(mwr));
-      g.color(YELLOW);
-      g.oval(xOf(mmovenum) - DOT_RADIUS, posy + height - jint((mwr * height) / 100) - DOT_RADIUS, DOT_RADIUS * 2, DOT_RADIUS * 2);
-      if (mScore > -500) scoreText(mScore, mmovenum);
-    }
+    for (const paint of readouts) paint();
   }
   return { posx, width, numMoves };
 }
@@ -699,23 +865,25 @@ function drawOneBigMistakePoint(
 ): void {
   const cx = idiv(width, 20) + idiv(index * width, 10);
   if (index === hoverSlot) {
-    g.color(YELLOW);
+    g.color(g.p.hover);
     g.stroke(1.5, [5]);
     g.line(cx, 0, cx, height);
   }
-  g.color(move.mover === "Black" ? BLACK : WHITE);
+  const black = move.mover === "Black";
   const winrate = move.winrate ?? 50;
   const yc = jint(height * 0.15 + (height * 0.7 * (100 - winrate)) / 100.0);
-  g.oval(cx - idiv(height, 26), yc - idiv(height, 26), idiv(height, 13), idiv(height, 13));
+  g.color(black ? g.p.stoneBlackEdge : g.p.stoneWhiteEdge);
   g.poly(
     [cx - idiv(height, 40), cx - idiv(height, 55), cx - idiv(height, 10)],
     [yc, yc - idiv(height, 30), yc - idiv(height, 10)],
   );
-  g.font(FRAME_FONT_SIZE - 2, false);
+  g.stoneOval(cx - idiv(height, 26), yc - idiv(height, 26), idiv(height, 13), idiv(height, 13), black);
+  g.font("s");
+  g.color(g.p.axis);
   const label = String(move.move_number);
   g.text(label, cx - idiv(g.width(label), 2), height - 5);
-  g.font(FRAME_FONT_SIZE, false);
-  g.text(fixed(change, 1) + (isScore ? "" : "%"), cx + idiv(height, 13), yc);
+  g.font("m", true);
+  g.haloText(fixed(change, 1) + (isScore ? "" : "%"), cx + idiv(height, 13), yc, g.p.text);
 }
 
 /** 胜率损失统计 / 目数损失统计 histograms (MoveListFrame.java:3452-4696). */
@@ -725,8 +893,8 @@ function drawMisses(g: G, p: HawkeyePayload, posx: number, posy: number, width: 
   const r1 = score ? s.scoreRange1 : s.winrateRange1;
   const r2 = score ? s.scoreRange2 : s.winrateRange2;
   const unit = score ? "" : "%";
-  g.font(12, true, g.fonts.info); // MoveListFrame.java:3453, 4082
-  g.color(BLACK);
+  g.font("m", false, g.fonts.info); // MoveListFrame.java:3453, 4082
+  g.color(g.p.label);
   const y = posy + height - jint((height * ((2 * 100.0) / (gridLines + 1))) / 100);
   const y2 = posy + height - jint((height * (100.0 / (gridLines + 1))) / 100);
   const fh = g.height();
@@ -746,16 +914,17 @@ function drawMisses(g: G, p: HawkeyePayload, posx: number, posy: number, width: 
     centred(">" + r2 + unit, 14 + base, y + fh);
   }
   const unitH = idiv(height * 4, 7);
+  g.font("s", true, g.fonts.info);
   for (const side of [0, 1]) {
-    if (side === 1) g.color(WHITE);
     for (let group = 0; group < 4; group++)
       for (let b = 0; b < 3; b++) {
         const count = group === 0 ? all(side, b) : misses[side][group - 1][b];
         const max = group === 0 ? allMax : stageMax(group - 1);
         const k = [2, 20, 38, 56][group] + 5 * b + 2 * side;
         const h = jint(unitH * (count / max));
-        g.rect(posx + idiv(k * width, 72), y - h, idiv(width, 36), h);
+        g.stoneRect(posx + idiv(k * width, 72), y - h, idiv(width, 36), h, side === 0);
         const text = String(count);
+        g.color(g.p.text);
         g.text(text, posx + idiv((k + 1) * width, 72) - idiv(g.width(text), 2), y - h - idiv(fh, 4));
       }
   }
@@ -767,41 +936,124 @@ function drawStages(g: G, p: HawkeyePayload, posx: number, posy: number, width: 
   const o = p.settings.openingEndMove;
   const m = p.settings.middleEndMove;
   const share = (st: HawkeyeStage) => (st.match_analyzed > 0 ? st.share_sum / st.match_analyzed : 0);
-  g.font(12, true, g.fonts.info); // MoveListFrame.java:4726
-  g.color(BLACK);
+  g.font("m", false, g.fonts.info); // MoveListFrame.java:4726
+  g.color(g.p.label);
   const labelY = posy + idiv(height * 4, 5) + 15;
   const centred = (text: string, k: number) => g.text(text, posx + idiv(k * width, 16) - idiv(g.width(text), 2), labelY);
   centred(t("Movelistframe.all"), 2);
   centred(t("Movelistframe.open") + "(1-" + o + ")", 6);
   centred(t("Movelistframe.middle") + "(" + (o + 1) + "-" + m + ")", 10);
   centred(t("Movelistframe.end") + "(" + (m + 1) + t("Movelistframe.toEnd") + ")", 14);
-  const bar = (v: number, k: number, at: number) => {
+  const bar = (v: number, k: number, at: number, black: boolean) => {
     const h = jint(v > 0.75 ? ((v - 0.75) * height * 4) / 7 + idiv(height * 3, 5) : (v * height * 4) / 5);
     const top = posy + idiv(height * 4, 5) - h;
-    g.rect(posx + idiv(k * width, 16), top, idiv(width, 16), h);
+    g.stoneRect(posx + idiv(k * width, 16), top, idiv(width, 16), h, black);
     const text = fixed(v * 100, 1);
+    g.color(g.p.text);
     g.text(text, jint(posx + (at * width) / 16 - idiv(g.width(text), 2)), top - 3);
   };
+  g.font("m", true, g.fonts.info);
   for (const side of [0, 1]) {
-    if (side === 1) g.color(WHITE);
     const st = stages[side];
     const allAnalyzed = st[0].match_analyzed + st[1].match_analyzed + st[2].match_analyzed;
-    if (allAnalyzed > 0) bar((st[0].share_sum + st[1].share_sum + st[2].share_sum) / allAnalyzed, 1 + side, 1.5 + side);
-    for (let n = 0; n < 3; n++) if (st[n].analyzed > 0) bar(share(st[n]), 5 + 4 * n + side, 5.5 + 4 * n + side);
+    if (allAnalyzed > 0) bar((st[0].share_sum + st[1].share_sum + st[2].share_sum) / allAnalyzed, 1 + side, 1.5 + side, side === 0);
+    for (let n = 0; n < 3; n++) if (st[n].analyzed > 0) bar(share(st[n]), 5 + 4 * n + side, 5.5 + 4 * n + side, side === 0);
   }
 }
 
 // ------------------------------------------------------------------ drawMin (matchPanelmin)
 
-/** MoveListFrame.drawMin (MoveListFrame.java:2100-3161). */
+/** A name and its figure in the strip's summary. */
+type Figure = [name: string, value: string];
+/** A legend entry: its mark, drawn in an 18 px slot left of `x` on the line at `base`, and its
+ *  label. */
+type Key = [mark: (x: number, base: number) => void, label: string];
+
+/** A Java resource fragment without the spaces (and, in some languages, the properties escape)
+ *  it was concatenated with. */
+const term = (key: string) => t(key).replace(/^[\s\\]+/, "").trim();
+
+/** MoveListFrame.drawMin (MoveListFrame.java:2100-3161): two lines of figures. 胜率吻合 and 吻合度走势
+ *  set each side's figures as name–value pairs in columns aligned across the two lines, then the
+ *  totals and the legend in the width left of them; the other charts write Java's sentence per
+ *  side, in the label size where the body size would run past the strip. */
 function drawMin(g: G, p: HawkeyePayload, w: number, h: number): void {
-  g.color(PANEL_BG);
+  const P = g.p;
+  g.color(P.ground);
   g.rect(0, 0, w, h);
   const chart = p.settings.chart;
   const pane = p.pane;
   const s = p.settings;
-  g.color(BLACK);
-  g.font(13, false);
+  /** The baselines of the two lines (black's, white's). */
+  const BASE = [15, 35];
+  /** A side's sentence on its line. */
+  const sentence = (text: string, x: number, side: number) => {
+    g.font("m");
+    if (x + g.width(text) > w - 4) g.font("s");
+    g.color(P.text);
+    g.text(text, x, BASE[side]);
+  };
+  const nameWidth = (name: string) => {
+    g.font("s");
+    return g.width(name);
+  };
+  const valueWidth = (value: string) => {
+    g.font("m", true);
+    return g.width(value);
+  };
+  /** A figure at `x`: the name as a label, the value after a column `nameColumn` wide. */
+  const figure = ([name, value]: Figure, x: number, nameColumn: number, base: number) => {
+    g.font("s");
+    g.color(P.axis);
+    g.text(name, x, base);
+    g.font("m", true);
+    g.color(P.text);
+    g.text(value, x + nameColumn + 4, base);
+  };
+  /** The two sides' figures in aligned columns from x = 25 (right of the two buttons); right of
+   *  them the totals on the first line and the legend on the second, or, where the legend does not
+   *  fit there, continuing the first line after the totals and wrapping onto the second. */
+  const summary = (sides: [Figure[], Figure[]], totals: Figure[], keys: Key[]) => {
+    let x = 25;
+    sides[0].forEach((_, k) => {
+      const nameColumn = Math.max(...sides.map((side) => nameWidth(side[k][0])));
+      const valueColumn = Math.max(...sides.map((side) => valueWidth(side[k][1])));
+      sides.forEach((side, n) => figure(side[k], x, nameColumn, BASE[n]));
+      x += nameColumn + 4 + valueColumn + 12;
+    });
+    const left = x + 8;
+    const right = w - 8;
+    let at = left;
+    for (const f of totals) {
+      const nameColumn = nameWidth(f[0]);
+      figure(f, at, nameColumn, BASE[0]);
+      at += nameColumn + 4 + valueWidth(f[1]) + 12;
+    }
+    const widths = keys.map(([, label]) => 23 + nameWidth(label));
+    const whole = widths.reduce((sum, kw) => sum + kw + 12, -12);
+    let line = left + whole <= right ? 1 : 0;
+    let kx = line === 1 ? left : at + 8;
+    keys.forEach(([mark, label], k) => {
+      if (line === 0 && kx + widths[k] > right) {
+        line = 1;
+        kx = left;
+      }
+      mark(kx, BASE[line]);
+      g.font("s");
+      g.color(P.axis);
+      g.text(label, kx + 23, BASE[line]);
+      kx += widths[k] + 12;
+    });
+  };
+  const swatch = (color: string) => (x: number, base: number) => {
+    g.color(color);
+    g.rect(x, base - 9, 18, 10);
+  };
+  const stroke = (color: string, width: number) => (x: number, base: number) => {
+    g.color(color);
+    g.stroke(width);
+    g.line(x, base - 4, x + 18, base - 4);
+  };
   if (chart === 2 || chart === 3) {
     const score = chart === 3;
     const spreads = score ? pane.score_spread : pane.winrate_spread;
@@ -810,113 +1062,100 @@ function drawMin(g: G, p: HawkeyePayload, w: number, h: number): void {
     [0, 1].forEach((side) => {
       const sp = spreads[side];
       const head = side === 0 ? t("Movelistframe.blackAnalyzed") : t("Movelistframe.whiteAnalyzed");
+      // A band or side without moves has no average to show: its count and nothing more.
       const band = (b: { count: number; sum: number; squares: number }, range: number) =>
         t("Movelistframe.above") +
         range +
         (score ? t("Movelistframe.scorePoints") : "%：") +
         b.count +
-        t("Movelistframe.movedAndAverage") +
-        fixed(b.sum / b.count, 2) +
-        (score ? t("Movelistframe.stdev") : t("Movelistframe.percentAndStdev")) +
-        fixed(b.squares / b.count, 1) +
+        (b.count > 0
+          ? t("Movelistframe.movedAndAverage") +
+            fixed(b.sum / b.count, 2) +
+            (score ? t("Movelistframe.stdev") : t("Movelistframe.percentAndStdev")) +
+            fixed(b.squares / b.count, 1)
+          : product("hawkeyeMoves")) +
         t("Movelistframe.rightBrackets");
-      g.text(
-        head +
-          sp.analyzed +
-          t("Movelistframe.movedAndAverage") +
-          fixed(sp.sum / sp.analyzed, 2) +
-          (score ? t("Movelistframe.scoreAndStdev") : t("Movelistframe.percentAndStdev")) +
-          fixed(sp.squares / sp.analyzed, 1) +
-          band(sp.above1, r1) +
-          band(sp.above2, r2),
+      sentence(
+        sp.analyzed > 0
+          ? head +
+              sp.analyzed +
+              t("Movelistframe.movedAndAverage") +
+              fixed(sp.sum / sp.analyzed, 2) +
+              (score ? t("Movelistframe.scoreAndStdev") : t("Movelistframe.percentAndStdev")) +
+              fixed(sp.squares / sp.analyzed, 1) +
+              band(sp.above1, r1) +
+              band(sp.above2, r2)
+          : head + product("hawkeyeNoSamples"),
         5,
-        side === 0 ? 15 : 35,
+        side,
       );
     });
   } else if (chart === 0) {
-    [0, 1].forEach((side) => {
-      const sd = pane.sides[side];
-      const percent = fixed(Math.fround(Math.fround(sd.matched / (sd.match_analyzed > 0 ? sd.match_analyzed : 1)) * 100), 1) + "%";
-      g.text(
-        (side === 0 ? t("Movelistframe.blackMatch") : t("Movelistframe.whiteMatch")) +
-          sd.matched +
-          "/" +
-          sd.match_analyzed +
-          " " +
-          percent +
-          t("Movelistframe.AIscore") +
-          fixed((sd.share_sum * 100) / sd.match_analyzed, 2) +
-          t("Movelistframe.avgDifference") +
-          fixed(sd.winrate_loss_sum / sd.analyzed, 2) +
-          "%" +
-          "/ " +
-          fixed(sd.score_loss_sum / sd.analyzed, 2),
-        25,
-        side === 0 ? 15 : 35,
-      );
+    // A figure without samples shows "—", not Java's NaN or its 0/1 percentage.
+    const sides = pane.sides.map((sd, side): Figure[] => {
+      const percent = sd.match_analyzed > 0 ? fixed(Math.fround(Math.fround(sd.matched / sd.match_analyzed) * 100), 1) + "%" : "—";
+      return [
+        [term(side === 0 ? "Movelistframe.blackMatch" : "Movelistframe.whiteMatch"), `${sd.matched}/${sd.match_analyzed} ${percent}`],
+        [term("Movelistframe.AIscore"), sd.match_analyzed > 0 ? fixed((sd.share_sum * 100) / sd.match_analyzed, 2) : "—"],
+        [term("Movelistframe.avgDifference"), sd.analyzed > 0 ? `${fixed(sd.winrate_loss_sum / sd.analyzed, 2)}% / ${fixed(sd.score_loss_sum / sd.analyzed, 2)}` : "—"],
+      ];
     });
     const analyzedMatch = pane.sides[0].match_analyzed + pane.sides[1].match_analyzed;
-    g.text(t("Movelistframe.allmoves") + pane.total_moves + t("Movelistframe.analyzed") + analyzedMatch, 491, 15);
     // the legend (MoveListFrame.java:2759-2807)
-    const at = p.chinese
-      ? { b: [500, 520], w: [560, 580], a: [622, 645], u: [688, 711], s: [754, 777] }
-      : { b: [500, 521], w: [592, 614], a: [688, 711], u: [768, 791], s: [861, 884] };
-    g.color(MATCH_BLACK);
-    g.rect(at.b[0], 23, 20, 14);
-    g.color(BLACK);
-    g.text(t("Movelistframe.blackMatchLabel"), at.b[1], 35);
-    g.color(MATCH_WHITE);
-    g.rect(at.w[0], 23, 20, 14);
-    g.color(BLACK);
-    g.text(t("Movelistframe.whiteMatchLabel"), at.w[1], 35);
-    g.color(CYAN);
-    g.stroke(3);
-    g.line(at.a[0], 30, at.a[0] + 18, 30);
-    g.color(BLACK);
-    g.text(t("Movelistframe.analyzedLabel"), at.a[1], 35);
-    g.color(ORANGE);
-    g.stroke(3);
-    g.line(at.u[0], 30, at.u[0] + 18, 30);
-    g.color(BLACK);
-    g.text(t("Movelistframe.unanalyzedLabel"), at.u[1], 35);
-    g.color(SCORE_COLOR);
-    g.stroke(1);
-    g.line(at.s[0], 30, at.s[0] + 18, 30);
-    g.color(BLACK);
-    g.text(t("Movelistframe.scoreLeadLabel"), at.s[1], 35);
+    summary(
+      [sides[0], sides[1]],
+      [
+        [term("Movelistframe.allmoves"), String(pane.total_moves)],
+        [term("Movelistframe.analyzed"), String(analyzedMatch)],
+      ],
+      [
+        [swatch(P.matchBlack), t("Movelistframe.blackMatchLabel")],
+        [swatch(P.matchWhite), t("Movelistframe.whiteMatchLabel")],
+        [stroke(P.line, 3), t("Movelistframe.analyzedLabel")],
+        [stroke(P.lineOff, 3), t("Movelistframe.unanalyzedLabel")],
+        [stroke(P.score, 1), t("Movelistframe.scoreLeadLabel")],
+      ],
+    );
   } else if (chart === 1) {
     const [b, wt] = pane.sides;
-    g.text(t("Movelistframe.blackAIScore") + fixed((b.share_sum * 100) / b.match_analyzed, 2), 25, 15);
-    g.text(t("Movelistframe.whiteAIScore") + fixed((wt.share_sum * 100) / wt.match_analyzed, 2), 25, 35);
     // Chinese counts the match-analysed moves, English the loss-analysed ones (MoveListFrame.java:2830-2872)
-    const x0 = p.chinese ? 160 : 175;
     const counted = p.chinese ? b.match_analyzed + wt.match_analyzed : b.analyzed + wt.analyzed;
-    g.text(t("Movelistframe.allmoves") + pane.total_moves + t("Movelistframe.analyzed") + counted, x0, 15);
-    const l = p.chinese ? { line: 172, a: 195, u: [238, 256], ut: 261 } : { line: 182, a: 205, u: [268, 280], ut: 285 };
-    g.color(BLACK);
-    g.stroke(3);
-    g.line(l.line, 33, l.line + 18, 33);
-    g.color(LIGHT_GRAY);
-    g.line(l.line, 27, l.line + 18, 27);
-    g.color(BLACK);
-    g.text(t("Movelistframe.analyzedLabel"), l.a, 35);
-    g.color(ORANGE);
-    g.line(l.u[0], 30, l.u[1], 30);
-    g.color(BLACK);
-    g.text(t("Movelistframe.unanalyzedLabel"), l.ut, 35);
+    summary(
+      [
+        [[term("Movelistframe.blackAIScore"), b.match_analyzed > 0 ? fixed((b.share_sum * 100) / b.match_analyzed, 2) : "—"]],
+        [[term("Movelistframe.whiteAIScore"), wt.match_analyzed > 0 ? fixed((wt.share_sum * 100) / wt.match_analyzed, 2) : "—"]],
+      ],
+      [
+        [term("Movelistframe.allmoves"), String(pane.total_moves)],
+        [term("Movelistframe.analyzed"), String(counted)],
+      ],
+      [
+        [
+          (x, base) => {
+            g.stroke(SERIES);
+            g.stoneLine(x, base - 1, x + 18, base - 1, true);
+            g.stoneLine(x, base - 7, x + 18, base - 7, false);
+          },
+          t("Movelistframe.analyzedLabel"),
+        ],
+        [stroke(P.lineOff, 3), t("Movelistframe.unanalyzedLabel")],
+      ],
+    );
   } else if (chart === 4) {
-    g.font(12, false);
     [0, 1].forEach((side) => {
       const st = pane.stages[side];
-      const win = (a: number, sum: number) => (a > 0 ? fixed(sum / a, 1) : "0");
+      // Moves without analysis have no average loss: "—" without the "%" ("胜率— s核心—"), not
+      // Java's 0 (no loss). Every language's percentAndScore starts with that "%".
       const sum = (f: (x: HawkeyeStage) => number) => f(st[0]) + f(st[1]) + f(st[2]);
-      const stage = (x: HawkeyeStage) => win(x.analyzed, x.winrate_loss_sum) + t("Movelistframe.percentAndScore") + win(x.analyzed, x.score_loss_sum);
-      g.text(
+      const losses = (analyzed: number, winrate: number, score: number) =>
+        analyzed > 0
+          ? fixed(winrate / analyzed, 1) + t("Movelistframe.percentAndScore") + fixed(score / analyzed, 1)
+          : "—" + t("Movelistframe.percentAndScore").slice(1) + "—";
+      const stage = (x: HawkeyeStage) => losses(x.analyzed, x.winrate_loss_sum, x.score_loss_sum);
+      sentence(
         (side === 0 ? t("Movelistframe.blackDifference") : t("Movelistframe.whiteDifference")) +
           t("Movelistframe.allWinrate") +
-          win(sum((x) => x.analyzed), sum((x) => x.winrate_loss_sum)) +
-          t("Movelistframe.percentAndScore") +
-          win(sum((x) => x.analyzed), sum((x) => x.score_loss_sum)) +
+          losses(sum((x) => x.analyzed), sum((x) => x.winrate_loss_sum), sum((x) => x.score_loss_sum)) +
           t("Movelistframe.openAndWinrate") +
           stage(st[0]) +
           t("Movelistframe.middleAndWinrate") +
@@ -925,11 +1164,10 @@ function drawMin(g: G, p: HawkeyePayload, w: number, h: number): void {
           stage(st[2]) +
           t("Movelistframe.rightBrackets"),
         25,
-        side === 0 ? 15 : 35,
+        side,
       );
     });
   } else if (chart === 5 || chart === 6) {
-    g.font(12, false);
     const score = chart === 6;
     const misses = score ? pane.score_misses : pane.winrate_misses;
     const r1 = score ? s.scoreRange1 : s.winrateRange1;
@@ -939,7 +1177,7 @@ function drawMin(g: G, p: HawkeyePayload, w: number, h: number): void {
       const m = misses[side];
       const stage = (n: number) =>
         r1 + unit + m[n][0] + t("Movelistframe.moves") + r1 + "-" + r2 + unit + m[n][1] + t("Movelistframe.movesAnd>") + r2 + unit + m[n][2];
-      g.text(
+      sentence(
         (side === 0 ? t("Movelistframe.blackOpen") : t("Movelistframe.whiteOpen")) +
           stage(0) +
           t("Movelistframe.movesAndMiddle") +
@@ -948,136 +1186,32 @@ function drawMin(g: G, p: HawkeyePayload, w: number, h: number): void {
           stage(2) +
           t("Movelistframe.movesAndRightBrackets"),
         5,
-        side === 0 ? 15 : 35,
+        side,
       );
     });
   }
 }
 
-// ------------------------------------------------------------------ the tab strip
-
-interface TabBox {
-  chart: number;
-  label: string;
-  x: number;
-  y: number;
-  w: number;
-}
-
-/** JTabbedPane WRAP_TAB_LAYOUT: runs of tabs, the selected tab's run next to the content. */
-function layoutTabs(g: G, width: number, selected: number): { boxes: TabBox[]; strip: number } {
-  g.font(FRAME_FONT_SIZE, false);
-  const runs: TabBox[][] = [[]];
-  let x = 2;
-  for (const chart of TAB_CHARTS) {
-    const label = tabLabel(chart);
-    const w = g.width(label) + TAB_PAD;
-    if (x + w > width - 2 && runs[runs.length - 1].length) {
-      runs.push([]);
-      x = 2;
-    }
-    runs[runs.length - 1].push({ chart, label, x, y: 0, w });
-    x += w;
-  }
-  const at = runs.findIndex((run) => run.some((b) => b.chart === selected));
-  if (at >= 0 && at !== runs.length - 1) runs.push(...runs.splice(at, 1));
-  runs.forEach((run, r) => run.forEach((b) => (b.y = r * TAB_ROW)));
-  return { boxes: runs.flat(), strip: runs.length * TAB_ROW };
-}
-
-/** The tab strip and the content border (Metal Ocean as on j05-hawkeye.png). */
-function paintFrame(g: G, w: number, h: number, boxes: TabBox[], strip: number, selected: number): void {
-  const c = g.c;
-  g.color(PANEL_BG);
-  g.rect(0, 0, w, h);
-  g.stroke(1);
-  // content border: dark top line, white line, two selected-colour lines; the other sides
-  g.color(OCEAN_SELECTED);
-  g.rect(0, strip + 2, w, h - strip - 2);
-  g.color(PANEL_BG);
-  g.rect(INSET, strip + CONTENT_TOP, w - 2 * INSET, h - strip - CONTENT_TOP - INSET);
-  g.color(OCEAN_DARK);
-  g.rect(0, strip, w, 1);
-  g.color(WHITE);
-  g.rect(0, strip + 1, w, 1);
-  g.color(OCEAN_BORDER);
-  g.rect(0, strip + 1, 1, h - strip - 1);
-  g.rect(w - 1, strip + 1, 1, h - strip - 1);
-  g.rect(0, h - 1, w, 1);
-  g.font(FRAME_FONT_SIZE, false);
-  const outline = (b: TabBox, top: number, bottom: number) => {
-    c.beginPath();
-    c.moveTo(b.x + 0.5, bottom);
-    c.lineTo(b.x + 0.5, top + 6.5);
-    c.lineTo(b.x + 6.5, top + 0.5);
-    c.lineTo(b.x + b.w + 0.5, top + 0.5);
-    c.lineTo(b.x + b.w + 0.5, bottom);
-  };
-  for (const b of boxes) {
-    if (b.chart === selected) continue;
-    const top = b.y + 2;
-    const bottom = b.y + TAB_ROW;
-    outline(b, top, bottom);
-    c.fillStyle = TAB_BG;
-    c.fill();
-    c.strokeStyle = OCEAN_BORDER;
-    c.stroke();
-    g.color(BLACK);
-    g.text(b.label, b.x + Math.round((b.w - g.width(b.label)) / 2), b.y + 14);
-  }
-  const b = boxes.find((x) => x.chart === selected);
-  if (b) {
-    const bottom = b.y + TAB_ROW + 1;
-    outline(b, b.y, bottom);
-    c.fillStyle = OCEAN_SELECTED;
-    c.fill();
-    c.strokeStyle = OCEAN_DARK;
-    c.stroke();
-    c.beginPath();
-    c.moveTo(b.x + 1.5, bottom);
-    c.lineTo(b.x + 1.5, b.y + 6.5);
-    c.lineTo(b.x + 6.5, b.y + 1.5);
-    c.lineTo(b.x + b.w - 0.5, b.y + 1.5);
-    c.strokeStyle = WHITE;
-    c.stroke();
-    g.color(BLACK);
-    g.text(b.label, b.x + Math.round((b.w - g.width(b.label)) / 2), b.y + 14);
-  }
-}
-
-// ------------------------------------------------------------------ the panel
-
-const STYLE_ID = "hawkeye-charts-style";
-const STYLE = `
-.hk-charts { overflow: hidden; background: ${PANEL_BG}; user-select: none; }
-.hk-charts canvas { position: absolute; display: block; }
-.hk-charts .hk-chart-tab { position: absolute; cursor: default; }
-.hk-charts .hk-min { position: absolute; overflow: hidden; }
-.hk-charts .hk-min > * { position: absolute; box-sizing: border-box; margin: 0; }
-.hk-charts .hk-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font: 12px ${UI_FONT}; line-height: 20px; color: #000; }
-.hk-charts .hk-field { border: 1px solid ${OCEAN_BORDER}; background: #fff; font: 12px ${UI_FONT}; padding: 0 2px; outline: none; color: #000; }
-.hk-charts .hk-field.invalid { background: rgb(255,0,0); }
-.hk-charts .hk-button { padding: 0; border: 1px solid ${OCEAN_BORDER}; background: rgb(240,242,245); display: flex; align-items: center; justify-content: center; }
-.hk-charts .hk-button:active { background: ${OCEAN_SELECTED}; }
-.hk-charts .hk-button img { display: block; max-width: 16px; max-height: 16px; pointer-events: none; }
-`;
-
 type Bounds = [number, number, number, number];
 
 export function mountCharts(host: HTMLElement, actions: ChartActions): ChartPanel {
-  if (!document.getElementById(STYLE_ID)) {
-    const style = document.createElement("style");
-    style.id = STYLE_ID;
-    style.textContent = STYLE;
-    document.head.append(style);
-  }
   host.classList.add("hk-charts");
   host.replaceChildren();
 
-  const frame = document.createElement("canvas");
-  frame.style.left = "0px";
-  frame.style.top = "0px";
+  // The chart tabs (MoveListFrame.java:666-684), wrapping onto a second row when they do not fit.
   const tabLayer = document.createElement("div");
+  tabLayer.className = "hk-chart-tabs";
+  const tabs = TAB_CHARTS.map((chart) => {
+    const tab = document.createElement("button");
+    tab.className = "hk-chart-tab";
+    tab.dataset.key = `hawkeye.chart.tab.${chart}`;
+    tabLayer.append(tab);
+    return { chart, tab };
+  });
+  const markTab = tabList(tabLayer, tabs.map(({ tab }) => tab), (k) => {
+    const chart = TAB_CHARTS[k];
+    if (payload && payload.settings.chart !== chart) actions.run(settingsCommand(payload.settings, { chart }));
+  });
   const chartCanvas = document.createElement("canvas");
   chartCanvas.dataset.key = "hawkeye.chart.canvas";
   const min = document.createElement("div");
@@ -1086,17 +1220,11 @@ export function mountCharts(host: HTMLElement, actions: ChartActions): ChartPane
   minCanvas.style.left = "0px";
   minCanvas.style.top = "0px";
 
-  const button = (key: string, icon: string, tip?: string) => {
+  const button = (key: string, tip?: string) => {
     const b = document.createElement("button");
     b.type = "button";
-    b.className = "hk-button";
     b.dataset.key = key;
-    b.tabIndex = -1; // setFocusable(false)
     if (tip) b.title = tip;
-    const img = document.createElement("img");
-    img.alt = "";
-    img.src = icon;
-    b.append(img);
     return b;
   };
   const label = (text: string) => {
@@ -1108,33 +1236,40 @@ export function mountCharts(host: HTMLElement, actions: ChartActions): ChartPane
   const field = (key: string) => {
     const f = document.createElement("input");
     f.type = "text";
-    f.className = "hk-field";
     f.dataset.key = key;
     f.spellcheck = false;
     f.addEventListener("focus", () => f.select()); // focusGained → selectAll
     return f;
   };
 
-  // matchPanelmin controls (MoveListFrame.java:763-1132, 6996-7063)
-  const detail = button("hawkeye.chart.detail", "/assets/down.png");
-  const settings = button("hawkeye.chart.settings", "/assets/settings.png", t("Movelistframe.settingsToolTip"));
+  // matchPanelmin controls (MoveListFrame.java:763-1132, 6996-7063): the two buttons left of the
+  // figures, the match condition or the loss ranges as one line of labels and fields under them.
+  const detail = button("hawkeye.chart.detail");
+  const detailIcons = { up: icon("chevron-up"), down: icon("chevron-down") };
+  const settings = button("hawkeye.chart.settings", t("Movelistframe.settingsToolTip"));
+  settings.append(icon("control-panel"));
   const lblMatch1 = label(t("Movelistframe.lblMatchConfig1"));
   const lblMatch2 = label(t("Movelistframe.lblMatchConfig2"));
   const lblMatch3 = label("%");
   const lblMatch4 = label(t("Movelistframe.accuracyAndMatch.tip"));
+  lblMatch4.className = "hk-note";
+  lblMatch4.title = lblMatch4.textContent ?? "";
   const suggestionMoves = field("hawkeye.chart.match-moves");
   const percentPlayouts = field("hawkeye.chart.match-percent");
+  percentPlayouts.className = "wide";
   const lblDiff1 = label(t("Movelistframe.lblDiffConfig1"));
   const lblDiff2 = label(t("Movelistframe.lblDiffConfig2"));
   const range1 = field("hawkeye.chart.range1");
   const range2 = field("hawkeye.chart.range2");
-  min.append(minCanvas, detail, settings, lblMatch1, suggestionMoves, lblMatch2, percentPlayouts, lblMatch3, lblMatch4, lblDiff1, range1, lblDiff2, range2);
-  host.append(frame, chartCanvas, min, tabLayer);
+  const row = document.createElement("div");
+  row.className = "hk-min-row";
+  row.append(lblMatch1, suggestionMoves, lblMatch2, percentPlayouts, lblMatch3, lblDiff1, range1, lblDiff2, range2, lblMatch4);
+  min.append(minCanvas, detail, settings, row);
+  host.append(tabLayer, chartCanvas, min);
 
   let payload: HawkeyePayload | null = null;
   let line: Line | null = null;
   let params: Params | null = null;
-  let boxes: TabBox[] = [];
   const hover: Hover = { move: null, slot: -1 };
   /** The chart whose texts the fields were last given (Java setPanel on a tab change). */
   let panelChart = -1;
@@ -1166,39 +1301,32 @@ export function mountCharts(host: HTMLElement, actions: ChartActions): ChartPane
 
   const layoutControls = (p: HawkeyePayload) => {
     const chart = p.settings.chart;
-    const cn = p.chinese;
     const tabChanged = panelChart !== chart;
     panelChart = chart;
     const all = [detail, settings, lblMatch1, suggestionMoves, lblMatch2, percentPlayouts, lblMatch3, lblMatch4, lblDiff1, range1, lblDiff2, range2];
-    for (const el of all) place(el, null);
+    const show = (...shown: HTMLElement[]) => {
+      for (const el of all) el.style.display = shown.includes(el) ? "" : "none";
+    };
     if (chart === 2 || chart === 3 || chart === 5 || chart === 6) {
       const score = chart === 3 || chart === 6;
       lblDiff1.textContent = score ? t("Movelistframe.lblDiffConfigScore") : t("Movelistframe.lblDiffConfig1");
-      place(lblDiff1, [5, 40, 235, 20]);
-      place(range1, [cn ? 140 : 165, 43, 25, 16]);
-      place(lblDiff2, [cn ? 170 : 195, 40, 155, 20]);
-      place(range2, [cn ? 224 : 244, 43, 25, 16]);
+      show(lblDiff1, range1, lblDiff2, range2);
       setField(range1, String(score ? p.settings.scoreRange1 : p.settings.winrateRange1), tabChanged);
       setField(range2, String(score ? p.settings.scoreRange2 : p.settings.winrateRange2), tabChanged);
     } else if (chart < 7) {
-      place(detail, [0, 1, 20, 20]);
-      place(settings, [0, 20, 20, 20]);
-      const img = detail.firstElementChild as HTMLImageElement;
-      const icon = p.settings.showGraph ? "/assets/down.png" : "/assets/up.png";
-      if (img.getAttribute("src") !== icon) img.src = icon;
+      place(detail, [2, 0, 20, 18]);
+      place(settings, [2, 18, 20, 18]);
+      const next = p.settings.showGraph ? detailIcons.down : detailIcons.up;
+      if (detail.firstChild !== next) detail.replaceChildren(next);
+      detail.setAttribute("aria-label", product(p.settings.showGraph ? "hawkeyeHideChart" : "hawkeyeShowChart"));
       if (chart === 0) {
-        place(lblMatch1, [5, 40, 166, 20]);
-        place(suggestionMoves, [cn ? 84 : 123, 43, 25, 16]);
-        place(lblMatch2, [cn ? 110 : 150, 40, 250, 20]);
-        place(percentPlayouts, [cn ? 258 : 363, 43, 40, 16]);
-        place(lblMatch3, [cn ? 299 : 405, 40, 15, 20]);
-        place(lblMatch4, [cn ? 320 : 435, 40, 500, 20]);
+        show(detail, settings, lblMatch1, suggestionMoves, lblMatch2, percentPlayouts, lblMatch3, lblMatch4);
         setField(suggestionMoves, String(p.matchAiMoves), tabChanged);
         // Java String.valueOf(double): 20.0, 12.5
         const percent = p.matchAiPercents;
         setField(percentPlayouts, Number.isInteger(percent) ? `${percent}.0` : String(percent), tabChanged);
-      } else place(lblMatch4, [5, 40, 500, 20]);
-    }
+      } else show(detail, settings, lblMatch4);
+    } else show();
   };
 
   const paintChart = () => {
@@ -1207,10 +1335,7 @@ export function mountCharts(host: HTMLElement, actions: ChartActions): ChartPane
     const w = chartCanvas.clientWidth || parseFloat(chartCanvas.style.width) || 0;
     const h = chartCanvas.clientHeight || parseFloat(chartCanvas.style.height) || 0;
     if (w <= 0 || h <= 0) return;
-    const g = fit(chartCanvas, w, h, p.fonts);
-    g.color(PANEL_BG);
-    g.rect(0, 0, w, h);
-    const done = draw(g, p, line, w - 5, h, hover);
+    const done = draw(fit(chartCanvas, w, h, p.fonts), p, line, w - 5, h, hover);
     if (done) params = done;
   };
 
@@ -1227,52 +1352,32 @@ export function mountCharts(host: HTMLElement, actions: ChartActions): ChartPane
     if (!p) return;
     const W = host.clientWidth;
     const H = host.clientHeight;
-    const g = fit(frame, Math.max(1, W), Math.max(1, H), p.fonts);
     const chart = p.settings.chart;
-    const tabs = layoutTabs(g, W, chart);
-    boxes = tabs.boxes;
-    paintFrame(g, W, H, boxes, tabs.strip, chart);
+    for (const { chart: c, tab } of tabs) {
+      const text = tabLabel(c);
+      if (tab.textContent !== text) tab.textContent = text;
+    }
+    markTab(TAB_CHARTS.indexOf(chart));
 
-    // tab hit areas
-    tabLayer.replaceChildren(
-      ...boxes.map((b) => {
-        const d = document.createElement("div");
-        // Not "hk-tab": the window's page-tab style would paint over the canvas-drawn labels.
-        d.className = "hk-chart-tab";
-        d.dataset.key = `hawkeye.chart.tab.${b.chart}`;
-        d.dataset.text = b.label;
-        if (b.chart === chart) d.dataset.selected = "true";
-        d.style.left = `${b.x}px`;
-        d.style.top = `${b.y}px`;
-        d.style.width = `${b.w}px`;
-        d.style.height = `${TAB_ROW}px`;
-        d.addEventListener("mousedown", (e) => {
-          if (e.button !== 0 || !payload || payload.settings.chart === b.chart) return;
-          actions.run(settingsCommand(payload.settings, { chart: b.chart }));
-        });
-        return d;
-      }),
-    );
-
-    const top = tabs.strip + CONTENT_TOP;
-    const inner = Math.max(0, W - 2 * INSET);
-    const contentH = Math.max(0, H - top - INSET);
+    const top = tabLayer.offsetHeight;
+    const contentH = Math.max(0, H - top);
     const hasMin = chart < 7;
     if (hasMin) {
-      place(min, [INSET, Math.max(top, H - INSET - MIN_HEIGHT), inner, MIN_HEIGHT]);
+      place(min, [0, Math.max(top, H - MIN_HEIGHT), W, MIN_HEIGHT]);
       layoutControls(p);
     } else place(min, null);
     const chartH = Math.max(0, contentH - (hasMin ? MIN_HEIGHT : 0));
-    if (p.settings.showGraph && chartH > 0 && inner > 0) {
+    if (p.settings.showGraph && chartH > 0 && W > 0) {
       chartCanvas.style.display = "";
-      chartCanvas.style.left = `${INSET}px`;
+      chartCanvas.style.left = "0px";
       chartCanvas.style.top = `${top}px`;
-      chartCanvas.style.width = `${inner}px`;
+      chartCanvas.style.width = `${W}px`;
       chartCanvas.style.height = `${chartH}px`;
     } else chartCanvas.style.display = "none";
     paintChart();
     paintMin();
   };
+  onThemeChange(paint);
 
   // ---------------------------------------------------------------- field edits
 
@@ -1413,7 +1518,7 @@ export function mountCharts(host: HTMLElement, actions: ChartActions): ChartPane
     const r = el.getBoundingClientRect();
     return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
   };
-  const visible = (el: HTMLElement) => el.style.display !== "none" && (el.parentElement?.style.display ?? "") !== "none";
+  const visible = (el: HTMLElement) => el.getClientRects().length > 0;
 
   return {
     render(p: HawkeyePayload) {
@@ -1432,8 +1537,8 @@ export function mountCharts(host: HTMLElement, actions: ChartActions): ChartPane
       const p = payload;
       if (!p) return [];
       const out: Target[] = [];
-      for (const d of Array.from(tabLayer.children) as HTMLElement[])
-        out.push({ key: d.dataset.key!, text: d.dataset.text ?? "", checked: d.dataset.selected === "true", ...centre(d) });
+      for (const { chart, tab } of tabs)
+        out.push({ key: tab.dataset.key!, text: tab.textContent ?? "", checked: chart === p.settings.chart, ...centre(tab) });
       if (visible(detail)) out.push({ key: detail.dataset.key!, text: p.settings.showGraph ? "down" : "up", checked: p.settings.showGraph, ...centre(detail) });
       if (visible(settings)) out.push({ key: settings.dataset.key!, text: settings.title, ...centre(settings) });
       for (const f of [suggestionMoves, percentPlayouts, range1, range2])

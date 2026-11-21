@@ -4,14 +4,23 @@
 // the stones; every coordinate sent is a picture pixel.
 import { invoke } from "@tauri-apps/api/core";
 import type { CapturePreview } from "../contract/generated";
+import "../design/window";
+import { onThemeChange, token } from "../design/theme";
 import "./capture.css";
 
 type Pixel = [number, number];
 
-const CROSSHAIR = "rgba(0, 245, 0, 0.784)"; // Color(0, 245, 0, 200)
-const GUIDE = "rgba(0, 0, 200, 0.471)"; // Color(0, 0, 200, 120)
-const AREA = "rgba(0, 0, 200, 0.784)"; // Color(0, 0, 200, 200)
-const DIM = "rgba(0, 0, 0, 0.098)"; // the window background Color(0, 0, 0, 25)
+/** The marks' colours (capture.css). */
+function markColors() {
+  return {
+    crosshair: token("--capture-crosshair"),
+    guide: token("--capture-guide"),
+    area: token("--capture-area"),
+    dim: token("--capture-dim"),
+    black: token("--capture-black"),
+    white: token("--capture-white"),
+  };
+}
 
 export async function bootCaptureOverlay(): Promise<void> {
   const canvas = document.createElement("canvas");
@@ -51,6 +60,7 @@ export async function bootCaptureOverlay(): Promise<void> {
   let busy = false;
   let previewing = false;
   let painting = false;
+  let colors = markColors();
 
   const line = (x1: number, y1: number, x2: number, y2: number) => {
     g.beginPath();
@@ -63,11 +73,11 @@ export async function bootCaptureOverlay(): Promise<void> {
     painting = false;
     g.clearRect(0, 0, width, height);
     g.drawImage(picture, 0, 0);
-    g.fillStyle = DIM;
+    g.fillStyle = colors.dim;
     g.fillRect(0, 0, width, height);
     if (clickTimes < 2 && cursor) {
       const [cx, cy] = cursor;
-      g.strokeStyle = CROSSHAIR;
+      g.strokeStyle = colors.crosshair;
       g.lineWidth = 2;
       line(0, cy, width, cy);
       line(cx, 0, cx, height);
@@ -78,7 +88,7 @@ export async function bootCaptureOverlay(): Promise<void> {
       if (clickTimes === 1 && sx !== 0 && sy !== 0) {
         const gapW = Math.abs(x1 - cx);
         const gapH = Math.abs(y1 - cy);
-        g.strokeStyle = GUIDE;
+        g.strokeStyle = colors.guide;
         g.lineWidth = 4;
         for (let i = 0; i < 5; i++) {
           line(x1 + sx * gapW * i, y1, x1 + sx * gapW * i, y1 + sy * gapH * 5);
@@ -88,7 +98,7 @@ export async function bootCaptureOverlay(): Promise<void> {
     }
     if (clickTimes === 2 && preview) {
       const p = preview;
-      g.strokeStyle = AREA;
+      g.strokeStyle = colors.area;
       g.lineWidth = 3;
       g.strokeRect(p.x_min, p.y_min, p.width, p.height);
       for (let i = 1; i < p.columns; i++) {
@@ -105,7 +115,7 @@ export async function bootCaptureOverlay(): Promise<void> {
           const stone = p.stones[r * (p.columns + 1) + c];
           if (stone !== 1 && stone !== 2) continue;
           // fillOval(cx - r, cy - r, 2r + 1, 2r + 1): yellow for black, magenta for white.
-          g.fillStyle = stone === 1 ? "rgb(255, 255, 0)" : "rgb(255, 0, 255)";
+          g.fillStyle = stone === 1 ? colors.black : colors.white;
           g.beginPath();
           g.arc(Math.round(p.x_min + c * p.cell_width) + 0.5, Math.round(p.y_min + r * p.cell_height) + 0.5, radius + 0.5, 0, Math.PI * 2);
           g.fill();
@@ -118,6 +128,10 @@ export async function bootCaptureOverlay(): Promise<void> {
     painting = true;
     requestAnimationFrame(paint);
   };
+  onThemeChange(() => {
+    colors = markColors();
+    repaint();
+  });
 
   /** One preview request at a time; the latest pointer position wins. */
   const requestPreview = async () => {

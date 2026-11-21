@@ -1,10 +1,20 @@
 // GtpEngineConfigDialog.java:139-191,255-315,341-402; schema owns available settings.
 import { run, state } from "../app";
 import type { GtpConfiguration } from "../contract/generated";
+import { stepper } from "../design/stepper";
 import { formPanel, message } from "../dialogs";
-import { t } from "../i18n";
-import { actions, button, field, input } from "./controls";
+import { product, registerProduct, t } from "../i18n";
+import { button, footer, groupNote, groupTitle, input, primaryButton, row } from "./controls";
 
+/** The title of the group 展开高级设置 shows. */
+registerProduct({
+  ZhCn: { gtpConfigAdvancedGroup: "高级设置" },
+  ZhTw: { gtpConfigAdvancedGroup: "進階設定" },
+  EnUs: { gtpConfigAdvancedGroup: "Advanced settings" },
+  JaJp: { gtpConfigAdvancedGroup: "詳細設定" },
+  KoKr: { gtpConfigAdvancedGroup: "고급 설정" },
+  ThTh: { gtpConfigAdvancedGroup: "การตั้งค่าขั้นสูง" },
+});
 const object = (value: unknown): Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const fieldLabel = (name: string): string => {
   const labels: Record<string, string> = {
@@ -44,10 +54,13 @@ export async function configureGtp(engineId: string): Promise<void> {
   });
   const saved = state.view?.settings.engine.engines.find((entry) => entry.id === engineId)?.gtpConfiguration?.profile ?? {};
   const selected = object(object(schema.state).selected), effective = object(object(schema.state).effective);
+  // 常用设置 with the subtitle under its title, then the advanced group 展开高级设置 shows, then
+  // the notes; 展开高级设置 and 恢复默认 stand at the footer's start.
   const body = document.createElement("div"); body.className = "gtp-config";
-  const subtitle = document.createElement("p"); subtitle.textContent = t("GtpEngineConfig.subtitle"); body.append(subtitle);
   const basic = document.createElement("section"), advanced = document.createElement("section"); advanced.hidden = true;
-  const heading = document.createElement("h3"); heading.textContent = t("GtpEngineConfig.basic"); body.append(heading, basic);
+  groupTitle(basic, t("GtpEngineConfig.basic"), t("GtpEngineConfig.subtitle"));
+  groupTitle(advanced, product("gtpConfigAdvancedGroup"));
+  body.append(basic, advanced);
   const editors = new Map<string, HTMLInputElement | HTMLSelectElement>();
   const values = (): Record<string, unknown> => Object.fromEntries(fields.map((f) => { const el = editors.get(f.name)!; return [f.name, f.type === "string" ? el.value : el.value.trim() ? Number(el.value) : NaN]; }));
   const update = () => {
@@ -56,7 +69,7 @@ export async function configureGtp(engineId: string): Promise<void> {
       const at = f.activeWhen.indexOf("=");
       const enabled = at <= 0 || at === f.activeWhen.length - 1 || f.activeWhen.slice(at + 1).split("|").some((v) => v.trim().toLowerCase() === String(current[f.activeWhen.slice(0, at).trim()] ?? "").toLowerCase());
       editors.get(f.name)!.disabled = !enabled;
-      editors.get(f.name)!.closest("label")?.classList.toggle("inactive", !enabled);
+      editors.get(f.name)!.closest(".ds-row")?.classList.toggle("inactive", !enabled);
     });
   };
   for (const f of fields) {
@@ -72,20 +85,22 @@ export async function configureGtp(engineId: string): Promise<void> {
     const initial = accepts(f, saved[f.name]) ? saved[f.name] : accepts(f, selected[f.name]) ? selected[f.name] : f.defaultValue;
     editor.value = String(initial); editor.dataset.key = `gtp.field.${f.name}`; editor.required = f.type !== "string";
     editor.oninput = update; editor.onchange = update;
-    editors.set(f.name, editor); field(f.group.toLowerCase() === "basic" ? basic : advanced, fieldLabel(f.name), editor);
+    // A number field is a stepper by its min, max and step; the row names the field.
+    editors.set(f.name, editor);
+    row(f.group.toLowerCase() === "basic" ? basic : advanced, fieldLabel(f.name), "", editor instanceof HTMLInputElement && editor.type === "number" ? stepper(editor) : editor);
   }
   const toggle = button(t("GtpEngineConfig.showAdvanced"), () => { advanced.hidden = !advanced.hidden; toggle.textContent = advanced.hidden ? t("GtpEngineConfig.showAdvanced") : t("GtpEngineConfig.hideAdvanced"); }); toggle.dataset.key = "gtp.advanced";
-  body.append(toggle, advanced);
-  const hint = document.createElement("p"); hint.textContent = t("GtpEngineConfig.nextSearch"); body.append(hint);
+  const notes = [t("GtpEngineConfig.nextSearch")];
   const different = fields.find((f) => selected[f.name] !== undefined && effective[f.name] !== undefined && selected[f.name] !== effective[f.name]);
   if (different) {
-    const note = document.createElement("p"); let index = 0;
-    note.textContent = t("GtpEngineConfig.effectiveDifference").replace(/%s/g, () => [fieldLabel(different.name), enumLabel(different.name, String(selected[different.name])), enumLabel(different.name, String(effective[different.name]))][index++]); body.append(note);
+    let index = 0;
+    notes.push(t("GtpEngineConfig.effectiveDifference").replace(/%s/g, () => [fieldLabel(different.name), enumLabel(different.name, String(selected[different.name])), enumLabel(different.name, String(effective[different.name]))][index++]));
   }
+  groupNote(body, notes.join("\n"));
   const dialog = formPanel(t("GtpEngineConfig.title"), body);
   const defaults = button(t("GtpEngineConfig.restoreDefaults"), () => { fields.forEach((f) => { editors.get(f.name)!.value = String(f.defaultValue); }); update(); }); defaults.dataset.key = "gtp.defaults";
   const cancel = button(t("GtpEngineConfig.cancel"), () => dialog.close()); cancel.dataset.key = "gtp.cancel";
-  const save = button(t("GtpEngineConfig.save"), async () => {
+  const save = primaryButton(t("GtpEngineConfig.save"), async () => {
     const profile = values(); const invalid = fields.find((f) => !accepts(f, profile[f.name]));
     if (invalid) { await message(t("GtpEngineConfig.invalidValue"), `${t("GtpEngineConfig.invalidField")} ${fieldLabel(invalid.name)}`, "warning"); return; }
     save.disabled = true;
@@ -95,5 +110,5 @@ export async function configureGtp(engineId: string): Promise<void> {
       if (applied?.type === "Tuning" && applied.result.type === "Done") await dialog.close();
     } finally { save.disabled = false; }
   }); save.dataset.key = "gtp.save";
-  actions(body, defaults, cancel, save); update(); await dialog.closed;
+  footer(body, { start: [toggle, defaults], primary: save, cancel }); update(); await dialog.closed;
 }

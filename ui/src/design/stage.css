@@ -1,0 +1,293 @@
+/* Workbench stage tokens: the colours the canvas panels, the 胜率图 and the 选点列表 draw with on top
+   of the design tokens. The stage is a linen wallpaper in the colour mode's ground colour under
+   translucent cards, one per column of panels (DESIGN.md 工作台卡片). The theme colours a user can
+   change (胜率线, 胜率落差线, 目差线, 恶手条, 评论节点) use these only while they hold the theme's
+   default value. Both sets are read from canvas code through stage.ts. */
+:root,
+[data-theme="light"] {
+  /* A card over the wallpaper, the hairline between its sections, its edge and the colour of its
+     downward shadow; `panel-solid` is the card as it reads over the wallpaper, for grounds that
+     must hide what scrolls or runs under them (the list's header, the graph's legend and markers). */
+  --ws-panel: rgba(229, 221, 202, 0.8);
+  --ws-panel-line: rgba(90, 66, 20, 0.16);
+  --ws-panel-solid: #e0d7c3;
+  --ws-card-edge: rgba(70, 50, 15, 0.3);
+  --ws-card-shadow: rgba(70, 50, 15, 0.5);
+  /* The comment pane's own layer over its card (none: it is a section of the card). */
+  --ws-comment-ground: transparent;
+  /* The board's shadow on the wallpaper. */
+  --ws-board-shadow: 0 1px 2px rgba(70, 50, 15, 0.26), 0 10px 26px -8px rgba(70, 50, 15, 0.46);
+
+  /* Theme colour defaults, tuned for the light card. The miss colour (the 胜率图's dashed bridge
+     over unanalysed moves) is a warm grey so a gap never reads as data; the engine-game graph
+     draws the white engine's curve, which Java draws in the miss colour, in a darker grey of the
+     same family so it reads as data. */
+  --ws-winrate-line: #2c5f95;
+  --ws-winrate-miss: #9a8e76;
+  --ws-engine-white-line: #6e6452;
+  --ws-score-line: #8c5216;
+  --ws-blunder-bar: rgba(150, 55, 130, 0.22);
+  --ws-comment-node: #4f6d9e;
+
+  /* 胜率图: hairlines at 25 / 75 % and at the labelled moves, the dashed 50 % midline, the
+     current (solid) and hovered (dashed) move's guide; the axis, scale and legend Label text, the
+     readout chips' flat ground and their figures (win rate in `graph-text`, score lead in
+     `graph-score-text`); the current move's marker on the win-rate curve and the current score's
+     marker, each ringed in `graph-marker-ring` (the ground under the graph); snapshot marks.
+     `graph-hover` is the hawkeye charts' hovered point. */
+  --ws-graph-grid: rgba(90, 66, 20, 0.18);
+  --ws-graph-baseline: rgba(90, 66, 20, 0.42);
+  --ws-graph-guide: rgba(78, 70, 54, 0.6);
+  --ws-graph-hover: #b83a2b;
+  --ws-graph-label: #5e5543;
+  --ws-graph-text: #241f16;
+  --ws-graph-score-text: #7a5000;
+  --ws-graph-chip: rgba(250, 246, 238, 0.94);
+  --ws-graph-snapshot: rgba(201, 138, 0, 0.5);
+  --ws-graph-move-marker: #2c5f95;
+  --ws-graph-score-marker: #8c5216;
+  --ws-graph-marker-ring: var(--ws-panel-solid);
+  /* The 面积填充 between the one curve and the 50% line: an ink tint above it (Black ahead), a
+     paper tint below it (White ahead). */
+  --ws-graph-fill-above: rgba(36, 31, 22, 0.11);
+  --ws-graph-fill-below: rgba(255, 252, 244, 0.4);
+
+  /* Flat stones, the 胜率条's centre tick and change, the 提子 panel's engine dot. */
+  --ws-stone-black: #1c1c1d;
+  --ws-stone-black-edge: #1c1c1d;
+  --ws-stone-white: #fbf9f3;
+  --ws-stone-white-edge: rgba(90, 66, 20, 0.4);
+  --ws-on-black: #ffffff;
+  --ws-on-white: #1f1d1a;
+  --ws-bar-grid: #5e5543;
+  --ws-gain: #2c6b3f;
+  --ws-loss: #a5321f;
+  --ws-live: #2f7a47;
+  --ws-idle: #8f856f; /* not analysing is an ordinary state: red is kept for losses and danger */
+
+  /* 变化树: a node without an evaluation is hollow; the seven 错误节点 levels (worst to best)
+     replace the theme's default colours while they hold their defaults. */
+  --ws-tree-node: #9c937f;
+  --ws-tree-empty: #f7f2e7;
+  --ws-tree-line: #8a7e66;
+  --ws-tree-line-off: #c9bfaa;
+  --ws-tree-dim: rgba(240, 235, 222, 0.6);
+  --ws-node-1: #8a3b80;
+  --ws-node-2: #c0412f;
+  --ws-node-3: #cf7f22;
+  --ws-node-4: #b89b1c;
+  --ws-node-5: #86a23a;
+  --ws-node-6: #3e8a57;
+  --ws-node-7: #2f8486;
+  --ws-scroll-thumb: rgba(90, 66, 20, 0.32);
+
+  /* 选点列表: its own ground (none: the card shows through; Java 经典 paints Java's white table),
+     the 占比 column's thin underline (both the main and the independent list) and the actual
+     move's row by loss level (rank 1 worst to 6 best), soft and, on the highlighted point, strong;
+     translucent so the ground shows through. */
+  --ws-table-ground: transparent;
+  --ws-share-bar-strong: rgba(47, 102, 80, 0.55);
+  --ws-rank-1: rgba(140, 40, 130, 0.16);
+  --ws-rank-1-strong: rgba(140, 40, 130, 0.3);
+  --ws-rank-2: rgba(200, 40, 30, 0.16);
+  --ws-rank-2-strong: rgba(200, 40, 30, 0.3);
+  --ws-rank-3: rgba(215, 120, 15, 0.2);
+  --ws-rank-3-strong: rgba(215, 120, 15, 0.36);
+  --ws-rank-4: rgba(185, 160, 0, 0.22);
+  --ws-rank-4-strong: rgba(185, 160, 0, 0.4);
+  --ws-rank-5: rgba(110, 165, 20, 0.2);
+  --ws-rank-5-strong: rgba(110, 165, 20, 0.36);
+  --ws-rank-6: rgba(30, 140, 60, 0.18);
+  --ws-rank-6-strong: rgba(30, 140, 60, 0.34);
+}
+
+[data-theme="dark"] {
+  --ws-panel: rgba(35, 31, 25, 0.86);
+  --ws-panel-line: rgba(255, 236, 200, 0.1);
+  --ws-panel-solid: #29241c;
+  --ws-card-edge: rgba(255, 236, 200, 0.1);
+  --ws-card-shadow: rgba(0, 0, 0, 0.7);
+  --ws-comment-ground: transparent;
+  --ws-board-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 12px 30px -8px rgba(0, 0, 0, 0.65);
+
+  --ws-winrate-line: #7fb0e6;
+  --ws-winrate-miss: #c4b9a3;
+  --ws-engine-white-line: #c4b9a3;
+  --ws-score-line: #e0ac58;
+  --ws-blunder-bar: rgba(255, 190, 240, 0.45);
+  --ws-comment-node: #7d9bd0;
+
+  /* 胜率图 over a dark card, also the set drawn over a wallpaper the user chose: Java's red move
+     marker and green score marker, white figures and light grey Label text on a near-black chip;
+     the 面积填充 is the curve's tint above the 50% line and Java's light tint below it. */
+  --ws-graph-grid: rgba(255, 236, 200, 0.14);
+  --ws-graph-baseline: rgba(255, 236, 200, 0.32);
+  --ws-graph-guide: rgba(241, 233, 217, 0.55);
+  --ws-graph-hover: #f0958a;
+  --ws-graph-label: #d2cbbe;
+  --ws-graph-text: #ffffff;
+  --ws-graph-score-text: #e0ac58;
+  --ws-graph-chip: rgba(10, 9, 7, 0.8);
+  --ws-graph-snapshot: rgba(255, 208, 84, 0.431);
+  --ws-graph-move-marker: #f44348;
+  --ws-graph-score-marker: #2ecc71;
+  --ws-graph-marker-ring: var(--ws-panel-solid);
+  --ws-graph-fill-above: rgba(127, 176, 230, 0.2);
+  --ws-graph-fill-below: rgba(232, 225, 210, 0.16);
+
+  --ws-stone-black: #0d0d0d;
+  --ws-stone-black-edge: rgba(255, 236, 200, 0.5);
+  --ws-stone-white: #f1e9d9;
+  --ws-stone-white-edge: #f1e9d9;
+  --ws-on-black: #ffffff;
+  --ws-on-white: #1f1d1a;
+  --ws-bar-grid: #a59a84;
+  --ws-gain: #6cc487;
+  --ws-loss: #f0958a;
+  --ws-live: #6cc487;
+  --ws-idle: #8c8371;
+
+  --ws-tree-node: #d9cfbc;
+  --ws-tree-empty: #3a332a;
+  --ws-tree-line: #b5aa94;
+  --ws-tree-line-off: #5c5446;
+  --ws-tree-dim: rgba(0, 0, 0, 0.35);
+  --ws-node-1: #c47ab8;
+  --ws-node-2: #e2705f;
+  --ws-node-3: #e6a04f;
+  --ws-node-4: #d6be4a;
+  --ws-node-5: #a9c463;
+  --ws-node-6: #6cba84;
+  --ws-node-7: #5cb4b5;
+  --ws-scroll-thumb: rgba(255, 236, 200, 0.26);
+
+  --ws-share-bar-strong: rgba(147, 211, 178, 0.6);
+  --ws-rank-1: rgba(190, 80, 180, 0.22);
+  --ws-rank-1-strong: rgba(190, 80, 180, 0.4);
+  --ws-rank-2: rgba(230, 70, 60, 0.22);
+  --ws-rank-2-strong: rgba(230, 70, 60, 0.4);
+  --ws-rank-3: rgba(230, 150, 50, 0.22);
+  --ws-rank-3-strong: rgba(230, 150, 50, 0.4);
+  --ws-rank-4: rgba(215, 200, 40, 0.2);
+  --ws-rank-4-strong: rgba(215, 200, 40, 0.38);
+  --ws-rank-5: rgba(150, 205, 60, 0.2);
+  --ws-rank-5-strong: rgba(150, 205, 60, 0.38);
+  --ws-rank-6: rgba(60, 190, 90, 0.2);
+  --ws-rank-6-strong: rgba(60, 190, 90, 0.38);
+}
+
+/* Java 经典 (data-skin="java"): Java's workbench colours over its grey metal wallpaper, on the
+   dark-themed workbench and the palette probe (stage.ts). The cards are about as dark as Java's
+   glass panels over that wallpaper (overlay rgba(24,24,26,102) on panels already shaded), and the
+   comment pane adds Java's comment layer (rgba(0,0,0,200) over the wallpaper) on its card. Graph,
+   tree and marker colours are Java's defaults (Theme.java, WinrateGraph.java, VariationTree.java),
+   lifted where Java's own value would vanish on the dark glass (the miss line, the comment ring). */
+:root[data-skin="java"] [data-theme="dark"] {
+  --ws-panel: rgba(16, 18, 20, 0.62);
+  --ws-panel-line: rgba(255, 255, 255, 0.1);
+  --ws-panel-solid: rgba(28, 31, 34, 0.92);
+  --ws-card-edge: rgba(255, 255, 255, 0.1);
+  --ws-card-shadow: rgba(0, 0, 0, 0.25);
+  --ws-comment-ground: rgba(0, 0, 0, 0.55);
+  --ws-board-shadow: none;
+
+  --ws-winrate-line: #64b4ff;
+  --ws-winrate-miss: #7d8cff;
+  --ws-engine-white-line: #7d8cff;
+  --ws-score-line: #ff00ff;
+  --ws-blunder-bar: rgba(255, 204, 255, 0.67);
+  --ws-comment-node: #4d7dff;
+
+  --ws-graph-grid: rgba(255, 255, 255, 0.22);
+  --ws-graph-baseline: rgba(236, 232, 224, 0.66);
+  --ws-graph-guide: rgba(232, 225, 210, 0.7);
+  --ws-graph-hover: #ff4040;
+  --ws-graph-label: #c8c8c8;
+  --ws-graph-text: #ffffff;
+  --ws-graph-score-text: #ffff00;
+  --ws-graph-chip: rgba(0, 0, 0, 0.67);
+  --ws-graph-snapshot: rgba(255, 208, 84, 0.82);
+  --ws-graph-move-marker: #f44348;
+  --ws-graph-score-marker: #2ecc71;
+  --ws-graph-marker-ring: var(--ws-panel-solid);
+  --ws-graph-fill-above: rgba(100, 180, 255, 0.2);
+  --ws-graph-fill-below: rgba(232, 225, 210, 0.16);
+
+  --ws-stone-black: #1e1e1e;
+  --ws-stone-black-edge: rgba(255, 255, 255, 0.4);
+  --ws-stone-white: #f5f5f5;
+  --ws-stone-white-edge: #f5f5f5;
+  --ws-on-black: #ffffff;
+  --ws-on-white: #000000;
+  --ws-bar-grid: #808080;
+  --ws-gain: #39d353;
+  --ws-loss: #ff5a52;
+  --ws-live: #39d353;
+  --ws-idle: #ff5a52;
+
+  --ws-tree-node: #ffffff;
+  --ws-tree-empty: rgba(30, 33, 36, 0.9);
+  --ws-tree-line: #ffffff;
+  --ws-tree-line-off: #676767;
+  --ws-tree-dim: rgba(0, 0, 0, 0.15);
+  --ws-node-1: #9b1996;
+  --ws-node-2: #d01013;
+  --ws-node-3: #c88c32;
+  --ws-node-4: #b4b400;
+  --ws-node-5: #8cca22;
+  --ws-node-6: #00dc00;
+  --ws-node-7: #00d2d2;
+  --ws-scroll-thumb: rgba(230, 230, 250, 0.5);
+}
+
+/* Java 经典 on light ground: the program's light windows (鹰眼, 棋力评估, 独立选点列表) and the
+   candidate list, which is Java's white table (ColorTableCellRenderer, LizzieFrame.java:14951-15105,
+   in AppleStyleSupport classic) inside the dark workbench. Cool neutral hairlines and chart lines
+   for the program's wood-toned ones (MoveListFrame's grey grid), the dialog surface under headers,
+   a cool grey 占比 underline and the actual move's loss level at Java's own alphas over white. The
+   list repeats the light Java design tokens it reads, since the workbench around it is dark. */
+:root[data-skin="java"],
+:root[data-skin="java"] #table {
+  --ds-text: #1f2926;
+  --ds-text-3: #55635e;
+  --ds-hover: rgba(20, 30, 40, 0.06);
+  --ds-accent-text: #126b62;
+  --ds-accent-soft: rgba(18, 107, 98, 0.13);
+  --ds-danger-text: #aa3333;
+  --ws-table-ground: #ffffff;
+  --ws-panel-line: #d5dcda;
+  --ws-panel-solid: #f6f7f9;
+  --ws-graph-grid: rgba(20, 30, 40, 0.14);
+  --ws-graph-baseline: rgba(20, 30, 40, 0.36);
+  --ws-graph-guide: rgba(20, 30, 40, 0.5);
+  --ws-graph-label: #55635e;
+  --ws-graph-text: #1f2926;
+  --ws-graph-chip: rgba(255, 255, 255, 0.94);
+  --ws-stone-white-edge: rgba(20, 30, 40, 0.4);
+  --ws-on-white: #1f2926;
+  --ws-bar-grid: #55635e;
+  --ws-scroll-thumb: rgba(20, 30, 40, 0.28);
+  --ws-share-bar-strong: rgba(20, 30, 40, 0.32);
+  --ws-rank-1: rgba(85, 25, 80, 0.27);
+  --ws-rank-1-strong: rgba(85, 25, 80, 0.47);
+  --ws-rank-2: rgba(208, 16, 19, 0.2);
+  --ws-rank-2-strong: rgba(208, 16, 19, 0.39);
+  --ws-rank-3: rgba(200, 140, 50, 0.2);
+  --ws-rank-3-strong: rgba(200, 140, 50, 0.39);
+  --ws-rank-4: rgba(180, 180, 0, 0.2);
+  --ws-rank-4-strong: rgba(180, 180, 0, 0.39);
+  --ws-rank-5: rgba(140, 202, 34, 0.2);
+  --ws-rank-5-strong: rgba(140, 202, 34, 0.39);
+  --ws-rank-6: rgba(0, 180, 0, 0.24);
+  --ws-rank-6-strong: rgba(0, 180, 0, 0.39);
+}
+
+/* Over a wallpaper the user chose, on the workbench and the palette probe (stage.ts): the cards
+   are translucent black, grounds that must hide what runs under them a near-opaque black, and the
+   胜率图's two current markers keep a light ring so they show on any wallpaper. */
+:root[data-stage="wallpaper"] #main,
+:root[data-stage="wallpaper"] #stage-probe {
+  --ws-panel: rgba(0, 0, 0, 0.51);
+  --ws-panel-solid: rgba(0, 0, 0, 0.78);
+  --ws-graph-marker-ring: var(--ws-graph-text);
+}

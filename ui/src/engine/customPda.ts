@@ -5,9 +5,20 @@ import { run, state, subscribe } from "../app";
 import type { CustomPdaMode, Point } from "../contract/generated";
 import { formPanel, message } from "../dialogs";
 import type { ContextEntry } from "../editing/contextMenu";
-import { isChinese, t } from "../i18n";
+import { isChinese, product, registerProduct, t } from "../i18n";
 import { javaDouble, parseJavaDouble } from "../workbench/paint";
-import { actions, button } from "./controls";
+import { button, footer, groupNote, primaryButton, row, segmented, switchRow } from "./controls";
+import { paramCaption } from "./leelaOptions";
+
+/** The name of the row of the three PDA choices, which Java shows without a caption. */
+registerProduct({
+  ZhCn: { customPdaModeGroup: "PDA 方式" },
+  ZhTw: { customPdaModeGroup: "PDA 方式" },
+  EnUs: { customPdaModeGroup: "PDA mode" },
+  JaJp: { customPdaModeGroup: "PDA の方式" },
+  KoKr: { customPdaModeGroup: "PDA 방식" },
+  ThTh: { customPdaModeGroup: "โหมด PDA" },
+});
 
 /** Leelaz.isKatagoCustom: a `KataGoCustom` build, or a `KataGoPda` one (Leelaz.java:6246-6253). */
 export function kataGoCustom(): boolean {
@@ -20,8 +31,8 @@ export function kataGoCustom(): boolean {
 export function priorityMenuEntries(point: Point): ContextEntry[] {
   if (!kataGoCustom()) return [];
   return [
-    { key: "RightClickMenu.priority", label: t("RightClickMenu.priority"), icon: "uppoint.png", run: () => void run({ type: "SetPriorityPoint", point }) },
-    { key: "RightClickMenu.clearPriority", label: t("RightClickMenu.clearPriority"), icon: "recycle.png", run: () => void run({ type: "ClearPriorityPoints" }) },
+    { key: "RightClickMenu.priority", label: t("RightClickMenu.priority"), icon: "priority-point", run: () => void run({ type: "SetPriorityPoint", point }) },
+    { key: "RightClickMenu.clearPriority", label: t("RightClickMenu.clearPriority"), icon: "clear-all", run: () => void run({ type: "ClearPriorityPoints" }) },
     "sep",
   ];
 }
@@ -44,22 +55,12 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", text = ""):
   return node;
 }
 
-/** A JFontCheckBox with its text; `key` names it for automation. */
-function check(text: string, key: string, checked: boolean): { label: HTMLLabelElement; box: HTMLInputElement } {
-  const box = el("input");
-  box.type = "checkbox";
-  box.checked = checked;
-  box.dataset.key = key;
-  const label = el("label", "custom-pda-check");
-  label.append(box, text);
-  return { label, box };
-}
-
-function valueField(text: string, key: string, name: string): HTMLInputElement {
-  const field = el("input", "custom-pda-value");
+/** A typed number of the window; the row it stands in names it. */
+function valueField(text: string, key: string): HTMLInputElement {
+  const field = el("input");
   field.value = text;
+  field.inputMode = "decimal";
   field.dataset.key = key;
-  field.setAttribute("aria-label", name);
   return field;
 }
 
@@ -75,54 +76,53 @@ export async function openCustomPda(): Promise<void> {
   const mode: CustomPdaMode = reported ? live.mode : saved.mode;
   const capValue = live.cap ?? saved.dynamicCap ?? 0;
   const fixedValue = live.pda ?? saved.fixedValue ?? 0;
+  // Java's captions end in a colon; a row's name does not.
+  const caption = (text: string) => text.replace(/\\?[:：]\s*$/, "");
 
-  const body = el("div", "kata-params custom-pda");
-  const current = el("div", "custom-pda-current");
-  const pda = el("span", "custom-pda-current-value", pdaText());
+  // One group: 当前PDA, the choice, the value each choice uses, 自动加载; the warnings under it.
+  const body = el("div", "custom-pda-dialog");
+  const pda = el("span", "custom-pda-current", pdaText());
   pda.dataset.key = "customPda.current";
-  current.append(el("span", "", t("SetKataPDA.lblCurPDA")), pda);
+  row(body, caption(t("SetKataPDA.lblCurPDA")), "", pda);
 
-  // ButtonGroup of three JCheckBoxes: one is always selected, a click on it keeps it.
-  const dynamic = check(t("SetKataPDA.chkDymPda"), "customPda.dynamic", mode === "Dynamic");
-  const fixed = check(t("SetKataPDA.chkStaticPda"), "customPda.fixed", mode === "Fixed");
-  const disabled = check(t("SetKataPDA.chkNoPDA"), "customPda.disabled", mode === "Disabled");
-  const cap = valueField(javaDouble(capValue), "customPda.cap", t("SetKataPDA.lblDymRatio"));
-  const value = valueField(javaDouble(fixedValue), "customPda.value", t("SetKataPDA.chkStaticPda"));
-  const choices: [HTMLInputElement, CustomPdaMode][] = [[dynamic.box, "Dynamic"], [fixed.box, "Fixed"], [disabled.box, "Disabled"]];
+  // ButtonGroup of three JCheckBoxes, one always selected: a segmented control of the three.
+  const modes = segmented<CustomPdaMode>("custom-pda-mode", [["Dynamic", t("SetKataPDA.chkDymPda")], ["Fixed", t("SetKataPDA.chkStaticPda")], ["Disabled", t("SetKataPDA.chkNoPDA")]], mode);
+  const [dynamic, fixed] = modes.inputs;
+  modes.inputs.forEach((radio, k) => (radio.dataset.key = `customPda.${["dynamic", "fixed", "disabled"][k]}`));
+  row(body, product("customPdaModeGroup"), "", modes.el);
+  const cap = valueField(javaDouble(capValue), "customPda.cap");
+  const value = valueField(javaDouble(fixedValue), "customPda.value");
+  // 动态系数 with Java's tip on it, then the fixed value; the one the choice does not use is off.
+  row(body, caption(t("SetKataPDA.lblDymRatio")), t("SetKataPDA.lblTip"), cap);
+  row(body, t("SetKataPDA.chkStaticPda"), "", value);
   const enableFields = () => {
-    cap.disabled = !dynamic.box.checked;
-    value.disabled = !fixed.box.checked;
+    cap.disabled = !dynamic.checked;
+    value.disabled = !fixed.checked;
   };
-  for (const [box] of choices) {
-    box.onchange = () => {
-      for (const [other] of choices) other.checked = other === box;
-      enableFields();
-    };
-  }
+  for (const radio of modes.inputs) radio.onchange = enableFields;
   enableFields();
-  const modes = el("div", "custom-pda-modes");
-  const ratio = el("label", "custom-pda-ratio");
-  ratio.append(t("SetKataPDA.lblDymRatio"), cap);
-  modes.append(dynamic.label, ratio, fixed.label, value, disabled.label);
 
-  const auto = check(t("SetKataPDA.chkAutoPDA"), "customPda.autoApply", saved.autoApply);
-  body.append(current, modes, el("div", "", t("SetKataPDA.lblTip")), auto.label);
-  body.append(el("div", "custom-pda-warning", t("SetKataPDA.lblpdakatagopdapda")));
-  // Two lines Java writes in Chinese only, without resources (SetKataPDA.java:280-283, 300-303).
+  const [autoName, autoSub] = paramCaption(t("SetKataPDA.chkAutoPDA"));
+  const auto = switchRow(body, autoName, autoSub, saved.autoApply);
+  auto.input.dataset.key = "customPda.autoApply";
+  // The warnings, one line each; two of them Java writes in Chinese only, without resources
+  // (SetKataPDA.java:280-283, 300-303).
+  const notes = [t("SetKataPDA.lblpdakatagopdapda")];
   if (isChinese()) {
-    body.append(
-      el("div", "custom-pda-warning", "被让子需要消极(PDA为负,如默认为白视角,则黑方需设置PDA为正才是消极)"),
-      el("div", "custom-pda-warning", "一般默认为白方视角,也可修改配置文件改为黑方视角,或无视角(轮谁下是谁的视角)"),
+    notes.push(
+      "被让子需要消极(PDA为负,如默认为白视角,则黑方需设置PDA为正才是消极)",
+      "一般默认为白方视角,也可修改配置文件改为黑方视角,或无视角(轮谁下是谁的视角)",
     );
   }
+  groupNote(body, notes.join("\n"));
 
   const dialog = formPanel(t("SetKataPDA.title"), body);
   currentPda = pda;
   void dialog.closed.then(() => {
     if (currentPda === pda) currentPda = null;
   });
-  const apply = button(t("SetKataPDA.btnApply"), async () => {
-    const chosen = choices.find(([box]) => box.checked)?.[1] ?? "Disabled";
+  const apply = primaryButton(t("SetKataPDA.btnApply"), async () => {
+    const chosen = modes.value();
     const capText = cap.value.trim();
     const valueText = value.value.trim();
     const dynamicCap = parseJavaDouble(capText);
@@ -134,13 +134,13 @@ export async function openCustomPda(): Promise<void> {
       await message(t("Message.title"), t("SetKataPDA.wrongParameter"));
       return;
     }
-    const result = await run({ type: "SaveCustomPda", settings: { mode: chosen, dynamicCap, fixedValue: fixedPda, autoApply: auto.box.checked } });
+    const result = await run({ type: "SaveCustomPda", settings: { mode: chosen, dynamicCap, fixedValue: fixedPda, autoApply: auto.input.checked } });
     if (!result || result.type === "Refused") return;
     await dialog.close();
   });
   apply.dataset.key = "customPda.apply";
   const cancel = button(t("SetKataPDA.btnCancel"), () => void dialog.close());
   cancel.dataset.key = "customPda.cancel";
-  actions(body, apply, cancel);
+  footer(body, { primary: apply, cancel });
   await dialog.closed;
 }

@@ -1,17 +1,21 @@
-// AI 陪练 setup (NewHumanSlGameDialog.java): header with 从当前局面开始 and 更多设置, the card with
-// 训练方式 / AI 对手 / 执棋 / 用时 / 开始训练, the summary row, the 让子 / 贴目 fold, the download and
-// preparation panel, and the footer hint with 取消. The dialog holds the draft only: the core owns
-// the session and saves the settings once a game started; the model download is a resource job.
+// AI 陪练 setup (NewHumanSlGameDialog.java) as grouped rows: the subtitle, then 训练方式 / AI 对手 /
+// 执棋 / 用时 / 从当前局面开始 with the note on what the rank means, the 让子 / 贴目 group behind
+// 更多设置, the summary row and the download and preparation panel; the footer holds 更多设置, 开始训练
+// and 取消. The dialog holds the draft only: the core owns the session and saves the settings once a
+// game started; the model download is a resource job.
 import { registerViewHandler, run, state } from "../app";
 import type { HumanSlNotice, HumanSlStartupStage, HumanSlTrainingSettings, ResourceOutcome } from "../contract/generated";
-import { ask, openModalLayer } from "../dialogs";
+import { icon } from "../design/icons";
+import { stepper } from "../design/stepper";
+import { ask, closeBox, openModalLayer } from "../dialogs";
+import { footer, groupNote, groupTitle, row, segmented, switchRow } from "../engine/controls";
 import { format, product, t } from "../i18n";
+import { messageText } from "../errorText";
 import { openAutoSetup, resourceCommand, resourceView } from "../setup/dialog";
 import { javaFormat, resourceText } from "../setup/setupText";
 import { humanSlSession, humanSlUi, humanSlUiChanged } from "./state";
 import "./humansl.css";
 
-const ICON = "/assets/ui/ai-coach/coach-target.png";
 /** HumanSlTrainingConfig move times by 用时 index. */
 const TIMES = [10, 30, 60, 24 * 60 * 60];
 const COLORS = ["Random", "Black", "White"] as const;
@@ -28,24 +32,24 @@ function keyed<T extends HTMLElement>(e: T, name: string): T {
   return e;
 }
 
-function button(name: string, text: string, style: "primary" | "secondary", onClick: () => void): HTMLButtonElement {
-  const b = keyed(el("button", `hs-button ${style}`, text), name);
+function button(name: string, text: string, onClick: () => void): HTMLButtonElement {
+  const b = keyed(el("button", "", text), name);
   b.type = "button";
   b.onclick = onClick;
   return b;
 }
 
 function select(name: string, options: string[]): HTMLSelectElement {
-  const s = keyed(el("select", "hs-choice"), name);
+  const s = keyed(el("select"), name);
   for (const text of options) s.append(el("option", "", text));
   return s;
 }
 
-/** NewHumanSlGameDialog.field: a bold caption 6 px above its control. */
-function field(label: string, control: HTMLElement): HTMLElement {
-  const f = el("div", "hs-field");
-  f.append(el("div", "hs-label", label), control);
-  return f;
+/** Two to four exclusive choices as a segmented control, valued by their index. */
+function choice(name: string, texts: string[], index: number) {
+  const s = segmented(`humansl-${name}`, texts.map((text, k): [string, string] => [String(k), text]), String(index));
+  keyed(s.el, name);
+  return s;
 }
 
 /** updateEngineStartupStage's texts. */
@@ -86,7 +90,9 @@ function failureReason(key: string): string {
 
 /** The start failure as the dialog's inline error (showInlineError). */
 export function startFailedText(n: Extract<HumanSlNotice, { type: "StartFailed" }>): string {
-  return javaFormat(t("HumanSlGame.error.startFailed"), n.detail ?? failureReason(n.reason));
+  // The detail's last lines may be a core error message (a settings write that failed).
+  const detail = n.detail?.split("\n").map((line) => messageText(line)).join("\n");
+  return javaFormat(t("HumanSlGame.error.startFailed"), detail ?? failureReason(n.reason));
 }
 
 /** failing: a start failed and the companion is still being stopped; cleanup: that stop could not
@@ -140,58 +146,44 @@ export function openHumanSlDialog(): void {
   box.setAttribute("aria-label", t("HumanSlTraining.title"));
   box.tabIndex = -1;
   const root = el("div", "hs-setup");
+  // restoreLastStartedSettings: the draft starts from the last started game.
+  const s = saved.training;
 
-  const header = el("div", "hs-header");
-  const icon = el("img", "hs-header-icon");
-  icon.src = ICON;
-  icon.alt = "";
-  const copy = el("div", "hs-copy");
-  copy.append(el("div", "hs-title", t("HumanSlTraining.title")), el("div", "hs-subtitle", t("HumanSlTraining.subtitle")));
-  const headerActions = el("div", "hs-header-actions");
-  const fromCurrent = keyed(el("input"), "fromCurrent");
-  fromCurrent.type = "checkbox";
-  const fromCurrentLabel = el("label", "hs-check");
-  fromCurrentLabel.append(fromCurrent, t("HumanSlTraining.fromCurrent"));
   let more = saved.advanced_visible;
-  const moreButton = button("more", "", "secondary", () => {
+  const moreButton = button("more", "", () => {
     more = !more;
     render();
+    if (more) advanced.scrollIntoView({ block: "nearest" });
   });
-  headerActions.append(fromCurrentLabel, moreButton);
-  header.append(icon, copy, headerActions);
+  moreButton.classList.add("hs-more");
 
-  const mode = select("mode", [t("HumanSlTraining.mode.review"), t("HumanSlTraining.mode.live")]);
-  let rankPreset = saved.training.opponent === "Rank";
-  let dan = saved.training.danRank;
-  const rankTab = button("opponentRank", t("HumanSlTraining.opponent.rank"), "secondary", () => { rankPreset = true; edited(); });
-  const proTab = button("opponentPro", t("HumanSlTraining.opponent.pro"), "secondary", () => { rankPreset = false; edited(); });
-  const tabs = el("div", "hs-segments");
-  tabs.append(rankTab, proTab);
-  const kyuTab = button("kyu", t("HumanSlTraining.rank.kyu"), "secondary", () => setDan(false));
-  const danTab = button("dan", t("HumanSlTraining.rank.dan"), "secondary", () => setDan(true));
-  const kind = el("div", "hs-segments");
-  kind.append(kyuTab, danTab);
+  const mode = choice("mode", [t("HumanSlTraining.mode.review"), t("HumanSlTraining.mode.live")], s.mode === "LiveAnalysis" ? 1 : 0);
+  let rankPreset = s.opponent === "Rank";
+  let dan = s.danRank;
+  const opponent = choice("opponent", [t("HumanSlTraining.opponent.rank"), t("HumanSlTraining.opponent.pro")], rankPreset ? 0 : 1);
+  keyed(opponent.inputs[0], "opponentRank");
+  keyed(opponent.inputs[1], "opponentPro");
+  const kind = choice("rankKind", [t("HumanSlTraining.rank.kyu"), t("HumanSlTraining.rank.dan")], dan ? 1 : 0);
+  kind.el.setAttribute("aria-label", `${t("HumanSlTraining.rank.kyu")} / ${t("HumanSlTraining.rank.dan")}`);
+  keyed(kind.inputs[0], "kyu");
+  keyed(kind.inputs[1], "dan");
   const rankInput = keyed(el("input", "hs-rank"), "rank");
   rankInput.type = "number";
   rankInput.step = "1";
   rankInput.min = "1";
-  let rank = saved.training.rank;
-  const rankPanel = el("div", "hs-rank-panel");
-  const rankRow = el("div", "hs-rank-row");
-  rankRow.append(kind, rankInput);
-  rankPanel.append(rankRow, el("div", "hs-hint", t("HumanSlTraining.rank.range")));
-  const proStyle = select("proStyle", [t("HumanSlTraining.pro.modern"), t("HumanSlTraining.pro.online9d")]);
-  const proPanel = el("div", "hs-pro-panel");
-  proPanel.append(proStyle);
-  const opponent = el("div", "hs-opponent");
-  opponent.append(tabs, rankPanel, proPanel);
-  const color = select("color", [t("HumanSlTraining.color.random"), t("HumanSlTraining.color.black"), t("HumanSlTraining.color.white")]);
-  const time = select("time", [t("HumanSlTraining.time.10"), t("HumanSlTraining.time.30"), t("HumanSlTraining.time.60"), t("HumanSlTraining.time.unlimited")]);
-  const startIcon = el("img", "hs-start-icon");
-  startIcon.src = ICON;
-  startIcon.alt = "";
+  rankInput.setAttribute("aria-label", t("HumanSlTraining.opponent.rank"));
+  let rank = s.rank;
+  const rankPanel = el("span", "hs-rank-panel");
+  rankPanel.append(kind.el, stepper(rankInput));
+  const proTexts = [t("HumanSlTraining.pro.modern"), t("HumanSlTraining.pro.online9d")];
+  const proStyle = choice("proStyle", proTexts, s.opponent === "Online9d" ? 1 : 0);
+  proStyle.el.setAttribute("aria-label", t("HumanSlTraining.opponent.pro"));
+  const color = choice("color", [t("HumanSlTraining.color.random"), t("HumanSlTraining.color.black"), t("HumanSlTraining.color.white")], Math.max(0, COLORS.indexOf(s.playerColor)));
+  const timeTexts = [t("HumanSlTraining.time.10"), t("HumanSlTraining.time.30"), t("HumanSlTraining.time.60"), t("HumanSlTraining.time.unlimited")];
+  const time = choice("time", timeTexts, Math.max(0, TIMES.indexOf(s.moveTimeSeconds)));
+  const startIcon = icon("spark");
   const startLabel = el("span");
-  const startButton = button("start", "", "primary", () => void primaryAction());
+  const startButton = button("start", "", () => void primaryAction());
   startButton.classList.add("hs-start");
   startButton.append(startIcon, startLabel);
 
@@ -203,52 +195,50 @@ export function openHumanSlDialog(): void {
   summary.append(modelStatus, status);
 
   const handicap = select("handicap", Array.from({ length: 10 }, (_, k) => String(k)));
+  handicap.selectedIndex = s.handicap;
   const komi = keyed(el("input", "hs-komi"), "komi");
   komi.type = "text";
+  komi.inputMode = "decimal";
+  komi.value = String(s.komi);
   // KomiDocument(true): a signed decimal.
   komi.addEventListener("input", () => {
     const kept = komi.value.replace(/[^\d.-]/g, "");
     if (kept !== komi.value) komi.value = kept;
   });
-  const advanced = el("div", "hs-advanced");
-  advanced.append(field(t("HumanSlTraining.handicap"), handicap), field(t("HumanSlTraining.komi"), komi), el("div", "hs-hint hs-more-hint", t("HumanSlTraining.moreHint")));
 
   const progress = keyed(el("div", "hs-progress"), "progress");
   const progressFill = el("div", "hs-progress-fill");
+  progress.append(progressFill);
   const progressText = el("span", "hs-progress-text");
-  progress.append(progressFill, progressText);
-  const pauseButton = button("pause", t("HumanSlTraining.download.pause"), "secondary", () => void stopDownload(true));
-  const cancelDownloadButton = button("downloadCancel", t("HumanSlTraining.download.cancel"), "secondary", () => void stopDownload(false));
+  const pauseButton = button("pause", t("HumanSlTraining.download.pause"), () => void stopDownload(true));
+  const cancelDownloadButton = button("downloadCancel", t("HumanSlTraining.download.cancel"), () => void stopDownload(false));
   const downloadPanel = el("div", "hs-download");
-  downloadPanel.append(progress, pauseButton, cancelDownloadButton);
+  downloadPanel.append(progress, progressText, pauseButton, cancelDownloadButton);
 
-  const card = el("div", "hs-card");
-  card.append(
-    field(t("HumanSlTraining.mode"), mode),
-    field(t("HumanSlTraining.opponent"), opponent),
-    field(t("HumanSlTraining.color"), color),
-    field(t("HumanSlTraining.time"), time),
-    startButton,
-    summary,
-    advanced,
-    downloadPanel,
-  );
+  // The training's rows with the note on what the rank means; AI 对手's description is the rank
+  // range, shown while 按段位 is chosen.
+  const form = el("div");
+  row(form, t("HumanSlTraining.mode"), "", mode.el);
+  const opponentRow = row(form, t("HumanSlTraining.opponent"), t("HumanSlTraining.rank.range"), opponent.el, rankPanel, proStyle.el);
+  const rankRange = opponentRow.querySelector<HTMLElement>(".ds-row-sub")!;
+  row(form, t("HumanSlTraining.color"), "", color.el);
+  row(form, t("HumanSlTraining.time"), "", time.el);
+  const fromCurrent = keyed(switchRow(form, t("HumanSlTraining.fromCurrent"), "", false).input, "fromCurrent");
+  groupNote(form, t("HumanSlTraining.footer"));
+  const advanced = el("div");
+  groupTitle(advanced, t("HumanSlTraining.more"));
+  row(advanced, t("HumanSlTraining.handicap"), "", handicap);
+  row(advanced, t("HumanSlTraining.komi"), "", komi);
+  groupNote(advanced, t("HumanSlTraining.moreHint"));
 
-  const footer = el("div", "hs-footer");
-  footer.append(el("div", "hs-hint", t("HumanSlTraining.footer")), button("close", t("HumanSlTraining.close"), "secondary", () => void closeDialog()));
-
-  root.append(header, card, footer);
-  box.append(el("div", "modal-title", t("HumanSlTraining.title")), root);
+  root.append(el("p", "hs-subtitle", t("HumanSlTraining.subtitle")), form, advanced, summary, downloadPanel);
+  const caption = el("span");
+  caption.append(icon("spark"), t("HumanSlTraining.title"));
+  const title = el("div", "modal-title hs-title");
+  title.append(caption, keyed(closeBox(() => void closeDialog()), "closeBox"));
+  box.append(title, root);
+  footer(box, { start: [moreButton], primary: startButton, cancel: button("close", t("HumanSlTraining.close"), () => void closeDialog()) });
   overlay.append(box);
-
-  // restoreLastStartedSettings.
-  const s = saved.training;
-  mode.selectedIndex = s.mode === "LiveAnalysis" ? 1 : 0;
-  proStyle.selectedIndex = s.opponent === "Online9d" ? 1 : 0;
-  color.selectedIndex = Math.max(0, COLORS.indexOf(s.playerColor));
-  time.selectedIndex = Math.max(0, TIMES.indexOf(s.moveTimeSeconds));
-  handicap.selectedIndex = s.handicap;
-  komi.value = String(s.komi);
 
   function maxRank(): number {
     return dan ? 9 : 20;
@@ -267,7 +257,9 @@ export function openHumanSlDialog(): void {
   }
 
   rankInput.addEventListener("change", () => { readRank(); edited(); });
-  for (const control of [mode, proStyle, time, color]) control.addEventListener("change", edited);
+  for (const r of [...mode.inputs, ...proStyle.inputs, ...time.inputs, ...color.inputs]) r.addEventListener("change", edited);
+  for (const r of opponent.inputs) r.addEventListener("change", () => { rankPreset = opponent.value() === "0"; edited(); });
+  for (const r of kind.inputs) r.addEventListener("change", () => setDan(kind.value() === "1"));
   // updateKomiForHandicap.
   handicap.addEventListener("change", () => {
     komi.value = handicap.selectedIndex >= 2 ? "0" : "7.5";
@@ -288,12 +280,12 @@ export function openHumanSlDialog(): void {
     readRank();
     const h = handicap.selectedIndex;
     return {
-      mode: mode.selectedIndex === 1 ? "LiveAnalysis" : "PostGameReview",
-      opponent: rankPreset ? "Rank" : proStyle.selectedIndex === 1 ? "Online9d" : "ModernPro",
+      mode: mode.value() === "1" ? "LiveAnalysis" : "PostGameReview",
+      opponent: rankPreset ? "Rank" : proStyle.value() === "1" ? "Online9d" : "ModernPro",
       danRank: dan,
       rank,
-      playerColor: COLORS[color.selectedIndex] ?? "Random",
-      moveTimeSeconds: TIMES[time.selectedIndex] ?? 10,
+      playerColor: COLORS[Number(color.value())] ?? "Random",
+      moveTimeSeconds: TIMES[Number(time.value())] ?? 10,
       handicap: h,
       komi: parseKomi(komi.value, h >= 2 ? 0 : 7.5),
     };
@@ -311,9 +303,9 @@ export function openHumanSlDialog(): void {
   function summaryText(): string {
     const opponentText = rankPreset
       ? format(dan ? t("HumanSlTraining.rank.danValue") : t("HumanSlTraining.rank.kyuValue"), rank)
-      : proStyle.options[proStyle.selectedIndex]?.text ?? "";
-    const timeText = time.options[time.selectedIndex]?.text ?? "";
-    return format(mode.selectedIndex === 1 ? t("HumanSlTraining.summary.live") : t("HumanSlTraining.summary.review"), opponentText, timeText);
+      : proTexts[Number(proStyle.value())] ?? "";
+    const timeText = timeTexts[Number(time.value())] ?? "";
+    return format(mode.value() === "1" ? t("HumanSlTraining.summary.live") : t("HumanSlTraining.summary.review"), opponentText, timeText);
   }
 
   function elapsedSeconds(): number {
@@ -340,19 +332,17 @@ export function openHumanSlDialog(): void {
     const enabled = phase === "idle";
     const preparing = phase === "starting" || phase === "preparing";
     // setFormEnabled.
-    for (const control of [mode, rankTab, proTab, kyuTab, danTab, rankInput, proStyle, color, time, moreButton, handicap, komi]) control.disabled = !enabled;
+    const choices = [...mode.inputs, ...opponent.inputs, ...kind.inputs, ...proStyle.inputs, ...color.inputs, ...time.inputs];
+    for (const control of [...choices, rankInput, moreButton, handicap, komi]) control.disabled = !enabled;
     fromCurrent.disabled = !enabled || !canStartFromCurrent();
     if (!canStartFromCurrent()) fromCurrent.checked = false;
-    fromCurrentLabel.classList.toggle("disabled", fromCurrent.disabled);
     moreButton.textContent = more ? t("HumanSlTraining.less") : t("HumanSlTraining.more");
-    moreButton.classList.toggle("selected", more);
-    // showOpponentCard / refreshSegmentStyle: the selected segment is a primary button.
-    for (const [b, on] of [[rankTab, rankPreset], [proTab, !rankPreset], [kyuTab, !dan], [danTab, dan]] as const) {
-      b.classList.toggle("primary", on);
-      b.classList.toggle("secondary", !on);
-    }
-    rankPanel.hidden = !rankPreset;
-    proPanel.hidden = rankPreset;
+    moreButton.setAttribute("aria-expanded", String(more));
+    // showOpponentCard: the chosen opponent kind shows its own controls.
+    opponent.inputs[rankPreset ? 0 : 1].checked = true;
+    kind.inputs[dan ? 1 : 0].checked = true;
+    rankPanel.hidden = rankRange.hidden = !rankPreset;
+    proStyle.el.hidden = rankPreset;
     rankInput.max = String(maxRank());
     if (rankInput.value !== String(rank)) rankInput.value = String(rank);
     advanced.hidden = !more;
@@ -364,7 +354,7 @@ export function openHumanSlDialog(): void {
     startButton.disabled = cleanup ? humanSlSession()?.phase !== "CleanupPending" : !enabled;
     startButton.classList.toggle("danger", cleanup);
     startButton.classList.toggle("primary", !cleanup);
-    startIcon.hidden = cleanup || repair;
+    startIcon.toggleAttribute("hidden", cleanup || repair);
     startLabel.textContent = cleanup ? t("HumanSlTraining.retryCleanup")
       : repair ? t("EngineFailedMessage.openTensorRtRepair")
       : paused ? t("HumanSlTraining.download.resume")
@@ -407,10 +397,6 @@ export function openHumanSlDialog(): void {
     } else if (!text) text = summaryText();
     status.textContent = text;
     status.classList.toggle("error", statusError && (phase === "idle" || phase === "failing" || phase === "cleanup"));
-    // packForContent / fitToScreen: 920 x 410, 500 with the fold, a download or the startup;
-    // within the window less a 40 px margin, at least 860 x 390.
-    const target = more || phase !== "idle" ? 500 : 410;
-    box.style.height = `${Math.min(target, window.innerHeight - 40)}px`;
     // Java's ESC binding is on the dialog's root pane: a control disabled while it had the focus
     // (开始训练 during a start) must not leave the keyboard outside the modal dialog.
     if (box.isConnected && !box.contains(document.activeElement)) box.focus();

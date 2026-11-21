@@ -1,0 +1,509 @@
+/* 超级鹰眼 window: the page tabs and lists, the filter bar, the chart panel, the 统计信息 page, the
+   context menu and the dialogs drawn inside the window. Data colours with a workbench meaning come
+   from stage.css (stones, graph lines and guides); the ones below are this window's own. */
+:root,
+[data-theme="light"] {
+  /* 胜率波动 / 目数波动 text by its class (diffColor): a gain at or above the gain mark, a change
+     above the first loss threshold, then threshold 1 (mildest) to 5 (worst). 4.5:1 or more on the
+     panel, the sunken pinned row and the highlighted row. */
+  --hk-diff-gain: #006462;
+  --hk-diff-even: #29653c;
+  --hk-diff-1: #824b14;
+  --hk-diff-2: #5f5c00;
+  --hk-diff-3: #446212;
+  --hk-diff-4: #a3311f;
+  --hk-diff-5: #8f2585;
+  /* Loss classes 0 (best move) to 5 (worst) as bar fills and swatches; the body text reads on
+     each at 4.5:1 or more. */
+  --hk-loss-0: #5fb85a;
+  --hk-loss-1: #a3c94a;
+  --hk-loss-2: #d9c23a;
+  --hk-loss-3: #d99a4a;
+  --hk-loss-4: #d96c59;
+  --hk-loss-5: #b974b5;
+  /* 胜率吻合: the area of the moves that matched the AI, black's and white's. */
+  --hk-match-black: rgba(60, 80, 170, 0.24);
+  --hk-match-white: rgba(40, 150, 90, 0.24);
+}
+
+[data-theme="dark"] {
+  --hk-diff-gain: #5fcfc8;
+  --hk-diff-even: #7fc591;
+  --hk-diff-1: #e0a466;
+  --hk-diff-2: #d6cc5a;
+  --hk-diff-3: #a7d465;
+  --hk-diff-4: #f0978c;
+  --hk-diff-5: #e395dc;
+  --hk-loss-0: #2f6b33;
+  --hk-loss-1: #4f6a1f;
+  --hk-loss-2: #6b5d12;
+  --hk-loss-3: #7a4a1c;
+  --hk-loss-4: #7f2d22;
+  --hk-loss-5: #5e2c5c;
+  --hk-match-black: rgba(130, 150, 255, 0.26);
+  --hk-match-white: rgba(100, 210, 140, 0.22);
+}
+
+html,
+body {
+  overflow: hidden;
+}
+body {
+  background: var(--ds-panel);
+}
+
+/* ---- tabs: small text segments, the selected one on the well at weight 600 (the pages, the
+   loss panel and the chart panel); buttons in a tablist, hover and press from base.css */
+.hk-tabs,
+.hks-tabs,
+.hk-chart-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--ds-line);
+}
+.hk-tab,
+.hks-tab,
+.hk-chart-tab {
+  height: auto;
+  padding: 0 8px;
+  line-height: 22px;
+  border: 0;
+  border-radius: var(--ds-radius-s);
+  background-color: transparent;
+  color: var(--ds-text-3);
+  white-space: nowrap;
+}
+.hk-tab[aria-selected="true"],
+.hks-tab[aria-selected="true"],
+.hk-chart-tab[aria-selected="true"] {
+  background-color: var(--ds-well);
+  color: var(--ds-text);
+  font-weight: 600;
+}
+
+/* ---- the lists */
+#hk-top {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+}
+#hk-pages {
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+.hk-page {
+  position: absolute;
+  inset: 0;
+}
+.hk-scroll {
+  position: absolute;
+  overflow-x: hidden;
+  overflow-y: auto;
+  /* A row scrolled into view clears the sticky header. */
+  scroll-padding-top: calc(max(calc(var(--hk-row, 20px) - 2px), 24px) + 1px);
+}
+/* The focused body rings the list; a focused header rings itself. */
+.hk-scroll:has(> table > tbody:focus-visible) {
+  outline: 2px solid var(--ds-ring);
+  outline-offset: -2px;
+}
+.hk-scroll tbody:focus-visible {
+  outline: none;
+}
+.hk-scroll th:focus-visible {
+  outline-offset: -2px;
+}
+/* 简易列表: the white list beside the black one */
+.hk-scroll + .hk-scroll {
+  border-left: 1px solid var(--ds-line);
+}
+.hk-scroll table {
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  font-family: var(--hk-ui-font, inherit);
+  font-variant-numeric: tabular-nums;
+}
+/* Rows follow the session's row height (Config.menuHeight) as the main window's list does: never
+   below 22 px. */
+.hk-scroll th,
+.hk-scroll td {
+  padding: 0 6px;
+  border-bottom: 1px solid var(--ds-line);
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.hk-scroll th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: max(calc(var(--hk-row, 20px) - 2px), 24px);
+  background: var(--ds-sunken);
+  color: var(--ds-text-2);
+  font-size: var(--ds-size-s);
+  font-weight: 400;
+  text-overflow: ellipsis;
+}
+/* A header's name and its sort mark (window.ts): the name gives way to the mark where the column
+   is narrow, so the mark stays whole in every language. */
+.hk-scroll th > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  vertical-align: middle;
+}
+.hk-scroll .hk-th-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The sorted column's mark: the direction's chevron, after |Δ| while a change column orders the
+   largest change first whatever its sign. */
+.hk-scroll .hk-sort {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: var(--ds-text);
+}
+.hk-scroll .hk-sort:empty {
+  display: none;
+}
+.hk-scroll th .icon {
+  --menu-icon-size: 12px;
+}
+.hk-scroll td {
+  height: max(calc(var(--hk-row, 20px) - 4px), 22px);
+  /* window.ts sets each cell's text and ground (empty: the table's own). */
+  color: var(--hk-fg);
+  background-color: var(--hk-bg);
+}
+/* Colour and coordinate columns read as words: left-aligned. */
+.hk-scroll .cat {
+  text-align: left;
+}
+/* The 胜率波动 / 目数波动 columns: the figure each row is listed for. */
+.hk-scroll td.key {
+  font-weight: 600;
+}
+.hk-scroll tbody tr:hover td {
+  background-image: linear-gradient(var(--ds-hover), var(--ds-hover));
+}
+/* The keyboard's row in the focused list, drawn as the selection; the change columns keep their
+   class colour. */
+.hk-scroll tbody:focus tr.selected td {
+  background-color: var(--ds-accent-soft);
+}
+.hk-scroll tbody:focus tr.selected td:not(.key) {
+  color: var(--ds-accent-text);
+}
+
+/* ---- the filter bar between the lists and the charts: one row, more where a language's labels
+   do not fit the window (window.ts places the lists and charts around its height). It wraps only
+   between groups: a label and its field, the sides, the periods, the custom range. */
+#hk-filter {
+  position: absolute;
+  left: 0;
+  right: 0;
+  min-height: 32px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 16px;
+  padding: 4px 8px;
+  border-top: 1px solid var(--ds-line);
+  border-bottom: 1px solid var(--ds-line);
+  background: var(--ds-chrome);
+  white-space: nowrap;
+}
+#hk-filter .hk-group,
+#hk-filter .hk-choices {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+/* The choices of one group (黑 / 白, the periods) stand further apart than a label from its field. */
+#hk-filter .hk-choices {
+  gap: 8px;
+}
+#hk-filter button,
+#hk-filter select,
+#hk-filter input[type="text"] {
+  height: var(--ds-control-h);
+}
+#hk-filter button {
+  padding: 0 8px;
+}
+#hk-filter button.icon {
+  width: var(--ds-control-h);
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ds-text-2);
+}
+#hk-filter label {
+  display: inline-flex;
+  align-items: center;
+}
+/* 黑 / 白 put the box after the name, the periods the circle before it. */
+#hk-filter input[type="checkbox"] {
+  margin: 0 0 0 4px;
+}
+#hk-filter input[type="radio"] {
+  margin: 0 4px 0 0;
+}
+#hk-filter input[type="text"] {
+  width: 34px;
+  padding: 0 4px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+#hk-filter select {
+  padding: 0 20px 0 6px;
+  background-position: right 6px center;
+}
+
+#hk-bottom {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+/* ---- the lists' context menu */
+.hk-menu {
+  position: fixed;
+  z-index: 50;
+  min-width: 168px;
+  padding: 4px;
+  border-radius: var(--ds-radius-menu);
+  background: var(--ds-raised);
+  box-shadow: var(--ds-shadow-pop);
+  white-space: nowrap;
+}
+.hk-menu > div {
+  display: flex;
+  align-items: center;
+  height: 25px;
+  padding: 0 28px;
+  border-radius: var(--ds-radius-s);
+}
+.hk-menu > div:hover {
+  background: var(--ds-hover);
+}
+
+/* ---- chart panel (charts.ts): the tab strip, the chart and the 60 px strip under it */
+.hk-charts {
+  overflow: hidden;
+}
+.hk-chart-tabs {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+}
+.hk-charts canvas {
+  position: absolute;
+  display: block;
+}
+.hk-min {
+  position: absolute;
+  overflow: hidden;
+  border-top: 1px solid var(--ds-line);
+}
+.hk-min > button {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--ds-radius-s);
+  background-color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ds-text-2);
+}
+.hk-min > button:hover {
+  color: var(--ds-text);
+}
+/* The match condition and the loss ranges: one sentence of labels and fields. */
+.hk-min-row {
+  position: absolute;
+  left: 5px;
+  right: 5px;
+  top: 37px;
+  height: var(--ds-control-h);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+.hk-min-row .hk-label {
+  color: var(--ds-text-2);
+}
+/* The hint after the condition gives way first in the longest languages; its tooltip holds it
+   whole. */
+.hk-min-row .hk-note {
+  min-width: 0;
+  margin-left: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+}
+.hk-min-row input {
+  width: 36px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: var(--ds-radius-s);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.hk-min-row input.wide {
+  width: 48px;
+}
+
+/* ---- 统计信息 (statistics.ts): the key panel and the loss panel side by side */
+.hks {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+.hks-key {
+  position: relative;
+  overflow: hidden;
+}
+.hks-key canvas,
+.hks-loss-body canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+.hks-tip {
+  position: absolute;
+  left: 0;
+}
+.hks-loss {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-left: 1px solid var(--ds-line);
+}
+.hks-tabs {
+  flex: none;
+}
+.hks-loss-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ---- dialogs (dialogs.ts): the shared dialog frame placed inside this window: the title with its
+   close box, grouped rows, the footer band at the foot */
+.hkd-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: none;
+}
+.hkd-modal {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  background: var(--ds-scrim);
+}
+.hkd {
+  position: absolute;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  max-width: none;
+}
+.hkd:has(> .ds-footer) {
+  padding-bottom: 0;
+}
+.hkd > .ds-footer {
+  margin: 16px 0 0;
+  padding: 12px 20px;
+  border-top: 1px solid var(--ds-line);
+  border-radius: 0 0 var(--ds-radius-l) var(--ds-radius-l);
+  background: var(--ds-chrome);
+}
+.hkd > .ds-footer button {
+  min-width: 76px;
+}
+.hkd-body {
+  flex: 1;
+  min-height: 0;
+  white-space: normal;
+}
+.hkd-label {
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+}
+/* 最低阈值 and 设置统计阈值: grouped rows */
+.hkd-rows {
+  width: min(460px, calc(100vw - 40px));
+}
+/* 设置统计阈值: a row per loss class, its swatch and name, the 目数 and 胜率 fields under the
+   column names */
+.hkd-stat-columns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 15px 6px;
+  color: var(--ds-text-2);
+}
+.hkd-stat-columns > .hkd-label {
+  justify-content: flex-end;
+  width: calc(var(--ds-size) * 6.5);
+}
+.hkd-stat-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.hkd-swatch {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius-s);
+}
+/* 关于吻合度: the description, then the formula beside its label */
+.hkd-matchai {
+  display: grid;
+  grid-template-columns: auto 708px;
+  align-items: start;
+  gap: 8px 12px;
+}
+.hkd-matchai > :first-child {
+  grid-column: 1 / -1;
+  white-space: normal;
+}
+/* Java's formula picture is black on opaque white: multiplied into the dialog's ground in the
+   light mode, inverted and screened into it in the dark mode, so no white slab stands out. */
+.hkd-matchai img {
+  display: block;
+  width: 708px;
+  height: 96px;
+  mix-blend-mode: multiply;
+}
+[data-theme="dark"] .hkd-matchai img {
+  filter: invert(1) hue-rotate(180deg);
+  mix-blend-mode: screen;
+}
+.hkd-message {
+  max-width: 560px;
+}

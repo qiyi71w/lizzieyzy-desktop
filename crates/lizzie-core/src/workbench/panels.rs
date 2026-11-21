@@ -166,8 +166,8 @@ impl Workbench {
         self.set_panel_sizes(PanelSizes::default())
     }
 
-    /// Menu.java:4532-4588: bottom visibility and detailed form are remembered as window
-    /// presentation (`Config.java:3113`), independently of domain settings.
+    /// Menu.java:4532-4551: bottom visibility is remembered as window presentation
+    /// (`Config.java:3113`), independently of domain settings.
     pub fn set_bottom_toolbar(&mut self, mode: BottomToolbar) -> Result<bool, ApiError> {
         if self.persisted.bottom_toolbar == mode {
             return Ok(false);
@@ -191,30 +191,12 @@ impl Workbench {
         Ok(true)
     }
 
-    /// 自定义内容 of the bottom toolbar (Menu.java:4896-5156) and 显示拓展/隐藏详细工具栏按钮
-    /// (4593-4604): each check is written at once.
+    /// 自定义内容 of the bottom toolbar (Menu.java:4896-5156): each check is written at once.
     pub fn set_bottom_buttons(&mut self, settings: crate::settings::BottomButtonSettings) -> Result<bool, ApiError> {
         if self.config.bottom_buttons == settings {
             return Ok(false);
         }
         self.commit_config(|c| c.bottom_buttons = settings)?;
-        Ok(true)
-    }
-
-    /// 设置模块顺序 确认 (`ToolbarPositionConfig`): window presentation, saved like the toolbar mode.
-    pub fn set_detail_panel_order(&mut self, order: crate::settings::DetailPanelOrder) -> Result<bool, ApiError> {
-        if order.auto_analysis > 2 || order.engine_match > 2 || order.auto_play > 2 {
-            return Err(ApiError::new(ErrorKind::InvalidArgument, "a panel place is 0, 1 or 2"));
-        }
-        if self.persisted.detail_panel_order == order {
-            return Ok(false);
-        }
-        let old = self.persisted.detail_panel_order;
-        self.persisted.detail_panel_order = order;
-        if let Err(error) = self.save_persisted() {
-            self.persisted.detail_panel_order = old;
-            return Err(error);
-        }
         Ok(true)
     }
 
@@ -435,8 +417,7 @@ impl Workbench {
     /// Settings and window presentation as one write: the projection changes only once both files
     /// are saved (`save_both` puts the settings file back when the second write fails).
     fn commit_layout_files(&mut self, next: crate::settings::Config, persisted: crate::settings::Persisted) -> Result<(), ApiError> {
-        self.save_settings_files(&next, self.persist_reset.is_none().then_some(&persisted))
-            .map_err(|e| ApiError::new(ErrorKind::Io, format!("saving layout failed: {e}")))?;
+        self.save_settings_files(&next, self.persist_reset.is_none().then_some(&persisted))?;
         self.config = next;
         self.persisted = persisted;
         Ok(())

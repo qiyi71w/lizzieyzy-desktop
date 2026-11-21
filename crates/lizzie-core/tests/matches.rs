@@ -341,6 +341,83 @@ fn stop_in_starting_and_between_games_never_starts_a_successor() {
     assert_eq!(m.wb.document().id, doc);
 }
 
+/// The open document's engine-game score side: `None` when it is no engine game.
+fn pk(m: &Match) -> Option<Option<Stone>> {
+    m.wb.inspect().pk_board.map(|p| p.score_side)
+}
+
+fn open_sgf(m: &mut Match, sgf: &str) {
+    let record = lizzie_core::formats::sgf::read(sgf).unwrap();
+    let t = m.wb.begin_open(lizzie_core::workbench::OpenOrigin::File { path: "/x.sgf".into(), source: OpenSource::Drop });
+    assert!(m.wb.complete_open(t, Ok((lizzie_core::record::RecordFormat::Sgf, record))));
+}
+
+#[test]
+fn an_engine_game_board_stays_one_until_replaced_and_a_saved_dz_makes_one() {
+    let open = open_sgf;
+    let mut m = Match::new();
+    assert_eq!(pk(&m), None);
+    // A start aborted before any move leaves no engine game (EngineManager.java:5310).
+    m.start(genmove());
+    assert_eq!(pk(&m), Some(None), "both engines are still unnamed: no score side yet");
+    m.command(MatchCommand::Stop);
+    m.serve(&|_, _| None);
+    assert_eq!(m.phase(), None);
+    assert_eq!(pk(&m), None);
+    // A played game: the white KataGo engine gives the score, during and after the match.
+    m.start(genmove());
+    m.serve(&|_, _| None);
+    assert_eq!(pk(&m), Some(Some(Stone::White)));
+    m.finish_turn("resign");
+    assert_eq!(m.phase(), None);
+    assert_eq!(pk(&m), Some(Some(Stone::White)));
+    // A new board is no engine game.
+    let new_board = |confirmed| EditCommand::NewBoard { confirmed };
+    if let CommandResult::NeedsEditConfirmation { target } = m.wb.edit(new_board(None)).unwrap() {
+        assert_eq!(m.wb.edit(new_board(Some(target))).unwrap(), CommandResult::Done);
+    }
+    assert_eq!(pk(&m), None);
+    // A saved engine game (SGFParser.java:775-791), then a plain record.
+    open(&mut m, "(;GM[1]SZ[19]DZ[KW];B[pd];W[dd])");
+    assert_eq!(pk(&m), Some(Some(Stone::White)));
+    open(&mut m, "(;GM[1]SZ[19]DZ[KB])");
+    assert_eq!(pk(&m), Some(Some(Stone::Black)));
+    open(&mut m, "(;GM[1]SZ[19]DZ[Y])");
+    assert_eq!(pk(&m), Some(None));
+    open(&mut m, "(;GM[1]SZ[19];B[pd])");
+    assert_eq!(pk(&m), None);
+}
+
+#[test]
+fn a_saved_engine_game_reopens_as_one_until_cleared_and_converting_rereads_its_dz() {
+    let mut m = Match::new();
+    m.start(genmove());
+    m.serve(&|_, _| None);
+    m.finish_turn("D4");
+    m.finish_turn("resign");
+    assert_eq!(m.phase(), None);
+    // A user save of the finished game writes its DZ (SGFParser.java:1443-1462), once.
+    let job = m.wb.begin_save("/games/saved.sgf", "test");
+    assert!(job.text.contains("DZ[KW]"), "{}", job.text);
+    assert_eq!(job.text.matches("DZ[").count(), 1);
+    assert!(m.wb.complete_save(job.ticket, Ok(())));
+    open_sgf(&mut m, &job.text);
+    assert_eq!(pk(&m), Some(Some(Stone::White)));
+    // 清除Lizzie缓存: this move's keeps the marks, the global one ends them (Board.java:5410).
+    m.wb.clear_analysis_cache(AnalysisScope::Current);
+    assert_eq!(pk(&m), Some(Some(Stone::White)));
+    m.wb.clear_analysis_cache(AnalysisScope::All);
+    assert_eq!(pk(&m), None);
+    // 转换为初始局面 reads them again from the root DZ the record keeps (Board.java:1320).
+    m.wb.navigate(lizzie_core::browse::Navigation::Last);
+    let convert = |confirmed| EditCommand::ConvertToStartingPosition { confirmed };
+    if let CommandResult::NeedsEditConfirmation { target } = m.wb.edit(convert(None)).unwrap() {
+        assert_eq!(m.wb.edit(convert(Some(target))).unwrap(), CommandResult::Done);
+    }
+    assert!(!m.wb.document().record.has_actions());
+    assert_eq!(pk(&m), Some(Some(Stone::White)));
+}
+
 #[test]
 fn double_pass_and_move_limit_leave_re_empty_and_do_not_score() {
     // Leelaz.java:5880 checks moveNumber > maxGameMoves before committing the answered move.

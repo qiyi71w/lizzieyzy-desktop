@@ -237,10 +237,7 @@ impl Workbench {
                 self.recovery.remove_last(added);
             }
             self.java_preview = Some((id, candidate));
-            return Err(ApiError::new(
-                ErrorKind::Io,
-                format!("saving imported settings failed: {e}"),
-            ));
+            return Err(e);
         }
         if let (Some(written), Some(imported)) = (self.persist_reset.as_mut(), persist_write) {
             *written = imported;

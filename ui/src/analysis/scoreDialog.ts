@@ -1,12 +1,15 @@
 // 终局点目: the ScoreResult dialog (ScoreResult.java) beside the board while scoring. The core
-// owns the marks, the count and the result; this window shows them in Java's layout and words.
-// It is non-modal: the board stays usable for marking dead stones and 不计入 points.
+// owns the marks, the count and the result; this window shows them in Java's words. It is
+// non-modal: the board stays usable for marking dead stones and 不计入 points.
 import { run, state, subscribe } from "../app";
 import { setDisplay } from "../commands";
 import type { Point, ScoreView } from "../contract/generated";
-import { message } from "../dialogs";
+import { icon } from "../design/icons";
+import { closeBox, message } from "../dialogs";
+import { footer } from "../engine/controls";
 import { t } from "../i18n";
 import { javaDouble } from "../workbench/paint";
+import "./scoreDialog.css";
 
 let box: HTMLElement | null = null;
 let lines: { hint: HTMLElement; rule: HTMLElement; black: HTMLElement; white: HTMLElement; result: HTMLElement } | null = null;
@@ -34,11 +37,10 @@ export function scoreLines(s: ScoreView): { rule: string; black: string; white: 
   return { rule, black, white, result, blackWins };
 }
 
-function line(text = ""): HTMLElement {
+function line(cls: string, text = ""): HTMLElement {
   const el = document.createElement("div");
+  el.className = cls;
   el.textContent = text;
-  // ScoreTextLine: 4 px horizontal and 9 px vertical padding, frame font.
-  el.style.cssText = "padding:9px 4px;white-space:nowrap;font-size:12px;color:#000";
   return el;
 }
 
@@ -51,49 +53,47 @@ function button(text: string, onClick: () => void): HTMLButtonElement {
   return b;
 }
 
+/** A side's count after its stone. */
+function sideRow(stone: "stone-black" | "stone-white", count: HTMLElement): HTMLElement {
+  const row = line("score-side");
+  row.append(icon(stone), count);
+  return row;
+}
+
+/** The window: its title (which moves it) ending in the close box, the counts, and the footer:
+ *  切换规则 and 重新计算 at its start (the window stays), 确定 and 关闭 at its end. */
 function build(): HTMLElement {
   const section = document.createElement("section");
-  section.className = "modal-box score-result";
+  section.className = "modal-box engine-dialog score-result";
   section.setAttribute("role", "dialog");
-  section.style.cssText = "position:fixed;z-index:25;min-width:0;max-width:none;background:rgb(210,210,210);padding:0 0 16px";
+  section.setAttribute("aria-label", t("ScoreResult.title"));
   const title = document.createElement("div");
-  title.className = "modal-title";
-  title.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:default;user-select:none";
+  title.className = "modal-title score-title";
   const caption = document.createElement("span");
   caption.textContent = t("ScoreResult.title");
   // The window's close box: setVisible(false) and endFinalScore.
-  const close = button("×", leave);
-  close.style.cssText = "border:none;background:none;font-size:14px;line-height:1;padding:0 2px";
+  const close = closeBox(leave);
+  close.dataset.key = "score.close";
   title.append(caption, close);
   dragBy(title, section);
   const body = document.createElement("div");
-  body.className = "modal-body";
-  body.style.cssText = "padding:28px 22px 0;white-space:normal";
-  const hint = line(t("ScoreResult.hint"));
-  hint.style.color = "rgb(30,100,200)";
-  hint.style.marginBottom = "8px";
-  lines = { hint, rule: line(), black: line(), white: line(), result: line() };
-  lines.rule.style.marginBottom = "4px";
-  lines.black.style.marginBottom = "4px";
-  lines.white.style.marginBottom = "8px";
-  body.append(hint, lines.rule, lines.black, lines.white, lines.result);
-  const buttons = document.createElement("div");
-  buttons.className = "modal-buttons";
-  buttons.style.cssText = "justify-content:center;gap:5px;padding:13px 22px 0";
+  body.className = "modal-body score-body";
+  lines = { hint: line("score-hint", t("ScoreResult.hint")), rule: line("score-rule"), black: line("score-count"), white: line("score-count"), result: line("score-total") };
+  const counts = line("score-lines");
+  counts.append(lines.hint, lines.rule, sideRow("stone-black", lines.black), sideRow("stone-white", lines.white), lines.result);
+  body.append(counts);
   toggleRules = button("", () => setDisplay({ territoryScoring: !state.view?.settings.display.territoryScoring }));
-  buttons.append(
-    toggleRules,
-    // setVisible(false) + startFinalScore: the marks start over and the window comes back.
-    button(t("ScoreResult.btnRecalculate"), () => {
-      placed = false;
-      visible = true;
-      void run({ type: "Score", op: { type: "Recalculate" } });
-      refresh();
-    }),
-    button(t("ScoreResult.confirmResult"), confirmResult),
-    button(t("ScoreResult.btnClose"), leave),
-  );
-  section.append(title, body, buttons);
+  // setVisible(false) + startFinalScore: the marks start over and the window comes back.
+  const recalculate = button(t("ScoreResult.btnRecalculate"), () => {
+    placed = false;
+    visible = true;
+    void run({ type: "Score", op: { type: "Recalculate" } });
+    refresh();
+  });
+  const confirm = button(t("ScoreResult.confirmResult"), confirmResult);
+  confirm.className = "primary";
+  footer(body, { start: [toggleRules, recalculate], primary: confirm, cancel: button(t("ScoreResult.btnClose"), leave) });
+  section.append(title, body);
   return section;
 }
 
@@ -168,9 +168,8 @@ function refresh() {
   l.black.textContent = s.black;
   l.white.textContent = s.white;
   l.result.textContent = s.result;
-  // Black's win on black, White's on the field background (AppleStyleSupport.validFieldBackground).
-  l.result.style.background = s.blackWins ? "#000" : "#fff";
-  l.result.style.color = s.blackWins ? "#fff" : "#000";
+  // Black's win on a black ground, White's on a white one (scoreDialog.css).
+  l.result.dataset.winner = s.blackWins ? "black" : "white";
   toggleRules!.textContent = score.territory ? t("ScoreResult.btnToggleRulesArea") : t("ScoreResult.btnToggleRulesTerritory");
   if (!box.isConnected) document.body.append(box);
   if (!placed) {

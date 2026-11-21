@@ -5,7 +5,8 @@
 // value this session started with (LizzieFrame.java:20764-20767: applied after a restart).
 import type { AppearanceSettings, ThemeImages, ThemeSettings, WorkbenchView } from "../contract/generated";
 import { appearanceImages } from "../contract/client";
-import { cssColor } from "./model";
+import { applyTypeSizes, setSkin, setThemeMode, typeSizes, type TypeSizes } from "../design/theme";
+import { cssColor, JAVA_CLASSIC_THEME, sameRgba, THEME_DEFAULT } from "./model";
 
 export interface LoadedImages {
   board?: HTMLImageElement;
@@ -53,35 +54,42 @@ function loadImage(url: string): Promise<HTMLImageElement | undefined> {
   return img.decode().then(() => img, () => undefined);
 }
 
-/** Decodes the images `settings` and `theme` select; the core's URLs or, when it cannot answer,
- *  the bundled defaults. Used for the committed appearance and for the 棋盘预览 draft. */
-export async function loadThemeImages(settings: AppearanceSettings, theme: ThemeSettings): Promise<{ images: LoadedImages; customBoard: boolean }> {
+/** Decodes the images `settings` and `theme` select for the committed appearance; the core's URLs
+ *  or, when it cannot answer, the bundled defaults. */
+async function loadThemeImages(settings: AppearanceSettings, theme: ThemeSettings): Promise<{ images: LoadedImages; customBoard: boolean }> {
   const urls = await appearanceImages(settings, theme).catch(() => DEFAULT_URLS);
   const themeUrls = settings.customBoardImage ? await appearanceImages({ ...settings, customBoardImage: "" }, theme).catch(() => urls) : urls;
   const [board, background, black, white, themeBoard] = await Promise.all([urls.board, urls.background, urls.black, urls.white, themeUrls.board].map(loadImage));
   return { images: { board, background, black, white, themeBoard }, customBoard: !!board && urls.customBoard };
 }
 
-/** Comment panel colours and size (LizzieFrame.java:11292-11304, 11358-11359; SidebarPanel.java:113-121)
- *  and the chrome palette: 苹果风格, else 莫兰迪, else classic (AppleStyleSupport.isAppleStyleEnabled /
- *  isClassicEnabled, AppleStyleSupport.java:66-72). */
+/** The colour mode and the skin (Java 经典 takes Java's colours), and what the theme chooses for the
+ *  comment pane: its colours and text size (LizzieFrame.java:11292-11304, 11358-11359), the
+ *  评论 / 问题手 underline, the theme's accent colour at alpha 220 (SidebarHeaderPanel.java:226-238),
+ *  and the controls' corners: glass-corner-radius is the arc, at least 8, Java rounds its buttons,
+ *  fields, lists and popup menus with (AppleStyleSupport.controlCornerRadius, RoundedLineBorder),
+ *  a corner radius of half the arc. A value still at the theme default is left to the style
+ *  sheet, which draws it for the current colour mode and skin. */
 function applyStyles(settings: AppearanceSettings, theme: ThemeSettings): void {
+  setThemeMode(settings.mode);
+  setSkin(settings.theme === JAVA_CLASSIC_THEME ? "java" : "modern");
   const root = document.documentElement.style;
-  root.setProperty("--comment-background", cssColor(theme.commentBackgroundColor));
-  root.setProperty("--comment-color", cssColor(theme.commentFontColor));
+  const own = (name: string, value: readonly number[], themeDefault: readonly number[], css = cssColor(value)) => {
+    if (sameRgba(value, themeDefault)) root.removeProperty(name);
+    else root.setProperty(name, css);
+  };
+  own("--comment-background", theme.commentBackgroundColor, THEME_DEFAULT.commentBackground);
+  own("--comment-color", theme.commentFontColor, THEME_DEFAULT.commentFont);
+  const [r, g, b] = theme.glassAccentColor;
+  own("--theme-accent-underline", [r, g, b], THEME_DEFAULT.glassAccent, `rgba(${r}, ${g}, ${b}, ${220 / 255})`);
   if (theme.commentFontSize > 0) root.setProperty("--comment-font-size", `${theme.commentFontSize}px`);
   else root.removeProperty("--comment-font-size");
-  const chrome = settings.appleStyle ? "apple" : settings.morandiColors ? "morandi" : null;
-  if (chrome) document.documentElement.dataset.chrome = chrome;
-  else delete document.documentElement.dataset.chrome;
-  // The glass values the chrome draws with: controlBorderColor, accentFillColor /
-  // accentBorderColor and controlCornerRadius (AppleStyleSupport.java:688-717).
-  const [r, g, b] = theme.glassAccentColor;
-  root.setProperty("--glass-accent", `${r}, ${g}, ${b}`);
-  root.setProperty("--glass-border", cssColor(theme.glassPanelBorderColor));
-  root.setProperty("--control-radius", `${Math.max(8, theme.glassCornerRadius) / 2}px`);
-  if (r === 96 && g === 165 && b === 250) root.removeProperty("--glass-accent-underline");
-  else root.setProperty("--glass-accent-underline", `rgba(${r}, ${g}, ${b}, ${220 / 255})`);
+  const radius = Math.max(8, theme.glassCornerRadius) / 2;
+  const radii: Record<string, number> = { "--ds-radius": radius, "--ds-radius-cap": radius, "--ds-radius-in": Math.max(2, radius - 2), "--ds-radius-menu": radius + 4 };
+  for (const [name, value] of Object.entries(radii)) {
+    if (theme.glassCornerRadius === THEME_DEFAULT.glassCornerRadius) root.removeProperty(name);
+    else root.setProperty(name, `${value}px`);
+  }
 }
 
 /** Applies a published appearance (the workbench's view, or the one a floating board window is
@@ -103,10 +111,11 @@ export async function syncAppearance(settings: AppearanceSettings, theme: ThemeS
 
 /** This session's Config.frameFontSize and what Config.java:1871-1873 derives from it once:
  *  menuHeight 20 / 25 / 30 and menuIconSize 16 / 20 / 24 for 12, 13-16 and larger sizes
- *  (isFrameFontSmall / isFrameFontMiddle, Config.java:3638-3646). */
-let metrics = { frameFontSize: 12, menuHeight: 20, menuIconSize: 16 };
+ *  (isFrameFontSmall / isFrameFontMiddle, Config.java:3638-3646); `type` is the interface's type
+ *  steps at that size (design/theme.ts typeSizes). */
+let metrics = { frameFontSize: 12, menuHeight: 20, menuIconSize: 16, type: typeSizes(12) };
 
-export function frameMetrics(): { frameFontSize: number; menuHeight: number; menuIconSize: number } {
+export function frameMetrics(): { frameFontSize: number; menuHeight: number; menuIconSize: number; type: TypeSizes } {
   return metrics;
 }
 
@@ -117,21 +126,8 @@ export async function startAppearance(first: WorkbenchView): Promise<void> {
   const size = first.settings.active_frame_font_size;
   const small = size === 12;
   const middle = size > 12 && size <= 16;
-  metrics = { frameFontSize: size, menuHeight: small ? 20 : middle ? 25 : 30, menuIconSize: small ? 16 : middle ? 20 : 24 };
-  const root = document.documentElement.style;
-  root.setProperty("--frame-font-size", `${size}px`);
-  root.setProperty("--menu-icon-size", `${metrics.menuIconSize}px`);
-  if (first.settings.appearance.appleStyle) installAppleIcons();
+  metrics = { frameFontSize: size, menuHeight: small ? 20 : middle ? 25 : 30, menuIconSize: small ? 16 : middle ? 20 : 24, type: typeSizes(size) };
+  applyTypeSizes(size);
+  document.documentElement.style.setProperty("--menu-icon-size", `${metrics.menuIconSize}px`);
   await syncAppearance(first.settings.appearance, first.settings.theme, first.settings.theme_files_revision);
-}
-
-/** brightenIcon's recolouring as an SVG filter: every visible pixel becomes #E0E4EA. */
-function installAppleIcons(): void {
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("width", "0");
-  svg.setAttribute("height", "0");
-  svg.style.position = "absolute";
-  svg.innerHTML = '<filter id="apple-icon" color-interpolation-filters="sRGB"><feFlood flood-color="#E0E4EA"/><feComposite in2="SourceAlpha" operator="in"/></filter>';
-  document.body.append(svg);
-  document.documentElement.dataset.appleIcons = "";
 }

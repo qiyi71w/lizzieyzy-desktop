@@ -1,15 +1,17 @@
 // KataGoAutoSetupDialog: a single non-modal setup window; Rust owns acquisition and profiles.
 import { registerViewHandler, run, state } from "../app";
 import type { Asset, ExperimentalBackend, InstalledPackage, ResourceCommand, ResourceEngineChoice, ResourcePlanView, ResourceResult, ResourcesView, TuningView } from "../contract/generated";
-import { ask, message } from "../dialogs";
+import { ask, closeBox, message } from "../dialogs";
+import { footer } from "../engine/controls";
 import { product, t } from "../i18n";
 import { tuningText } from "../engine/tuningText";
+import { messageText } from "../errorText";
 import type { SetupCard, SetupCardKey, SetupContext } from "./card";
 import { overviewCard } from "./overview";
 import { weightsCard } from "./weights";
 import { accelerationCard } from "./acceleration";
 import { performanceCard } from "./performance";
-import { action, actions, javaFormat, node, resourceText, row, size } from "./setupText";
+import { action, javaFormat, node, resourceText, row, size } from "./setupText";
 import "./setup.css";
 import { openRemoteCompute } from "../cloud/center";
 
@@ -50,7 +52,7 @@ registerViewHandler((view) => {
   const benchmark = view.tuning?.outcome;
   if (benchmark) {
     const id = `tuning:${benchmark.taskId}:${benchmark.key}`;
-    if (!seenOutcomes.has(id)) { seenOutcomes.add(id); footerStatus = `${tuningText(benchmark.key)}${benchmark.detail ? `\n${benchmark.detail}` : ""}`; }
+    if (!seenOutcomes.has(id)) { seenOutcomes.add(id); footerStatus = `${tuningText(benchmark.key)}${benchmark.detail ? `\n${messageText(benchmark.detail)}` : ""}`; }
   }
   refreshWindow?.();
 });
@@ -157,19 +159,12 @@ export async function downloadPackage(asset: Asset, backend: ResourceEngineChoic
   }
 }
 
-const icons: Record<SetupCardKey | "remote", string> = {
-  overview: '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>',
-  weights: '<path d="M5 6h14a2 2 0 0 1 2 2v11H3V8a2 2 0 0 1 2-2Zm7-3v12m-5-5 5 5 5-5" fill="none" stroke="currentColor" stroke-width="2"/>',
-  performance: '<g fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="9" rx="5" ry="7"/><path d="m9 15-5 7 6-2 2 3 3-8m-5-7 2 3 2-5"/></g>',
-  acceleration: '<g fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="5" width="14" height="14"/><rect x="9" y="9" width="6" height="6"/><path d="M8 1v4m8-4v4M8 19v4m8-4v4M1 8h4m-4 8h4m14-8h4m-4 8h4"/></g>',
-  remote: '<g fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></g>',
-};
 export async function openAutoSetup(card: SetupCardKey = "overview", ctx: SetupContext = {}): Promise<void> {
   if (windowInstance) { windowInstance.focus(card, ctx); return; }
   const previous = document.activeElement as HTMLElement | null;
   const frame = node("section", "", "auto-setup-window"); frame.dataset.key = "auto-setup"; frame.tabIndex = -1;
   frame.setAttribute("role", "dialog"); frame.setAttribute("aria-modal", "false"); frame.setAttribute("aria-label", t("AutoSetup.title"));
-  const heading = node("header", "", "setup-title"); heading.append(node("span", "", "setup-stones"), node("h2", t("AutoSetup.title")));
+  const heading = node("header", "", "modal-title setup-title"); heading.append(node("h2", t("AutoSetup.title")), closeBox(() => close()));
   const layout = node("div", "", "setup-layout"), nav = node("nav", "", "setup-nav"), content = node("fieldset", "", "setup-content");
   nav.setAttribute("aria-label", t("AutoSetup.sidebarTitle"));
   const navButtons = new Map<SetupCardKey, HTMLButtonElement>();
@@ -182,18 +177,21 @@ export async function openAutoSetup(card: SetupCardKey = "overview", ctx: SetupC
     context = nextContext; active = key;
     let item = cards.get(key); if (!item) { item = factory(key); cards.set(key, item); cardContexts.set(key, { ...context }); }
     content.replaceChildren(item.element);
-    navButtons.forEach((button, id) => { button.classList.toggle("selected", id === key); button.setAttribute("aria-current", String(id === key)); });
+    navButtons.forEach((button, id) => { button.classList.toggle("selected", id === key); if (id === key) button.setAttribute("aria-current", "page"); else button.removeAttribute("aria-current"); });
     update();
   };
   for (const [key, title] of [["overview", t("AutoSetup.navOverview")], ["weights", t("AutoSetup.navWeights")], ["performance", t("AutoSetup.navBenchmark")], ["acceleration", t("AutoSetup.navAcceleration")]] as const) {
     const button = action(`setup.nav.${key}`, title, () => show(key));
-    const icon = node("span", "", "setup-nav-icon"); icon.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${icons[key]}</svg>`; button.prepend(icon); navButtons.set(key, button); nav.append(button);
+    navButtons.set(key, button); nav.append(button);
   }
   // openRemoteComputeCenter: refused with the status notice while a setup task runs.
   const remote = action("setup.nav.remote", t("Menu.remoteCompute"), () => { if (setupBusy()) setupStatus(t("AutoSetup.taskAlreadyRunning")); else openRemoteCompute(); });
-  const globe = node("span", "", "setup-nav-icon"); globe.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">${icons.remote}</svg>`; remote.prepend(globe); remote.classList.add("setup-nav-remote"); nav.append(remote);
+  remote.classList.add("setup-nav-remote"); nav.append(remote);
   layout.append(nav, content);
-  const footer = node("footer", "", "setup-footer");
+  // The window's foot: the task in progress over the status line and the buttons. Every action
+  // takes effect at once, so 关闭 (and the close box, and Escape) is its only ending button;
+  // 停止 ends a task, not the window.
+  const foot = node("div", "", "setup-footer");
   const progressTitle = node("strong", t("AutoSetup.progressTitle")), progress = node("progress"), progressStatus = node("span", "", "setup-progress-status"), status = node("span", "", "setup-footer-status"); status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite");
   const progressBox = node("div", "", "setup-progress"); progressBox.append(progressTitle, progressStatus, progress);
   const stop = action("setup.stop", t("AutoSetup.stopDownload"), async () => {
@@ -202,9 +200,9 @@ export async function openAutoSetup(card: SetupCardKey = "overview", ctx: SetupC
     else if (tuning?.task) await run({ type: "Tuning", op: { type: "StopBenchmark" } });
   });
   const close = () => { for (const c of cards.values()) c.dispose?.(); frame.remove(); refreshWindow = null; windowInstance = null; previous?.focus(); };
-  const closeButton = action("setup.close", t("AutoSetup.close"), close);
-  const footerRow = node("div", "", "setup-footer-row"); footerRow.append(status); actions(footerRow, stop, closeButton); footer.append(progressBox, footerRow);
-  frame.append(heading, layout, footer);
+  foot.append(progressBox);
+  footer(foot, { start: [stop, status], cancel: action("setup.close", t("AutoSetup.close"), close) });
+  frame.append(heading, layout, foot);
   function update() {
     const view = state.view; if (view) cards.get(active)?.update(view);
     const busy = setupBusy(); navButtons.forEach((b) => { b.disabled = busy; });

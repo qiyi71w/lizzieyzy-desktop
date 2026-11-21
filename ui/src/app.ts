@@ -1,12 +1,13 @@
 // UI controller: holds the latest projection from Rust and sends commands. Commands are sent one
 // at a time in the order the user issued them (like Swing's event queue), so a quick Down/Up pair
 // can never be applied in the opposite order.
-import { dispatch, isApiError } from "./contract/client";
+import { dispatch } from "./contract/client";
 import type { Command, CommandResult, CommentLabels, ExportKind, Navigation, StoneSound, TreeNodeView, WorkbenchView } from "./contract/generated";
 import { ask, confirm, message, timedMessage } from "./dialogs";
 import { product, t } from "./i18n";
 import { tuningText } from "./engine/tuningText";
 import { contributionText } from "./contribution/text";
+import { errorText } from "./errorText";
 
 export const APP_TITLE = "LizzieYzy Tauri";
 
@@ -54,12 +55,13 @@ export function apply(view: WorkbenchView): void {
   state.view = view;
   const outcome = view.open_outcome;
   if (outcome?.type === "Failed") {
-    // Files: JOptionPane "Error" with failedToOpenFile (LizzieFrame.java:17160-17165); pasted
-    // records: the Message dialog with KifuLoad.failed + reason (4764-4777, Message.java:25).
+    // Files: failedToOpenFile (LizzieFrame.java:17160-17165) under the message title, where Java's
+    // option pane says "Error" in every language; pasted records: the Message dialog with
+    // KifuLoad.failed + reason (4764-4777, Message.java:25).
     if (outcome.message_key === "KifuLoad.failed") message(t("Message.title"), `${t("KifuLoad.failed")}${outcome.detail}`, "error");
     // openFile during a game (LizzieFrame.java:5134-5138): Utils.showMsg(openFileFailed.inGame).
     else if (outcome.message_key === "LizzieFrame.openFileFailed.inGame") message(t("Message.title"), t("LizzieFrame.openFileFailed.inGame"));
-    else message("Error", t("LizzieFrame.prompt.failedToOpenFile"), "error");
+    else message(t("Message.title"), t("LizzieFrame.prompt.failedToOpenFile"), "error");
   }
   // SgfSaveCoordinator.showFailure: Utils.showMsg(saveFileFailed); a success shows nothing.
   if (view.save_outcome?.type === "Failed") message(t("Message.title"), t("LizzieFrame.saveFileFailed"), "error");
@@ -138,11 +140,11 @@ export function run(command: Command): Promise<CommandResult | null> {
       return result;
     } catch (e) {
       // Tuning refusals carry a Java message key (`EngineThreadPolicy.*`), not display text.
-      const text = isApiError(e) ? (command.type === "Tuning" ? tuningText(e.message) : e.message) : String(e);
+      const text = command.type === "Tuning" ? errorText(e, tuningText) : errorText(e);
       // Only the command kind: arguments may hold credentials (ikatago scan, proxy settings).
       const op = "op" in command ? `.${"type" in command.op ? command.op.type : command.op.op}` : "";
       console.error("command failed", `${command.type}${op}`, e);
-      await message("Error", text, "error");
+      await message(t("Message.title"), text, "error");
       return null;
     }
   });

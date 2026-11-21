@@ -1,14 +1,25 @@
 // ConfigDialog2.java:6701-6711, 6851-6854 and the modern 棋谱加载 / 引擎与分析 / 对局与操作 / 高级 sections
 // (createDisplaySection 2955-3356). Every setting row carries its ConfigSettingTargets id as
-// `data-setting-target`; edits stay a draft until 保存设置.
+// `data-setting-target`; edits stay a draft until 保存设置. The dialog is a page list with icons
+// and a search field on the left and the pages, each a grouped list under its title, on the right.
 import { run, state } from "../app";
 import type { AnalysisSettings, Command, MoveRect, ProxyMode } from "../contract/generated";
+import { icon, type IconName } from "../design/icons";
 import { confirm, formPanel, message } from "../dialogs";
-import { t } from "../i18n";
-import { actions, button, checkbox, field, input } from "./controls";
+import { product, registerProduct, t } from "../i18n";
+import { button, footer, groupTitle, input, primaryButton, row, switchRow } from "./controls";
 import { resourceCommand, resourceView } from "../setup/dialog";
 import { buildDisplaySettings } from "../display/settingsPage";
 import { beginPanelDraft } from "../workbench/panelDraft";
+
+registerProduct({
+  ZhCn: { settingsSearch: "搜索设置", settingsNoMatch: "没有匹配的设置" },
+  ZhTw: { settingsSearch: "搜尋設定", settingsNoMatch: "沒有符合的設定" },
+  EnUs: { settingsSearch: "Search settings", settingsNoMatch: "No matching settings" },
+  JaJp: { settingsSearch: "設定を検索", settingsNoMatch: "一致する設定はありません" },
+  KoKr: { settingsSearch: "설정 검색", settingsNoMatch: "일치하는 설정이 없습니다" },
+  ThTh: { settingsSearch: "ค้นหาการตั้งค่า", settingsNoMatch: "ไม่พบการตั้งค่าที่ตรงกัน" },
+});
 
 /** 综合设置's navigation sections in Java order (ConfigDialog2 `SettingSection` plus 关于). */
 export type SettingsSection = "display" | "kifu" | "engine" | "play" | "theme" | "advanced" | "about";
@@ -30,22 +41,24 @@ export interface SettingsDialog {
 /** Section pages registered by their owners (显示, 主题, 关于). */
 export const SETTINGS_PAGES: Partial<Record<SettingsSection, (host: HTMLElement, dialog: SettingsDialog) => SettingsPage>> = {};
 
-/** A row's description line, shown below it as in Java's design rows. */
-function hint(text: string): HTMLParagraphElement {
-  const p = document.createElement("p"); p.textContent = text; return p;
-}
-
-/** A check box row with its sub line as the tooltip and the hint below. */
+/** A switch row tagged with its setting target; the switch carries the automation key. */
 function toggleRow(host: ParentNode, target: string, key: string, title: string, sub: string, value: boolean): HTMLInputElement {
-  const row = checkbox(title, value); row.input.dataset.key = key; row.label.dataset.settingTarget = target; row.label.title = sub;
-  host.append(row.label, hint(sub));
-  return row.input;
+  const r = switchRow(host, title, sub, value); r.input.dataset.key = key; r.row.dataset.settingTarget = target;
+  return r.input;
 }
 
-function heading(host: ParentNode, title: string, subtitle: string): void {
-  const h = document.createElement("h3"); h.textContent = title;
-  const p = document.createElement("p"); p.textContent = subtitle; host.append(h, p);
+/** A row of one select, tagged with its setting target. */
+function selectRow(host: ParentNode, target: string, title: string, sub: string, select: HTMLSelectElement): void {
+  row(host, title, sub, select).dataset.settingTarget = target;
 }
+
+/** The pages in navigation order with their icons. */
+const NAV: [SettingsSection, string, IconName][] = [
+  ["display", "ConfigDialog2.modern.nav.display", "nav-display"], ["kifu", "ConfigDialog2.modern.nav.kifu", "nav-kifu"],
+  ["engine", "ConfigDialog2.modern.nav.engine", "nav-engine"], ["play", "ConfigDialog2.modern.nav.play", "nav-play"],
+  ["theme", "ConfigDialog2.modern.nav.theme", "nav-theme"], ["advanced", "ConfigDialog2.modern.nav.advanced", "nav-advanced"],
+  ["about", "ConfigDialog2.modern.nav.about", "nav-about"],
+];
 
 /** `onOpened` runs once the dialog and its 保存设置 / 取消 controls are in place, before the
  *  dialog closes; it may locate rows but must not change the draft. */
@@ -67,6 +80,8 @@ async function openSettings(section: SettingsSection, onOpened: ((body: HTMLElem
   const startupBenchmark = state.view.settings.engine.startup_benchmark;
   const body = document.createElement("div"); body.className = "engine-settings";
   const nav = document.createElement("nav");
+  // One scroller for the pages: a page at a time, or every page while the search filters.
+  const scroller = document.createElement("div"); scroller.className = "settings-pages";
   const form = document.createElement("div"); form.className = "engine-settings-form";
   const advanced = document.createElement("div"); advanced.className = "engine-settings-form"; advanced.hidden = true;
   const play = document.createElement("div"); play.className = "engine-settings-form"; play.hidden = true;
@@ -91,22 +106,80 @@ async function openSettings(section: SettingsSection, onOpened: ((body: HTMLElem
     const page = document.createElement("div"); page.className = "engine-settings-form"; page.hidden = true;
     pages[key] = page; registered.push(build(page, owner));
   }
-  const showPage = (key: string) => { for (const [id, page] of Object.entries(pages)) page.hidden = id !== key; };
-  for (const [key, text] of [["display", t("ConfigDialog2.modern.nav.display")], ["kifu", t("ConfigDialog2.modern.nav.kifu")], ["engine", t("ConfigDialog2.modern.nav.engine")], ["play", t("ConfigDialog2.modern.nav.play")], ["theme", t("ConfigDialog2.modern.nav.theme")], ["advanced", t("ConfigDialog2.modern.nav.advanced")], ["about", t("ConfigDialog2.modern.nav.about")]]) {
-    const item = document.createElement("button"); item.textContent = text; item.dataset.key = `settings.nav.${key}`;
+  // The navigation item of the shown page carries aria-current, which draws it selected; while a
+  // search shows rows of every page no item does.
+  const navItems = new Map<string, HTMLButtonElement>();
+  let shown = section;
+  const showShown = () => {
+    for (const [id, page] of Object.entries(pages)) page.hidden = id !== shown;
+    for (const [id, item] of navItems) if (id === shown) item.setAttribute("aria-current", "page"); else item.removeAttribute("aria-current");
+  };
+  const showPage = (key: string) => {
+    if (search.value) { search.value = ""; filter(); }
+    shown = key as SettingsSection;
+    showShown();
+    scroller.scrollTop = 0;
+  };
+  // 搜索设置: every page's rows whose name or description holds the text, under their group and
+  // page titles; other parts of the pages are left out until the field is empty again.
+  const search = input(""); search.type = "search"; search.placeholder = product("settingsSearch"); search.dataset.key = "settings.search";
+  search.setAttribute("aria-label", product("settingsSearch"));
+  const searchBox = document.createElement("label"); searchBox.className = "settings-search"; searchBox.append(icon("search"), search);
+  const noMatch = document.createElement("p"); noMatch.className = "settings-no-match"; noMatch.textContent = product("settingsNoMatch"); noMatch.hidden = true;
+  const filter = () => {
+    const query = search.value.trim().toLowerCase();
+    body.classList.toggle("filtering", query !== "");
+    for (const el of body.querySelectorAll(".filtered-out")) el.classList.remove("filtered-out");
+    if (!query) {
+      noMatch.hidden = true;
+      showShown();
+      return;
+    }
+    let any = false;
+    for (const page of Object.values(pages)) {
+      page.hidden = false;
+      let pageHit = false;
+      let title: Element | null = null;
+      let titleHit = false;
+      const closeGroup = () => title?.classList.toggle("filtered-out", !titleHit);
+      for (const child of [...page.children]) {
+        if (child.classList.contains("settings-page-title")) continue;
+        if (child.classList.contains("ds-group-title")) { closeGroup(); title = child; titleHit = false; continue; }
+        const rows = child.classList.contains("ds-row") ? [child] : [...child.querySelectorAll(".ds-row")];
+        let hit = false;
+        for (const r of rows) {
+          const match = (r.textContent ?? "").toLowerCase().includes(query);
+          r.classList.toggle("filtered-out", !match);
+          hit ||= match;
+        }
+        child.classList.toggle("filtered-out", !hit);
+        titleHit ||= hit; pageHit ||= hit;
+      }
+      closeGroup();
+      page.classList.toggle("filtered-out", !pageHit);
+      any ||= pageHit;
+    }
+    noMatch.hidden = any;
+    for (const item of navItems.values()) item.removeAttribute("aria-current");
+    scroller.scrollTop = 0;
+  };
+  search.oninput = filter;
+  nav.append(searchBox);
+  for (const [key, text, glyph] of NAV) {
+    const item = document.createElement("button"); item.dataset.key = `settings.nav.${key}`;
+    item.append(icon(glyph), t(text));
     item.onclick = () => showPage(key);
-    nav.append(item);
+    nav.append(item); navItems.set(key, item);
   }
   body.append(nav);
   // Numeric analysis fields (addInputRow / addToggleInputRow): checked with 保存设置. A limit's
-  // switch shares the row with its value, so locating the row reaches both.
+  // switch shares the row with its value and stands before it, so the value ends on the line of
+  // the other fields; locating the row reaches both.
   const inputs: HTMLInputElement[] = [];
   const inputRow = (host: ParentNode, target: string, title: string, sub: string, unit: string, control: HTMLInputElement, toggle?: HTMLInputElement) => {
-    const row = document.createElement(toggle ? "div" : "label"); row.className = "engine-field"; row.dataset.settingTarget = target;
-    const name = document.createElement("span"); name.textContent = title;
-    const value = document.createElement("span"); value.className = "engine-unit";
-    if (toggle) { toggle.title = sub; toggle.setAttribute("aria-label", title); value.append(toggle); }
-    value.append(control, ` ${unit}`); row.append(name, value); host.append(row, hint(sub)); inputs.push(control);
+    if (toggle) { toggle.classList.add("ds-switch"); toggle.title = sub; toggle.setAttribute("aria-label", title); }
+    row(host, title, sub, ...(toggle ? [toggle] : []), control, unit).dataset.settingTarget = target;
+    inputs.push(control);
   };
   const numberRow = (host: ParentNode, target: string, key: keyof AnalysisSettings, title: string, sub: string, unit: string, toggle?: HTMLInputElement) => {
     const control = input(settings[key] as number, "number"); control.dataset.key = `settings.analysis.${key}`; control.min = "0"; control.step = "1"; control.required = true;
@@ -122,7 +195,7 @@ async function openSettings(section: SettingsSection, onOpened: ((body: HTMLElem
   inputRow(analysisRows, "config.analysis.tracking-visits", t("ConfigDialog2.modern.analysis.trackingVisits"), t("ConfigDialog2.modern.analysis.trackingVisitsSub"), t("ConfigDialog2.modern.unit.visits"), trackingVisits);
   numberRow(analysisRows, "config.analysis.suggestion-limit", "limitMaxSuggestion", t("ConfigDialog2.modern.analysis.suggestionLimit"), t("ConfigDialog2.modern.analysis.suggestionLimitSub"), t("ConfigDialog2.modern.unit.items"));
   numberRow(analysisRows, "config.analysis.variation-limit", "limitBranchLength", t("ConfigDialog2.modern.analysis.variationLimit"), t("ConfigDialog2.modern.analysis.variationLimitSub"), t("ConfigDialog2.modern.unit.moves"));
-  heading(analysisRows, t("ConfigDialog2.modern.analysis.liveLimits"), t("ConfigDialog2.modern.analysis.liveLimitsSub"));
+  groupTitle(analysisRows, t("ConfigDialog2.modern.analysis.liveLimits"), t("ConfigDialog2.modern.analysis.liveLimitsSub"));
   const time = input("", "checkbox"); time.checked = settings.limitTime; time.dataset.key = "settings.analysis.limitTime";
   numberRow(analysisRows, "config.analysis.limit-time", "maxAnalyzeTimeSeconds", t("ConfigDialog2.modern.analysis.limitTime"), t("ConfigDialog2.modern.analysis.limitTimeSub"), t("ConfigDialog2.modern.unit.seconds"), time);
   const visits = input("", "checkbox"); visits.checked = settings.limitPlayout; visits.dataset.key = "settings.analysis.limitPlayout";
@@ -139,28 +212,24 @@ async function openSettings(section: SettingsSection, onOpened: ((body: HTMLElem
   panels.row(playRows, "showComment", "config.play.comment-panel", t("ConfigDialog2.modern.play.commentPanel"), t("ConfigDialog2.modern.play.commentPanelSub"), state.view.settings.comment_panel_auto_hidden);
   // Checked hides the control bar (chkHideCommentControlPane -> hide-blunder-table-control-pane).
   const hideControls = toggleRow(playRows, "config.play.hide-panel-controls", "settings.problems.hideControlPane", t("ConfigDialog2.modern.play.hidePanelControls"), t("ConfigDialog2.modern.play.hidePanelControlsSub"), problems.hideControlPane);
-  const interactionRows = document.createElement("div");
+  const interaction = document.createDocumentFragment();
   // comboFromRadios(rdoShowMoveRect, rdoShowMoveRectOnPlay, rdoNoShowMoveRect).
   const moveRect = document.createElement("select"); moveRect.dataset.key = "settings.edit.moveRect"; moveRect.title = t("ConfigDialog2.modern.interaction.moveRectSub");
   for (const [value, text] of [["Always", t("LizzieConfig.rdoShowMoveRect")], ["OnPlay", t("LizzieConfig.rdoShowMoveRectOnPlay")], ["Never", t("LizzieConfig.rdoNoShowMoveRect")]]) {
     const option = document.createElement("option"); option.value = value; option.textContent = text; moveRect.append(option);
   }
   moveRect.value = edit.moveRect;
-  field(interactionRows, t("ConfigDialog2.modern.interaction.moveRect"), moveRect);
-  (interactionRows.lastElementChild as HTMLElement).dataset.settingTarget = "config.interaction.move-rectangle";
-  interactionRows.append(hint(moveRect.title));
+  selectRow(interaction, "config.interaction.move-rectangle", t("ConfigDialog2.modern.interaction.moveRect"), moveRect.title, moveRect);
   const rightClick = document.createElement("select"); rightClick.dataset.key = "settings.edit.showRightMenu"; rightClick.title = t("ConfigDialog2.modern.interaction.rightClickSub");
   for (const [value, text] of [["menu", t("LizzieConfig.rdoRightClickMenu")], ["back", t("LizzieConfig.rdoRightClickBack")]]) {
     const option = document.createElement("option"); option.value = value; option.textContent = text; rightClick.append(option);
   }
   rightClick.value = edit.showRightMenu ? "menu" : "back";
-  field(interactionRows, t("ConfigDialog2.modern.interaction.rightClick"), rightClick);
-  (interactionRows.lastElementChild as HTMLElement).dataset.settingTarget = "config.interaction.right-click";
-  const interaction = document.createDocumentFragment(); interaction.append(...interactionRows.childNodes, hint(rightClick.title));
+  selectRow(interaction, "config.interaction.right-click", t("ConfigDialog2.modern.interaction.rightClick"), rightClick.title, rightClick);
   const displayRows = buildDisplaySettings(form, play, { analysis: analysisRows, play: playRows, interaction });
   // 高级与性能 (3238-3278): Java order 对局时后台计算, 快速切换, Lizzie 缓存, 空棋盘停止计算, 首次启动智能测速,
   // 五子棋无提子规则, 网络代理.
-  heading(advanced, t("ConfigDialog2.modern.advanced.title"), t("ConfigDialog2.modern.advanced.subtitle"));
+  groupTitle(advanced, t("ConfigDialog2.modern.advanced.title"), t("ConfigDialog2.modern.advanced.subtitle"));
   // chkPonder (leelaz.play-ponder, ConfigDialog2.java:1898-1901, 6674): the 修改AI用时 setting.
   const ponder = toggleRow(advanced, "config.advanced.ponder", "settings.game.playPonder", t("ConfigDialog2.modern.advanced.ponder"), t("ConfigDialog2.modern.advanced.ponderSub"), state.view.settings.game.playPonder);
   const fast = toggleRow(advanced, "config.advanced.fast-switch", "settings.analysis.fastEngineChange", t("ConfigDialog2.modern.advanced.fastSwitch"), t("ConfigDialog2.modern.advanced.fastSwitchSub"), settings.fastEngineChange);
@@ -173,7 +242,7 @@ async function openSettings(section: SettingsSection, onOpened: ((body: HTMLElem
     if (noCapture.checked && !(await confirm(t("ConfigDialog2.chkNoCapture.title"), t("ConfigDialog2.chkNoCapture.content"), "info"))) noCapture.checked = false;
   };
   // 棋谱加载 > 打开 SGF 后行为 (ConfigDialog2.java:2956-2987): applied with 保存设置 (6641-6644).
-  heading(kifu, t("ConfigDialog2.modern.kifu.title"), t("ConfigDialog2.modern.kifu.subtitle"));
+  groupTitle(kifu, t("ConfigDialog2.modern.kifu.title"), t("ConfigDialog2.modern.kifu.subtitle"));
   const kifuRow = (target: string, field: string, title: string, sub: string, value: boolean) => toggleRow(kifu, target, `settings.kifu.${field}`, title, sub, value);
   const loading = state.view.settings;
   const autoAnalyze = kifuRow("config.kifu.auto-analyze", "auto_quick_analyze_on_load", t("ConfigDialog2.modern.kifu.autoAnalyze"), t("ConfigDialog2.modern.kifu.autoAnalyzeSub"), loading.auto_quick_analyze_on_load);
@@ -184,29 +253,34 @@ async function openSettings(section: SettingsSection, onOpened: ((body: HTMLElem
   for (const [value, text] of [["Direct", t("ConfigDialog2.modern.proxy.direct")], ["System", t("ConfigDialog2.modern.proxy.system")], ["Manual", t("ConfigDialog2.modern.proxy.manualMode")]] as const) {
     const option = document.createElement("option"); option.value = value; option.textContent = text; mode.append(option);
   }
-  mode.value = network.proxyMode; field(advanced, t("ConfigDialog2.modern.proxy.title"), mode);
-  (advanced.lastElementChild as HTMLElement).dataset.settingTarget = "config.proxy.mode";
-  advanced.append(hint(t("ConfigDialog2.modern.proxy.subtitle")));
-  const restart = document.createElement("p"); restart.textContent = t("ConfigDialog2.modern.proxy.restartHint"); advanced.append(restart);
+  mode.value = network.proxyMode;
+  selectRow(advanced, "config.proxy.mode", t("ConfigDialog2.modern.proxy.title"), `${t("ConfigDialog2.modern.proxy.subtitle")}\n${t("ConfigDialog2.modern.proxy.restartHint")}`, mode);
   const host = input(network.proxyHost || "127.0.0.1"); host.dataset.key = "settings.proxy.host";
   const port = input(network.proxyPort || 7897, "number"); port.dataset.key = "settings.proxy.port"; port.min = "1"; port.max = "65535"; port.step = "1";
-  const address = document.createElement("div"); address.className = "engine-actions";
-  field(address, t("ConfigDialog2.modern.proxy.host"), host); field(address, t("ConfigDialog2.modern.proxy.port"), port);
-  const manualRow = document.createElement("div"); manualRow.className = "engine-field"; manualRow.dataset.settingTarget = "config.proxy.manual-address";
-  const manualTitle = document.createElement("span"); manualTitle.textContent = t("ConfigDialog2.modern.proxy.manual"); manualRow.append(manualTitle, address); advanced.append(manualRow);
+  // 代理主机 and 代理端口 side by side at the row's end, each with its own label.
+  const address = [[t("ConfigDialog2.modern.proxy.host"), host], [t("ConfigDialog2.modern.proxy.port"), port]].map(([text, control]) => {
+    const label = document.createElement("label"); label.className = "settings-proxy-part"; label.append(text, control); return label;
+  });
+  row(advanced, t("ConfigDialog2.modern.proxy.manual"), "", ...address).dataset.settingTarget = "config.proxy.manual-address";
   const toggleManual = () => { host.disabled = port.disabled = mode.value !== "Manual"; }; mode.onchange = toggleManual; toggleManual();
   // 日志与分析刷新 (3279-3310): 控制台隐藏时仍记录 GTP, 自动检测引擎是否存活 and the two refresh intervals.
-  heading(advanced, t("ConfigDialog2.modern.engineHealth.title"), t("ConfigDialog2.modern.engineHealth.subtitle"));
+  groupTitle(advanced, t("ConfigDialog2.modern.engineHealth.title"), t("ConfigDialog2.modern.engineHealth.subtitle"));
   const alwaysGtp = toggleRow(advanced, "config.engine.always-gtp", "settings.analysis.alwaysGtp", t("ConfigDialog2.modern.engineHealth.alwaysGtp"), t("ConfigDialog2.modern.engineHealth.alwaysGtpSub"), settings.alwaysGtp);
   const checkAlive = toggleRow(advanced, "config.engine.check-alive", "settings.analysis.autoCheckEngineAlive", t("ConfigDialog2.modern.engineHealth.checkAlive"), t("ConfigDialog2.modern.engineHealth.checkAliveSub"), settings.autoCheckEngineAlive);
   numberRow(advanced, "config.engine.update-interval", "intervalCentisec", t("ConfigDialog2.modern.engineHealth.interval"), t("ConfigDialog2.modern.engineHealth.intervalSub"), t("LizzieConfig.title.centisecond"));
   numberRow(advanced, "config.engine.ssh-update-interval", "intervalCentisecSsh", t("ConfigDialog2.modern.engineHealth.intervalSsh"), t("ConfigDialog2.modern.engineHealth.intervalSshSub"), t("LizzieConfig.title.centisecond"));
-  body.append(...Object.values(pages));
+  // Each page starts with its title, the navigation item's text.
+  for (const [key, text] of NAV) {
+    const title = document.createElement("h2"); title.className = "settings-page-title"; title.textContent = t(text);
+    pages[key]?.prepend(title);
+  }
+  scroller.append(noMatch, ...Object.values(pages));
+  body.append(scroller);
   showPage(section in pages ? section : "engine");
   const dialog = formPanel(t("Menu.comprehensiveSettings"), body);
   /** 保存设置 (saveConfig): true once everything was applied and the dialog closed. */
   const apply = async (): Promise<boolean> => {
-    const invalid = inputs.find((control) => !control.checkValidity());
+    const invalid = [...inputs, ...displayRows.fields].find((control) => !control.checkValidity());
     if (invalid) { showPage(Object.keys(pages).find((id) => pages[id].contains(invalid)) ?? "engine"); invalid.reportValidity(); return false; }
     const proxyMode: ProxyMode = mode.value === "System" ? "System" : mode.value === "Manual" ? "Manual" : "Direct";
     const validPort = /^\d+$/.test(port.value) && Number(port.value) >= 1 && Number(port.value) <= 65535;
@@ -263,9 +337,9 @@ async function openSettings(section: SettingsSection, onOpened: ((body: HTMLElem
     await dialog.close();
     return true;
   };
-  const save = button(t("SetKataRules.btnApply"), () => void apply()); save.dataset.key = "settings.apply";
+  const save = primaryButton(t("SetKataRules.btnApply"), () => void apply()); save.dataset.key = "settings.apply";
   const cancel = button(t("SetKataRules.btnCancel"), () => dialog.close()); cancel.dataset.key = "settings.cancel";
-  actions(body, save, cancel);
+  footer(body, { primary: save, cancel });
   onOpened?.(body);
   await dialog.closed;
   if (!handedOver) await run({ type: "HoldAnalysis", held: false });

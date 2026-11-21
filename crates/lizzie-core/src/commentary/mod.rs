@@ -27,6 +27,11 @@ impl Message {
     }
 }
 
+/// Status details of a reply that cannot be shown or written, in this product's words (the UI's
+/// `commentary/text.ts`); the failure's message stays Java's English text.
+pub const EMPTY_REPLY: &str = "product.commentaryEmpty";
+pub const TOO_LARGE_FOR_SGF: &str = "product.commentaryTooLarge";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CommentaryFailure {
     pub message_key: String,

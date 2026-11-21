@@ -10,6 +10,9 @@ registerProduct({
   ZhCn: { "Online.uniteNeedsPage": "对局室需要在弈客网页窗口中打开后才能同步。" },
   ZhTw: { "Online.uniteNeedsPage": "對局室需要在弈客網頁視窗中開啟後才能同步。" },
   EnUs: { "Online.uniteNeedsPage": "Open the game room in the Yike web window to sync it." },
+  JaJp: { "Online.uniteNeedsPage": "対局ルームを同期するには、Yike の Web ウィンドウで開いてください。" },
+  KoKr: { "Online.uniteNeedsPage": "대국방은 Yike 웹 창에서 연 뒤에 동기화할 수 있습니다." },
+  ThTh: { "Online.uniteNeedsPage": "ต้องเปิดห้องเกมในหน้าต่างเว็บ Yike ก่อนจึงจะซิงค์ได้" },
 });
 
 /** Literal t() calls keep the keys the core sends in the Java string extraction. */

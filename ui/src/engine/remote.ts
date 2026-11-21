@@ -5,7 +5,7 @@ import { run } from "../app";
 import type { RemoteFailure, SshPasswordState, SshSettings } from "../contract/generated";
 import { formPanel } from "../dialogs";
 import { product, registerProduct, t } from "../i18n";
-import { actions, button, input } from "./controls";
+import { button, footer, input, primaryButton, row } from "./controls";
 
 registerProduct({
   ZhCn: {
@@ -44,6 +44,42 @@ registerProduct({
     sshEnded: "The remote engine process ended on the server.",
     sshLost: "The connection to the server closed; whether the remote engine process still runs is unknown ({0}).",
   },
+  JaJp: {
+    sshPasswordStored: "システムの資格情報ストレージに保存済み。空欄のままなら変更なし",
+    sshPasswordSession: "今回の実行中のみ保持。空欄のままなら変更なし",
+    sshPasswordMissing: "{0} には保存済みのパスワードがありません。パスワードを入力して保存してから接続してください。",
+    sshHostKeyChanged: "{0} が提示したホストキーが、以前に信頼したものと異なります。接続を中止しました。ログイン情報は送信していません。\n以前に信頼したキー：{1}\n今回提示されたキー：{2}\nサーバーのキーが実際に変更されたと確認できた場合のみ、新しいキーを信頼してください。",
+    sshTrustAndRetry: "新しいキーを信頼して再試行",
+    sshTrust: "新しいキーを信頼",
+    sshEndedStatus: "リモートエンジンのプロセスがサーバー上で終了しました（終了コード {0}）。",
+    sshEndedSignal: "リモートエンジンのプロセスがサーバー上でシグナル {0} により終了しました。",
+    sshEnded: "リモートエンジンのプロセスがサーバー上で終了しました。",
+    sshLost: "サーバーとの接続が切れたため、リモートエンジンのプロセスが動作中か確認できません（{0}）。",
+  },
+  KoKr: {
+    sshPasswordStored: "시스템 자격 증명 저장소에 저장됨. 비워 두면 그대로 유지",
+    sshPasswordSession: "이번 실행 동안 기억됨. 비워 두면 그대로 유지",
+    sshPasswordMissing: "{0}에 저장된 비밀번호가 없습니다. 비밀번호를 입력해 저장한 뒤 다시 연결하세요.",
+    sshHostKeyChanged: "{0}이(가) 제시한 호스트 키가 이전에 신뢰한 키와 다릅니다. 연결을 중단했으며 로그인 정보는 보내지 않았습니다.\n이전에 신뢰한 키: {1}\n이번에 제시된 키: {2}\n서버의 키가 실제로 바뀐 것을 확인한 경우에만 새 키를 신뢰하세요.",
+    sshTrustAndRetry: "새 키 신뢰 후 다시 시도",
+    sshTrust: "새 키 신뢰",
+    sshEndedStatus: "원격 엔진 프로세스가 서버에서 종료되었습니다(종료 코드 {0}).",
+    sshEndedSignal: "원격 엔진 프로세스가 서버에서 신호 {0}(으)로 종료되었습니다.",
+    sshEnded: "원격 엔진 프로세스가 서버에서 종료되었습니다.",
+    sshLost: "서버와의 연결이 끊어져 원격 엔진 프로세스가 아직 실행 중인지 확인할 수 없습니다({0}).",
+  },
+  ThTh: {
+    sshPasswordStored: "บันทึกไว้ในที่เก็บข้อมูลรับรองของระบบ เว้นว่างไว้เพื่อคงเดิม",
+    sshPasswordSession: "จำไว้จนกว่าจะปิดโปรแกรม เว้นว่างไว้เพื่อคงเดิม",
+    sshPasswordMissing: "ไม่มีรหัสผ่านที่บันทึกไว้สำหรับ {0} โปรดป้อนรหัสผ่านและบันทึก แล้วเชื่อมต่ออีกครั้ง",
+    sshHostKeyChanged: "คีย์โฮสต์ที่ {0} ส่งมาไม่ตรงกับคีย์ที่เชื่อถือไว้ก่อนหน้า จึงหยุดการเชื่อมต่อแล้ว และยังไม่ได้ส่งข้อมูลเข้าสู่ระบบ\nคีย์ที่เชื่อถือ: {1}\nคีย์ที่ได้รับครั้งนี้: {2}\nเชื่อถือคีย์ใหม่เฉพาะเมื่อแน่ใจว่าเซิร์ฟเวอร์เปลี่ยนคีย์จริง",
+    sshTrustAndRetry: "เชื่อถือคีย์ใหม่และลองอีกครั้ง",
+    sshTrust: "เชื่อถือคีย์ใหม่",
+    sshEndedStatus: "โปรเซสเอนจินระยะไกลบนเซิร์ฟเวอร์สิ้นสุดแล้ว (รหัสออก {0})",
+    sshEndedSignal: "โปรเซสเอนจินระยะไกลบนเซิร์ฟเวอร์ถูกสิ้นสุดด้วยสัญญาณ {0}",
+    sshEnded: "โปรเซสเอนจินระยะไกลบนเซิร์ฟเวอร์สิ้นสุดแล้ว",
+    sshLost: "การเชื่อมต่อกับเซิร์ฟเวอร์ขาดหาย จึงไม่ทราบว่าโปรเซสเอนจินระยะไกลยังทำงานอยู่หรือไม่ ({0})",
+  },
 });
 
 /** The failure text: Java's SSHController wording for login and connection failures. */
@@ -67,8 +103,8 @@ export function aboutRemoteButton(): HTMLButtonElement {
     const body = document.createElement("div");
     const text = document.createElement("p"); text.className = "engine-remote-about"; text.textContent = t("MoreEngines.aboutRemoteEngine");
     body.append(text);
+    footer(body, { cancel: button(product("close"), () => void dialog.close()) });
     const dialog = formPanel(t("MoreEngines.aboutRemoteEngineTitle"), body);
-    actions(body, button(product("ok"), () => dialog.close()));
   });
   about.dataset.key = "engine.remote.about";
   about.title = t("MoreEngines.aboutRemoteEngineTitle");
@@ -78,7 +114,8 @@ export function aboutRemoteButton(): HTMLButtonElement {
 /** Labels of one remote form: 更多引擎 and 远程引擎设置 use their own Java keys. */
 export interface RemoteLabels { host: string; port: string; user: string; password: string; key: string; browse: string }
 
-/** IP, 端口, 用户名, 密码 / 密钥 with 浏览. The 密码 / 密钥 pair always has at most one choice. */
+/** IP, 端口, 用户名, 密码 / 密钥 with 浏览. 密码 / 密钥 are radios: a form with a connection has one
+ *  of them chosen, 更多引擎 without a remote engine neither. */
 export class RemoteFields {
   readonly host = input("");
   readonly port = input("");
@@ -93,10 +130,10 @@ export class RemoteFields {
   private enabled = true;
   private checked = 0;
 
-  constructor(readonly labels: RemoteLabels, kind: "radio" | "checkbox", readonly prefix: string) {
-    this.usePassword = input("", kind);
-    this.useKey = input("", kind);
-    if (kind === "radio") this.usePassword.name = this.useKey.name = `${prefix}-auth`;
+  constructor(readonly labels: RemoteLabels, readonly prefix: string) {
+    this.usePassword = input("", "radio");
+    this.useKey = input("", "radio");
+    this.usePassword.name = this.useKey.name = `${prefix}-auth`;
     this.passwordLabel.append(this.usePassword, labels.password);
     this.keyLabel.append(this.useKey, labels.key);
     this.password.autocomplete = "off";
@@ -110,9 +147,7 @@ export class RemoteFields {
       if (r?.type === "FileChosen") this.setKeyPath(r.path);
     });
     this.browse.dataset.key = `${prefix}.browse`;
-    // RemoteEngineSettings: unchecking one checks the other; MoreEngines' radios only select.
-    this.usePassword.onchange = () => { this.useKey.checked = kind === "checkbox" ? !this.usePassword.checked : false; this.update(); };
-    this.useKey.onchange = () => { this.usePassword.checked = kind === "checkbox" ? !this.useKey.checked : false; this.update(); };
+    this.usePassword.onchange = this.useKey.onchange = () => this.update();
     for (const el of [this.host, this.port, this.user]) el.addEventListener("change", () => void this.refreshPassword());
   }
 
@@ -190,23 +225,29 @@ export async function editRemoteEngine(initial: SshSettings, password: string | 
   const fields = new RemoteFields({
     host: t("RemoteEngineSettings.lblIP"), port: t("RemoteEngineSettings.lblProt"), user: t("RemoteEngineSettings.lblUserName"),
     password: t("RemoteEngineSettings.chkUsePassword"), key: t("RemoteEngineSettings.chkUseKeyGen"), browse: t("RemoteEngineSettings.scanKeyGen"),
-  }, "checkbox", "remoteEngineSettings");
+  }, "remoteEngineSettings");
   fields.set(initial);
   if (password !== null) fields.password.value = password;
-  const body = document.createElement("div");
-  const grid = document.createElement("div"); grid.className = "engine-remote-grid";
-  const label = (text: string) => { const el = document.createElement("span"); el.textContent = text; return el; };
-  grid.append(label(fields.labels.host), fields.host, label(fields.labels.port), fields.port, label(fields.labels.user), fields.user,
-    fields.passwordLabel, fields.password, fields.keyLabel, fields.browse);
-  body.append(grid);
+  fields.port.inputMode = "numeric";
+  // One group: IP, 端口, 用户名, then 密码 / 密钥 as the last row's choice with the field or 浏览
+  // it enables at the end.
+  const body = document.createElement("div"); body.className = "engine-remote";
+  row(body, fields.labels.host, "", fields.host);
+  row(body, fields.labels.port, "", fields.port);
+  row(body, fields.labels.user, "", fields.user);
+  const auth = document.createElement("span"); auth.className = "ds-seg"; auth.setAttribute("role", "radiogroup");
+  auth.append(fields.passwordLabel, fields.keyLabel);
+  row(body, auth, "", fields.password, fields.browse);
   let result: { ssh: SshSettings; password: string | null } | null = null;
   const dialog = formPanel(t("RemoteEngineSettings.title"), body);
-  const ok = button(t("RemoteEngineSettings.okButton"), () => {
+  const ok = primaryButton(t("RemoteEngineSettings.okButton"), () => {
     result = { ssh: fields.read(), password: fields.typedPassword() };
     void dialog.close();
   });
   ok.dataset.key = "remoteEngineSettings.ok";
-  actions(body, ok);
+  const cancel = button(product("cancel"), () => void dialog.close());
+  cancel.dataset.key = "remoteEngineSettings.cancel";
+  footer(body, { primary: ok, cancel });
   await dialog.closed;
   return result;
 }

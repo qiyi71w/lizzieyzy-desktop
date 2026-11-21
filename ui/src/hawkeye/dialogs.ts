@@ -2,11 +2,24 @@
 // JDialogs owned by MoveListFrame): 列表筛选 (SetThreshold.java, fromMoveList), 统计阈值
 // (StatisticsThreshold.java), 关于吻合度 (SetMatchAiPara.java) and the HtmlMessage boxes they open.
 // The window holds only their drafts; every committed value goes to the main window as a core
-// command or a display change. Sizes and colours follow the Java screenshots (FlatLaf-like fields
-// and buttons, Metal spinners) measured in t15-whole-game/java-ref3 j05 / j08 / j13.
+// command or a display change. They take the program's dialog frame (design/dialog.css): the title
+// with its close box, grouped rows, the footer band; hawkeye.css places them in the window.
 import type { Command, DisplaySettings, HawkeyeSettings } from "../contract/generated";
-import { t } from "../i18n";
-import { type HawkeyePayload, LOSS_COLORS, settingsCommand, UI_FONT } from "./model";
+import { icon } from "../design/icons";
+import { closeBox } from "../dialogs";
+import { type FooterButtons, footer, row, switchRow } from "../engine/controls";
+import { product, registerProduct, t } from "../i18n";
+import { type HawkeyePayload, settingsCommand } from "./model";
+
+/** The 吻合度 formula image's text equivalent. */
+registerProduct({
+  ZhCn: { hawkeyeMatchFormula: "吻合度 = 每个已分析手的“实际落子位置的计算量 ÷ 选点计算量最大值”之和 × 100 ÷ 已分析手数" },
+  ZhTw: { hawkeyeMatchFormula: "吻合度 = 每個已分析手的「實際落子位置的計算量 ÷ 選點計算量最大值」之和 × 100 ÷ 已分析手數" },
+  EnUs: { hawkeyeMatchFormula: "Accuracy = the sum over the analyzed moves of (visits of the move played ÷ most visits of a candidate) × 100 ÷ number of analyzed moves" },
+  JaJp: { hawkeyeMatchFormula: "正確度 = 分析済みの各手の「実際の着手の訪問数 ÷ 候補手の最大訪問数」の合計 × 100 ÷ 分析済みの手数" },
+  KoKr: { hawkeyeMatchFormula: "정확도 = 분석한 각 수의 (실제로 둔 수의 방문 수 ÷ 후보 수의 최대 방문 수) 합 × 100 ÷ 분석한 수의 개수" },
+  ThTh: { hawkeyeMatchFormula: "ความแม่นยำ = ผลรวมของ (จำนวนการเยี่ยมของตาที่เดินจริง ÷ จำนวนการเยี่ยมสูงสุดของตาที่เป็นตัวเลือก) ทุกตาที่วิเคราะห์แล้ว × 100 ÷ จำนวนตาที่วิเคราะห์แล้ว" },
+});
 
 export interface DialogActions {
   run(command: Command): void;
@@ -43,67 +56,6 @@ export function controlTargets(root: ParentNode): ControlTarget[] {
     targets.push(target);
   }
   return targets;
-}
-
-const STYLE_ID = "hawkeye-dialogs-style";
-const STYLE = `
-.hkd-layer { position: fixed; inset: 0; z-index: 1000; pointer-events: none; }
-.hkd-modal { position: absolute; inset: 0; pointer-events: auto; }
-.hkd { position: absolute; pointer-events: auto; display: flex; flex-direction: column; box-sizing: border-box;
-  font: 12px ${UI_FONT}; color: rgb(31, 41, 38); background: rgb(246, 247, 249);
-  border: 1px solid rgb(122, 138, 153); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3); }
-.hkd-title { flex: none; display: flex; align-items: center; height: 24px; padding: 0 0 0 8px; gap: 8px;
-  background: rgb(238, 238, 238); border-bottom: 1px solid rgb(215, 216, 216); cursor: default; user-select: none; }
-.hkd-title span { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.hkd-close { width: 28px; height: 23px; padding: 0; border: 0; background: transparent; font: 16px ${UI_FONT}; color: rgb(60, 60, 60); }
-.hkd-close:hover { background: rgb(232, 17, 35); color: #fff; }
-.hkd-body { flex: 1; min-height: 0; }
-.hkd .hkd-label { display: flex; align-items: center; white-space: nowrap; user-select: none; }
-.hkd-btn { height: 15px; padding: 0 7px; box-sizing: content-box; font: 12px ${UI_FONT}; line-height: 13px; color: rgb(31, 41, 38);
-  background: #fff; border: 1px solid rgb(215, 216, 216); border-radius: 3px; white-space: nowrap; }
-.hkd-btn:active { background: rgb(232, 232, 232); }
-.hkd-field { min-width: 0; height: 100%; box-sizing: border-box; margin: 0; padding: 0 3px; font: 12px ${UI_FONT}; color: rgb(31, 41, 38);
-  background: #fff; border: 1px solid rgb(219, 219, 219); border-radius: 3px; outline: none; }
-.hkd-field:focus { border-color: rgb(140, 170, 210); }
-.hkd-field:disabled { color: rgb(184, 207, 229); background: #fff; }
-/* SetThreshold: EmptyBorder(12), GridLayout(4, 2, 4, 4), buttonBar EmptyBorder(12, 0, 0, 0). */
-.hkd-set { padding: 12px; }
-.hkd-set-grid { display: inline-grid; grid-template-columns: repeat(2, 1fr); grid-auto-rows: 21px; gap: 4px; }
-.hkd-set-buttons { display: flex; justify-content: center; gap: 5px; padding-top: 12px; }
-.hkd-set input[type=checkbox] { width: 13px; height: 13px; margin: 0 0 0 4px; align-self: center; }
-/* JSpinner (Metal): field and a 16 px column of two arrow buttons. */
-.hkd-spin { display: flex; min-width: 0; border: 1px solid rgb(122, 138, 153); background: #fff; }
-.hkd-spin input { flex: 1; min-width: 0; margin: 0; padding: 0 3px; border: 0; outline: none; text-align: right;
-  font: 12px ${UI_FONT}; color: rgb(51, 51, 51); background: #fff; }
-.hkd-arrows { flex: none; display: flex; flex-direction: column; width: 15px; border-left: 1px solid rgb(122, 138, 153); }
-.hkd-arrow { flex: 1; display: flex; align-items: center; justify-content: center; background: rgb(238, 238, 238); user-select: none; }
-.hkd-arrow + .hkd-arrow { border-top: 1px solid rgb(122, 138, 153); }
-.hkd-arrow:active { background: rgb(200, 221, 242); }
-.hkd-arrow::after { content: ""; border: 4px solid transparent; }
-.hkd-arrow.up::after { border-bottom: 4px solid #000; border-top: 0; }
-.hkd-arrow.down::after { border-top: 4px solid #000; border-bottom: 0; }
-/* StatisticsThreshold: labelPanel EmptyBorder(5, 0, 5, 0) GridLayout(1, 2, 3, 3); thresholdPanel
-   EmptyBorder(0, 5, 0, 5) GridLayout(1, 2, 3, 3) of GridLayout(6, 3, 3, 3); FlowLayout buttons. */
-.hkd-stat { display: inline-flex; flex-direction: column; }
-.hkd-stat-head { display: grid; grid-template-columns: repeat(2, 1fr); gap: 3px; padding: 5px 0; }
-.hkd-stat-head .hkd-label { justify-content: center; height: 15px; }
-.hkd-stat-panels { display: grid; grid-template-columns: repeat(2, 1fr); gap: 3px; padding: 0 5px; }
-.hkd-stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); grid-auto-rows: 21px; gap: 3px; }
-.hkd-stat-grid .hkd-field { width: 45px; }
-.hkd-stat-buttons { display: flex; justify-content: center; gap: 5px; padding: 5px; }
-/* SetMatchAiPara: a null layout at its setBounds. */
-.hkd-matchai { position: relative; }
-.hkd-matchai > *, .hkd .hkd-matchai > .hkd-label { position: absolute; display: block; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* HtmlMessage: a JTextPane with EmptyBorder(12). */
-.hkd-message { padding: 12px; max-width: 560px; line-height: 1.3; user-select: text; background: rgb(248, 249, 251); color: rgb(32, 36, 40); }
-`;
-
-function injectStyle(): void {
-  if (document.getElementById(STYLE_ID)) return;
-  const style = document.createElement("style");
-  style.id = STYLE_ID;
-  style.textContent = STYLE;
-  document.head.append(style);
 }
 
 interface Panel {
@@ -143,34 +95,26 @@ function closeKind(titleKey: string): void {
 }
 
 /** A dialog panel with a title bar, centred in the window (setLocationRelativeTo(owner)). The
- *  title bar drags it; its close button hides it like JDialog's HIDE_ON_CLOSE. */
-function openPanel(titleKey: string, title: string, body: HTMLElement, keyPrefix: string, options: { modal?: boolean; width?: number; height?: number } = {}): Panel {
-  injectStyle();
+ *  title bar drags it; its close box runs `dismiss`, by default hiding it like JDialog's
+ *  HIDE_ON_CLOSE. `buttons` are the footer's buttons for the panel. */
+function openPanel(
+  titleKey: string,
+  title: string,
+  body: HTMLElement,
+  keyPrefix: string,
+  options: { modal?: boolean; buttons?: (panel: Panel) => FooterButtons; dismiss?: (panel: Panel) => void } = {},
+): Panel {
   if (!layer || !layer.isConnected) {
     layer = document.createElement("div");
     layer.className = "hkd-layer";
     document.body.append(layer);
   }
   const el = document.createElement("div");
-  el.className = "hkd";
+  el.className = "hkd modal-box";
+  el.tabIndex = -1;
   el.setAttribute("role", "dialog");
+  el.setAttribute("aria-label", title);
   el.dataset.dialog = titleKey;
-  const bar = document.createElement("div");
-  bar.className = "hkd-title";
-  const caption = document.createElement("span");
-  caption.textContent = title;
-  const closeButton = document.createElement("button");
-  closeButton.className = "hkd-close";
-  closeButton.type = "button";
-  closeButton.textContent = "×";
-  closeButton.dataset.key = `${keyPrefix}.close`;
-  closeButton.title = "Close";
-  bar.append(caption, closeButton);
-  body.classList.add("hkd-body");
-  el.append(bar, body);
-  if (options.width !== undefined) el.style.width = `${options.width}px`;
-  if (options.height !== undefined) el.style.height = `${options.height}px`;
-
   let modal: HTMLElement | null = null;
   if (options.modal) {
     modal = document.createElement("div");
@@ -178,15 +122,31 @@ function openPanel(titleKey: string, title: string, body: HTMLElement, keyPrefix
     modal.addEventListener("mousedown", (ev) => ev.preventDefault());
     layer.append(modal);
   }
-  layer.append(el);
   const panel: Panel = { titleKey, el, modal };
+  const bar = document.createElement("div");
+  bar.className = "hkd-title modal-title";
+  const caption = document.createElement("span");
+  caption.textContent = title;
+  const closeButton = closeBox(() => (options.dismiss ?? close)(panel));
+  closeButton.dataset.key = `${keyPrefix}.close`;
+  bar.append(caption, closeButton);
+  body.classList.add("hkd-body", "modal-body");
+  el.append(bar, body);
+  if (options.buttons) footer(el, options.buttons(panel));
+  layer.append(el);
   panels.push(panel);
   raise(panel);
 
-  closeButton.addEventListener("click", () => close(panel));
   el.addEventListener("mousedown", () => raise(panel), true);
   // The dialog has the focus: the window's own key bindings (Y, Q, arrows, Space) stay out.
-  el.addEventListener("keydown", (ev) => ev.stopPropagation());
+  // Escape is its close box.
+  el.addEventListener("keydown", (ev) => {
+    ev.stopPropagation();
+    if (ev.key === "Escape") {
+      ev.preventDefault();
+      (options.dismiss ?? close)(panel);
+    }
+  });
   el.addEventListener("keyup", (ev) => ev.stopPropagation());
   el.addEventListener("contextmenu", (ev) => ev.stopPropagation());
 
@@ -195,8 +155,9 @@ function openPanel(titleKey: string, title: string, body: HTMLElement, keyPrefix
     el.style.top = `${Math.max(0, Math.min(y, window.innerHeight - el.offsetHeight))}px`;
   };
   place(Math.round((window.innerWidth - el.offsetWidth) / 2), Math.round((window.innerHeight - el.offsetHeight) / 2));
+  (el.querySelector<HTMLElement>(":is(.hkd-body, .ds-footer) :is(input:not(:disabled), select:not(:disabled), button:not(:disabled))") ?? el).focus();
   bar.addEventListener("mousedown", (ev) => {
-    if (ev.button !== 0 || ev.target === closeButton) return;
+    if (ev.button !== 0 || closeButton.contains(ev.target as Node)) return;
     ev.preventDefault();
     const dx = ev.clientX - el.offsetLeft;
     const dy = ev.clientY - el.offsetTop;
@@ -211,10 +172,15 @@ function openPanel(titleKey: string, title: string, body: HTMLElement, keyPrefix
   return panel;
 }
 
-function button(text: string, key: string, onClick: () => void): HTMLButtonElement {
+/** The 关闭 of a panel that only shows something. */
+function closeOnly(keyPrefix: string): (panel: Panel) => FooterButtons {
+  return (panel) => ({ cancel: button(product("close"), `${keyPrefix}.closeButton`, () => close(panel)) });
+}
+
+function button(text: string, key: string, onClick: () => void, primary = false): HTMLButtonElement {
   const b = document.createElement("button");
   b.type = "button";
-  b.className = "hkd-btn";
+  if (primary) b.className = "primary";
   b.textContent = text;
   b.dataset.key = key;
   b.addEventListener("click", onClick);
@@ -228,8 +194,8 @@ function label(text: string): HTMLElement {
   return l;
 }
 
-/** HtmlMessage (HtmlMessage.java): the bundle's HTML in a text pane with a 12 px border. Utils.showMsg
- *  opens it modal titled Message.title; Utils.showHtmlMessage non-modal. One per title. */
+/** HtmlMessage (HtmlMessage.java): the bundle's HTML as the dialog's text. Utils.showMsg opens it
+ *  modal titled Message.title; Utils.showHtmlMessage non-modal. One per title. */
 function showMessage(titleKey: string, title: string, html: string, modal: boolean): void {
   closeKind(titleKey);
   const body = document.createElement("div");
@@ -237,7 +203,7 @@ function showMessage(titleKey: string, title: string, html: string, modal: boole
   body.dataset.key = "hawkeye.message.text";
   // Resource-bundle HTML (<html>…<br />…</html>), not user input.
   body.innerHTML = html;
-  openPanel(titleKey, title, body, "hawkeye.message", { modal });
+  openPanel(titleKey, title, body, "hawkeye.message", { modal, buttons: closeOnly("hawkeye.message") });
 }
 
 /** Java's grouping NumberFormat of the JSpinner.NumberEditor ("#,##0"). */
@@ -248,14 +214,15 @@ interface Spinner {
   value(): number;
 }
 
-/** JSpinner over SpinnerNumberModel(value, min, max, step): the arrows (and Up / Down in the
- *  field) step unless the result leaves the range; typed text commits on Enter or focus loss and
- *  reverts when it is not a whole number in range (COMMIT_OR_REVERT). `changed` runs on every new
- *  value (ChangeListener). */
+/** JSpinner over SpinnerNumberModel(value, min, max, step), drawn as the program's number stepper
+ *  (design/base.css .ds-stepper): the arrows (held, they repeat), Up / Down in the field and, while
+ *  the field has the focus, the wheel step unless the result leaves the range; typed text commits
+ *  on Enter or focus loss and reverts when it is not a whole number in range (COMMIT_OR_REVERT).
+ *  `changed` runs on every new value (ChangeListener). */
 function spinner(key: string, initial: number, min: number, max: number, step: number, changed: () => void): Spinner {
   let value = initial;
-  const el = document.createElement("div");
-  el.className = "hkd-spin";
+  const el = document.createElement("span");
+  el.className = "ds-stepper";
   const input = document.createElement("input");
   input.type = "text";
   input.dataset.key = key;
@@ -294,13 +261,23 @@ function spinner(key: string, initial: number, min: number, max: number, step: n
     }
   });
   input.addEventListener("blur", commit);
+  input.addEventListener(
+    "wheel",
+    (ev) => {
+      if (document.activeElement !== input || ev.deltaY === 0) return;
+      ev.preventDefault();
+      stepBy(ev.deltaY < 0);
+    },
+    { passive: false },
+  );
 
-  const arrows = document.createElement("div");
-  arrows.className = "hkd-arrows";
+  const arrows = document.createElement("span");
+  arrows.className = "ds-stepper-arrows";
+  arrows.setAttribute("aria-hidden", "true");
   for (const up of [true, false]) {
-    const arrow = document.createElement("div");
-    arrow.className = `hkd-arrow ${up ? "up" : "down"}`;
+    const arrow = document.createElement("span");
     arrow.dataset.key = `${key}.${up ? "up" : "down"}`;
+    arrow.append(icon(up ? "chevron-up" : "chevron-down"));
     // BasicSpinnerUI.ArrowButtonHandler: one step on press, then auto-repeat while held.
     let timer = 0;
     const stop = () => {
@@ -350,34 +327,27 @@ export function openSetThreshold(p: HawkeyePayload, actions: DialogActions): voi
   const winrate = spinner("hawkeye.setThreshold.winrate", s.winrateThreshold, 0, 99, 1, save);
   const score = spinner("hawkeye.setThreshold.score", s.scoreThreshold, 0, 99, 1, save);
   const visits = spinner("hawkeye.setThreshold.visits", s.visitsThreshold, 0, 999999, 100, save);
-  const top = document.createElement("input");
-  top.type = "checkbox";
-  top.checked = s.topCurrentMove;
+  const body = document.createElement("div");
+  body.className = "hkd-rows";
+  row(body, t("Movelistframe.lblDropWinrate"), "", winrate.el);
+  row(body, t("Movelistframe.lblDropScore"), "", score.el);
+  row(body, t("Movelistframe.lblPlayouts"), "", visits.el);
+  const top = switchRow(body, t("Movelistframe.chkTopCurrentMove"), "", s.topCurrentMove).input;
   top.dataset.key = "hawkeye.setThreshold.topCurrentMove";
   top.addEventListener("change", save);
-
-  const body = document.createElement("div");
-  body.className = "hkd-set";
-  const grid = document.createElement("div");
-  grid.className = "hkd-set-grid";
-  grid.append(
-    label(t("Movelistframe.lblDropWinrate")), winrate.el,
-    label(t("Movelistframe.lblDropScore")), score.el,
-    label(t("Movelistframe.lblPlayouts")), visits.el,
-    label(t("Movelistframe.chkTopCurrentMove")), top,
-  );
-  const buttons = document.createElement("div");
-  buttons.className = "hkd-set-buttons";
-  body.append(grid, buttons);
-  const panel = openPanel("SetThreshold.title", t("SetThreshold.title"), body, "hawkeye.setThreshold");
-  buttons.append(
-    // Values are already saved: 确定 only hides (166-177).
-    button(t("SetKataEngines.btnApply"), "hawkeye.setThreshold.confirm", () => close(panel)),
-    button(t("SetKataEngines.btnCancel"), "hawkeye.setThreshold.cancel", () => {
-      actions.run(settingsCommand((latest ?? p).settings, origin));
-      close(panel);
+  // 取消 and the close box restore the values the dialog opened with.
+  const cancel = (panel: Panel) => {
+    actions.run(settingsCommand((latest ?? p).settings, origin));
+    close(panel);
+  };
+  openPanel("SetThreshold.title", t("SetThreshold.title"), body, "hawkeye.setThreshold", {
+    dismiss: cancel,
+    buttons: (panel) => ({
+      // Values are already saved: 确定 only hides (166-177).
+      primary: button(t("SetKataEngines.btnApply"), "hawkeye.setThreshold.confirm", () => close(panel), true),
+      cancel: button(t("SetKataEngines.btnCancel"), "hawkeye.setThreshold.cancel", () => cancel(panel)),
     }),
-  );
+  });
 }
 
 /** String.valueOf(double): whole numbers keep ".0" (and -0.0 its sign). */
@@ -428,56 +398,54 @@ export function openStatisticsThreshold(p: HawkeyePayload, actions: DialogAction
   latest = p;
   // MoveListFrame.java:1394: a new StatisticsThreshold(thisDialog) per click.
   closeKind("StatisticsThreshold.title");
-  const fields = (kind: "score" | "win") => {
-    const inputs: HTMLInputElement[] = [];
-    const grid = document.createElement("div");
-    grid.className = "hkd-stat-grid";
-    // Rows 5 (worst) to 0; row 0 is disabled and mirrors row 1 (StatisticsThreshold.java:120-250).
-    for (let k = 5; k >= 0; k--) {
+  // One row per loss class, 5 (worst) to 0, its 目数 and 胜率 fields under the column names; row 0
+  // is disabled and mirrors row 1 (StatisticsThreshold.java:120-250).
+  const body = document.createElement("div");
+  body.className = "hkd-rows";
+  const columns = document.createElement("div");
+  columns.className = "hkd-stat-columns";
+  const scoreName = t("StatisticsThreshold.lblScoreLoss");
+  const winName = t("StatisticsThreshold.lblWinLoss");
+  columns.append(label(scoreName), label(winName));
+  body.append(columns);
+  const score: HTMLInputElement[] = [];
+  const win: HTMLInputElement[] = [];
+  for (let k = 5; k >= 0; k--) {
+    const text = k === 0 ? `${t("StatisticsThreshold.loss")} <` : `${t("StatisticsThreshold.loss")}>=`;
+    const field = (kind: "score" | "win", column: string) => {
       const input = document.createElement("input");
       input.type = "text";
-      input.className = "hkd-field";
+      input.inputMode = "decimal";
       input.dataset.key = `hawkeye.statThreshold.${kind}.${k}`;
+      input.setAttribute("aria-label", `${column} ${text}`);
       if (k === 0) input.disabled = true;
       else komiField(input);
-      inputs[k] = input;
-      const colour = document.createElement("div");
-      colour.style.background = LOSS_COLORS[k];
-      grid.append(label(k === 0 ? `${t("StatisticsThreshold.loss")} <` : `${t("StatisticsThreshold.loss")}>=`), input, colour);
-    }
-    inputs[1].addEventListener("input", () => {
-      inputs[0].value = inputs[1].value;
-    });
-    return { inputs, grid };
-  };
-  const score = fields("score");
-  const win = fields("win");
+      return input;
+    };
+    score[k] = field("score", scoreName);
+    win[k] = field("win", winName);
+    const name = document.createElement("span");
+    name.className = "hkd-stat-name";
+    const colour = document.createElement("span");
+    colour.className = "hkd-swatch";
+    colour.style.backgroundColor = `var(--hk-loss-${k})`;
+    name.append(colour, text);
+    row(body, name, "", score[k], win[k]);
+  }
+  for (const inputs of [score, win]) inputs[1].addEventListener("input", () => (inputs[0].value = inputs[1].value));
   // loadValue (278-292): the stored thresholds are negative.
   const load = (inputs: HTMLInputElement[], values: string[]) => inputs.forEach((input, k) => (input.value = values[k]));
-  load(win.inputs, [p.winLoss[0], ...p.winLoss].map((v) => javaDouble(-v)));
-  load(score.inputs, [p.scoreLoss[0], ...p.scoreLoss].map((v) => javaDouble(-v)));
-
-  const body = document.createElement("div");
-  body.className = "hkd-stat";
-  const head = document.createElement("div");
-  head.className = "hkd-stat-head";
-  head.append(label(t("StatisticsThreshold.lblScoreLoss")), label(t("StatisticsThreshold.lblWinLoss")));
-  const sides = document.createElement("div");
-  sides.className = "hkd-stat-panels";
-  sides.append(score.grid, win.grid);
-  const buttons = document.createElement("div");
-  buttons.className = "hkd-stat-buttons";
-  body.append(head, sides, buttons);
-  const panel = openPanel("StatisticsThreshold.title", t("StatisticsThreshold.title"), body, "hawkeye.statThreshold");
+  load(win, [p.winLoss[0], ...p.winLoss].map((v) => javaDouble(-v)));
+  load(score, [p.scoreLoss[0], ...p.scoreLoss].map((v) => javaDouble(-v)));
 
   // saveSettings (294-345): each row parsed (an unparsable one keeps the stored value), negated,
   // and the upper rows must not be smaller than the lower ones.
-  const confirm = () => {
+  const confirm = (panel: Panel) => {
     const now = latest ?? p;
     const read = (inputs: HTMLInputElement[], stored: number[]) =>
       stored.map((v, k) => -(parseJavaDouble(inputs[k + 1].value) ?? -v));
-    const winLoss = read(win.inputs, now.winLoss);
-    const scoreLoss = read(score.inputs, now.scoreLoss);
+    const winLoss = read(win, now.winLoss);
+    const scoreLoss = read(score, now.scoreLoss);
     const ordered = (v: number[]) => v[0] >= v[1] && v[1] >= v[2] && v[2] >= v[3] && v[3] >= v[4];
     if (!ordered(winLoss) || !ordered(scoreLoss)) {
       // Utils.showMsg: a modal HtmlMessage titled Message.title.
@@ -490,28 +458,37 @@ export function openStatisticsThreshold(p: HawkeyePayload, actions: DialogAction
     });
     close(panel);
   };
-  buttons.append(
-    button(t("StatisticsThreshold.btnCalcMethod"), "hawkeye.statThreshold.calcMethod", () =>
-      showMessage(
-        "StatisticsThreshold.calcMethod.title",
-        t("StatisticsThreshold.calcMethod.title"),
-        t("StatisticsThreshold.calcMethod.content"),
-        false,
-      ),
-    ),
-    // resetDefauleValue (253-267): only the fields; 确定 saves them.
-    button(t("StatisticsThreshold.btnReset"), "hawkeye.statThreshold.reset", () => {
-      load(win.inputs, DEFAULT_WIN);
-      load(score.inputs, DEFAULT_SCORE);
+  const panel = openPanel("StatisticsThreshold.title", t("StatisticsThreshold.title"), body, "hawkeye.statThreshold", {
+    buttons: (panel) => ({
+      start: [
+        button(t("StatisticsThreshold.btnCalcMethod"), "hawkeye.statThreshold.calcMethod", () =>
+          showMessage(
+            "StatisticsThreshold.calcMethod.title",
+            t("StatisticsThreshold.calcMethod.title"),
+            t("StatisticsThreshold.calcMethod.content"),
+            false,
+          ),
+        ),
+        // resetDefauleValue (253-267): only the fields; 确定 saves them.
+        button(t("StatisticsThreshold.btnReset"), "hawkeye.statThreshold.reset", () => {
+          load(win, DEFAULT_WIN);
+          load(score, DEFAULT_SCORE);
+        }),
+      ],
+      primary: button(t("StatisticsThreshold.btnConfirm"), "hawkeye.statThreshold.confirm", () => confirm(panel), true),
+      cancel: button(t("StatisticsThreshold.btnCancel"), "hawkeye.statThreshold.cancel", () => close(panel)),
     }),
-    button(t("StatisticsThreshold.btnConfirm"), "hawkeye.statThreshold.confirm", confirm),
-    button(t("StatisticsThreshold.btnCancel"), "hawkeye.statThreshold.cancel", () => close(panel)),
-  );
+  });
+  // getRootPane().setDefaultButton: Enter in a threshold field is 确定.
+  body.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Enter" || ev.isComposing || !(ev.target instanceof HTMLInputElement) || ev.target.disabled) return;
+    ev.preventDefault();
+    confirm(panel);
+  });
 }
 
-/** SetMatchAiPara (SetMatchAiPara.java): Lizzie.setFrameSize(810, 215) gives an 820 × 225 window
- *  at scale 1; a null layout with the description, the "计算方式:" label and the formula image
- *  scaled to 708 × 96. Java keeps one instance per MoveListFrame (MoveListFrame.java:828). */
+/** SetMatchAiPara (SetMatchAiPara.java): the description, then the "计算方式:" label beside the
+ *  formula image at 708 × 96. Java keeps one instance per MoveListFrame (MoveListFrame.java:828). */
 export function openMatchAiHelp(p: HawkeyePayload): void {
   latest = p;
   const existing = panels.find((panel) => panel.titleKey === "SetMatchAiPara.title");
@@ -521,24 +498,14 @@ export function openMatchAiHelp(p: HawkeyePayload): void {
   }
   const body = document.createElement("div");
   body.className = "hkd-matchai";
-  const place = (el: HTMLElement, x: number, y: number, w: number, h: number) => {
-    el.style.left = `${x}px`;
-    el.style.top = `${y}px`;
-    el.style.width = `${w}px`;
-    el.style.height = `${h}px`;
-    el.style.lineHeight = `${h}px`;
-    body.append(el);
-  };
   const ai = label(t("SetMatchAiPara.lblAi"));
   ai.dataset.key = "hawkeye.matchAi.text";
-  place(ai, 10, 10, 762, 29);
-  place(label(t("SetMatchAiPara.lblCalculation")), 10, 50, 93, 15);
   const form = document.createElement("img");
   form.src = p.chinese ? "/assets/matchform.png" : "/assets/matchformeng.png";
-  form.alt = "";
+  form.alt = product("hawkeyeMatchFormula");
   form.draggable = false;
-  place(form, 76, 45, 708, 96);
-  openPanel("SetMatchAiPara.title", t("SetMatchAiPara.title"), body, "hawkeye.matchAi", { width: 820, height: 225 });
+  body.append(ai, label(t("SetMatchAiPara.lblCalculation")), form);
+  openPanel("SetMatchAiPara.title", t("SetMatchAiPara.title"), body, "hawkeye.matchAi", { buttons: closeOnly("hawkeye.matchAi") });
 }
 
 /** The open dialog's Java title key, or null. */

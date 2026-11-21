@@ -94,6 +94,23 @@ pub const KIFU_LOAD_FAILED: &str = "KifuLoad.failed";
 /// Java `LizzieFrame.saveFileFailed`: any failed save.
 pub const SAVE_FILE_FAILED: &str = "LizzieFrame.saveFileFailed";
 
+// Settings-file write failures. The error message is the interface text key, then the cause on
+// the next line: `"<key>\n<cause>"` (decoded in `ui/src/errorText.ts`).
+
+/// Settings could not be written; the cause is the operating system's.
+pub const SETTINGS_SAVE_FAILED: &str = "product.settingsSaveFailed";
+/// The settings file could not be used at start-up and is not written over in this run; the
+/// cause names the file and why it was left as it is.
+pub const SETTINGS_FILE_KEPT: &str = "product.settingsFileKept";
+/// The window state file (placements, panel sizes, last folders) could not be written.
+pub const WINDOW_STATE_SAVE_FAILED: &str = "product.windowStateSaveFailed";
+/// 重置界面位置 could not delete the window state file.
+pub const WINDOW_STATE_RESET_FAILED: &str = "product.windowStateResetFailed";
+
+fn settings_error(key: &str, cause: impl std::fmt::Display) -> ApiError {
+    ApiError::new(ErrorKind::Io, format!("{key}\n{cause}"))
+}
+
 #[derive(Clone, Debug)]
 pub struct Document {
     pub id: u64,
@@ -227,6 +244,15 @@ pub struct Workbench {
     cursor: NodeId,
     komi: f64,
     next_doc: u64,
+    /// Java `Board.isPkBoard` with `isPkBoardKataB` / `isPkBoardKataW`: the document that is an
+    /// engine game and the side whose engine gives its score curve. It applies to that document
+    /// only; every replacement of the document (new board, opened record) has a new id, which is
+    /// Java clearing the marks (`Board.clear(false)`, `setHistory`).
+    pk_board: Option<(u64, Option<Stone>)>,
+    /// Java `Board.isKataBoard` beyond the stores' KataGo data: the document read with a KataGo
+    /// root `DZ` or rebuilt from a contribution game. A save writes `DZ[G]` for it
+    /// ([`Workbench::save_mark`]); it ends with the engine-game marks.
+    kata_board: Option<u64>,
     next_ticket: u64,
     pending: Option<Pending>,
     outcome: Option<OpenOutcome>,
@@ -339,7 +365,7 @@ pub struct Workbench {
     problem_mark: Option<(u64, NodeId, NodeId)>,
     /// 超级鹰眼's 黑 / 白 boxes this session.
     hawkeye_session: hawkeye::HawkeyeSession,
-    /// 人机对弈 and the bottom toolbar's 自动落子.
+    /// 人机对弈 and 自动落子.
     play: play::PlayFlow,
     fox: fox::FoxFlow,
     matches: matches::MatchFlow,
@@ -393,14 +419,8 @@ impl Workbench {
         if config.ui.extra_mode.hides_comment() {
             config.panels.show_comment = false;
         }
-        let mut persisted: Persisted = settings::load_json(&storage.persist_file);
+        let persisted: Persisted = settings::load_json(&storage.persist_file);
         let active_language = config.ui.language.resolve(system_locale);
-        // LizzieFrame.java:946-950: the obsolete detailed toolbar is Chinese-only.
-        if !matches!(active_language, Language::ZhCn | Language::ZhTw)
-            && persisted.bottom_toolbar == crate::settings::BottomToolbar::Detailed
-        {
-            persisted.bottom_toolbar = crate::settings::BottomToolbar::Simple;
-        }
         let active_frame_font_size = config.appearance.frame_font_size;
         let appearance_theme = crate::appearance::load_theme(&storage, &config.appearance.theme, &config.appearance_defaults);
         let mut engines = Engines::new(launcher, engine_roots);
@@ -442,6 +462,8 @@ impl Workbench {
             cursor: ROOT,
             komi: DEFAULT_KOMI,
             next_doc: 2,
+            pk_board: None,
+            kata_board: None,
             next_ticket: 1,
             pending: None,
             outcome: None,
@@ -550,27 +572,23 @@ impl Workbench {
     }
 
     fn write_config(&self, config: &Config) -> Result<(), ApiError> {
-        self.settings_file_writable()
-            .and_then(|()| settings::save_json(&self.storage.config_file, config))
-            .map_err(|e| ApiError::new(ErrorKind::Io, format!("saving settings failed: {e}")))
+        self.settings_file_writable()?;
+        settings::save_json(&self.storage.config_file, config).map_err(|e| settings_error(SETTINGS_SAVE_FAILED, e))
     }
 
     /// Settings and window state as one write ([`settings::save_both`]).
-    fn save_settings_files(&self, config: &Config, persisted: Option<&Persisted>) -> std::io::Result<()> {
+    fn save_settings_files(&self, config: &Config, persisted: Option<&Persisted>) -> Result<(), ApiError> {
         self.settings_file_writable()?;
-        settings::save_both(&self.storage, config, persisted)
+        settings::save_both(&self.storage, config, persisted).map_err(|e| settings_error(SETTINGS_SAVE_FAILED, e))
     }
 
     /// Refuses to write over a settings file that was there at start-up but could not be loaded
     /// (nor kept as a backup): it holds the user's settings, which the next start can still read.
-    fn settings_file_writable(&self) -> std::io::Result<()> {
+    fn settings_file_writable(&self) -> Result<(), ApiError> {
         let Some(cause) = &self.settings_file_fault else {
             return Ok(());
         };
-        Err(std::io::Error::other(format!(
-            "the settings file {} is left unchanged: {cause}; restart the program once that is put right",
-            self.storage.config_file.display()
-        )))
+        Err(settings_error(SETTINGS_FILE_KEPT, format_args!("{}: {cause}", self.storage.config_file.display())))
     }
 
     /// A user settings change: applied only once it is on disk, so the projection never shows a
@@ -588,7 +606,7 @@ impl Workbench {
             return Ok(());
         }
         settings::save_json(&self.storage.persist_file, &self.persisted)
-            .map_err(|e| ApiError::new(ErrorKind::Io, format!("saving window state failed: {e}")))
+            .map_err(|e| settings_error(WINDOW_STATE_SAVE_FAILED, e))
     }
 
     // ---------------------------------------------------------------- opening
@@ -728,6 +746,7 @@ impl Workbench {
                     saved_revision,
                     origin_name,
                 };
+                self.read_record_marks();
                 // Loading is silent (Java turns sound off while it builds the history).
                 self.sounds.clear();
                 self.readboard_history_overwritten();
@@ -1143,12 +1162,7 @@ impl Workbench {
         match std::fs::remove_file(&self.storage.persist_file) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => {
-                return Err(ApiError::new(
-                    ErrorKind::Io,
-                    format!("deleting window state failed: {e}"),
-                ))
-            }
+            Err(e) => return Err(settings_error(WINDOW_STATE_RESET_FAILED, e)),
         }
         self.persist_reset = Some(Persisted::default());
         self.persisted.panel_sizes = crate::settings::PanelSizes::default();
@@ -1291,7 +1305,6 @@ impl Workbench {
                 panel_sizes: self.persisted.panel_sizes,
                 bottom_toolbar: self.persisted.bottom_toolbar,
                 bottom_buttons: self.config.bottom_buttons,
-                detail_panel_order: self.persisted.detail_panel_order,
                 comment_panel_auto_hidden: self.config.ui.extra_mode.hides_comment(),
                 custom_layouts: self.config.custom_layouts.clone(),
                 independent_main_board: self.persisted.independent_main_board,
@@ -1362,6 +1375,7 @@ impl Workbench {
             game_outcome: None,
             game_notices: Vec::new(),
             engine_match: self.match_view(),
+            pk_board: self.pk_board_view(),
             match_outcome: None,
             match_notices: Vec::new(),
             match_winrate_image: None,

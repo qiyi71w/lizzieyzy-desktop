@@ -2,6 +2,9 @@
 // open the rest of the window is inert and Tab cycles inside the dialog, so neither the mouse nor
 // the keyboard reaches the workbench, like a Swing modal dialog.
 import { product, t } from "./i18n";
+import { icon } from "./design/icons";
+import { cancelFirst } from "./design/theme";
+import "./design/dialog.css";
 
 const host = () => document.getElementById("dialog")!;
 let open = 0;
@@ -77,15 +80,36 @@ interface Button<T = boolean> {
   key?: string;
 }
 
-/** `dismissed` is the answer of Escape (JOptionPane.CLOSED_OPTION's role); Enter outside a button
- *  chooses the primary button, else the first. */
+/** A dialog's scrim and box. The box takes the focus a press on its own text gives, and a press on
+ *  the scrim leaves the focus where it is, so Escape and Tab always reach the open dialog. */
+function modalFrame(className: string): { overlay: HTMLDivElement; box: HTMLDivElement } {
+  const overlay = document.createElement("div");
+  overlay.className = "modal";
+  overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) e.preventDefault(); });
+  const box = document.createElement("div");
+  box.className = className;
+  box.tabIndex = -1;
+  overlay.append(box);
+  return { overlay, box };
+}
+
+/** Tab and Shift+Tab move among `items`; from the box itself they go to the first or the last. */
+function cycleFocus(items: HTMLElement[], back: boolean) {
+  const at = items.indexOf(document.activeElement as HTMLElement);
+  const next = at < 0 ? items.at(back ? -1 : 0) : items[(at + (back ? -1 : 1) + items.length) % items.length];
+  next?.focus();
+}
+
+/** `dismissed` is the answer of Escape and of the title's close box (JOptionPane.CLOSED_OPTION's
+ *  role); Enter outside a button chooses the primary button, else the first, which also has the
+ *  focus. `buttons` come in Java's order, the affirmative one first; where the platform puts cancel
+ *  first (DESIGN.md Buttons) the affirmative button moves to the end with the one Escape answers
+ *  before it, whichever of them is the default. Without an option Escape answers, the primary
+ *  button moves to the end. */
 function show<T>(title: string, body: HTMLElement | string, buttons: Button<T>[], kind: "info" | "warning" | "error", dismissed: T): Promise<T> {
   const { promise, resolve } = Promise.withResolvers<T>();
   const previous = document.activeElement as HTMLElement | null;
-  const overlay = document.createElement("div");
-  overlay.className = "modal";
-  const box = document.createElement("div");
-  box.className = `modal-box ${kind}`;
+  const { overlay, box } = modalFrame(`modal-box ${kind}`);
   box.setAttribute("role", "dialog");
   box.setAttribute("aria-modal", "true");
   box.setAttribute("aria-label", title);
@@ -106,7 +130,11 @@ function show<T>(title: string, body: HTMLElement | string, buttons: Button<T>[]
     previous?.focus?.();
     resolve(value);
   };
-  for (const b of buttons) {
+  const cancel = buttons.find((b) => b.value === dismissed);
+  const affirmative = cancel ? buttons.find((b) => b !== cancel) : buttons.find((b) => b.primary);
+  const ordered = cancelFirst ? [...buttons.filter((b) => b !== affirmative && b !== cancel), cancel, affirmative] : buttons;
+  for (const b of ordered) {
+    if (!b) continue;
     const el = document.createElement("button");
     el.textContent = b.label;
     if (b.primary) el.className = "primary";
@@ -119,21 +147,18 @@ function show<T>(title: string, body: HTMLElement | string, buttons: Button<T>[]
     if (e.key === "Escape") close(dismissed);
     if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement)) close((buttons.find((b) => b.primary) ?? buttons[0]).value);
     if (e.key === "Tab") {
-      // Focus cycles through the dialog's own controls.
-      const items = [...box.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled)")];
-      const at = items.indexOf(document.activeElement as HTMLElement);
-      const next = items[(at + (e.shiftKey ? -1 : 1) + items.length) % items.length];
+      // Focus cycles through the dialog's own controls; the close box is for the pointer.
       e.preventDefault();
-      next?.focus();
+      cycleFocus([...box.querySelectorAll<HTMLElement>("button:not(:disabled):not(.modal-close), input:not(:disabled)")], e.shiftKey);
     }
   });
+  head.append(closeBox(() => close(dismissed)));
   box.append(head, content, row);
-  overlay.append(box);
   host().append(overlay);
   host().hidden = false;
   open++;
   setModal();
-  (row.querySelector("button.primary") as HTMLElement | null)?.focus();
+  (row.querySelector<HTMLElement>("button.primary") ?? row.querySelector<HTMLElement>("button"))?.focus();
   return promise;
 }
 
@@ -147,9 +172,10 @@ function setModal() {
   overlays.forEach((o, k) => (o.inert = k !== overlays.length - 1));
 }
 
-/** JOptionPane.showMessageDialog. */
+/** JOptionPane.showMessageDialog: it only informs, so its one button is a plain 关闭 (DESIGN.md
+ *  Buttons). */
 export function message(title: string, text: string, kind: "info" | "warning" | "error" = "info"): Promise<void> {
-  return show(title, text, [{ label: product("ok"), value: true, primary: true }], kind, false).then(() => undefined);
+  return show(title, text, [{ label: product("close"), value: true }], kind, false).then(() => undefined);
 }
 
 /** JOptionPane.showConfirmDialog with OK_CANCEL_OPTION. */
@@ -176,18 +202,36 @@ export function options(title: string, text: string, choices: [label: string, ke
   return show(title, text, choices.map(([label, key], value) => ({ label, key, value, primary: value === initial })), kind, -1);
 }
 
-/** A dialog with custom content and a close button (diagnostics). */
+/** A dialog with custom content that only shows something, closed with 关闭. */
 export function panel(title: string, body: HTMLElement): Promise<void> {
-  return show(title, body, [{ label: product("close"), value: true, primary: true }], "info", false).then(() => undefined);
+  return show(title, body, [{ label: product("close"), value: true }], "info", false).then(() => undefined);
 }
 
-/** Form dialogs own validation and close timing; Enter inside a form must not discard a draft. */
-export function formPanel(title: string, body: HTMLElement, beforeClose: () => Promise<boolean> = async () => true): { close: () => Promise<void>; closed: Promise<void> } {
+/** The close box that ends a dialog's title row and closes it as Escape does (DESIGN.md Dialogs).
+ *  It is for the pointer: Escape is its key, so Tab passes over it. Automation key `dialog.close`
+ *  unless the caller names its own. */
+export function closeBox(close: () => void): HTMLButtonElement {
+  const x = document.createElement("button");
+  x.type = "button";
+  x.className = "modal-close";
+  x.tabIndex = -1;
+  x.dataset.key = "dialog.close";
+  x.setAttribute("aria-label", product("close"));
+  x.title = product("close");
+  x.append(icon("close"));
+  x.onclick = () => close();
+  return x;
+}
+
+/** Form dialogs own validation and close timing. Enter in a field the dialog does not handle
+ *  itself, or with the focus on the dialog box or its plain content, presses the footer's main
+ *  button (getRootPane().setDefaultButton), which validates as a click does; a search field, a
+ *  button, a text area or another interactive element keeps its own Enter. The title row ends in
+ *  the close box (`closeButton`). The title stays while the content scrolls, and the content's
+ *  footer stays at its foot (design/dialog.css). */
+export function formPanel(title: string, body: HTMLElement, beforeClose: () => Promise<boolean> = async () => true): { close: () => Promise<void>; closed: Promise<void>; closeButton: HTMLButtonElement } {
   const previous = document.activeElement as HTMLElement | null;
-  const overlay = document.createElement("div");
-  overlay.className = "modal";
-  const box = document.createElement("div");
-  box.className = "modal-box engine-dialog";
+  const { overlay, box } = modalFrame("modal-box engine-dialog");
   box.setAttribute("role", "dialog");
   box.setAttribute("aria-modal", "true");
   box.setAttribute("aria-label", title);
@@ -212,23 +256,38 @@ export function formPanel(title: string, body: HTMLElement, beforeClose: () => P
   box.addEventListener("keydown", (e) => {
     e.stopPropagation();
     if (e.key === "Escape") { e.preventDefault(); void close(); }
+    const target = e.target;
+    const field = target instanceof HTMLSelectElement
+      || (target instanceof HTMLInputElement && !["search", "button", "submit", "reset", "file"].includes(target.type));
+    const plain = target === box
+      || (target instanceof HTMLElement && !target.matches("button, input, select, textarea, a[href], [contenteditable], [role]"));
+    if (e.key === "Enter" && (field || plain) && !e.defaultPrevented && !e.isComposing) {
+      const main = box.querySelector<HTMLButtonElement>(".ds-footer button.primary:not(:disabled)");
+      if (main) { e.preventDefault(); main.click(); }
+    }
     if (e.key === "Tab") {
-      // Only rendered controls: 综合设置 keeps its other sections in the dialog, hidden.
+      // Only rendered controls: 综合设置 keeps its other sections in the dialog, hidden. The close
+      // box is for the pointer; Escape is its key.
       const items = [...box.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex='0']")]
-        .filter((el) => el.getClientRects().length > 0);
-      const at = items.indexOf(document.activeElement as HTMLElement);
+        .filter((el) => el !== x && el.getClientRects().length > 0);
       e.preventDefault();
-      items[(at + (e.shiftKey ? -1 : 1) + items.length) % items.length]?.focus();
+      cycleFocus(items, e.shiftKey);
     }
   });
+  const x = closeBox(() => void close());
+  head.append(x);
   box.append(head, body);
-  overlay.append(box);
   host().append(overlay);
   host().hidden = false;
   open++;
   setModal();
-  box.querySelector<HTMLElement>("input:not(:disabled), button:not(:disabled), select:not(:disabled)")?.focus();
-  return { close, closed: done.promise };
+  // The first control, or the chosen one of its radio group, as Tab into the group would give.
+  let first = box.querySelector<HTMLElement>(".modal-title ~ * :is(input:not(:disabled), button:not(:disabled), select:not(:disabled))");
+  if (first instanceof HTMLInputElement && first.type === "radio" && !first.checked && first.name) {
+    first = box.querySelector<HTMLElement>(`input[type="radio"][name="${CSS.escape(first.name)}"]:checked:not(:disabled)`) ?? first;
+  }
+  (first ?? box).focus();
+  return { close, closed: done.promise, closeButton: x };
 }
 
 export function chooseSave(title: string, text: string, save: string, discard: string): Promise<boolean> {

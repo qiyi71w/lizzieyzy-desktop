@@ -18,7 +18,7 @@ use lizzie_core::settings::{
     Config, DisplaySettings, EstimateStyle, ExtraMode, FramePlacement, HawkeyeBranch, HawkeyePeriod, Language, MoveRankMode,
     Persisted, ProblemSide, ProblemSort, ProxyMode, Storage, SubBoardMode, WindowPlacement,
 };
-use lizzie_core::workbench::{Workbench, IMPORT_NEEDS_REPLACE, IMPORT_STALE};
+use lizzie_core::workbench::{Workbench, IMPORT_NEEDS_REPLACE, IMPORT_STALE, SETTINGS_SAVE_FAILED};
 use serde_json::json;
 
 /// Records what would be launched; no process is started.
@@ -2203,6 +2203,7 @@ fn workbench_panels_and_persisted_shares_are_imported_and_consumed_after_restart
     std::fs::write(java.join("persist"), &persisted).unwrap();
     let product = tmp.path().join("product");
     let mut wb = workbench(&product, Recorder::default());
+    wb.set_bottom_toolbar(BottomToolbar::Hidden).unwrap();
     let p = preview(&mut wb, &java);
     for key in ["ui.show-subboard", "ui.show-title-wr", "ui.show-top-tool-bar",
         "persist:ui-persist.leftover-left-share", "persist:ui-persist.comment-height-share",
@@ -2220,7 +2221,9 @@ fn workbench_panels_and_persisted_shares_are_imported_and_consumed_after_restart
     assert!(!s.panels.show_winrate_in_title && s.panels.hide_sub_board_from_large_winrate);
     assert_eq!(s.panel_sizes, PanelSizes { leftover_left_share: Some(0.25), board_position_proportion: 2,
         comment_height_share: Some(0.6), variation_graph_share: Some(0.75) });
-    assert_eq!(s.bottom_toolbar, BottomToolbar::Detailed);
+    // Java's 70 px 详细工具栏 arrives as the shown toolbar (LizzieFrame.java:974 does the same
+    // outside the Chinese interface).
+    assert_eq!(s.bottom_toolbar, BottomToolbar::Simple);
     assert_eq!(std::fs::read_to_string(java.join("config.txt")).unwrap(), source);
     assert_eq!(std::fs::read_to_string(java.join("persist")).unwrap(), persisted);
 }
@@ -2274,11 +2277,13 @@ fn appearance_import_applies_defaults_styles_fonts_and_owned_images() {
     let p = preview(&mut wb, &java);
     assert_eq!(item(&p.items,"ui.custom-board-image").status, ImportStatus::Imported);
     assert_eq!(item(&p.items,"ui.custom-window-background-image").status, ImportStatus::Incompatible);
+    let morandi = item(&p.items,"ui.use-morandi-colors");
+    assert_eq!((morandi.status, morandi.reason), (ImportStatus::NotMigrated, Some(ImportReason::Obsolete)));
     assert!(!p.items.iter().any(|i| i.key.starts_with("file:theme")), "a theme/ folder without theme folders holds no theme");
     wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
     let s = wb.view(true).settings;
     assert_eq!(s.appearance.board_style,lizzie_core::appearance::BoardStyle::ChineseClassic);
-    assert!(s.appearance.apple_style && s.appearance.morandi_colors);
+    assert_eq!(s.appearance.mode,lizzie_core::appearance::AppearanceMode::Dark);
     assert_eq!(s.appearance.frame_font_size,16); assert_eq!(s.active_frame_font_size,12);
     assert_eq!((&*s.theme.font_name,&*s.theme.ui_font_name,&*s.theme.winrate_font_name),("Board Font","UI Font","Win Font"));
     assert_eq!((s.theme.comment_font_size,s.theme.winrate_stroke_width),(21,2.5));
@@ -2631,7 +2636,7 @@ fn a_failed_import_with_ui_pictures_leaves_no_new_theme_folders() {
     // for every user. The themes folder is created first so the import can write into it.
     std::fs::create_dir(config_dir.join("themes")).unwrap();
     let failed = without_settings_file(&product, || wb.apply_java_import(p.id, &[], false, false, true, None));
-    assert!(failed.as_ref().is_err_and(|e| e.message.starts_with("saving imported settings failed")), "{failed:?}");
+    assert!(failed.as_ref().is_err_and(|e| e.message.starts_with(&format!("{SETTINGS_SAVE_FAILED}\n"))), "{failed:?}");
     std::fs::remove_dir(config_dir.join("themes")).unwrap();
     assert_eq!(snapshot(&config_dir), before);
 }
@@ -2657,7 +2662,7 @@ fn java_theme_replacing_a_user_theme_needs_confirmation_and_failures_leave_theme
     assert_eq!(themes_snapshot(&wb), before, "not confirmed: the theme is unchanged");
     // The settings file cannot be written: the theme folders are put back as they were.
     let failed = without_settings_file(&product, || wb.apply_java_import(p.id, &[], false, false, true, None));
-    assert!(failed.as_ref().is_err_and(|e| e.message.starts_with("saving imported settings failed")), "{failed:?}");
+    assert!(failed.as_ref().is_err_and(|e| e.message.starts_with(&format!("{SETTINGS_SAVE_FAILED}\n"))), "{failed:?}");
     assert_eq!(themes_snapshot(&wb), before, "a failed import leaves no half-written theme");
     let revision = wb.view(false).settings.theme_files_revision;
     wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
@@ -2904,13 +2909,11 @@ fn autoplay_imports_toolbar_slots_with_java_empty_and_checkbox_restore_semantics
             assert_eq!(row.status, ImportStatus::Imported);
             assert_eq!(row.target, Some(ImportTarget::AutoPlay));
         }
-        // The hidden 左移/右移 flag is reported as no longer used; -1 is no panel place Java ever writes.
+        // The 详细工具栏 panel places and the hidden 左移/右移 flag are reported as no longer used.
         assert!(p.items.iter().all(|i| i.key != "persist:ui-persist.toolbar-parameter"));
-        let row = item(&p.items, "persist:ui-persist.toolbar-parameter[50]");
-        assert_eq!((row.status, row.reason), (ImportStatus::NotMigrated, Some(ImportReason::Obsolete)));
-        for index in [32, 33, 34] {
+        for index in [32, 33, 34, 50] {
             let row = item(&p.items, &format!("persist:ui-persist.toolbar-parameter[{index}]"));
-            assert_eq!((row.status, row.target), (ImportStatus::Incompatible, Some(ImportTarget::DetailPanelOrder)));
+            assert_eq!((row.status, row.reason), (ImportStatus::NotMigrated, Some(ImportReason::Obsolete)));
         }
         wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
         let a = wb.persisted().autoplay;
@@ -3138,8 +3141,8 @@ fn top_toolbar_groups_import_by_value() {
 }
 
 #[test]
-fn bottom_toolbar_buttons_and_detail_panel_order_import_by_value() {
-    use lizzie_core::settings::{BottomButtonSettings, DetailPanelOrder};
+fn bottom_toolbar_buttons_import_by_value() {
+    use lizzie_core::settings::BottomButtonSettings;
     let tmp = tempfile::tempdir().unwrap();
     let java = tmp.path().join("java");
     std::fs::create_dir_all(&java).unwrap();
@@ -3153,9 +3156,6 @@ fn bottom_toolbar_buttons_and_detail_panel_order_import_by_value() {
     }})
     .to_string();
     std::fs::write(java.join("config.txt"), &source).unwrap();
-    let mut toolbar = vec![json!(-1); 51];
-    toolbar[32] = json!(2); toolbar[33] = json!(0); toolbar[34] = json!(1);
-    std::fs::write(java.join("persist"), json!({"ui-persist": {"toolbar-parameter": toolbar}}).to_string()).unwrap();
     let product = tmp.path().join("product");
     let mut wb = workbench(&product, Recorder::default());
     let p = preview(&mut wb, &java);
@@ -3163,29 +3163,21 @@ fn bottom_toolbar_buttons_and_detail_panel_order_import_by_value() {
         "ui.liveButton", "ui.kataEstimate", "ui.batchOpen", "ui.openfile", "ui.savefile", "ui.finalScore",
         "ui.heatMap", "ui.badMoves", "ui.analyze-list", "ui.refresh", "ui.analyse", "ui.tryPlay", "ui.setMain",
         "ui.backMain", "ui.clearButton", "ui.deleteMove", "ui.move-rank", "ui.move", "ui.coords", "ui.autoPlay",
-        "ui.show-detailed-toolbar-menu",
     ] {
         let row = p.items.iter().find(|row| row.key == key).unwrap();
         assert_eq!((row.status, row.target), (ImportStatus::Imported, Some(ImportTarget::BottomButtons)), "{key}");
     }
-    for index in [32, 33, 34] {
-        let row = item(&p.items, &format!("persist:ui-persist.toolbar-parameter[{index}]"));
-        assert_eq!((row.status, row.target), (ImportStatus::Imported, Some(ImportTarget::DetailPanelOrder)));
-    }
+    let row = item(&p.items, "ui.show-detailed-toolbar-menu");
+    assert_eq!((row.status, row.reason), (ImportStatus::NotMigrated, Some(ImportReason::Obsolete)));
     wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
     let expected = BottomButtonSettings {
         live: false, kata_estimate: false, batch_open: false, open_file: true, save_file: true,
         final_score: true, heat_map: false, bad_moves: Some(true), analyze_list: true, refresh: true,
         analyse: false, try_play: true, set_main: false, back_main: true, clear_board: false,
         delete_move: false, move_rank: true, move_numbers: false, coords: false, auto_play: false,
-        detail_button: true,
     };
-    let order = DetailPanelOrder { auto_analysis: 2, engine_match: 0, auto_play: 1 };
     assert_eq!(wb.config().bottom_buttons, expected);
     assert_eq!(saved_config(&product).bottom_buttons, expected);
-    assert_eq!(wb.persisted().detail_panel_order, order);
-    drop(wb);
-    assert_eq!(workbench(&product, Recorder::default()).persisted().detail_panel_order, order, "persisted on import");
 }
 
 #[test]

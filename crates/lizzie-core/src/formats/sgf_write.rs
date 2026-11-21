@@ -82,10 +82,14 @@ struct Opts<'a> {
     line: Option<Vec<NodeId>>,
     /// When supplied, analysis comes only from the per-node stores.
     analysis: Option<Analysis<'a>>,
+    /// The root `DZ` a save writes in place of the one read: SGFParser.java:1443-1470 rebuilds it
+    /// from the board's marks on every save. Exports keep what was read.
+    dz: Option<&'a str>,
 }
 
-/// Serialises a record. `application` is the `AP` value naming the writing program.
-pub fn write(rec: &GameRecord, application: &str) -> String {
+/// Serialises a record. `application` is the `AP` value naming the writing program, `dz` the root
+/// `DZ` written in place of the one read.
+pub fn write(rec: &GameRecord, application: &str, dz: Option<&str>) -> String {
     write_with(
         rec,
         &Opts {
@@ -93,15 +97,18 @@ pub fn write(rec: &GameRecord, application: &str) -> String {
             comments: Comments::All,
             line: None,
             analysis: None,
+            dz,
         },
     )
 }
 
+/// A save of a record: `analysis` payloads, `comment` for analysed nodes, `dz` the root `DZ`.
 pub(crate) fn write_analyzed(
     rec: &GameRecord,
     application: &str,
     analysis: Analysis,
     comment: &dyn Fn(NodeId) -> Option<String>,
+    dz: Option<&str>,
 ) -> String {
     write_with(
         rec,
@@ -110,6 +117,7 @@ pub(crate) fn write_analyzed(
             comments: Comments::Formatted(comment),
             line: None,
             analysis: Some(analysis),
+            dz,
         },
     )
 }
@@ -126,12 +134,14 @@ pub(crate) fn write_export_analyzed(rec: &GameRecord, export: &Export, analysis:
             comments: Comments::RootOnly,
             line: None,
             analysis,
+            dz: None,
         },
         Export::RawWithComments { comment } => Opts {
             application: None,
             comments: Comments::Formatted(*comment),
             line: None,
             analysis,
+            dz: None,
         },
         Export::Branch { current } => {
             let mut line = rec.path_to(*current);
@@ -145,6 +155,7 @@ pub(crate) fn write_export_analyzed(rec: &GameRecord, export: &Export, analysis:
                 comments: Comments::None,
                 line: Some(line),
                 analysis: None,
+                dz: None,
             }
         }
     };
@@ -224,11 +235,14 @@ fn write_root(out: &mut String, rec: &GameRecord, opts: &Opts) {
     match opts.application {
         Some(application) => {
             prop(out, "AP", application);
+            if let Some(tag) = opts.dz {
+                prop(out, "DZ", tag);
+            }
             write_retained(
                 out,
                 root.properties
                     .iter()
-                    .filter(|p| opts.analysis.is_none() || !p.id.starts_with("LZ")),
+                    .filter(|p| (opts.analysis.is_none() || !p.id.starts_with("LZ")) && p.id != "DZ"),
                 ROOT_MODELLED,
             );
         }

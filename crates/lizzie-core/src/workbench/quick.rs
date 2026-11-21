@@ -814,10 +814,17 @@ impl Workbench {
         (queries, sent)
     }
 
-    /// The attempt ended: its process stops; a borrowed engine is given back first.
+    /// The attempt ended: its process stops; a borrowed engine is given back first. An attempt
+    /// that got every answer reached Java's `setResult`
+    /// ([`Workbench::analysis_request_completed`]).
     fn quick_finish_attempt(&mut self, failed: bool, now: Instant) {
         let Some(t) = self.quick.task.as_mut() else { return };
         t.watchdog = None;
+        if !failed && matches!(t.attempt, Some(Attempt::Process { .. } | Attempt::Lease { closing: None, .. })) {
+            let doc = t.doc;
+            self.analysis_request_completed(doc);
+        }
+        let Some(t) = self.quick.task.as_mut() else { return };
         match t.attempt.take() {
             Some(Attempt::Process { instance, .. }) => {
                 // An automatic quick analysis never keeps its process (`isAutomaticBackgroundTask`).

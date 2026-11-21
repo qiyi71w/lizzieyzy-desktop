@@ -3,37 +3,38 @@
 // saved settings; 确定 sends one Game command and Rust owns the game and the saved values.
 import { run, state } from "../app";
 import type { AiTimeMode, AiTimeSettings, AutoPlaySettings, GameCommand, GameSettings, HumanSlContinuation, KataTimeType } from "../contract/generated";
+import { icon } from "../design/icons";
 import { formPanel, message } from "../dialogs";
-import { absolute, parseJavaInt, place } from "../display/dialogs";
-import { actions, button } from "../engine/controls";
+import { parseJavaInt } from "../display/dialogs";
+import { button, footer, groupTitle, primaryButton, row, segmented, switchRow } from "../engine/controls";
 import { plainJava } from "../engine/tuningText";
-import { t } from "../i18n";
+import { product, registerProduct, t } from "../i18n";
 import { javaDouble } from "../workbench/paint";
 import { endHumanSlFirst, registerHumanSlContinuation } from "../humansl/state";
 import "./game.css";
 
+registerProduct({
+  ZhCn: { gameGroupOptions: "选项" },
+  ZhTw: { gameGroupOptions: "選項" },
+  EnUs: { gameGroupOptions: "Options" },
+  JaJp: { gameGroupOptions: "オプション" },
+  KoKr: { gameGroupOptions: "옵션" },
+  ThTh: { gameGroupOptions: "ตัวเลือก" },
+});
+
 const HANDICAPS = [0, 2, 3, 4, 5, 6, 7, 8, 9];
 const KATA_TYPES: KataTimeType[] = ["Byoyomi", "Fischer", "Absolute"];
 
-function span(text: string, cls = ""): HTMLSpanElement {
-  const el = document.createElement("span");
-  if (cls) el.className = cls;
-  el.textContent = text;
-  return el;
+/** A JCheckBox as a switch row whose switch carries the automation key; `extra` are the controls
+ *  it turns on, standing before the switch. */
+function toggle(host: HTMLElement, title: string, sub: string, checked: boolean, key: string, ...extra: (Node | string)[]): HTMLInputElement {
+  const box = switchRow(host, title, sub, checked, ...extra).input;
+  box.dataset.key = key;
+  return box;
 }
 
-/** A JCheckBox, with its own text when `text` is given. */
-function check(checked: boolean, key: string, text = ""): { box: HTMLInputElement; wrap: HTMLLabelElement } {
-  const box = document.createElement("input");
-  box.type = "checkbox";
-  box.checked = checked;
-  box.dataset.key = key;
-  const wrap = document.createElement("label");
-  wrap.className = "game-check";
-  wrap.append(box);
-  if (text) wrap.append(text);
-  return { box, wrap };
-}
+/** A hint Java writes as "(…)" beside its check box, without the parentheses: a row's description. */
+const bare = (text: string) => text.replace(/^\s*[(（]([\s\S]*)[)）]\s*$/, "$1");
 
 function select(options: string[], index: number, key: string): HTMLSelectElement {
   const el = document.createElement("select");
@@ -48,26 +49,19 @@ function select(options: string[], index: number, key: string): HTMLSelectElemen
 }
 
 /** A JTextField; `filter` is IntDocument (digits) or KomiDocument (a signed decimal). */
-function field(value: string, key: string, filter: "int" | "komi" | null = null, size = 0): HTMLInputElement {
+function field(value: string, key: string, filter: "int" | "komi" | null = null): HTMLInputElement {
   const el = document.createElement("input");
   el.type = "text";
   el.value = value;
   el.dataset.key = key;
-  if (size) el.size = size;
   if (filter) {
+    el.inputMode = filter === "int" ? "numeric" : "decimal";
     const allowed = filter === "int" ? /\D/g : /[^\d.-]/g;
     el.addEventListener("input", () => {
       const kept = el.value.replace(allowed, "");
       if (kept !== el.value) el.value = kept;
     });
   }
-  return el;
-}
-
-function inline(...items: HTMLElement[]): HTMLDivElement {
-  const el = document.createElement("div");
-  el.className = "game-inline";
-  el.append(...items);
   return el;
 }
 
@@ -98,14 +92,25 @@ function game(op: GameCommand) {
   return run({ type: "Game", op });
 }
 
-/** Two GridBag columns: a label (or a check box) beside its control. */
-function form(): { body: HTMLDivElement; row: (left: HTMLElement, right?: HTMLElement) => void } {
-  const body = document.createElement("div");
-  body.className = "game-dialog";
-  const grid = document.createElement("div");
-  grid.className = "game-grid";
-  body.append(grid);
-  return { body, row: (left, right) => grid.append(left, right ?? document.createElement("span")) };
+/** One choice of an AI time group (chkTimeGroup): its radio before its name, its fields at the
+ *  end; a click on the name chooses it. A row with one field is a label already, whose first
+ *  control is the radio; any other row gets a label around the name. */
+function choice(host: HTMLElement, group: string, checked: boolean, key: string, text: string, ...controls: HTMLElement[]): HTMLInputElement {
+  const box = document.createElement("input");
+  box.type = "radio";
+  box.name = group;
+  box.checked = checked;
+  box.dataset.key = key;
+  const name = document.createElement("span");
+  name.className = "game-choice";
+  name.append(box, text);
+  if (row(host, name, "", ...controls).tagName !== "LABEL") {
+    const label = document.createElement("label");
+    label.className = name.className;
+    label.append(...name.childNodes);
+    name.replaceWith(label);
+  }
+  return box;
 }
 
 /** 选择引擎: "[n]name" of every configured engine, the current one selected. */
@@ -119,12 +124,13 @@ function chosenEngine(el: HTMLSelectElement): number | null {
   return el.selectedIndex === state.view?.engine.foreground?.index ? null : el.selectedIndex;
 }
 
-/** 限制我的用时 with 保留时间 / 读秒 / 次数; both "无" is refused as Byoyomi.emptyTimeHint. */
-function myTime(g: GameSettings) {
-  const limit = check(g.limitMyTime, "game.limitMyTime", t("Byoyomi.newGame.limitMyTime"));
+/** 限制我的用时 with 保留时间 / 读秒 / 次数; both "无" is refused as Byoyomi.emptyTimeHint. Returns
+ *  the values to save. */
+function myTime(host: HTMLElement, g: GameSettings) {
   const save = select([t("Byoyomi.none"), "5", "10", "20", "30", "60", "120", "180"], g.mySaveTime, "game.mySaveTime");
   const byo = select([t("Byoyomi.none"), "10", "15", "20", "30", "40", "60", "120"], g.myByoyomiSeconds, "game.myByoyomiSeconds");
   const times = select(["1", "2", "3", "5", "10", "20"], g.myByoyomiTimes, "game.myByoyomiTimes");
+  const limit = toggle(host, t("Byoyomi.newGame.limitMyTime"), "", g.limitMyTime, "game.limitMyTime", t("Byoyomi.newGame.saveTime"), save, t("Byoyomi.newGame.byoyomi"), byo, t("Byoyomi.newGame.byoyomiTimes"), times);
   save.onchange = () => {
     if (save.selectedIndex === 0 && byo.selectedIndex === 0) {
       void message(t("Message.title"), t("Byoyomi.emptyTimeHint"));
@@ -141,32 +147,47 @@ function myTime(g: GameSettings) {
       times.disabled = true;
     } else times.disabled = false;
   };
-  limit.box.onchange = () => (save.disabled = byo.disabled = times.disabled = !limit.box.checked);
-  save.disabled = byo.disabled = times.disabled = !limit.box.checked;
-  if (limit.box.checked && byo.selectedIndex === 0) times.disabled = true;
-  const panel = inline(span(t("Byoyomi.newGame.saveTime")), save, span(t("Byoyomi.newGame.byoyomi")), byo, span(t("Byoyomi.newGame.byoyomiTimes")), times);
-  const read = () => ({ limitMyTime: limit.box.checked, mySaveTime: save.selectedIndex, myByoyomiSeconds: byo.selectedIndex, myByoyomiTimes: times.selectedIndex });
-  return { limit, panel, read };
+  limit.onchange = () => (save.disabled = byo.disabled = times.disabled = !limit.checked);
+  save.disabled = byo.disabled = times.disabled = !limit.checked;
+  if (limit.checked && byo.selectedIndex === 0) times.disabled = true;
+  return () => ({ limitMyTime: limit.checked, mySaveTime: save.selectedIndex, myByoyomiSeconds: byo.selectedIndex, myByoyomiTimes: times.selectedIndex });
 }
 
-/** KataGo专用时间: 读秒制 shows 读秒 and 次数, 加秒制 每手增加, 包干制 only 保留时间. */
+/** KataGo专用时间: `type` (读秒制 / 加秒制 / 包干制) stands in the KataGo choice's row; `place` adds
+ *  the rows under it, shown while KataGo is chosen: 保留时间, then 读秒 and 次数 for 读秒制 or
+ *  每手增加 for 加秒制 (包干制 only 保留时间). */
 function kataTime(a: AiTimeSettings) {
   const type = select([t("NewGameDialog.kataTime.byoyomi"), t("NewGameDialog.kataTime.fisher"), t("NewGameDialog.kataTime.absolute")], KATA_TYPES.indexOf(a.kataType), "game.kataType");
-  const mins = field(String(a.kataMainMinutes), "game.kataMainMinutes", "int", 3);
-  const secs = field(String(a.kataByoyomiSeconds), "game.kataByoyomiSeconds", "int", 3);
-  const times = field(String(a.kataByoyomiTimes), "game.kataByoyomiTimes", "int", 3);
-  const inc = field(String(a.kataFischerIncrement), "game.kataFischerIncrement", "int", 5);
-  const lSecs = span(t("Byoyomi.newGame.byoyomi")), lTimes = span(t("Byoyomi.newGame.byoyomiTimes")), lInc = span(t("NewGameDialog.kataTime.increment"));
+  const mins = field(String(a.kataMainMinutes), "game.kataMainMinutes", "int");
+  const secs = field(String(a.kataByoyomiSeconds), "game.kataByoyomiSeconds", "int");
+  const times = field(String(a.kataByoyomiTimes), "game.kataByoyomiTimes", "int");
+  const inc = field(String(a.kataFischerIncrement), "game.kataFischerIncrement", "int");
+  const rows: HTMLElement[] = [];
+  let chosen = false;
   const show = () => {
+    if (!rows.length) return;
+    const [minsRow, secsRow, timesRow, incRow] = rows;
     const k = type.selectedIndex;
-    for (const el of [lSecs, secs, lTimes, times]) el.hidden = k !== 0;
-    for (const el of [lInc, inc]) el.hidden = k !== 1;
-    mins.size = k === 0 ? 3 : 5;
+    minsRow.hidden = !chosen;
+    secsRow.hidden = timesRow.hidden = !chosen || k !== 0;
+    incRow.hidden = !chosen || k !== 1;
   };
   type.onchange = show;
-  show();
-  const panel = inline(type, span(t("Byoyomi.newGame.saveTime")), mins, lSecs, secs, lTimes, times, lInc, inc);
-  const enable = (on: boolean) => { for (const el of [type, mins, secs, times, inc]) el.disabled = !on; };
+  const place = (host: HTMLElement) => {
+    rows.push(
+      row(host, t("Byoyomi.newGame.saveTime"), "", mins),
+      row(host, t("Byoyomi.newGame.byoyomi"), "", secs),
+      row(host, t("Byoyomi.newGame.byoyomiTimes"), "", times),
+      row(host, t("NewGameDialog.kataTime.increment"), "", inc),
+    );
+    for (const r of rows) r.classList.add("game-sub");
+    show();
+  };
+  const enable = (on: boolean) => {
+    chosen = on;
+    for (const el of [type, mins, secs, times, inc]) el.disabled = !on;
+    show();
+  };
   const read = (base: AiTimeSettings): AiTimeSettings => ({
     ...base,
     kataType: KATA_TYPES[type.selectedIndex] ?? base.kataType,
@@ -175,54 +196,59 @@ function kataTime(a: AiTimeSettings) {
     kataByoyomiTimes: textInt(times, base.kataByoyomiTimes),
     kataFischerIncrement: textInt(inc, base.kataFischerIncrement),
   });
-  return { panel, enable, read };
-}
-
-/** A ButtonGroup of check boxes: choosing one clears the others; the chosen one stays. */
-function exclusive(boxes: HTMLInputElement[], changed: () => void): void {
-  for (const box of boxes) {
-    box.onchange = () => {
-      box.checked = true;
-      for (const other of boxes) if (other !== box) other.checked = false;
-      changed();
-    };
-  }
+  return { type, place, enable, read };
 }
 
 /** btnAboutAdvTime: Utils.showHtmlMessageModal(AdvanceTimeSettings.title, .describe). */
 function advancedHelp(): HTMLButtonElement {
   const help = button("", () => void message(t("AdvanceTimeSettings.title"), plainJava(t("AdvanceTimeSettings.describe"))));
+  help.append(icon("help"));
   help.className = "game-help";
   help.title = t("AdvanceTimeSettings.title");
+  help.setAttribute("aria-label", t("AdvanceTimeSettings.title"));
   help.dataset.key = "game.advancedTimeHelp";
-  const img = document.createElement("img");
-  img.src = "/assets/settings.png";
-  img.alt = "";
-  help.append(img);
   return help;
 }
 
-/** 自动保存棋谱's box: "Lizzie目录" + File.separator + "MyGames文件夹". */
+/** 自动保存棋谱's place: "Lizzie目录" + File.separator + "MyGames文件夹". */
 function autoSaveText(): string {
   const separator = navigator.userAgent.includes("Windows") ? "\\" : "/";
   return `${t("NewAnaGameDialog.chkAutoSaveDirectory")}${separator}${t("NewAnaGameDialog.chkAutoSaveFolder")}`;
 }
 
-function handicapRow(g: GameSettings) {
-  const cont = check(g.continuePlay, "game.continuePlay");
+/** 当前局面续弈, 让子 and 自由让子; 当前局面续弈 disables 让子. */
+function handicapRows(host: HTMLElement, g: GameSettings) {
+  const cont = toggle(host, t("NewGameDialog.ContinuePlay"), "", g.continuePlay, "game.continuePlay");
   const handicap = select(HANDICAPS.map(String), HANDICAPS.indexOf(g.handicap), "game.handicap");
-  const free = check(g.freeHandicap, "game.freeHandicap", t("NewGameDialog.useFreeHandicap"));
-  // 接着当前局面下 disables 让子.
-  cont.box.addEventListener("change", () => (handicap.disabled = cont.box.checked));
-  handicap.disabled = cont.box.checked;
+  row(host, t("NewGameDialog.Handicap"), "", handicap);
+  const free = toggle(host, t("NewGameDialog.useFreeHandicap"), "", g.freeHandicap, "game.freeHandicap");
+  cont.addEventListener("change", () => (handicap.disabled = cont.checked));
+  handicap.disabled = cont.checked;
   return { cont, handicap, free };
 }
 
-/** OK only, at the right of the button bar (initButtonBar); Escape closes without a game. */
-function okButton(body: HTMLElement, label: string, apply: () => Promise<void>): void {
-  const ok = button(label, () => void apply());
+/** 显示分析选点(黑) and (白), each name after its stone. */
+function shownSides(host: HTMLElement, g: GameSettings) {
+  const side = (text: string, checked: boolean, key: string, stone: "stone-black" | "stone-white") => {
+    const r = switchRow(host, text, "", checked);
+    r.input.dataset.key = key;
+    r.row.classList.add("game-side");
+    r.row.querySelector(".ds-row-title")?.prepend(icon(stone));
+    return r.input;
+  };
+  return {
+    black: side(t("NewAnaGameDialog.showBlack"), g.showBlack, "game.showBlack", "stone-black"),
+    white: side(t("NewAnaGameDialog.showWhite"), g.showWhite, "game.showWhite", "stone-white"),
+  };
+}
+
+/** 确定 (initButtonBar's OK) and 取消; Escape also closes without a game. */
+function okCancel(body: HTMLElement, label: string, apply: () => Promise<void>, close: () => void): void {
+  const ok = primaryButton(label, () => void apply());
   ok.dataset.key = "game-dialog-ok";
-  actions(body, ok);
+  const cancel = button(product("cancel"), close);
+  cancel.dataset.key = "game.cancel";
+  footer(body, { primary: ok, cancel });
 }
 
 /** startNewGameReserved / startAnalyzeGameDialogReserved: during an AI 陪练 session the dialog is
@@ -240,7 +266,7 @@ async function enterNewGame(continuation: HumanSlContinuation): Promise<(() => P
   };
 }
 
-/** NewGameDialog (Genmove模式), its rows in Java's GridBag order. */
+/** NewGameDialog (Genmove模式): the game, then the four AI time choices, then the options. */
 export async function openNewGame(): Promise<void> {
   const v = state.view;
   if (!v) return;
@@ -249,60 +275,51 @@ export async function openNewGame(): Promise<void> {
   let started = false;
   const g = v.settings.game;
   const a = g.aiTime;
-  const { body, row } = form();
+  const body = document.createElement("div");
+  body.className = "game-dialog";
   const engine = engineSelect();
-  row(span(t("NewAnaGameDialog.chooseEngine")), engine);
+  row(body, t("NewAnaGameDialog.chooseEngine"), "", engine);
   const side = select([t("NewGameDialog.playBlack"), t("NewGameDialog.playWhite")], g.playBlack ? 0 : 1, "game.side");
-  row(span(t("NewGameDialog.chooseBlackWhite")), side);
-  const { cont, handicap, free } = handicapRow(g);
-  row(span(t("NewGameDialog.ContinuePlay")), cont.wrap);
-  row(span(t("NewGameDialog.Handicap")), inline(handicap, free.wrap));
+  row(body, t("NewGameDialog.chooseBlackWhite"), "", side);
+  const { cont, handicap, free } = handicapRows(body, g);
   const komi = field(javaDouble(g.komi), "game.komi", "komi");
-  row(span(t("NewGameDialog.Komi")), komi);
-  const mine = myTime(g);
-  row(mine.limit.wrap, mine.panel);
-  // The four AI time choices (chkTimeGroup).
-  const normal = check(a.mode === "Fixed", "game.timeFixed", t("NewGameDialog.time"));
+  row(body, t("NewGameDialog.Komi"), "", komi);
+  const myTimes = myTime(body, g);
+  // The four AI time choices (chkTimeGroup), then the KataGo visit limits.
+  groupTitle(body, t("SetAiTimes.title"));
   const time = field(String(a.fixedSeconds), "game.fixedSeconds", "int");
-  row(normal.wrap, time);
-  const adv = check(a.mode === "Advanced", "game.timeAdvanced", t("NewGameDialog.lblAdvanceTime"));
-  const advText = field(a.advanced, "game.advancedTime", null, 13);
-  row(inline(adv.wrap, advancedHelp()), advText);
-  const kata = check(a.mode === "KataGo", "game.timeKataGo", t("NewGameDialog.kataTime"));
+  const normal = choice(body, "game-new-time", a.mode === "Fixed", "game.timeFixed", t("NewGameDialog.time"), time);
+  const advText = field(a.advanced, "game.advancedTime");
+  const adv = choice(body, "game-new-time", a.mode === "Advanced", "game.timeAdvanced", t("NewGameDialog.lblAdvanceTime"), advText, advancedHelp());
   const kataPanel = kataTime(a);
-  row(kata.wrap, kataPanel.panel);
-  const limits = check(g.kataLimits, "game.kataLimits", t("NewGameDialog.chkUseKataAdvSettings"));
-  const visits = field(g.kataVisits > 0 ? String(g.kataVisits) : "", "game.kataVisits", "int", 5);
-  const playouts = field(g.kataPlayouts > 0 ? String(g.kataPlayouts) : "", "game.kataPlayouts", "int", 5);
-  const limitsChanged = () => (visits.disabled = playouts.disabled = !limits.box.checked);
-  limits.box.onchange = limitsChanged;
+  const kata = choice(body, "game-new-time", a.mode === "KataGo", "game.timeKataGo", t("NewGameDialog.kataTime"), kataPanel.type);
+  kataPanel.place(body);
+  const owned = choice(body, "game-new-time", a.mode === "EngineOwned", "game.timeEngineOwned", t("NewGameDialog.engineOwnedTime"));
+  const visits = field(g.kataVisits > 0 ? String(g.kataVisits) : "", "game.kataVisits", "int");
+  const playouts = field(g.kataPlayouts > 0 ? String(g.kataPlayouts) : "", "game.kataPlayouts", "int");
+  const limits = toggle(body, t("NewGameDialog.chkUseKataAdvSettings"), bare(t("NewGameDialog.lblVersionRequire")), g.kataLimits, "game.kataLimits", t("NewGameDialog.kataVisits"), visits, t("NewGameDialog.kataPlayouts"), playouts);
+  const limitsChanged = () => (visits.disabled = playouts.disabled = !limits.checked);
+  limits.onchange = limitsChanged;
   limitsChanged();
-  row(limits.wrap, inline(span(t("NewGameDialog.kataVisits")), visits, span(t("NewGameDialog.kataPlayouts")), playouts, span(t("NewGameDialog.lblVersionRequire"))));
-  const owned = check(a.mode === "EngineOwned", "game.timeEngineOwned", t("NewGameDialog.engineOwnedTime"));
-  row(owned.wrap);
   const timeChanged = () => {
-    kataPanel.enable(kata.box.checked);
-    advText.disabled = !adv.box.checked;
-    time.disabled = kata.box.checked || adv.box.checked || owned.box.checked;
+    kataPanel.enable(kata.checked);
+    advText.disabled = !adv.checked;
+    time.disabled = kata.checked || adv.checked || owned.checked;
   };
-  exclusive([normal.box, kata.box, adv.box, owned.box], timeChanged);
+  for (const box of [normal, kata, adv, owned]) box.onchange = timeChanged;
   timeChanged();
-  const ponder = check(g.playPonder, "game.playPonder", t("NewGameDialog.chkPonderDescribe"));
-  row(span(t("NewGameDialog.chkPonder")), ponder.wrap);
-  const playMode = check(g.usePlayMode, "game.usePlayMode", t("NewGameDialog.chkUsePlayModeDescribe"));
-  row(span(t("NewGameDialog.chkUsePlayMode")), playMode.wrap);
-  const black = check(g.showBlack, "game.showBlack"), white = check(g.showWhite, "game.showWhite");
-  row(span(t("NewAnaGameDialog.showBlack")), black.wrap);
-  row(span(t("NewAnaGameDialog.showWhite")), white.wrap);
-  const autoSave = check(g.autoSave, "game.autoSave", autoSaveText());
-  row(span(t("NewAnaGameDialog.lblAutoSave")), autoSave.wrap);
+  groupTitle(body, product("gameGroupOptions"));
+  const ponder = toggle(body, t("NewGameDialog.chkPonder"), bare(t("NewGameDialog.chkPonderDescribe")), g.playPonder, "game.playPonder");
+  const playMode = toggle(body, t("NewGameDialog.chkUsePlayMode"), bare(t("NewGameDialog.chkUsePlayModeDescribe")), g.usePlayMode, "game.usePlayMode");
+  const { black, white } = shownSides(body, g);
+  const autoSave = toggle(body, t("NewAnaGameDialog.lblAutoSave"), autoSaveText(), g.autoSave, "game.autoSave");
   const dialog = formPanel(t("NewGameDialog.title"), body);
-  okButton(body, t("NewGameDialog.okButton"), async () => {
+  okCancel(body, t("NewGameDialog.okButton"), async () => {
     if (engine.selectedIndex < 0) {
       await message(t("Message.title"), t("NewAnaGameDialog.noEngineHint"));
       return;
     }
-    const mode: AiTimeMode = owned.box.checked ? "EngineOwned" : adv.box.checked ? "Advanced" : kata.box.checked ? "KataGo" : "Fixed";
+    const mode: AiTimeMode = owned.checked ? "EngineOwned" : adv.checked ? "Advanced" : kata.checked ? "KataGo" : "Fixed";
     const now = state.view?.settings.game ?? g;
     let fixedSeconds = now.aiTime.fixedSeconds;
     if (mode === "Fixed") {
@@ -315,25 +332,25 @@ export async function openNewGame(): Promise<void> {
     const settings: GameSettings = {
       ...now,
       playBlack: side.selectedIndex === 0,
-      continuePlay: cont.box.checked,
+      continuePlay: cont.checked,
       handicap: HANDICAPS[handicap.selectedIndex] ?? 0,
-      freeHandicap: free.box.checked,
+      freeHandicap: free.checked,
       komi: /^[+-]?(\d+\.?\d*|\.\d+)$/.test(komiText) ? Number(komiText) : 7.5,
-      ...mine.read(),
+      ...myTimes(),
       aiTime: { ...kataPanel.read(now.aiTime), mode, fixedSeconds, advanced: advText.value },
-      kataLimits: limits.box.checked,
+      kataLimits: limits.checked,
       kataVisits: textInt(visits, -1),
       kataPlayouts: textInt(playouts, -1),
-      playPonder: ponder.box.checked,
-      usePlayMode: playMode.box.checked,
-      showBlack: black.box.checked,
-      showWhite: white.box.checked,
-      autoSave: autoSave.box.checked,
+      playPonder: ponder.checked,
+      usePlayMode: playMode.checked,
+      showBlack: black.checked,
+      showWhite: white.checked,
+      autoSave: autoSave.checked,
     };
     const result = await game({ type: "Start", kind: "Genmove", settings, autoplay: null, engine: chosenEngine(engine) });
     started = !!result && result.type !== "Refused";
     if (started) await dialog.close();
-  });
+  }, () => void dialog.close());
   await dialog.closed;
   if (!started) await leave();
 }
@@ -341,7 +358,7 @@ export async function openNewGame(): Promise<void> {
 /** 落子条件 text: the toolbar's 按时间 / 总计算量 / 首位计算量 field ("" without a value). */
 const conditionText = (n: number) => (n > 0 ? String(n) : "");
 
-/** NewAnaGameDialog (分析模式), its rows in Java's GridBag order. */
+/** NewAnaGameDialog (分析模式): the game, then the move conditions, then the options. */
 export async function openNewAnaGame(): Promise<void> {
   const v = state.view;
   if (!v) return;
@@ -350,61 +367,53 @@ export async function openNewAnaGame(): Promise<void> {
   let started = false;
   const g = v.settings.game;
   const auto = v.settings.autoplay.settings;
-  const { body, row } = form();
+  const body = document.createElement("div");
+  body.className = "game-dialog";
   const engine = engineSelect();
-  row(span(t("NewAnaGameDialog.chooseEngine")), engine);
+  row(body, t("NewAnaGameDialog.chooseEngine"), "", engine);
   const side = select([t("NewGameDialog.playBlack"), t("NewGameDialog.playWhite")], g.playBlack ? 0 : 1, "game.side");
-  row(span(t("NewGameDialog.chooseBlackWhite")), side);
-  const { cont, handicap, free } = handicapRow(g);
-  row(span(t("NewGameDialog.ContinuePlay")), cont.wrap);
-  row(span(t("NewGameDialog.Handicap")), inline(handicap, free.wrap));
+  row(body, t("NewGameDialog.chooseBlackWhite"), "", side);
+  const { cont, handicap, free } = handicapRows(body, g);
   const komi = field(javaDouble(g.komi), "game.komi", "komi");
-  row(span(t("NewGameDialog.Komi")), komi);
-  const mine = myTime(g);
-  row(mine.limit.wrap, mine.panel);
-  const pureNet = check(g.pureNet, "game.pureNet");
-  row(span(t("NewAnaGameDialog.lblAiUsePureNet")), pureNet.wrap);
-  // 落子条件: each box and its field (the field holds the toolbar text even while unchecked).
-  const useTime = check(auto.timeEnabled, "game.moveTimeOn", t("NewAnaGameDialog.moveTime"));
+  row(body, t("NewGameDialog.Komi"), "", komi);
+  const myTimes = myTime(body, g);
+  // 落子条件: each switch and its field (the field holds the toolbar text even while off).
+  groupTitle(body, t("SetAiTimes.title"));
+  const pureNet = toggle(body, t("NewAnaGameDialog.lblAiUsePureNet"), "", g.pureNet, "game.pureNet");
   const time = field(String(g.aiTime.fixedSeconds), "game.moveTime", "int");
-  row(useTime.wrap, time);
-  const usePlayouts = check(auto.playoutsEnabled, "game.movePlayoutsOn", t("NewAnaGameDialog.moveVisits"));
+  const useTime = toggle(body, t("NewAnaGameDialog.moveTime"), "", auto.timeEnabled, "game.moveTimeOn", time);
   const playouts = field(conditionText(auto.playouts), "game.movePlayouts", "int");
-  row(usePlayouts.wrap, playouts);
-  const useFirst = check(auto.firstPlayoutsEnabled, "game.moveFirstPlayoutsOn", t("NewAnaGameDialog.firstVisits"));
+  const usePlayouts = toggle(body, t("NewAnaGameDialog.moveVisits"), "", auto.playoutsEnabled, "game.movePlayoutsOn", playouts);
   const first = field(conditionText(auto.firstPlayouts), "game.moveFirstPlayouts", "int");
-  row(useFirst.wrap, first);
-  useTime.box.onchange = () => (time.disabled = !useTime.box.checked);
-  usePlayouts.box.onchange = () => (playouts.disabled = !usePlayouts.box.checked);
-  useFirst.box.onchange = () => (first.disabled = !useFirst.box.checked);
-  // 纯网络 disables the three fields; turning it off enables each by its box.
+  const useFirst = toggle(body, t("NewAnaGameDialog.firstVisits"), "", auto.firstPlayoutsEnabled, "game.moveFirstPlayoutsOn", first);
+  useTime.onchange = () => (time.disabled = !useTime.checked);
+  usePlayouts.onchange = () => (playouts.disabled = !usePlayouts.checked);
+  useFirst.onchange = () => (first.disabled = !useFirst.checked);
+  // 纯网络 disables the three fields; turning it off enables each by its switch.
   const pureChanged = () => {
-    time.disabled = pureNet.box.checked || !useTime.box.checked;
-    playouts.disabled = pureNet.box.checked || !usePlayouts.box.checked;
-    first.disabled = pureNet.box.checked || !useFirst.box.checked;
+    time.disabled = pureNet.checked || !useTime.checked;
+    playouts.disabled = pureNet.checked || !usePlayouts.checked;
+    first.disabled = pureNet.checked || !useFirst.checked;
   };
-  pureNet.box.onchange = pureChanged;
+  pureNet.onchange = pureChanged;
   pureChanged();
-  const ponder = check(g.playPonder, "game.playPonder");
-  row(span(t("NewAnaGameDialog.ponder")), ponder.wrap);
+  groupTitle(body, product("gameGroupOptions"));
+  const ponder = toggle(body, t("NewAnaGameDialog.ponder"), "", g.playPonder, "game.playPonder");
   const random = button(t("NewAnaGameDialog.btnRandomStart"), () => void openRandomStart());
   random.dataset.key = "game.randomStart";
-  row(span(t("NewAnaGameDialog.random")), random);
-  const startMove = field(String(g.resignStartMove), "game.resignStartMove", null, 2);
-  const resignMove = field(String(g.resignMove), "game.resignMove", null, 2);
-  const resignPercent = field(String(g.resignPercent), "game.resignPercent", null, 3);
-  row(span(t("NewAnaGameDialog.resign")), inline(span(t("NewAnaGameDialog.resign0")), startMove, span(t("NewAnaGameDialog.resign1")), resignMove, span(t("NewAnaGameDialog.resign2")), resignPercent, span("%")));
-  const wrn = check(g.disableWrn, "game.disableWrn");
-  row(span(t("NewAnaGameDialog.lblDisableWRNInGame")), wrn.wrap);
-  const playMode = check(g.usePlayMode, "game.usePlayMode");
-  row(span(t("NewAnaGameDialog.chkUsePlayMode")), playMode.wrap);
-  const black = check(g.showBlack, "game.showBlack"), white = check(g.showWhite, "game.showWhite");
-  row(span(t("NewAnaGameDialog.showBlack")), black.wrap);
-  row(span(t("NewAnaGameDialog.showWhite")), white.wrap);
-  const autoSave = check(g.autoSave, "game.autoSave", autoSaveText());
-  row(span(t("NewAnaGameDialog.lblAutoSave")), autoSave.wrap);
+  row(body, t("NewAnaGameDialog.random"), "", random);
+  const startMove = field(String(g.resignStartMove), "game.resignStartMove");
+  const resignMove = field(String(g.resignMove), "game.resignMove");
+  const resignPercent = field(String(g.resignPercent), "game.resignPercent");
+  startMove.inputMode = resignMove.inputMode = "numeric";
+  resignPercent.inputMode = "decimal";
+  row(body, t("NewAnaGameDialog.resign"), "", t("NewAnaGameDialog.resign0"), startMove, t("NewAnaGameDialog.resign1"), resignMove, t("NewAnaGameDialog.resign2"), resignPercent, "%");
+  const wrn = toggle(body, t("NewAnaGameDialog.lblDisableWRNInGame"), "", g.disableWrn, "game.disableWrn");
+  const playMode = toggle(body, t("NewAnaGameDialog.chkUsePlayMode"), "", g.usePlayMode, "game.usePlayMode");
+  const { black, white } = shownSides(body, g);
+  const autoSave = toggle(body, t("NewAnaGameDialog.lblAutoSave"), autoSaveText(), g.autoSave, "game.autoSave");
   const dialog = formPanel(t("NewAnaGameDialog.title"), body);
-  okButton(body, t("NewAnaGameDialog.okButton"), async () => {
+  okCancel(body, t("NewAnaGameDialog.okButton"), async () => {
     if (engine.selectedIndex < 0) {
       await message(t("Message.title"), t("NewAnaGameDialog.noEngineHint"));
       return;
@@ -418,45 +427,39 @@ export async function openNewAnaGame(): Promise<void> {
     const autoplay: AutoPlaySettings = {
       black: !playBlack,
       white: playBlack,
-      timeEnabled: seconds > 0 && useTime.box.checked,
+      timeEnabled: seconds > 0 && useTime.checked,
       timeSeconds: seconds > 0 ? seconds : -1,
-      playoutsEnabled: visits > 0 && usePlayouts.box.checked,
+      playoutsEnabled: visits > 0 && usePlayouts.checked,
       playouts: visits > 0 ? visits : -1,
-      firstPlayoutsEnabled: firstVisits > 0 && useFirst.box.checked,
+      firstPlayoutsEnabled: firstVisits > 0 && useFirst.checked,
       firstPlayouts: firstVisits > 0 ? firstVisits : -1,
     };
     const settings: GameSettings = {
       ...now,
       playBlack,
-      continuePlay: cont.box.checked,
+      continuePlay: cont.checked,
       handicap: HANDICAPS[handicap.selectedIndex] ?? 0,
-      freeHandicap: free.box.checked,
+      freeHandicap: free.checked,
       komi: leadingDouble(komi.value) ?? 7.5,
-      ...mine.read(),
+      ...myTimes(),
       aiTime: { ...now.aiTime, fixedSeconds: seconds > 0 ? seconds : now.aiTime.fixedSeconds },
-      playPonder: ponder.box.checked,
-      pureNet: pureNet.box.checked,
+      playPonder: ponder.checked,
+      pureNet: pureNet.checked,
       resignStartMove: textInt(startMove, now.resignStartMove),
       resignMove: textInt(resignMove, now.resignMove),
       resignPercent: textDouble(resignPercent, now.resignPercent),
-      disableWrn: wrn.box.checked,
-      usePlayMode: playMode.box.checked,
-      showBlack: black.box.checked,
-      showWhite: white.box.checked,
-      autoSave: autoSave.box.checked,
+      disableWrn: wrn.checked,
+      usePlayMode: playMode.checked,
+      showBlack: black.checked,
+      showWhite: white.checked,
+      autoSave: autoSave.checked,
     };
     const result = await game({ type: "Start", kind: "Analysis", settings, autoplay, engine: chosenEngine(engine) });
     started = !!result && result.type !== "Refused";
     if (started) await dialog.close();
-  });
+  }, () => void dialog.close());
   await dialog.closed;
   if (!started) await leave();
-}
-
-function label(text: string): HTMLSpanElement {
-  const el = span(text, "display-label");
-  el.title = text;
-  return el;
 }
 
 /** txtFieldValue: blank or ten or more characters read as 0. */
@@ -466,76 +469,54 @@ function fieldValue(el: HTMLInputElement): number {
   return Number.parseInt(s, 10) || 0;
 }
 
-/** SetAiTimes: a null layout at Java's setBounds (the small frame-font column). */
+/** SetAiTimes: 允许AI后台思考, then the Genmove模式 time choices and the 分析模式 conditions. */
 export async function openSetAiTime(): Promise<void> {
   const v = state.view;
   if (!v) return;
   const a = v.settings.game.aiTime;
   const auto = v.settings.autoplay.settings;
-  const panel = absolute(700, 295);
-  place(panel, label(t("SetAiTimes.lblPonder")), 10, 9, 150, 20);
-  const ponderName = "game-ai-ponder";
-  const radio = (text: string, checked: boolean, key: string, x: number, w: number) => {
-    const box = document.createElement("input");
-    box.type = "radio";
-    box.name = ponderName;
-    box.checked = checked;
-    box.dataset.key = key;
-    const wrap = document.createElement("label");
-    wrap.className = "game-check";
-    wrap.append(box, text);
-    place(panel, wrap, x, 9, w, 23);
-    return box;
-  };
-  const yes = radio(t("SetAiTimes.rdoPonder"), v.settings.game.playPonder, "game.ponderYes", 165, 53);
-  radio(t("SetAiTimes.rdoNoPonder"), !v.settings.game.playPonder, "game.ponderNo", 220, 60);
-  const box = (checked: boolean, key: string, x: number, y: number) => {
-    const el = document.createElement("input");
-    el.type = "checkbox";
-    el.checked = checked;
-    el.dataset.key = key;
-    return place(panel, el, x, y, 21, 23);
-  };
-  place(panel, label(t("SetAiTimes.lblGenmoveMode")), 10, 47, 150, 20);
-  place(panel, label(t("SetAiTimes.lblGenmoveTime")), 165, 47, 130, 20);
-  const normal = box(a.mode === "Fixed", "game.timeFixed", 299, 47);
-  const setTime = place(panel, field(String(a.fixedSeconds), "game.fixedSeconds", "int"), 326, 47, 149, 22);
-  const owned = box(a.mode === "EngineOwned", "game.timeEngineOwned", 10, 75);
-  place(panel, label(t("NewGameDialog.engineOwnedTime")), 31, 75, 112, 20);
-  place(panel, advancedHelp(), 144, 77, 18, 18);
-  place(panel, label(t("SetAiTimes.lblAdvTime")), 165, 75, 130, 20);
-  const adv = box(a.mode === "Advanced", "game.timeAdvanced", 299, 75);
-  const advText = place(panel, field(a.advanced, "game.advancedTime"), 326, 74, 149, 24);
+  const body = document.createElement("div");
+  body.className = "game-dialog game-narrow";
+  const ponder = segmented("game-ai-ponder", [["yes", t("SetAiTimes.rdoPonder")], ["no", t("SetAiTimes.rdoNoPonder")]], v.settings.game.playPonder ? "yes" : "no");
+  const [yes, no] = ponder.inputs;
+  yes.dataset.key = "game.ponderYes";
+  no.dataset.key = "game.ponderNo";
+  row(body, t("SetAiTimes.lblPonder"), "", ponder.el);
+  groupTitle(body, t("SetAiTimes.lblGenmoveMode"));
+  const setTime = field(String(a.fixedSeconds), "game.fixedSeconds", "int");
+  const normal = choice(body, "game-set-time", a.mode === "Fixed", "game.timeFixed", t("SetAiTimes.lblGenmoveTime"), setTime);
+  const advText = field(a.advanced, "game.advancedTime");
   // `txtAdvanceTime.setEditable(false)` unless 高级时间 was saved: choosing it here enables the
   // field but it stays read-only (SetAiTimes.java:393-394).
   if (a.mode !== "Advanced") advText.readOnly = true;
-  place(panel, label(t("SetAiTimes.lblKataTime")), 165, 103, 130, 20);
-  const kata = box(a.mode === "KataGo", "game.timeKataGo", 299, 103);
+  const adv = choice(body, "game-set-time", a.mode === "Advanced", "game.timeAdvanced", t("SetAiTimes.lblAdvTime"), advText, advancedHelp());
   const kataPanel = kataTime(a);
-  kataPanel.panel.style.left = "326px";
-  kataPanel.panel.style.top = "103px";
-  panel.append(kataPanel.panel);
+  const kata = choice(body, "game-set-time", a.mode === "KataGo", "game.timeKataGo", t("SetAiTimes.lblKataTime"), kataPanel.type);
+  kataPanel.place(body);
+  const owned = choice(body, "game-set-time", a.mode === "EngineOwned", "game.timeEngineOwned", t("NewGameDialog.engineOwnedTime"));
   const timeChanged = () => {
     kataPanel.enable(kata.checked);
     advText.disabled = !adv.checked;
     setTime.disabled = kata.checked || adv.checked || owned.checked;
   };
-  exclusive([normal, kata, adv, owned], timeChanged);
+  for (const box of [normal, kata, adv, owned]) box.onchange = timeChanged;
   timeChanged();
-  place(panel, label(t("SetAiTimes.analyzeMode")), 10, 157, 151, 20);
-  place(panel, label(t("SetAiTimes.lblTime")), 165, 157, 155, 20);
-  const anaTime = place(panel, field(auto.timeEnabled ? conditionText(auto.timeSeconds) : "", "game.anaTime"), 326, 157, 149, 22);
-  place(panel, label(t("SetAiTimes.lblPo")), 165, 183, 155, 20);
-  const anaPlayouts = place(panel, field(auto.playoutsEnabled ? conditionText(auto.playouts) : "", "game.anaPlayouts"), 326, 183, 149, 22);
-  place(panel, label(t("SetAiTimes.lblFirstPo")), 165, 208, 155, 20);
-  const anaFirst = place(panel, field(auto.firstPlayoutsEnabled ? conditionText(auto.firstPlayouts) : "", "game.anaFirstPlayouts"), 326, 208, 149, 22);
-  const ok = place(panel, button(t("SetAiTimes.okButton"), () => void apply()), 165, 260, 104, 29);
+  groupTitle(body, t("SetAiTimes.analyzeMode"));
+  const anaTime = field(auto.timeEnabled ? conditionText(auto.timeSeconds) : "", "game.anaTime");
+  const anaPlayouts = field(auto.playoutsEnabled ? conditionText(auto.playouts) : "", "game.anaPlayouts");
+  const anaFirst = field(auto.firstPlayoutsEnabled ? conditionText(auto.firstPlayouts) : "", "game.anaFirstPlayouts");
+  anaTime.inputMode = anaPlayouts.inputMode = anaFirst.inputMode = "numeric";
+  row(body, t("SetAiTimes.lblTime"), "", anaTime);
+  row(body, t("SetAiTimes.lblPo"), "", anaPlayouts);
+  row(body, t("SetAiTimes.lblFirstPo"), "", anaFirst);
+  const dialog = formPanel(t("SetAiTimes.title"), body);
+  const ok = primaryButton(t("SetAiTimes.okButton"), () => void apply());
   ok.dataset.key = "game-ai-time-ok";
-  const cancel = place(panel, button(t("SetAiTimes.cancel"), () => void dialog.close()), 283, 260, 104, 29);
+  const cancel = button(t("SetAiTimes.cancel"), () => void dialog.close());
   cancel.dataset.key = "game.aiTimeCancel";
-  const dialog = formPanel(t("SetAiTimes.title"), panel);
+  footer(body, { primary: ok, cancel });
   // getRootPane().setDefaultButton(okButton).
-  panel.addEventListener("keydown", (e) => {
+  body.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement)) {
       e.preventDefault();
       void apply();
@@ -583,32 +564,26 @@ export async function openRandomStart(): Promise<void> {
   const v = state.view;
   if (!v) return;
   const r = v.settings.game.randomStart;
-  const panel = absolute(300, 165);
-  const enable = document.createElement("input");
-  enable.type = "checkbox";
-  enable.checked = r.enabled;
-  enable.dataset.key = "game.randomEnabled";
-  const wrap = document.createElement("label");
-  wrap.className = "game-check";
-  wrap.append(enable, t("SetAnaGameRandomStart.chkEnable"));
-  place(panel, wrap, 6, 6, 103, 23);
-  place(panel, label(t("SetAnaGameRandomStart.lblFirst.text")), 26, 32, 43, 21);
-  const moves = place(panel, field(String(r.moves), "game.randomMoves"), 72, 32, 66, 21);
-  place(panel, label(t("SetAnaGameRandomStart.lblMove.text")), 148, 32, 54, 21);
-  place(panel, label(t("SetAnaGameRandomStart.lblWinrate.text")), 26, 60, 200, 21);
-  const winrate = place(panel, field(String(r.winrateDiff), "game.randomWinrate"), 229, 60, 36, 21);
-  place(panel, label("%"), 275, 63, 20, 15);
-  place(panel, label(t("SetAnaGameRandomStart.lblVisits.text")), 26, 89, 200, 24);
-  const playouts = place(panel, field(String(r.playoutsDiff), "game.randomPlayouts"), 229, 91, 36, 21);
-  place(panel, label("%"), 275, 94, 20, 15);
+  const body = document.createElement("div");
+  body.className = "game-dialog game-narrow";
+  // 启用 reads with 前 N 手: "enable for the first N moves".
+  const moves = field(String(r.moves), "game.randomMoves");
+  moves.inputMode = "numeric";
+  const enable = toggle(body, t("SetAnaGameRandomStart.chkEnable"), "", r.enabled, "game.randomEnabled", t("SetAnaGameRandomStart.lblFirst.text"), moves, t("SetAnaGameRandomStart.lblMove.text"));
+  const winrate = field(String(r.winrateDiff), "game.randomWinrate");
+  const playouts = field(String(r.playoutsDiff), "game.randomPlayouts");
+  winrate.inputMode = playouts.inputMode = "decimal";
+  row(body, t("SetAnaGameRandomStart.lblWinrate.text"), "", winrate, "%");
+  row(body, t("SetAnaGameRandomStart.lblVisits.text"), "", playouts, "%");
   const enabled = () => (moves.disabled = winrate.disabled = playouts.disabled = !enable.checked);
   enable.onchange = enabled;
   enabled();
-  const ok = place(panel, button(t("SetAnaGameRandomStart.apply"), () => void apply()), 72, 128, 79, 33);
+  const dialog = formPanel(t("SetAnaGameRandomStart.title"), body);
+  const ok = primaryButton(t("SetAnaGameRandomStart.apply"), () => void apply());
   ok.dataset.key = "game-random-ok";
-  const cancel = place(panel, button(t("SetAnaGameRandomStart.cancel"), () => void dialog.close()), 158, 128, 79, 33);
+  const cancel = button(t("SetAnaGameRandomStart.cancel"), () => void dialog.close());
   cancel.dataset.key = "game.randomCancel";
-  const dialog = formPanel(t("SetAnaGameRandomStart.title"), panel);
+  footer(body, { primary: ok, cancel });
   async function apply(): Promise<void> {
     // applyChange: Integer.parseInt / Double.parseDouble, else SetAnaGameRandomStart.wrongFormat.
     const n = parseJavaInt(moves.value);

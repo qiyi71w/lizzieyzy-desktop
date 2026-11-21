@@ -17,3 +17,12 @@ export interface SetupCard {
   /** Called when the dialog closes. */
   dispose?(): void;
 }
+
+/** A step's state: ready, missing (or not done yet), failed, or a plain fact. */
+export type SetupTone = "ready" | "missing" | "failed" | "neutral";
+
+/** Draws `el` as a 状态标签 in the tone of its state. */
+export function tagged<T extends HTMLElement>(el: T, tone: SetupTone): T {
+  el.className = `setup-tag ${tone}`;
+  return el;
+}

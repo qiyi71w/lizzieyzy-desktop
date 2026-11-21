@@ -122,7 +122,7 @@ fn size_shares_nudge_restore_and_reset_follow_the_persist_file() {
     let sizes = PanelSizes { leftover_left_share: Some(0.3), board_position_proportion: 2,
         comment_height_share: Some(0.6), variation_graph_share: Some(0.8) };
     wb.set_panel_sizes(sizes).unwrap();
-    wb.set_bottom_toolbar(BottomToolbar::Detailed).unwrap();
+    wb.set_bottom_toolbar(BottomToolbar::Hidden).unwrap();
     wb.nudge_board_position(1).unwrap();
     let expected = wb.view(false).settings.panel_sizes;
     assert_eq!(expected.leftover_left_share, Some(0.425));
@@ -130,7 +130,7 @@ fn size_shares_nudge_restore_and_reset_follow_the_persist_file() {
     drop(wb);
     let mut wb = workbench(dir.path());
     assert_eq!(wb.view(false).settings.panel_sizes, expected);
-    assert_eq!(wb.view(false).settings.bottom_toolbar, BottomToolbar::Detailed);
+    assert_eq!(wb.view(false).settings.bottom_toolbar, BottomToolbar::Hidden);
     wb.restore_default_panel_sizes().unwrap();
     assert_eq!(wb.view(false).settings.panel_sizes, PanelSizes::default());
     wb.nudge_board_position(-1).unwrap();
@@ -166,32 +166,15 @@ fn invalid_or_failed_size_commit_keeps_the_previous_projection() {
 }
 
 #[test]
-fn non_chinese_startup_restores_the_simple_toolbar_instead_of_obsolete_details() {
-    // LizzieFrame.java:946-950; both Chinese bundles retain details, other languages do not.
+fn bottom_buttons_survive_restart() {
+    use lizzie_core::settings::BottomButtonSettings;
     let dir = tempfile::tempdir().unwrap();
     let mut wb = workbench(dir.path());
-    wb.set_bottom_toolbar(BottomToolbar::Detailed).unwrap();
-    wb.set_language(lizzie_core::settings::Language::EnUs).unwrap();
-    drop(wb);
-    assert_eq!(workbench(dir.path()).view(false).settings.bottom_toolbar, BottomToolbar::Simple);
-}
-
-#[test]
-fn bottom_buttons_and_detail_panel_order_survive_restart() {
-    use lizzie_core::settings::{BottomButtonSettings, DetailPanelOrder};
-    let dir = tempfile::tempdir().unwrap();
-    let mut wb = workbench(dir.path());
-    let s = wb.view(false).settings;
-    assert_eq!((s.bottom_buttons, s.detail_panel_order), (BottomButtonSettings::default(), DetailPanelOrder::default()));
-    let buttons = BottomButtonSettings { refresh: true, try_play: true, bad_moves: Some(false), detail_button: true, ..Default::default() };
-    let order = DetailPanelOrder { auto_analysis: 2, engine_match: 2, auto_play: 0 };
+    assert_eq!(wb.view(false).settings.bottom_buttons, BottomButtonSettings::default());
+    let buttons = BottomButtonSettings { refresh: true, try_play: true, bad_moves: Some(false), ..Default::default() };
     assert!(wb.set_bottom_buttons(buttons).unwrap());
-    assert!(wb.set_detail_panel_order(order).unwrap());
-    // ToolbarPositionConfig offers places 1–3 only.
-    assert!(wb.set_detail_panel_order(DetailPanelOrder { auto_play: 3, ..order }).is_err());
     drop(wb);
-    let s = workbench(dir.path()).view(false).settings;
-    assert_eq!((s.bottom_buttons, s.detail_panel_order), (buttons, order));
+    assert_eq!(workbench(dir.path()).view(false).settings.bottom_buttons, buttons);
 }
 
 #[test]

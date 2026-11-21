@@ -1,6 +1,50 @@
-/* 独立棋局控制面板 (Controller.java): basePanel's EmptyBorder(5, 0, 5, 0) and centerPanel's
-   EmptyBorder(0, 5, 0, 5) around a GridLayout(4, 2, 5, 5) of buttons with no margin. */
-html, body { margin: 0; height: 100%; overflow: hidden; background: #eee; user-select: none; }
-#cp-grid { box-sizing: border-box; height: 100%; padding: 5px; display: grid; gap: 5px;
-  grid-template-columns: 1fr 1fr; grid-template-rows: repeat(4, 1fr); }
-#cp-grid button { min-width: 0; min-height: 0; padding: 0; font-family: inherit; white-space: nowrap; overflow: hidden; }
+/* 独立棋局控制面板: eight base buttons scaled up, in a 4 x 2 grid that fills the window on
+   --ds-panel. Each shows its icon; 返回主分支 and 涂鸦 show their name under it. */
+html,
+body {
+  overflow: hidden;
+}
+body {
+  background: var(--ds-panel);
+}
+#cp-grid {
+  height: 100%;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: repeat(4, 1fr);
+  gap: 8px;
+  padding: 12px;
+}
+#cp-grid button {
+  --menu-icon-size: 24px;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: var(--ds-radius-l);
+  font-size: var(--ds-size-l);
+  white-space: normal;
+  overflow: hidden;
+}
+#cp-grid button > .icon {
+  color: var(--ds-text-2);
+}
+.cp-label {
+  max-width: 100%;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+/* Java's arrow text, kept for automation and screen readers, not drawn. */
+.cp-unseen {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

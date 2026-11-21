@@ -1,38 +1,162 @@
-/* WholeGameAnalysisDialog: Java's cream card, green accent, dense 12px metadata and 112x40
-   actions. Modeless: no scrim and no owner inertness; the board remains interactive. */
+/* 整盘精析 (WholeGameAnalysisDialog): a non-modal tool window on the dialog's ground, radius and
+   shadow, no scrim; the board stays interactive. Grouped rows (design/dialog.css) under the title
+   row, the buttons in a footer that stays in view while the window scrolls. */
 .whole-game-window {
-  position: fixed; z-index: 28; left: 50%; top: 50%; transform: translate(-50%, -50%);
-  width: 730px; max-width: calc(100vw - 36px); max-height: calc(100vh - 36px); overflow: auto;
-  box-sizing: border-box; padding: 22px 24px 20px; background: #f7f4ec; color: #272f2b;
-  font: 12px "DejaVu Sans", "Noto Sans CJK SC", sans-serif; box-shadow: 0 5px 28px #0005;
+  position: fixed;
+  z-index: 28;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(480px, calc(100vw - 40px));
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+  padding: 12px 20px 0;
+  border-radius: var(--ds-radius-l);
+  background: var(--ds-panel);
+  color: var(--ds-text);
+  box-shadow: var(--ds-shadow-dialog);
   resize: both;
 }
-.whole-game-window[hidden] { display: none; }
-.whole-game-window header { display: flex; gap: 14px; margin-bottom: 30px; }
-.whole-game-icon { flex: 0 0 46px; height: 46px; background: #dfcc9b; border-radius: 8px; font-size: 38px; line-height: 40px; color: #272f2b; position: relative; }
-.whole-game-icon::after { content: ""; width: 23px; height: 23px; border-radius: 50%; background: #fafaf5; border: 1px solid #c6c6bc; position: absolute; left: 20px; top: 22px; }
-.whole-game-window h2 { font-size: 24px; margin: 0 0 4px; }
-.whole-game-window p { margin: 0; line-height: 1.55; }
-.whole-game-window header p, .whole-game-visits p { color: #676b63; }
-.whole-game-card { background: #fffdf8; border: 1px solid #dad0bc; border-radius: 9px; padding: 34px 22px 24px; min-height: 270px; box-sizing: border-box; }
-.whole-game-visits { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.whole-game-visits label { font-weight: bold; margin-right: 6px; }
-.whole-game-visits select { flex: 1; min-width: 170px; height: 34px; font: inherit; background: white; color: inherit; }
-.whole-game-visits input { width: 132px; height: 34px; box-sizing: border-box; font: inherit; }
-.whole-game-visits input[hidden] { display: none; }
-.whole-game-visits p { width: 100%; min-height: 38px; }
-.whole-game-visits p.invalid { color: #ad3431; }
-.whole-game-window h3 { font-size: 18px; margin: 15px 0 14px; }
-.whole-game-bar { position: relative; height: 24px; margin-bottom: 10px; }
-.whole-game-bar progress { appearance: none; border: 0; width: 100%; height: 24px; background: #e1f0ea; }
-.whole-game-bar progress::-webkit-progress-bar { background: #e1f0ea; }
-.whole-game-bar progress::-webkit-progress-value { background: #146f5b; }
-.whole-game-bar span { position: absolute; inset: 0; display: grid; place-items: center; color: #6485a8; pointer-events: none; }
-.whole-game-metadata { display: flex; justify-content: space-between; gap: 18px; margin-top: 16px; min-height: 18px; color: #676b63; }
-.whole-game-metadata span:first-child { color: #146f5b; font-weight: bold; }
-.whole-game-window footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
-.whole-game-window footer button { min-width: 112px; height: 40px; border: 1px solid #dad0bc; border-radius: 7px; background: #fffdf8; color: #272f2b; font: inherit; }
-.whole-game-window footer button.primary { background: #146f5b; color: white; border-color: #146f5b; }
-.whole-game-window footer button:disabled { background: #e8e5dc; color: #676b63; opacity: .6; }
-.whole-game-close { position: absolute; top: 3px; right: 5px; border: 0; background: transparent; color: #676b63; font-size: 18px; }
-.whole-game-notice { position: fixed; z-index: 31; left: 50%; bottom: 65px; transform: translateX(-50%); padding: 12px 18px; background: #fffdf8; color: #272f2b; border: 1px solid #dad0bc; box-shadow: 0 3px 15px #0005; max-width: 80vw; }
+.whole-game-window[hidden] {
+  display: none;
+}
+.whole-game-window header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.whole-game-window h2 {
+  margin: 0;
+  font-size: var(--ds-size-xl);
+  font-weight: 600;
+}
+.whole-game-close {
+  flex: none;
+  width: var(--ds-control-h);
+  height: var(--ds-control-h);
+  margin-right: -8px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-color: transparent;
+  background-color: transparent;
+  color: var(--ds-text-2);
+}
+.whole-game-close .icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* 每个局面搜索次数: the preset and the custom value at the row's end, the hint or the estimate
+   under its name. */
+.whole-game-group {
+  margin-top: 12px;
+}
+.whole-game-window .ds-row-sub.invalid {
+  color: var(--ds-danger-text);
+}
+
+/* The run, a group of its own: phase, bar with its percentage, counts, then mode and time left. */
+.whole-game-status {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 10px 12px;
+}
+.whole-game-status h3 {
+  margin: 0;
+  font-size: var(--ds-size-l);
+  font-weight: 600;
+}
+.whole-game-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.whole-game-bar progress {
+  flex: 1;
+  height: 8px;
+  appearance: none;
+  border: 0;
+  border-radius: var(--ds-radius-s);
+  overflow: hidden;
+  background: var(--ds-well);
+}
+.whole-game-bar progress::-webkit-progress-bar {
+  background: var(--ds-well);
+}
+.whole-game-bar progress::-webkit-progress-value {
+  background: var(--ds-accent);
+}
+.whole-game-bar progress::-moz-progress-bar {
+  background: var(--ds-accent);
+}
+.whole-game-bar span {
+  min-width: calc(var(--ds-size) * 3);
+  text-align: right;
+  color: var(--ds-text-2);
+  font-variant-numeric: tabular-nums;
+}
+.whole-game-status > p {
+  margin: 0;
+  color: var(--ds-text-2);
+  font-variant-numeric: tabular-nums;
+}
+.whole-game-metadata {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 16px;
+  min-height: calc(var(--ds-size) * 1.4);
+  color: var(--ds-text-3);
+  font-variant-numeric: tabular-nums;
+}
+.whole-game-metadata span:first-child {
+  color: var(--ds-text-2);
+  font-weight: 600;
+}
+/* The buttons: the form dialogs' footer, a band of the bar colour under a hairline. */
+.whole-game-window footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 16px -20px 0;
+  padding: 12px 20px;
+  border-top: 1px solid var(--ds-line);
+  background: var(--ds-chrome);
+}
+.whole-game-window footer button {
+  min-width: 76px;
+}
+
+/* A notice of the run: a 提示条 above the bottom bar that goes by itself. */
+.whole-game-notice {
+  position: fixed;
+  z-index: 31;
+  left: 50%;
+  bottom: 56px;
+  transform: translateX(-50%);
+  max-width: 80vw;
+  min-height: 28px;
+  padding: 5px 12px;
+  border: 1px solid;
+  border-radius: var(--ds-radius);
+  box-shadow: var(--ds-shadow-pop);
+  font-weight: 600;
+}
+.whole-game-notice.success {
+  border-color: var(--ds-success-soft-line);
+  background: var(--ds-success-soft);
+  color: var(--ds-success-text);
+}
+.whole-game-notice.warning {
+  border-color: var(--ds-warning-soft-line);
+  background: var(--ds-warning-soft);
+  color: var(--ds-warning-text);
+}

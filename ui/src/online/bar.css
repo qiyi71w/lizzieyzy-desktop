@@ -1,11 +1,53 @@
-/* The 弈客 web window's JToolBar (no border, not floatable): the 后退 icon button, the address field
-   taking the rest of the row, and the two label buttons (#F0F0F0 on a #B0B0B0 line, padding 4/12,
-   #E0E0E0 hovered, #C8C8C8 pressed; BrowserFrame.makeLabelButton). */
-html, body { margin: 0; height: 100%; overflow: hidden; background: #eee; font-size: 12px; user-select: none; }
-body { display: flex; align-items: center; gap: 2px; padding: 0 2px; box-sizing: border-box; }
-#yb-back { flex: none; height: 28px; width: 32px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
-#yb-back img { display: block; }
-#yb-address { flex: 1; min-width: 0; height: 24px; box-sizing: border-box; padding: 0 3px; font: inherit; border: 1px solid rgb(160, 165, 170); background: #fff; user-select: text; }
-.yb-label { flex: none; padding: 4px 12px; color: #000; background: #f0f0f0; border: 1px solid #b0b0b0; cursor: pointer; white-space: nowrap; line-height: 16px; }
-.yb-label:hover { background: #e0e0e0; }
-.yb-label:active { background: #c8c8c8; }
+/* The 弈客 web window's 34 px strip above the page (BrowserFrame's toolbar): the 后退 icon button,
+   the address field taking the rest of the row and the 加载 / 停止同步 label buttons, all 22 px, on
+   --ds-chrome with a hairline towards the page. */
+html,
+body {
+  overflow: hidden;
+}
+body {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--ds-line);
+}
+#yb-back {
+  flex: none;
+  width: var(--ds-control-h);
+  height: var(--ds-control-h);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-color: transparent;
+  background-color: transparent;
+  color: var(--ds-text-2);
+}
+#yb-back:hover {
+  color: var(--ds-text);
+}
+#yb-address {
+  flex: 1;
+  min-width: 0;
+  height: var(--ds-control-h);
+  user-select: text;
+}
+/* makeLabelButton: spans in the role of buttons, outside the focus cycle, drawn as base buttons. */
+.yb-label {
+  flex: none;
+  height: var(--ds-control-h);
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  border: 1px solid var(--ds-line-strong);
+  border-radius: var(--ds-radius);
+  background-color: var(--ds-raised);
+  white-space: nowrap;
+}
+.yb-label:hover {
+  background-image: linear-gradient(var(--ds-hover), var(--ds-hover));
+}
+.yb-label:active {
+  background-image: linear-gradient(var(--ds-pressed), var(--ds-pressed));
+}

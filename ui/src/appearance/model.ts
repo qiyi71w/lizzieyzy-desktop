@@ -4,6 +4,9 @@
 import type { Language, MoveRank } from "../contract/generated";
 
 export const DEFAULT_THEME = "default";
+/** The bundled theme with Java's own default values; while it is the committed theme the interface
+ *  takes Java's colours and wallpaper (design/theme.ts skin "java"). */
+export const JAVA_CLASSIC_THEME = "java-classic";
 /** ConfigDialog2.getFontItemName (ConfigDialog2.java:6374-6380): combo index 0 and 1. */
 export const LIZZIE_DEFAULT_FONT = "Lizzie Default";
 export const SYSTEM_DEFAULT_FONT = "Dialog.plain";
@@ -50,9 +53,8 @@ export function reverseColor(c: readonly number[]): number[] {
   return [255 - c[0], 255 - c[1], 255 - c[2]];
 }
 
-/** MoveRankDefinition.Rank colours: classic and MorandiPalette.SUGGESTION_* (MoveRankDefinition.java:22-65,
- *  MorandiPalette.java:31-36), chosen by use-morandi-colors (Rank.color, 101-103). */
-const RANK_CLASSIC: Record<MoveRank, string> = {
+/** MoveRankDefinition.Rank colours (MoveRankDefinition.java:22-65). */
+const RANK_COLOR: Record<MoveRank, string> = {
   Best: "rgb(0,180,0)",
   Good: "rgb(140,202,34)",
   Normal: "rgb(180,180,0)",
@@ -60,16 +62,8 @@ const RANK_CLASSIC: Record<MoveRank, string> = {
   Mistake: "rgb(208,16,19)",
   Blunder: "rgb(155,25,150)",
 };
-const RANK_MORANDI: Record<MoveRank, string> = {
-  Best: "rgb(120,168,168)",
-  Good: "rgb(142,172,130)",
-  Normal: "rgb(198,186,138)",
-  Inaccuracy: "rgb(192,155,120)",
-  Mistake: "rgb(176,112,112)",
-  Blunder: "rgb(148,126,158)",
-};
-export function rankColor(rank: MoveRank, morandi: boolean): string {
-  return (morandi ? RANK_MORANDI : RANK_CLASSIC)[rank];
+export function rankColor(rank: MoveRank): string {
+  return RANK_COLOR[rank];
 }
 
 /** A configured font family ahead of the role's default stack. "Lizzie Default" (or empty) keeps the
@@ -161,10 +155,10 @@ export function drawChineseClassicMarkers(g: CanvasRenderingContext2D, cols: num
 
 const blend = (a: number, b: number, t: number) => Math.round(a + (b - a) * t);
 
-/** WinrateGraph.resolveGraphBackgroundColor (WinrateGraph.java:312-323) with Config.commentBackgroundColor
- *  and is-apple-style; WinrateGraph.blend rounds the linear mix. */
-export function graphBackground(panel: readonly number[], apple: boolean): number[] {
-  const lift = apple ? [62, 68, 78] : [58, 66, 76];
+/** WinrateGraph.resolveGraphBackgroundColor (WinrateGraph.java:312-323) with
+ *  Config.commentBackgroundColor; WinrateGraph.blend rounds the linear mix. */
+export function graphBackground(panel: readonly number[]): number[] {
+  const lift = [58, 66, 76];
   const alpha = Math.max(118, Math.min(178, (panel[3] ?? 255) - 35));
   return [blend(panel[0], lift[0], 0.38), blend(panel[1], lift[1], 0.38), blend(panel[2], lift[2], 0.38), alpha];
 }
@@ -178,4 +172,36 @@ const linear = (v: number) => {
 export function belowBaselineFill(background: readonly number[]): number[] {
   const luminance = 0.2126 * linear(background[0]) + 0.7152 * linear(background[1]) + 0.0722 * linear(background[2]);
   return luminance < 0.5 ? [232, 225, 210, 42] : [50, 54, 60, 42];
+}
+
+// ------------------------------------------------------------------ theme defaults
+
+/** The default theme's values of the colours a user can change (ThemeSettings::default in
+ *  crates/lizzie-core/src/appearance.rs). While a colour holds its default the interface draws
+ *  with its own token for the current colour mode. */
+export const THEME_DEFAULT = {
+  winrateLine: [100, 180, 255],
+  winrateMiss: [0, 0, 178],
+  scoreLine: [255, 0, 255],
+  blunderBar: [255, 204, 255, 170],
+  commentBackground: [0, 0, 0, 200],
+  commentFont: [255, 255, 255],
+  commentNode: [0, 0, 255],
+  glassAccent: [96, 165, 250],
+  /** glass-corner-radius: the arc of Java's controls. */
+  glassCornerRadius: 12,
+  /** The 错误节点 colours, worst to best. */
+  blunderNodes: [[155, 25, 150], [208, 16, 19], [200, 140, 50], [180, 180, 0], [140, 202, 34], [0, 220, 0], [0, 210, 210]],
+} as const;
+
+/** Equal colours, a missing alpha being opaque. */
+export function sameRgba(a: readonly number[], b: readonly number[]): boolean {
+  return [0, 1, 2, 3].every((k) => (a[k] ?? 255) === (b[k] ?? 255));
+}
+
+/** A theme colour the user can change: `tokenColor` while it holds the theme default
+ *  (`themeDefault`), else the user's colour as it is. */
+export function themeColor(value: readonly number[] | undefined, themeDefault: readonly number[], tokenColor: string): string {
+  if (!value || sameRgba(value, themeDefault)) return tokenColor;
+  return cssColor(value);
 }

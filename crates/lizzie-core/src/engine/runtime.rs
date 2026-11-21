@@ -1136,6 +1136,11 @@ impl Engines {
         self.get(id).is_some_and(|i| i.kind == EngineKind::KataGo)
     }
 
+    /// KataGo or Sai, the engines whose results carry a score (Java `isKatago || isSai`).
+    pub fn reports_score(&self, id: InstanceId) -> bool {
+        self.get(id).is_some_and(|i| matches!(i.kind, EngineKind::KataGo | EngineKind::Sai))
+    }
+
     /// The 自建算力 engine (Java `RemoteComputeConfig.isCustomWebSocketEngineCommand`): its
     /// WebSocket analysis service has no background pondering.
     pub fn is_custom_websocket(&self, id: InstanceId) -> bool {

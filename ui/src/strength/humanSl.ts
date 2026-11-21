@@ -1,8 +1,9 @@
 // 补算 HumanSL (HumanSlStrengthDialog.prepare): the game, the engine, the model download prompt,
-// then the modal "HumanSL 40" progress dialog (500 x 165) with its status, bar and 取消. The model
+// then the modal "HumanSL 40" progress dialog with its status, bar and 取消. The model
 // download is the resource job AI 陪练 uses; the preparation itself is the core's manual task.
 import { registerViewHandler, run, state } from "../app";
-import { dispatch, isApiError } from "../contract/client";
+import { dispatch } from "../contract/client";
+import { errorText } from "../errorText";
 import type { StrengthManualOutcome } from "../contract/generated";
 import { chooseSave, message } from "../dialogs";
 import { format, product, t } from "../i18n";
@@ -45,7 +46,7 @@ async function startRun(resume: boolean): Promise<boolean | "download"> {
   try {
     result = await dispatch({ type: "Strength", op: { type: "RunHumanSl", resume } });
   } catch (e) {
-    await message("Error", isApiError(e) ? e.message : String(e), "error");
+    await message(t("Message.title"), errorText(e), "error");
     return false;
   }
   if (result.type !== "Refused") return true;
@@ -92,7 +93,6 @@ function progressDialog(download: boolean, previousRun: number): Promise<void> {
   bar.append(fill);
   const cancel = document.createElement("button");
   cancel.type = "button";
-  cancel.className = "ps-native-button";
   cancel.textContent = t("HumanSL40.cancel");
   const actions = document.createElement("div");
   actions.className = "ps-progress-actions";

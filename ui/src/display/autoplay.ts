@@ -14,12 +14,22 @@
 import { registerViewHandler, run, state } from "../app";
 import { setDisplay } from "../commands";
 import { formPanel } from "../dialogs";
+import { button, footer, primaryButton, row, switchBox, switchRow } from "../engine/controls";
 import type { DisplaySettings } from "../contract/generated";
-import { t } from "../i18n";
+import { product, registerProduct, t } from "../i18n";
 import { edit } from "../editing/state";
 import { javaDouble } from "../workbench/paint";
-import { absolute, button, place } from "./dialogs";
 import type { ReplayTarget } from "./replay";
+import "./dialogs.css";
+
+registerProduct({
+  ZhCn: { autoplayAppliesNow: "立即生效，取消不会撤回" },
+  ZhTw: { autoplayAppliesNow: "立即生效，取消不會撤回" },
+  EnUs: { autoplayAppliesNow: "Applies at once; Cancel does not undo it" },
+  JaJp: { autoplayAppliesNow: "すぐに反映され、キャンセルでは元に戻りません" },
+  KoKr: { autoplayAppliesNow: "바로 적용되며 취소해도 되돌려지지 않습니다" },
+  ThTh: { autoplayAppliesNow: "มีผลทันที การยกเลิกจะไม่ย้อนกลับ" },
+});
 
 interface AutoplayHost {
   /** The main board's hovered variation, as BoardRenderer.replayTarget. */
@@ -145,8 +155,9 @@ registerViewHandler((view) => {
   if (view.settings.display.autoReplayBranch && branchTimer === undefined) branchTimer = window.setInterval(branchTick, 20);
 });
 
-/** The toolbar's txtAutoMain (seconds) / txtAutoSub (milliseconds): read by the players at every
- *  step, set by 确定 and filled from the saved intervals at start-up. */
+/** The main (seconds) and sub board (milliseconds) autoplay intervals: read by the players at
+ *  every step, filled from the saved intervals at start-up and set by 自动播放's 确定 once the core
+ *  saved them. */
 const intervals = { main: -1, sub: -1, loaded: false };
 
 // ------------------------------------------------------------------ 副棋盘
@@ -278,37 +289,27 @@ export function autoplayReport() {
   };
 }
 
-/** The detailed bottom toolbar's 自动播放(大)(秒) box (chkAutoMain, BottomToolbar.java:1849-1856)
- *  and its txtAutoMain / txtAutoSub fields, which the players read at every step. */
-export const toolbarAutoplay = {
-  mainRunning: (): boolean => main.running,
-  setMain(on: boolean): void {
-    if (on) startMain();
-    else stopMain();
-  },
-  interval: (kind: "main" | "sub"): number => intervals[kind],
-  setInterval(kind: "main" | "sub", value: number): void {
-    intervals[kind] = value;
-  },
-};
-
 // ------------------------------------------------------------------ 设置自动播放
 
-function choice(panel: HTMLElement, text: string, checked: boolean, x: number, y: number, w: number, h: number): HTMLInputElement {
-  const label = place(panel, document.createElement("label"), x, y, w, h);
-  label.className = "display-choice";
-  const input = document.createElement("input");
-  input.type = "checkbox";
-  input.checked = checked;
-  label.append(input, text);
-  return input;
+/** The next group of rows in `body`: the groups have no titles, a gap parts them. */
+function group(body: HTMLElement): HTMLDivElement {
+  const el = document.createElement("div");
+  el.className = "autoplay-group";
+  body.append(el);
+  return el;
 }
 
-function textField(panel: HTMLElement, value: string, x: number, y: number, w: number, h: number): HTMLInputElement {
-  const field = place(panel, document.createElement("input"), x, y, w, h);
+/** A row with an interval field, then the switch that runs the player or option it times. */
+function timed(host: HTMLElement, text: string, checked: boolean, value: string): { box: HTMLInputElement; field: HTMLInputElement } {
+  const box = switchBox(checked);
+  const field = document.createElement("input");
   field.type = "text";
+  field.inputMode = "decimal";
   field.value = value;
-  return field;
+  box.setAttribute("aria-label", text);
+  field.setAttribute("aria-label", text);
+  row(host, text, "", field, box);
+  return { box, field };
 }
 
 /** Double.parseDouble(text.replace(" ", "")), or NaN. */
@@ -317,32 +318,32 @@ function parseJavaDouble(text: string): number {
   return /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?[dDfF]?$/.test(s) ? Number.parseFloat(s) : Number.NaN;
 }
 
-/** A saved interval as the toolbar field shows it: empty while none was entered. */
+/** A saved interval as its field shows it: empty while none was entered. */
 function intervalText(v: number): string {
   return v === -1 ? "" : String(v);
 }
 
-/** 设置自动播放 (AutoPlay.java, frame 330x232, not resizable). Only 确定 applies: the intervals and
- *  options are saved, the main and sub board players start or stop with their check boxes and
- *  the branch replay follows its setting. */
+/** 设置自动播放 (AutoPlay.java): a group per player, its interval field and switch, the main
+ *  board's best-move options and 先显示整个变化图 under their player. The two best-move options
+ *  apply at once and say so under their names; 确定 applies the rest: the intervals and options
+ *  are saved, the main and sub board players start or stop with their switches and the branch
+ *  replay follows its setting; 取消 leaves them. */
 export function openAutoPlayDialog(): void {
   const s = state.view?.settings.display;
   if (!s) return;
-  const panel = absolute(314, 193);
-  const mainCheck = choice(panel, t("AutoPlay.chkAutoPlayMainbord"), main.running, 6, 6, 168, 24);
-  const mainField = textField(panel, intervalText(s.autoplayMainSeconds), 180, 6, 66, 24);
+  const body = document.createElement("div");
+  body.className = "autoplay-dialog";
+  const mainGroup = group(body);
+  const { box: mainCheck, field: mainField } = timed(mainGroup, t("AutoPlay.chkAutoPlayMainbord"), main.running, intervalText(s.autoplayMainSeconds));
   // AutoPlay.java:119-135 filled this box from continue-with-best-move; it shows its own setting.
-  const directly = choice(panel, t("AutoPlay.chkDirectlyWithBestMove"), s.directlyWithBestMove, 17, 33, 294, 23);
-  const continueBest = choice(panel, t("AutoPlay.chkContinueWithBestMove"), s.continueWithBestMove, 17, 60, 294, 23);
-  const subCheck = choice(panel, t("AutoPlay.chkAutoPlaySubbord"), sub.running, 6, 87, 168, 24);
-  const subField = textField(panel, intervalText(s.autoplaySubMillis), 180, 87, 66, 24);
-  const branchCheck = choice(panel, t("AutoPlay.chkAutoPlayBranch"), s.autoReplayBranch, 6, 114, 168, 24);
-  const branchField = textField(panel, String(Math.trunc(s.replayIntervalSeconds * 1000)), 180, 114, 66, 24);
-  const entireCheck = choice(panel, t("AutoPlay.chbDisplayEntireVariationFirst"), s.entireVariationFirst, 17, 141, 230, 23);
-  const entireField = textField(panel, javaDouble(s.entireVariationFirstSeconds), 268, 141, 43, 24);
-  for (const [field, key] of [[mainField, "AutoPlay.chkAutoPlayMainbord"], [subField, "AutoPlay.chkAutoPlaySubbord"], [branchField, "AutoPlay.chkAutoPlayBranch"], [entireField, "AutoPlay.chbDisplayEntireVariationFirst"]] as const)
-    field.setAttribute("aria-label", t(key));
-  const ok = place(panel, button(t("AutoPlay.okButton")), 110, 171, 93, 25);
+  const directly = switchRow(mainGroup, t("AutoPlay.chkDirectlyWithBestMove"), product("autoplayAppliesNow"), s.directlyWithBestMove).input;
+  const continueBest = switchRow(mainGroup, t("AutoPlay.chkContinueWithBestMove"), product("autoplayAppliesNow"), s.continueWithBestMove).input;
+  const { box: subCheck, field: subField } = timed(group(body), t("AutoPlay.chkAutoPlaySubbord"), sub.running, intervalText(s.autoplaySubMillis));
+  const branchGroup = group(body);
+  const { box: branchCheck, field: branchField } = timed(branchGroup, t("AutoPlay.chkAutoPlayBranch"), s.autoReplayBranch, String(Math.trunc(s.replayIntervalSeconds * 1000)));
+  const { box: entireCheck, field: entireField } = timed(branchGroup, t("AutoPlay.chbDisplayEntireVariationFirst"), s.entireVariationFirst, javaDouble(s.entireVariationFirstSeconds));
+  const ok = primaryButton(t("AutoPlay.okButton"), () => {});
+  ok.dataset.key = "autoplay.ok";
   const enable = () => {
     directly.disabled = continueBest.disabled = !mainCheck.checked;
     entireCheck.disabled = entireField.disabled = !branchCheck.checked;
@@ -353,7 +354,10 @@ export function openAutoPlayDialog(): void {
   directly.onchange = () => setDisplay({ directlyWithBestMove: directly.checked });
   continueBest.onchange = () => setDisplay({ continueWithBestMove: continueBest.checked });
   enable();
-  const dialog = formPanel(t("AutoPlay.title"), panel);
+  const dialog = formPanel(t("AutoPlay.title"), body);
+  const cancel = button(product("cancel"), () => void dialog.close());
+  cancel.dataset.key = "autoplay.cancel";
+  footer(body, { primary: ok, cancel });
   ok.onclick = async () => {
     const mainSeconds = parseJavaDouble(mainField.value);
     const subMillis = parseJavaDouble(subField.value);

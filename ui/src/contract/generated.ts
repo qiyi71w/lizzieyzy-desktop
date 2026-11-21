@@ -154,7 +154,7 @@ copy_contribution_credentials: boolean,
 /**
  * Separate, unchecked-by-default consent for 快速启动 commands that carry credentials.
  */
-copy_quick_link_credentials: boolean, replace: boolean, recovery: RecoveryImport | null, } | { "type": "DismissJavaImportOffer" } | { "type": "Resource", op: ResourceCommand, } | { "type": "Tuning", op: TuningCommand, } | { "type": "Edit", op: EditCommand, } | { "type": "SetEditSettings", settings: EditSettings, } | { "type": "ClickReview", point: Point, } | { "type": "SetDisplaySettings", settings: DisplaySettings, } | { "type": "TogglePanel", panel: WorkbenchPanel, } | { "type": "SetPanelSettings", settings: PanelSettings, } | { "type": "SetPanelSizes", sizes: PanelSizes, } | { "type": "NudgeBoardPosition", delta: number, } | { "type": "RestoreDefaultPanelSizes" } | { "type": "SetBottomToolbar", mode: BottomToolbar, } | { "type": "ToggleRawNet" } | { "type": "StopRawNet" } | { "type": "SetKataEstimate", mode: KataEstimateMode, } | { "type": "ToggleKataEstimate" } | { "type": "Score", op: ScoreCommand, } | { "type": "SetAutoQuickAnalyze", enabled: boolean, } | { "type": "SetLoadSgfLast", enabled: boolean, } | { "type": "SaveAnalysisEngineSettings", settings: AnalysisEngineSettings, shown_command: string, edited: boolean, } | { "type": "GenerateAnalysisCommand", index: number | null, } | { "type": "SetQuickModelEnabled", enabled: boolean, } | { "type": "SetProblemList", settings: ProblemListSettings, } | { "type": "JumpToProblemMove", node: number, } | { "type": "StartFlashAnalysis", target: FlashTarget, } | { "type": "CancelFlashAnalysis" } | { "type": "RedoFlashAnalysis" } | { "type": "Region", op: RegionCommand, } | { "type": "SetRegionSettings", settings: RegionSettings, } | { "type": "Tracking", op: TrackingCommand, } | { "type": "SetTrackingSettings", settings: TrackingSettings, } | { "type": "StartAutoAnalysis", settings: AutoAnalysisSettings, } | { "type": "StopAutoAnalysis" } | { "type": "AnswerAutoAnalysisDiff", accept: boolean, } | { "type": "SaveAutoAnalysisSettings", settings: AutoAnalysisSettings, } | { "type": "DismissAutoAnalysisTip", never_again: boolean, } | { "type": "StartWholeGameAnalysis", visits: number, } | { "type": "PauseWholeGameAnalysis" } | { "type": "ResumeWholeGameAnalysis" } | { "type": "StopWholeGameAnalysis" } | { "type": "EstimateWholeGameAnalysis", visits: number, } | { "type": "Hawkeye", op: HawkeyeCommand, } | { "type": "SetHawkeyeSettings", settings: HawkeyeSettings, } | { "type": "ExportTable", rows: Array<Array<string>>, } | { "type": "Batch", op: BatchCommand, } | { "type": "Game", op: GameCommand, } | { "type": "Match", op: MatchCommand, } | { "type": "HumanSl", op: HumanSlCommand, } | { "type": "SetCaptureSettings", settings: CaptureSettings, } | { "type": "SetTsumegoButtonShown", shown: boolean, } | { "type": "SetTopToolbarSettings", settings: TopToolbarSettings, } | { "type": "SetBottomButtons", settings: BottomButtonSettings, } | { "type": "SetDetailPanelOrder", order: DetailPanelOrder, };
+copy_quick_link_credentials: boolean, replace: boolean, recovery: RecoveryImport | null, } | { "type": "DismissJavaImportOffer" } | { "type": "Resource", op: ResourceCommand, } | { "type": "Tuning", op: TuningCommand, } | { "type": "Edit", op: EditCommand, } | { "type": "SetEditSettings", settings: EditSettings, } | { "type": "ClickReview", point: Point, } | { "type": "SetDisplaySettings", settings: DisplaySettings, } | { "type": "TogglePanel", panel: WorkbenchPanel, } | { "type": "SetPanelSettings", settings: PanelSettings, } | { "type": "SetPanelSizes", sizes: PanelSizes, } | { "type": "NudgeBoardPosition", delta: number, } | { "type": "RestoreDefaultPanelSizes" } | { "type": "SetBottomToolbar", mode: BottomToolbar, } | { "type": "ToggleRawNet" } | { "type": "StopRawNet" } | { "type": "SetKataEstimate", mode: KataEstimateMode, } | { "type": "ToggleKataEstimate" } | { "type": "Score", op: ScoreCommand, } | { "type": "SetAutoQuickAnalyze", enabled: boolean, } | { "type": "SetLoadSgfLast", enabled: boolean, } | { "type": "SaveAnalysisEngineSettings", settings: AnalysisEngineSettings, shown_command: string, edited: boolean, } | { "type": "GenerateAnalysisCommand", index: number | null, } | { "type": "SetQuickModelEnabled", enabled: boolean, } | { "type": "SetProblemList", settings: ProblemListSettings, } | { "type": "JumpToProblemMove", node: number, } | { "type": "StartFlashAnalysis", target: FlashTarget, } | { "type": "CancelFlashAnalysis" } | { "type": "RedoFlashAnalysis" } | { "type": "Region", op: RegionCommand, } | { "type": "SetRegionSettings", settings: RegionSettings, } | { "type": "Tracking", op: TrackingCommand, } | { "type": "SetTrackingSettings", settings: TrackingSettings, } | { "type": "StartAutoAnalysis", settings: AutoAnalysisSettings, } | { "type": "StopAutoAnalysis" } | { "type": "AnswerAutoAnalysisDiff", accept: boolean, } | { "type": "SaveAutoAnalysisSettings", settings: AutoAnalysisSettings, } | { "type": "DismissAutoAnalysisTip", never_again: boolean, } | { "type": "StartWholeGameAnalysis", visits: number, } | { "type": "PauseWholeGameAnalysis" } | { "type": "ResumeWholeGameAnalysis" } | { "type": "StopWholeGameAnalysis" } | { "type": "EstimateWholeGameAnalysis", visits: number, } | { "type": "Hawkeye", op: HawkeyeCommand, } | { "type": "SetHawkeyeSettings", settings: HawkeyeSettings, } | { "type": "ExportTable", rows: Array<Array<string>>, } | { "type": "Batch", op: BatchCommand, } | { "type": "Game", op: GameCommand, } | { "type": "Match", op: MatchCommand, } | { "type": "HumanSl", op: HumanSlCommand, } | { "type": "SetCaptureSettings", settings: CaptureSettings, } | { "type": "SetTsumegoButtonShown", shown: boolean, } | { "type": "SetTopToolbarSettings", settings: TopToolbarSettings, } | { "type": "SetBottomButtons", settings: BottomButtonSettings, };
 
 export type CommandResult = { "type": "Done" } | { "type": "Cloud", reply: CloudReply, } | { "type": "CloudError", failure: CloudFailure, } | { "type": "CloudUrl", url: string, } | { "type": "CloudSwitch", profile: string, after: number, } | { "type": "Strength", report: StrengthReport, } | { "type": "CommentaryModels", models: Array<string>, } | { "type": "SshPassword", state: SshPasswordState, } | { "type": "ContributionPassword", state: SshPasswordState, } | { "type": "ContributionSavedEngines", candidates: Array<SavedEngineCandidate>, } | { "type": "ContributionQualification", qualification: ContributionQualification, } | { "type": "StrengthImportFailed", detail: string, } | { "type": "WholeGameEstimate", millis: number | null, } | { "type": "Unchanged" } | { "type": "OpenStarted", ticket: number, } | { "type": "NeedsConfirmation" } | { "type": "NeedsEditConfirmation", target: EditTarget, } | { "type": "NeedsBatchStop" } | { "type": "Exported", path: string, } | { "type": "ExportFailed", path: string, detail: string, } | { "type": "Refused", message_key: string, } | { "type": "SaveStarted", ticket: number, } | { "type": "SearchThreads", ticket: number, } | { "type": "NeedsReplaceConfirmation", document: number, file_name: string, } | { "type": "NeedsOverwriteConfirmation", path: string, } | { "type": "NeedsExportOverwriteConfirmation", kind: ExportKind, path: string, } | { "type": "NeedsImageOverwriteConfirmation", path: string, } | { "type": "FolderChosen", path: string, } | { "type": "FileChosen", path: string, } | { "type": "QuickLinkProgramChosen", program: QuickLinkProgram, } | { "type": "JavaImportPreview", preview: ImportPreviewView, } | { "type": "JavaImportFailed", failure: ImportFailure, } | { "type": "JavaImported", report: ImportReportView, } | { "type": "Resource", result: ResourceResult, } | { "type": "Tuning", result: TuningResult, } | { "type": "AnalysisCommand", command: string, generated_config: string | null, } | { "type": "TsumegoFramed", no_room: Array<Stone>, } | { "type": "ClickReview", review: ClickReviewView | null, };
 
@@ -304,13 +304,9 @@ extra_mode: ExtraMode, panels: PanelSettings,
  */
 top_toolbar: TopToolbarSettings, panel_sizes: PanelSizes, bottom_toolbar: BottomToolbar, 
 /**
- * The bottom toolbar's buttons (自定义内容) and 详细工具栏 button.
+ * The bottom toolbar's buttons (自定义内容).
  */
-bottom_buttons: BottomButtonSettings, 
-/**
- * The 详细工具栏 panels' places (设置模块顺序).
- */
-detail_panel_order: DetailPanelOrder, comment_panel_auto_hidden: boolean, custom_layouts: [CustomLayout | null, CustomLayout | null], independent_main_board: WindowPlacement | null, independent_sub_board: WindowPlacement | null, engine: EngineSettingsView, 
+bottom_buttons: BottomButtonSettings, comment_panel_auto_hidden: boolean, custom_layouts: [CustomLayout | null, CustomLayout | null], independent_main_board: WindowPlacement | null, independent_sub_board: WindowPlacement | null, engine: EngineSettingsView, 
 /**
  * 诊断与日志's saved switches and 完整日志 scope preference.
  */
@@ -361,7 +357,7 @@ tracking: TrackingSettings,
  */
 game: GameSettings, 
 /**
- * The bottom toolbar's 自动落子.
+ * 自动落子 (a 分析模式 game's or 棋盘同步工具's).
  */
 autoplay: AutoPlayView, matches: MatchSettingsView, 
 /**
@@ -755,7 +751,20 @@ game_outcome: GameOutcomeView | null,
 /**
  * 人机对弈 messages, once each, in order.
  */
-game_notices: Array<GameNotice>, engine_match: MatchView | null, match_outcome: MatchOutcomeView | null, match_notices: Array<MatchNotice>, match_winrate_image: MatchWinrateImageRequest | null, human_sl: HumanSlView | null, strength: StrengthView, 
+game_notices: Array<GameNotice>, engine_match: MatchView | null, 
+/**
+ * The open document is an engine game (Java `Board.isPkBoard` with `isPkBoardKataB` /
+ * `isPkBoardKataW`; `WinrateGraph.isEngineOrPkGraphMode`): always while a match exists, its
+ * score side from the match's engines; else a document a match game was played on
+ * (`EngineManager` 2918, kata side 15801-15805), a 跑谱贡献 rating game being watched
+ * (`ContributeEngine` 965-971) or a record whose root `DZ` is `Y` / `KB` / `KW`
+ * (`SGFParser` 775-791, also after 转换为初始局面, `Board` 1320), until 清除Lizzie缓存(全局),
+ * the start of 自动分析 or a fully answered flash analysis, 自动棋谱快析 attempt or 整盘精析
+ * pass ends it (`clearBoardStat` / `clearPkBoardStat` in `AnalysisEngine.setResult`). Saves
+ * write its `DZ` (`SGFParser` 1443-1462). `None` for any other
+ * document.
+ */
+pk_board: PkBoardView | null, match_outcome: MatchOutcomeView | null, match_notices: Array<MatchNotice>, match_winrate_image: MatchWinrateImageRequest | null, human_sl: HumanSlView | null, strength: StrengthView, 
 /**
  * 在线棋谱 / 弈客直播.
  */
@@ -828,7 +837,7 @@ export type ImportStatus = "Imported" | "Incompatible" | "NotMigrated";
 
 export type ImportReason = "NotYetAvailable" | "Credential" | "InvalidValue" | "WindowCoordinates" | "CredentialNotConfirmed" | "SessionOnly" | "Unreadable" | "NotChosen" | "Obsolete" | "JavaState";
 
-export type ImportTarget = "Appearance" | "Themes" | "Commentary" | "Cloud" | "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "AppendWinrateToComment" | "Language" | "PlaySound" | "NoSoundInSync" | "ReadBoardStatSync" | "ReadBoardGetFocus" | "ReadBoardPonderingNotice" | "Diagnostics" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "AutoCheckEngineAlive" | "LizzieCache" | "StopAtEmptyBoard" | "AlwaysGtp" | "KataRules" | "AutoLoadKataRules" | "KataPda" | "KataWrn" | "KataParamAutoLoad" | "KataParamToolbar" | "LeelaOptions" | "CustomPda" | "StartupBenchmark" | "NetworkProxy" | "WebBoard" | "AllowDoubleClick" | "LiveAlwaysGotoLast" | "LiveOpenHtml" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture" | "MoveRect" | "ClickReview" | "PaintingColor" | "AutoSaveOnExit" | "ResumePreviousGame" | "ZoomThumbnails" | "LastImageFolder" | "WinrateAlwaysBlack" | "ScoreLeadWithKomi" | "Coordinates" | "NamesOnBoard" | "MoveNumbers" | "VariationTree" | "MoveRank" | "Suggestions" | "NextMoves" | "SubBoard" | "PureNetwork" | "WinrateGraph" | "KataEstimate" | "Scoring" | "MatchAi" | "SuggestionsFrame" | "ExtraMode" | "WorkbenchPanels" | "PanelSizes" | "BottomToolbar" | "QuickLinks" | "Update" | "AutoQuickAnalysis" | "AnalysisEngine" | "QuickModel" | "HumanSlTraining" | "HumanSlModel" | "StrengthBackground" | "StrengthModels" | "Tsumego" | "CaptureTsumego" | "TopToolbar" | "BottomButtons" | "DetailPanelOrder" | "ProblemList" | "FlashRange" | "AutoAnalysis" | "HumanEngineGame" | "GameAiTime" | "GameRandomStart" | "AutoPlay" | "EngineMatch" | "WholeGameVisits" | "AnalysisRegion" | "Tracking" | "Hawkeye" | "FoxKifu" | "TencentKifu" | "Contribution";
+export type ImportTarget = "Appearance" | "Themes" | "Commentary" | "Cloud" | "ReadKomi" | "LoadSgfLast" | "ReplaceFileHint" | "AppendWinrateToComment" | "Language" | "PlaySound" | "NoSoundInSync" | "ReadBoardStatSync" | "ReadBoardGetFocus" | "ReadBoardPonderingNotice" | "Diagnostics" | "RecentFiles" | "LastFolder" | "Engines" | "EngineStartup" | "LastEngine" | "AnalysisInterval" | "LimitTime" | "MaxAnalyzeTime" | "LimitPlayout" | "LimitPlayouts" | "LimitMaxSuggestion" | "LimitBranchLength" | "FastEngineChange" | "PonderLimitTips" | "AutoCheckEngineAlive" | "LizzieCache" | "StopAtEmptyBoard" | "AlwaysGtp" | "KataRules" | "AutoLoadKataRules" | "KataPda" | "KataWrn" | "KataParamAutoLoad" | "KataParamToolbar" | "LeelaOptions" | "CustomPda" | "StartupBenchmark" | "NetworkProxy" | "WebBoard" | "AllowDoubleClick" | "LiveAlwaysGotoLast" | "LiveOpenHtml" | "AllowDrag" | "RightClickMenu" | "NewBoardHint" | "MarkupTools" | "OtherBoardSize" | "NoCapture" | "MoveRect" | "ClickReview" | "PaintingColor" | "AutoSaveOnExit" | "ResumePreviousGame" | "ZoomThumbnails" | "LastImageFolder" | "WinrateAlwaysBlack" | "ScoreLeadWithKomi" | "Coordinates" | "NamesOnBoard" | "MoveNumbers" | "VariationTree" | "MoveRank" | "Suggestions" | "NextMoves" | "SubBoard" | "PureNetwork" | "WinrateGraph" | "KataEstimate" | "Scoring" | "MatchAi" | "SuggestionsFrame" | "ExtraMode" | "WorkbenchPanels" | "PanelSizes" | "BottomToolbar" | "QuickLinks" | "Update" | "AutoQuickAnalysis" | "AnalysisEngine" | "QuickModel" | "HumanSlTraining" | "HumanSlModel" | "StrengthBackground" | "StrengthModels" | "Tsumego" | "CaptureTsumego" | "TopToolbar" | "BottomButtons" | "ProblemList" | "FlashRange" | "AutoAnalysis" | "HumanEngineGame" | "GameAiTime" | "GameRandomStart" | "AutoPlay" | "EngineMatch" | "WholeGameVisits" | "AnalysisRegion" | "Tracking" | "Hawkeye" | "FoxKifu" | "TencentKifu" | "Contribution";
 
 export type ImportItemView = { 
 /**
@@ -2326,7 +2335,7 @@ export type FoxSubmissionView = { connection: number, game: number, revision: nu
 
 export type FoxStartOutcome = { "type": "NeedsWarning" } | { "type": "NeedsReplacement", document: number, revision: number, } | { "type": "SaveRequested" } | { "type": "Cancelled" } | { "type": "Listening" } | { "type": "Failed", message_key: string, };
 
-export type GameCommand = { "type": "Start", kind: GameKind, settings: GameSettings, autoplay: AutoPlaySettings | null, engine: number | null, } | { "type": "Continue", kind: GameKind, human: Stone | null, } | { "type": "Pause" } | { "type": "Resign" } | { "type": "End" } | { "type": "Regret" } | { "type": "SetAiTime", time: AiTimeSettings, ponder: boolean, autoplay: AutoPlaySettings, } | { "type": "SetRandomStart", settings: RandomStartSettings, } | { "type": "EngineMove" } | { "type": "SetAutoPlay", enabled: boolean, settings: AutoPlaySettings, };
+export type GameCommand = { "type": "Start", kind: GameKind, settings: GameSettings, autoplay: AutoPlaySettings | null, engine: number | null, } | { "type": "Continue", kind: GameKind, human: Stone | null, } | { "type": "Pause" } | { "type": "Resign" } | { "type": "End" } | { "type": "Regret" } | { "type": "SetAiTime", time: AiTimeSettings, ponder: boolean, autoplay: AutoPlaySettings, } | { "type": "SetRandomStart", settings: RandomStartSettings, } | { "type": "EngineMove" };
 
 export type GameKind = "Genmove" | "Analysis";
 
@@ -2526,6 +2535,14 @@ export type MatchView = { id: number, game: number, phase: MatchPhase, kind: Gam
  * its own PDA "..." stays on the toolbar during the game, and the dialog's commands go to it.
  */
 kata_go_pda_participant: boolean, score: MatchScoreView, thinking_side: Stone | null, thinking_engine: number | null, manual_moves: boolean, can_play_now: boolean, can_toggle_manual: boolean, can_resign: boolean, rules: string, rules_consent_required: boolean, rules_unverified: Array<MatchRulesUnverified>, rules_target_choice: string | null, opening_index: number | null, elapsed_seconds: number, };
+
+export type PkBoardView = { 
+/**
+ * The side whose engine gives the score curve (`isPkBoardKataW`, else `isPkBoardKataB`):
+ * White when the white engine is KataGo or Sai, else Black when the black one is; `None`
+ * when neither is, and no score curve is drawn (`WinrateGraph.resolveScoreLeadAvailable`).
+ */
+score_side: Stone | null, };
 
 export type MatchRulesUnverified = { name: string, commands: string, side: Stone | null, reason_key: string, };
 
@@ -3025,26 +3042,21 @@ coords: boolean,
 /**
  * 自动播放 (`ui.autoPlay` [true]).
  */
-autoPlay: boolean, 
-/**
- * The ▴/▾ button that expands or collapses the 详细工具栏, Chinese interface only
- * (`ui.show-detailed-toolbar-menu` [false]).
- */
-detailButton: boolean, };
+autoPlay: boolean, };
 
-export type DetailPanelOrder = { autoAnalysis: number, engineMatch: number, autoPlay: number, };
-
-export type BottomToolbar = "Hidden" | "Simple" | "Detailed";
+export type BottomToolbar = "Hidden" | "Simple";
 
 export type WorkbenchPanel = "SubBoard" | "WinrateGraph" | "LargeWinrateGraph" | "Comment" | "VariationGraph" | "ListPane" | "Captured" | "Status" | "LargeSubBoard" | "AlwaysOnTop";
 
-export type AppearanceSettings = { theme: string, boardStyle: BoardStyle, appleStyle: boolean, morandiColors: boolean, customBoardImage: string, customBackgroundImage: string, frameFontSize: number, 
+export type AppearanceSettings = { theme: string, boardStyle: BoardStyle, mode: AppearanceMode, customBoardImage: string, customBackgroundImage: string, frameFontSize: number, 
 /**
  * Config.java:1809; no Java UI changes it. Legacy level 0 uses the theme's background blur.
  */
 glassEffectLevel: number, };
 
 export type BoardStyle = "Japanese" | "ChineseClassic";
+
+export type AppearanceMode = "System" | "Light" | "Dark";
 
 export type ThemeSettings = { usePureBoard: boolean, usePureBackground: boolean, usePureStone: boolean, pureBoardColor: Array<number>, pureBackgroundColor: Array<number>, showStoneShadow: boolean, shadowSize: number, stoneIndicatorType: number, winrateStrokeWidth: number, scoreLeadStrokeWidth: number, minimumBlunderBarWidth: number, commentFontSize: number, backgroundFilter: number, winrateLineColor: Array<number>, winrateMissLineColor: Array<number>, scoremeanLineColor: Array<number>, blunderBarColor: Array<number>, bestMoveColor: Array<number>, commentBackgroundColor: Array<number>, commentFontColor: Array<number>, commentNodeColor: Array<number>, showCommentNodeColor: boolean, useScorediffInVariationTree: boolean, scorediffInVariationTreeFactor: number, fontName: string, uiFontName: string, winrateFontName: string, boardImage: string, backgroundImage: string, blackStoneImage: string, whiteStoneImage: string, blunderWinrateThresholds: Array<number>, blunderNodeColors: Array<Array<number>>, glassPanelOverlayColor: Array<number>, glassPanelBorderColor: Array<number>, glassPanelHighlightColor: Array<number>, glassPanelShadowColor: Array<number>, glassAccentColor: Array<number>, glassBlurRadius: number, liquidBlurRadius: number, glassCornerRadius: number, };
 

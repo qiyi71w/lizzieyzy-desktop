@@ -1369,6 +1369,9 @@ impl Workbench {
         let Some(mut d) = self.batch.run.as_mut().and_then(|r| r.doc.take()) else {
             return;
         };
+        // Java analyses each record through startAutoAnaNow / the flash engine, which drop the
+        // board's engine-game marks first (BottomToolbar.java:4028, AnalysisEngine.java:1222): the
+        // save appends the comments and writes `DZ[G]` for a KataGo record only.
         let edits = self.save_comment_edits(&d.record, &d.store, None);
         if !edits.is_empty() {
             let rec = Arc::make_mut(&mut d.record);
@@ -1381,7 +1384,8 @@ impl Workbench {
         let work = self.storage.save_dir.parent().unwrap_or(Path::new(".")).to_path_buf();
         let path = analyzed_output(Path::new(&d.path), &work, &stamp, &label);
         let path_text = path.to_string_lossy().into_owned();
-        let text = self.analyzed_text(&d.record, &d.store, Some(&d.secondary), None, APPLICATION);
+        let mark = self.kata_record(&d.store, &d.secondary).then_some(super::exporting::SaveMark::KataGo);
+        let text = self.analyzed_text(&d.record, &d.store, Some(&d.secondary), None, APPLICATION, mark);
         let ticket = self.next_save;
         self.next_save += 1;
         self.saves.push(PendingSave {

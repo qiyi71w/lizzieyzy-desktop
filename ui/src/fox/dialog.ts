@@ -4,9 +4,11 @@
 // not stop the session.
 import { apply, registerViewHandler, run, saveRecordAs, state } from "../app";
 import { COMMANDS } from "../commands";
-import { isApiError, snapshot } from "../contract/client";
+import { snapshot } from "../contract/client";
+import { errorText } from "../errorText";
 import type { FoxCommand, FoxReplaceChoice, FoxStartOutcome, FoxView } from "../contract/generated";
-import { message, options } from "../dialogs";
+import { stepper } from "../design/stepper";
+import { closeBox, message, options } from "../dialogs";
 import { format, product, t } from "../i18n";
 import { javaDouble, parseJavaDouble } from "../workbench/paint";
 import "./fox.css";
@@ -53,7 +55,7 @@ export async function submitFoxPda(draft: string): Promise<FoxView | null> {
     apply(view);
     return state.view?.fox ?? null;
   } catch (e) {
-    await message("Error", isApiError(e) ? e.message : String(e), "error");
+    await message(t("Message.title"), errorText(e), "error");
     return null;
   }
 }
@@ -172,10 +174,10 @@ function row(...items: HTMLElement[]): HTMLElement {
   return r;
 }
 
-function formRow(form: HTMLElement, key: string, field: HTMLInputElement): void {
+function formRow(form: HTMLElement, key: string, field: HTMLInputElement, control: HTMLElement = field): void {
   const label = el("label", "fox-label", key);
   label.htmlFor = field.id;
-  form.append(label, field);
+  form.append(label, control);
 }
 
 function build(): HTMLElement {
@@ -187,13 +189,11 @@ function build(): HTMLElement {
   // An owned JDialog stays usable while WaitForAnalysis disables the main window.
   box.dataset.freeWindow = "";
   const head = el("div", "modal-title fox-title", t("Fox.title"));
-  const x = el("button", "fox-close", "×");
-  x.setAttribute("aria-label", product("close"));
+  const x = closeBox(() => { box.hidden = true; });
   x.dataset.key = "fox.close";
-  x.onclick = () => { box.hidden = true; };
   head.append(x);
 
-  // Status card: status with its dot, then the clock, PDA and browsing rows when they have text.
+  // Status: its dot and text, then the clock, PDA and browsing rows when they have text.
   statusText = el("span", "fox-status-text");
   statusLine = row(el("span", "fox-dot"), statusText);
   statusLine.classList.add("fox-status");
@@ -206,14 +206,14 @@ function build(): HTMLElement {
   pdaRow.classList.add("fox-detail", "fox-muted");
   pdaRow.dataset.key = "fox.pda-status";
   browsingText = el("span", "fox-browsing-text");
-  returnLive = el("button", "fox-button", t("Fox.returnLive"));
+  returnLive = el("button", "", t("Fox.returnLive"));
   returnLive.dataset.key = "fox.return-live";
   returnLive.onclick = () => void fox({ type: "ReturnLive" });
   browsingRow = row(browsingText, returnLive);
   browsingRow.classList.add("fox-detail", "fox-browsing");
   browsingRow.dataset.key = "fox.browsing";
-  const card = el("div", "fox-card");
-  card.append(statusLine, clockRow, pdaRow, browsingRow);
+  const status = el("div", "fox-state");
+  status.append(statusLine, clockRow, pdaRow, browsingRow);
 
   // Port, limits, the unlimited note, the inherited rules and the 广度 note.
   const form = el("div", "fox-form");
@@ -231,25 +231,26 @@ function build(): HTMLElement {
   visitsField = el("input", "fox-visits");
   visitsField.id = "fox-max-visits";
   visitsField.dataset.key = "fox.max-visits";
-  formRow(form, t("Fox.port"), portField);
+  formRow(form, t("Fox.port"), portField, stepper(portField));
   formRow(form, t("Fox.maxTime"), timeField);
   formRow(form, t("Fox.maxVisits"), visitsField);
   form.append(el("span"), el("span", "fox-muted fox-note", t("Fox.limitUnlimited")));
-  const rulesLabel = el("div", "fox-rules-label", t("Fox.rules"));
   rulesText = el("div", "fox-rules");
   rulesText.dataset.key = "fox.rules";
-  const breadth = el("div", "fox-muted fox-breadth", t("Fox.breadthUnavailable"));
+  form.append(el("span", "fox-label", t("Fox.rules")), rulesText);
+  form.append(el("span"), el("span", "fox-muted fox-note", t("Fox.breadthUnavailable")));
 
-  start = el("button", "fox-button", t("Fox.start"));
+  // 开启 (the window's main action) and 停止, at the bottom right.
+  start = el("button", "primary", t("Fox.start"));
   start.dataset.key = "fox.start";
   start.onclick = () => void startSession();
-  stop = el("button", "fox-button", t("Fox.stop"));
+  stop = el("button", "", t("Fox.stop"));
   stop.dataset.key = "fox.stop";
   stop.onclick = () => void fox({ type: "Stop" });
   const actions = el("div", "fox-actions");
   actions.append(start, stop);
 
-  const communication = el("div", "fox-muted fox-communication", t("Fox.communication"));
+  const communication = el("div", "fox-label fox-communication", t("Fox.communication"));
   transcript = el("textarea", "fox-transcript");
   transcript.readOnly = true;
   transcript.wrap = "off";
@@ -258,7 +259,7 @@ function build(): HTMLElement {
   transcript.setAttribute("aria-label", t("Fox.communication"));
 
   const content = el("div", "fox-content");
-  content.append(card, form, rulesLabel, rulesText, breadth, actions, communication, transcript);
+  content.append(status, form, communication, transcript, actions);
   box.append(head, content);
   // The window's own keys stay out of the workbench shortcuts (the JDialog has the focus); like
   // the Java dialog it closes only from its title bar.
@@ -339,7 +340,7 @@ async function startStep(op: FoxCommand): Promise<FoxStartOutcome | null> {
     apply(view);
     return view.fox.outcome;
   } catch (e) {
-    await message("Error", isApiError(e) ? e.message : String(e), "error");
+    await message(t("Message.title"), errorText(e), "error");
     return null;
   }
 }

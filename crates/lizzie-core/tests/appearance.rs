@@ -1,9 +1,9 @@
 //! Appearance operations through the same committed settings/projection seam as the UI.
-use lizzie_core::appearance::{self, AppearanceSettings, BoardStyle, ThemeSettings};
+use lizzie_core::appearance::{self, AppearanceMode, AppearanceSettings, BoardStyle, ThemeSettings};
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::runtime::{EngineIo, InstanceId, Launcher};
 use lizzie_core::settings::Storage;
-use lizzie_core::workbench::Workbench;
+use lizzie_core::workbench::{Workbench, SETTINGS_SAVE_FAILED};
 
 struct NoEngine;
 impl Launcher for NoEngine {
@@ -16,15 +16,27 @@ fn workbench(root:&std::path::Path)->Workbench { Workbench::new(storage(root),So
 fn default_edits_apply_and_survive_restart_without_mutating_a_draft() {
     let dir=tempfile::tempdir().unwrap(); let mut wb=workbench(dir.path());
     let before=wb.view(true).settings;
-    assert_eq!(before.theme,ThemeSettings::default());
+    assert_eq!(before.theme,ThemeSettings::default()); assert_eq!(before.appearance.mode,AppearanceMode::Light);
     let mut draft=before.theme.clone(); draft.use_pure_board=true; draft.pure_board_color=vec![20,40,60];
     draft.font_name="Example Font".into(); draft.comment_font_size=19; draft.winrate_stroke_width=2.8;
     assert_eq!(wb.view(false).settings.theme,before.theme);
-    let mut settings=before.appearance; settings.board_style=BoardStyle::ChineseClassic; settings.apple_style=true;
-    wb.set_appearance_settings(settings,draft.clone()).unwrap();
+    let mut settings=before.appearance; settings.board_style=BoardStyle::ChineseClassic; settings.mode=AppearanceMode::System;
+    wb.set_appearance_settings(settings.clone(),draft.clone()).unwrap();
     let v=wb.view(false).settings;
-    assert_eq!(v.theme,draft); assert!(v.appearance.morandi_colors); assert_eq!(v.appearance.board_style,BoardStyle::ChineseClassic);
-    let mut reopened=workbench(dir.path()); assert_eq!(reopened.view(true).settings.theme,draft);
+    assert_eq!(v.theme,draft); assert_eq!(v.appearance.mode,AppearanceMode::System); assert_eq!(v.appearance.board_style,BoardStyle::ChineseClassic);
+    let mut reopened=workbench(dir.path()); let v=reopened.view(true).settings;
+    assert_eq!(v.theme,draft); assert_eq!(v.appearance.mode,AppearanceMode::System);
+    settings.mode=AppearanceMode::Dark;
+    reopened.set_appearance_settings(settings,draft).unwrap();
+    assert_eq!(workbench(dir.path()).view(true).settings.appearance.mode,AppearanceMode::Dark);
+}
+#[test]
+fn settings_written_with_the_former_interface_styles_still_load() {
+    let dir=tempfile::tempdir().unwrap(); let file=storage(dir.path()).config_file;
+    std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+    std::fs::write(&file,r#"{"appearance":{"boardStyle":"ChineseClassic","appleStyle":true,"morandiColors":true,"frameFontSize":16}}"#).unwrap();
+    let a=workbench(dir.path()).view(true).settings.appearance;
+    assert_eq!((a.board_style,a.mode,a.frame_font_size),(BoardStyle::ChineseClassic,AppearanceMode::Light,16));
 }
 #[test]
 fn frame_size_is_saved_but_the_session_keeps_its_original_size() {
@@ -46,6 +58,90 @@ fn named_theme_edits_use_the_selected_theme_file_and_leave_default_values_alone(
     let raw:serde_json::Value=serde_json::from_slice(&std::fs::read(file).unwrap()).unwrap();
     assert_eq!(raw["comment-font-color"],serde_json::json!([10,20,30,240]));
     assert_eq!(workbench(dir.path()).view(true).settings.theme,theme);
+}
+#[test]
+fn saving_a_named_theme_keeps_the_theme_file_keys_the_page_does_not_edit() {
+    let dir=tempfile::tempdir().unwrap(); let mut wb=workbench(dir.path());
+    wb.add_theme("Personal").unwrap();
+    let file=appearance::theme_file(wb.storage(),"Personal").unwrap();
+    let mut raw:serde_json::Map<String,serde_json::Value>=serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    raw.insert("node-color-mode".into(),serde_json::json!(1));
+    raw.insert("future-theme-key".into(),serde_json::json!({"nested":[1,"two"]}));
+    std::fs::write(&file,serde_json::to_vec(&raw).unwrap()).unwrap();
+    let mut theme=appearance::load_theme(wb.storage(),"Personal",&ThemeSettings::default());
+    theme.shadow_size=42; theme.background_image=String::new();
+    wb.set_appearance_settings(AppearanceSettings { theme:"Personal".into(), ..Default::default() },theme.clone()).unwrap();
+    let saved:serde_json::Value=serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    assert_eq!(saved["node-color-mode"],serde_json::json!(1));
+    assert_eq!(saved["future-theme-key"],serde_json::json!({"nested":[1,"two"]}));
+    assert_eq!(saved["shadow-size"],serde_json::json!(42));
+    // Theme.save leaves out blank strings.
+    assert!(saved.get("background-image").is_none());
+    assert_eq!(wb.view(false).settings.theme,theme);
+    // A bundled theme without a user file keeps the bundled file's other keys.
+    let theme=appearance::load_theme(wb.storage(),"Fast",&ThemeSettings::default());
+    wb.set_appearance_settings(AppearanceSettings { theme:"Fast".into(), ..Default::default() },ThemeSettings { shadow_size:43, ..theme }).unwrap();
+    let saved:serde_json::Value=serde_json::from_slice(&std::fs::read(appearance::theme_file(wb.storage(),"Fast").unwrap()).unwrap()).unwrap();
+    assert_eq!(saved["var-panel-color"],serde_json::json!([80,80,80]));
+}
+#[test]
+fn saving_a_named_theme_writes_only_the_keys_the_page_edits() {
+    let dir=tempfile::tempdir().unwrap(); let mut wb=workbench(dir.path());
+    wb.add_theme("Personal").unwrap();
+    let file=appearance::theme_file(wb.storage(),"Personal").unwrap();
+    let raw:serde_json::Value=serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    assert!(raw.get("glass-corner-radius").is_none());
+    let theme=appearance::load_theme(wb.storage(),"Personal",&ThemeSettings::default());
+    wb.set_appearance_settings(AppearanceSettings { theme:"Personal".into(), ..Default::default() },ThemeSettings { shadow_size:42, ..theme }).unwrap();
+    let saved:serde_json::Value=serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    assert_eq!(saved["shadow-size"],serde_json::json!(42));
+    // Keys the page does not edit stay absent, so they keep following the ui values.
+    assert!(saved.get("glass-corner-radius").is_none(), "{saved}");
+    assert!(saved.get("glass-accent-color").is_none(), "{saved}");
+}
+/// Every value the 主题外观 page edits (ConfigDialog2.java:6204-6285) is written by a save and read
+/// back the same; the images stay as the theme has them.
+#[test]
+fn every_value_the_theme_page_edits_survives_a_save_and_a_reload() {
+    let dir=tempfile::tempdir().unwrap(); let mut wb=workbench(dir.path());
+    wb.add_theme("Personal").unwrap();
+    let theme=appearance::load_theme(wb.storage(),"Personal",&ThemeSettings::default());
+    let edited=ThemeSettings {
+        use_pure_board:!theme.use_pure_board, use_pure_background:!theme.use_pure_background, use_pure_stone:!theme.use_pure_stone,
+        pure_board_color:vec![1,2,3], pure_background_color:vec![4,5,6],
+        show_stone_shadow:!theme.show_stone_shadow, shadow_size:77, stone_indicator_type:(theme.stone_indicator_type+1)%4,
+        winrate_stroke_width:2.5, score_lead_stroke_width:3.5, minimum_blunder_bar_width:5,
+        comment_font_size:17, background_filter:9,
+        winrate_line_color:vec![7,8,9], winrate_miss_line_color:vec![10,11,12], scoremean_line_color:vec![13,14,15],
+        blunder_bar_color:vec![16,17,18,19], best_move_color:vec![20,21,22],
+        comment_background_color:vec![23,24,25,26], comment_font_color:vec![27,28,29], comment_node_color:vec![30,31,32],
+        show_comment_node_color:!theme.show_comment_node_color, use_scorediff_in_variation_tree:!theme.use_scorediff_in_variation_tree,
+        scorediff_in_variation_tree_factor:0.25,
+        font_name:"Serif".into(), ui_font_name:"Sans".into(), winrate_font_name:"Mono".into(),
+        blunder_winrate_thresholds:vec![-20.0,-5.0,0.0], blunder_node_colors:vec![vec![1,1,1],vec![2,2,2],vec![3,3,3]],
+        ..theme.clone()
+    };
+    wb.set_appearance_settings(AppearanceSettings { theme:"Personal".into(), ..Default::default() },edited.clone()).unwrap();
+    assert_eq!(appearance::load_theme(wb.storage(),"Personal",&ThemeSettings::default()),edited);
+}
+#[cfg(unix)]
+#[test]
+fn a_theme_folder_that_cannot_be_written_reports_the_settings_save_failure() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir=tempfile::tempdir().unwrap(); let mut wb=workbench(dir.path());
+    wb.add_theme("Personal").unwrap();
+    let folder=appearance::theme_file(wb.storage(),"Personal").unwrap().parent().unwrap().to_path_buf();
+    let before=wb.view(true).settings;
+    let theme=appearance::load_theme(wb.storage(),"Personal",&ThemeSettings::default());
+    let set=|mode| std::fs::set_permissions(&folder,std::fs::Permissions::from_mode(mode)).unwrap();
+    set(0o555);
+    let failed=wb.set_appearance_settings(AppearanceSettings { theme:"Personal".into(), ..Default::default() },ThemeSettings { shadow_size:42, ..theme });
+    set(0o755);
+    let error=failed.unwrap_err();
+    let mut lines=error.message.lines();
+    assert_eq!(lines.next(),Some(SETTINGS_SAVE_FAILED), "{}", error.message);
+    assert!(lines.next().is_some_and(|cause|!cause.trim().is_empty()), "{}", error.message);
+    assert_eq!(wb.view(false).settings,before);
 }
 #[test]
 fn a_failed_theme_or_config_write_does_not_publish_new_settings() {
@@ -74,6 +170,14 @@ fn new_themes_use_the_java_template_and_deletion_removes_only_the_chosen_theme()
     wb.delete_theme("sabaki").unwrap();
     assert!(!appearance::catalog(&s,&ThemeSettings::default()).iter().any(|t|t.name=="sabaki"));
     assert_eq!(appearance::load_theme(&s,"sabaki",&ThemeSettings::default()),ThemeSettings::default());
+    // The Java classic bundle lists, hides on delete, and its name stays taken.
+    assert!(appearance::catalog(&s,&ThemeSettings::default()).iter().any(|t|t.name=="java-classic"));
+    // Its values are Java's defaults whatever the ui section holds; its images are the default ones.
+    let ui=ThemeSettings { shadow_size:20, board_image:"ui-board.png".into(), ..Default::default() };
+    assert_eq!(appearance::load_theme(&s,"java-classic",&ui),ThemeSettings::default());
+    wb.delete_theme("java-classic").unwrap();
+    assert!(!appearance::catalog(&s,&ThemeSettings::default()).iter().any(|t|t.name=="java-classic"));
+    assert!(wb.add_theme("Java-Classic").is_err());
 }
 #[test]
 fn custom_images_are_owned_copies_and_clear_restores_the_default() {

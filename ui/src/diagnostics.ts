@@ -1,10 +1,13 @@
 // Help > 诊断与日志 (DiagnosticsDialog): 诊断记录 and its modules, 完整日志 and its scopes (applied
-// with 应用), application/crash logs, and the ReadBoard helper's own log writers.
+// with 应用), application/crash logs, and the ReadBoard helper's own log writers. The dialog is
+// grouped rows (engine/controls.ts) in one column, closed by 关闭 in its footer or the close box.
 import { registerViewHandler, run, state } from "./app";
 import { logsStatus } from "./contract/client";
 import type { DiagnosticModule, HelperLoggingView, LoggingSettings, Persistence, Presentation, TraceScope } from "./contract/generated";
-import { confirm, panel } from "./dialogs";
+import { confirm, formPanel } from "./dialogs";
+import { actions, button, footer, groupNote, groupTitle, row, switchRow } from "./engine/controls";
 import { format, product, t } from "./i18n";
+import "./diagnostics.css";
 
 // Labels resolve in the active language when the dialog opens.
 const moduleRows = (): [DiagnosticModule, string][] => [
@@ -79,73 +82,48 @@ registerViewHandler(() => refreshReadBoard?.());
 
 export async function openDiagnostics(): Promise<void> {
   const status = await logsStatus();
+  // One column of groups: LizzieYzy, ReadBoard, then the logs' health with the actions.
   const body = document.createElement("div");
   body.className = "diagnostics";
-  const section = (title: string) => {
-    const h = document.createElement("div");
-    h.className = "diag-section";
-    h.textContent = title;
-    body.append(h);
-  };
-  const row = (...children: (HTMLElement | string)[]) => {
-    const r = document.createElement("div");
-    r.className = "diag-row";
-    r.append(...children);
-    body.append(r);
-    return r;
-  };
-  const button = (label: string, onClick: () => void, enabled = true) => {
-    const b = document.createElement("button");
-    b.textContent = label;
-    b.disabled = !enabled;
-    if (!enabled) b.title = product("unavailable");
-    b.onclick = onClick;
-    return b;
+  /** The next block of rows in `host`: a gap parts it from the block before. */
+  const block = (host: HTMLElement) => {
+    const el = document.createElement("div");
+    el.className = "diag-block";
+    host.append(el);
+    return el;
   };
 
-  // LizzieYzy pane (DiagnosticsDialog.java:288-352).
-  section(t("DiagnosticsDialog.hostPane"));
-  /** checkRow (DiagnosticsDialog.java): the label, then the box at the row's end. */
-  const check = (label: string, key: string, indent: boolean) => {
-    const box = document.createElement("input");
-    box.type = "checkbox";
-    box.dataset.key = key;
-    const text = document.createElement("span");
-    text.textContent = label;
-    const l = document.createElement("label");
-    l.className = "diag-check";
-    l.append(text, box);
-    const r = row(l);
-    if (indent) r.classList.add("diag-indent");
-    return { box, row: r };
+  // LizzieYzy pane (DiagnosticsDialog.java:288-352): each switch with its categories indented
+  // under it, then the scope notes.
+  groupTitle(body, t("DiagnosticsDialog.hostPane"));
+  /** checkRow (DiagnosticsDialog.java): the switch and its label; a state shown for the switch
+   *  stands before it at the row's end. */
+  const check = (host: HTMLElement, label: string, key: string, sub: boolean, ...state: HTMLElement[]) => {
+    const { row: r, input } = switchRow(host, label, "", false, ...state);
+    input.dataset.key = key;
+    if (sub) r.classList.add("diag-sub");
+    return input;
   };
-  const enabled = check(t("DiagnosticsDialog.diagnosticsEnabled"), "diagnostics.enabled", false);
-  const modules = moduleRows().map(([m, label]) => [m, check(label, `diagnostics.module.${m}`, true).box] as const);
-  const fullLogs = check(t("DiagnosticsDialog.fullTrace"), "diagnostics.fullTrace", false);
+  const diagnostics = block(body);
+  const enabled = check(diagnostics, t("DiagnosticsDialog.diagnosticsEnabled"), "diagnostics.enabled", false);
+  const modules = moduleRows().map(([m, label]) => [m, check(diagnostics, label, `diagnostics.module.${m}`, true)] as const);
+  const trace = block(body);
   const traceState = document.createElement("span");
-  traceState.className = "diag-feedback";
-  fullLogs.box.before(traceState);
-  const scopes = scopeRows().map(([s, label]) => [s, check(label, `diagnostics.scope.${s}`, true).box] as const);
-  const scopeNote = document.createElement("div");
-  scopeNote.className = "diag-feedback diag-note";
-  const migration = document.createElement("div");
-  migration.className = "diag-feedback diag-note";
-  migration.textContent = t("DiagnosticsDialog.gtpMigrationNote");
-  body.append(scopeNote, migration);
-  // The status area under the buttons (statusArea): 应用 and export results.
-  const feedback = document.createElement("span");
-  feedback.className = "diag-feedback";
+  const fullLogs = check(trace, t("DiagnosticsDialog.fullTrace"), "diagnostics.fullTrace", false, traceState);
+  const scopes = scopeRows().map(([s, label]) => [s, check(trace, label, `diagnostics.scope.${s}`, true)] as const);
+  const scopeNote = groupNote(body, "");
+  groupNote(body, t("DiagnosticsDialog.gtpMigrationNote"));
   // A 完整日志 start or stop shows once the view after it arrives.
   let refreshPending = false;
 
   const active = () => state.view?.full_trace ?? [];
   /** setModulesEnabled (DiagnosticsDialog.java:1097-1102). */
-  const modulesEnabled = () => { for (const [, box] of modules) box.disabled = !enabled.box.checked; };
+  const modulesEnabled = () => { for (const [, box] of modules) box.disabled = !enabled.checked; };
   /** refreshScopeControls (DiagnosticsDialog.java:1007-1027): a running session's scopes are
    *  shown and locked while 完整日志 stays checked. */
   const refreshScopes = () => {
     const running = active();
-    const locked = running.length > 0 && fullLogs.box.checked;
+    const locked = running.length > 0 && fullLogs.checked;
     if (locked) for (const [s, box] of scopes) box.checked = running.includes(s);
     for (const [, box] of scopes) box.disabled = locked;
     scopeNote.textContent = running.length
@@ -157,17 +135,17 @@ export async function openDiagnostics(): Promise<void> {
   const refreshHost = () => {
     const s = state.view?.settings.logging;
     if (!s) return;
-    enabled.box.checked = s.diagnosticsEnabled;
+    enabled.checked = s.diagnosticsEnabled;
     for (const [m, box] of modules) box.checked = s.diagnosticModules.includes(m);
     const running = active();
-    fullLogs.box.checked = running.length > 0;
+    fullLogs.checked = running.length > 0;
     const shown = running.length ? running : s.preferredFullTraceScopes;
     for (const [sc, box] of scopes) box.checked = shown.includes(sc);
     refreshScopes();
     modulesEnabled();
   };
-  enabled.box.onchange = modulesEnabled;
-  fullLogs.box.onchange = refreshScopes;
+  enabled.onchange = modulesEnabled;
+  fullLogs.onchange = refreshScopes;
   /** selectedScopes (DiagnosticsDialog.java:980-995): none checked means all. */
   const selectedScopes = (): TraceScope[] => {
     const chosen = scopes.filter(([, box]) => box.checked).map(([s]) => s);
@@ -177,9 +155,9 @@ export async function openDiagnostics(): Promise<void> {
   const apply = async () => {
     const saved = state.view?.settings.logging;
     if (!saved) return;
-    const continues = active().length > 0 && fullLogs.box.checked;
+    const continues = active().length > 0 && fullLogs.checked;
     const next: LoggingSettings = {
-      diagnosticsEnabled: enabled.box.checked,
+      diagnosticsEnabled: enabled.checked,
       diagnosticModules: modules.filter(([, box]) => box.checked).map(([m]) => m),
       preferredFullTraceScopes: continues ? saved.preferredFullTraceScopes : selectedScopes(),
     };
@@ -189,7 +167,7 @@ export async function openDiagnostics(): Promise<void> {
       return;
     }
     feedback.textContent = t("DiagnosticsDialog.applied");
-    if (fullLogs.box.checked) {
+    if (fullLogs.checked) {
       if (!active().length) {
         const message = `${t("DiagnosticsDialog.confirmMessage")}\n${scopeLabels(selectedScopes())}`;
         if (await confirm(t("DiagnosticsDialog.confirmTitle"), message)) {
@@ -214,29 +192,28 @@ export async function openDiagnostics(): Promise<void> {
   // events and process session, then the desired writers beside what the helper confirmed, then
   // the capture session. Without a helper the values are Java's detached snapshot; a toggle there
   // is refused and the boxes go back (requestSet false, refreshHelperFromSnapshot).
-  section(t("DiagnosticsDialog.readBoardPane"));
+  groupTitle(body, t("DiagnosticsDialog.readBoardPane"));
+  const values = block(body);
   const value = (label: string) => {
     const span = document.createElement("span");
-    row(`${label}: `, span);
+    span.className = "diag-value";
+    row(values, label, "", span);
     return span;
   };
   const capability = value(t("DiagnosticsDialog.helperCapability"));
   const persistence = value(t("DiagnosticsDialog.helperPersistence"));
   const drops = value(t("DiagnosticsDialog.helperDropCount"));
   const session = value(t("DiagnosticsDialog.helperProcessSession"));
+  // Each writer's switch is the desired state; what the helper confirmed stands before it.
+  const writers = block(body);
   const helperRow = (label: string) => {
     const observed = document.createElement("span");
-    observed.className = "diag-feedback";
-    const box = document.createElement("input");
-    box.type = "checkbox";
-    row(label, observed, box);
-    return { observed, box };
+    return { observed, box: switchRow(writers, label, "", false, observed).input };
   };
   const helperDiagnostics = helperRow(t("DiagnosticsDialog.helperDiagnostics"));
   const helperTrace = helperRow(t("DiagnosticsDialog.helperFullTrace"));
   const helperCapture = helperRow(t("DiagnosticsDialog.helperCapture"));
-  const summary = document.createElement("span");
-  row(summary);
+  const summary = groupNote(body, "");
   const updateReadBoard = () => {
     const l = state.view?.readboard.logging ?? null;
     capability.textContent = l?.status === "LegacyUnconfirmed" || l?.diagnostics === "LegacyUnconfirmed"
@@ -270,12 +247,17 @@ export async function openDiagnostics(): Promise<void> {
   helperCapture.box.onchange = () => void requestHelper(true);
   updateReadBoard();
 
-  section(t("DiagnosticsDialog.health"));
-  row(product("diagnosticsLogs", bytes(status.app_log_bytes), bytes(status.crash_log_bytes)));
+  // 日志健康状态: the log sizes, the folder on a line of its own under its name, the actions and
+  // the status area under them.
+  groupTitle(body, t("DiagnosticsDialog.health"));
+  const health = block(body);
+  row(health, product("diagnosticsLogs", bytes(status.app_log_bytes), bytes(status.crash_log_bytes)), "");
   const path = document.createElement("code");
+  path.className = "diag-path";
   path.textContent = status.directory;
-  row(`${t("DiagnosticsDialog.logsFolder")}: `, path);
-  row(
+  row(health, t("DiagnosticsDialog.logsFolder"), "").firstElementChild!.append(path);
+  actions(
+    body,
     button(t("DiagnosticsDialog.openLogs"), () => run({ type: "OpenLogFolder" })),
     button(t("DiagnosticsDialog.apply"), () => void apply()),
     button(t("DiagnosticsDialog.exportDefault"), async () => {
@@ -284,7 +266,8 @@ export async function openDiagnostics(): Promise<void> {
       feedback.textContent = r?.type === "Exported" ? `${t("DiagnosticsDialog.exportSuccess")}${r.path}` : r ? "" : t("DiagnosticsDialog.exportFailure");
     }),
   );
-  row(feedback);
+  // The status area under the buttons (statusArea): 应用 and export results.
+  const feedback = groupNote(body, "");
   const refresh = () => {
     updateReadBoard();
     if (refreshPending) {
@@ -295,8 +278,12 @@ export async function openDiagnostics(): Promise<void> {
     }
   };
   refreshReadBoard = refresh;
+  const dialog = formPanel(t("DiagnosticsDialog.title"), body);
+  const close = button(product("close"), () => void dialog.close());
+  close.dataset.key = "diagnostics.close";
+  footer(body, { cancel: close });
   try {
-    await panel(t("DiagnosticsDialog.title"), body);
+    await dialog.closed;
   } finally {
     if (refreshReadBoard === refresh) refreshReadBoard = null;
   }

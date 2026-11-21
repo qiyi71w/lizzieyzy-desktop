@@ -191,7 +191,7 @@ impl Workbench {
         }
         self.play_wrn_changed(value);
         if clear {
-            self.clear_analysis_cache(crate::api::AnalysisScope::All);
+            self.invalidate_analysis(crate::api::AnalysisScope::All);
         }
     }
 

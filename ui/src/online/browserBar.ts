@@ -2,23 +2,20 @@
 // above the remote 弈客 page. The page lives in its own webview; this strip only reports the
 // requests to the main window, which loads the page and starts or stops the follow.
 import { emitTo, listen } from "@tauri-apps/api/event";
-import { UI_FONT } from "../hawkeye/model";
-import { isChinese, setLanguage, t } from "../i18n";
+import { icon } from "../design/icons";
+import { setLanguage, t } from "../i18n";
 import { BAR_ADDRESS_EVENT, BAR_DATA_EVENT, BAR_INPUT_EVENT, type BarInput, type BarPayload } from "./model";
+import "../design/window";
 import "./bar.css";
 
 export function bootYikeBar(): void {
-  document.body.style.fontFamily = UI_FONT;
   const send = (input: BarInput) => void emitTo("main", BAR_INPUT_EVENT, input);
 
   const back = document.createElement("button");
   back.type = "button";
   back.id = "yb-back";
   back.dataset.key = "yikeBrowser.back";
-  const icon = document.createElement("img");
-  icon.src = "/assets/left.png";
-  icon.alt = "";
-  back.append(icon);
+  back.append(icon("back"));
   // setFocusable(false): the address field keeps the focus.
   back.tabIndex = -1;
   back.onmousedown = (e) => e.preventDefault();
@@ -56,7 +53,6 @@ export function bootYikeBar(): void {
   address.addEventListener("input", () => send({ type: "report", address: address.value }));
 
   const labels = () => {
-    document.documentElement.lang = isChinese() ? "zh" : "en";
     load.textContent = t("LizzieFrame.onLoad");
     stop.textContent = t("LizzieFrame.stopSync");
   };

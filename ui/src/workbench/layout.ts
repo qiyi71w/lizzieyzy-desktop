@@ -706,6 +706,153 @@ export function floatBoardLayout(width: number, height: number, r: LayoutRequest
   };
 }
 
+/** The workbench as cards (DESIGN.md 工作台卡片) over the result of any layout above. */
+export interface CardLayout {
+  /** The cards: each group's bounds inset by CARD_INSET, drawn with CARD_RADIUS corners. */
+  cards: Rect[];
+  /** 1 px section dividers between neighbouring panels of a card. */
+  dividers: Rect[];
+  /** The layout with every shown panel clipped to its card, the sub board as the square centred
+   *  SUB_CLEAR inside its section, the status strip set and the seams along the clipped panels. */
+  panels: Panels;
+  /** CSS border-radius of each shown panel but the sub board: the card's radius at the corners it
+   *  shares with its card. */
+  radii: Partial<Record<PanelId, string>>;
+}
+
+export const CARD_INSET = 8;
+export const CARD_RADIUS = 10;
+const SUB_CLEAR = 12;
+
+const near = (a: number, b: number) => Math.abs(a - b) <= 1;
+const overlapX = (a: Rect, b: Rect) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+const overlapY = (a: Rect, b: Rect) => Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+
+function intersect(a: Rect, b: Rect): Rect {
+  const x = Math.max(a.x, b.x);
+  const y = Math.max(a.y, b.y);
+  return { x, y, w: Math.max(0, Math.min(a.x + a.w, b.x + b.w) - x), h: Math.max(0, Math.min(a.y + a.h, b.y + b.h) - y) };
+}
+
+/** The cards of a layout. A card is a run of shown panels that share x and width and touch each
+ *  other, joined with the panels the layout puts in one background container (`glass`), and inset
+ *  CARD_INSET from their bounds; every panel is clipped to its card. Before grouping, the status
+ *  strip takes the width of the panel it continues, and the sub board's section spans the panels
+ *  it continues and reaches down to the next panel below it, wherever that overlaps no other
+ *  panel. The layout functions above stay Java's geometry; this is the one place the inset
+ *  applies. */
+export function cardLayout(p: Panels, height: number): CardLayout {
+  const raw = (id: PanelId): Rect =>
+    id === "status" ? p.status ?? { x: 0, y: p.ponderingY, w: p.board.x, h: height - p.ponderingY } : p[id];
+  const slots = new Map<PanelId, Rect>();
+  for (const id of Object.keys(p.shown) as PanelId[]) {
+    const r = raw(id);
+    if (p.shown[id] && r.w > 0 && r.h > 0) slots.set(id, { ...r });
+  }
+  const others = (id: PanelId) => [...slots].filter(([k]) => k !== id).map(([, r]) => r);
+  const sub = slots.get("sub");
+  if (sub) {
+    const rest = others("sub");
+    const free = (r: Rect) => rest.every((q) => overlapX(q, r) <= 0 || overlapY(q, r) <= 0);
+    let touching = rest.filter((q) => near(q.y + q.h, sub.y) && overlapX(q, sub) > 0);
+    if (!touching.length) touching = rest.filter((q) => near(sub.y + sub.h, q.y) && overlapX(q, sub) > 0);
+    if (touching.length) {
+      const left = Math.min(...touching.map((q) => q.x));
+      const right = Math.max(...touching.map((q) => q.x + q.w));
+      const wide = { ...sub, x: left, w: right - left };
+      if (left <= sub.x && right >= sub.x + sub.w && free(wide)) Object.assign(sub, wide);
+    }
+    const below = rest.filter((q) => overlapX(q, sub) > 0 && q.y >= sub.y + sub.h).map((q) => q.y);
+    const tall = { ...sub, h: Math.min(...below) - sub.y };
+    if (below.length && free(tall)) Object.assign(sub, tall);
+  }
+  const status = slots.get("status");
+  if (status) {
+    const column = others("status").find((q) => near(q.y + q.h, status.y) && near(q.x, status.x) && q.w < status.w);
+    if (column) [status.x, status.w] = [column.x, column.w];
+  }
+
+  const ids = [...slots.keys()];
+  const root = new Map(ids.map((id) => [id, id]));
+  const find = (id: PanelId): PanelId => {
+    while (root.get(id) !== id) id = root.get(id)!;
+    return id;
+  };
+  const join = (a: PanelId, b: PanelId) => root.set(find(a), find(b));
+  for (const a of ids)
+    for (const b of ids) {
+      const ra = slots.get(a)!, rb = slots.get(b)!;
+      if (a !== b && near(ra.x, rb.x) && near(ra.w, rb.w) && near(ra.y + ra.h, rb.y)) join(a, b);
+    }
+  for (const container of p.glass) {
+    const inside = ids.filter((id) => {
+      const r = slots.get(id)!;
+      const common = intersect(r, container);
+      return common.w * common.h * 2 >= r.w * r.h;
+    });
+    for (const id of inside.slice(1)) join(inside[0], id);
+  }
+  const groups = new Map<PanelId, PanelId[]>();
+  for (const id of ids) groups.set(find(id), [...(groups.get(find(id)) ?? []), id]);
+  const cards: Rect[] = [];
+  const cardOf = new Map<PanelId, Rect>();
+  for (const members of groups.values()) {
+    const rs = members.map((id) => slots.get(id)!);
+    const x = Math.min(...rs.map((r) => r.x));
+    const y = Math.min(...rs.map((r) => r.y));
+    const w = Math.max(...rs.map((r) => r.x + r.w)) - x - 2 * CARD_INSET;
+    const h = Math.max(...rs.map((r) => r.y + r.h)) - y - 2 * CARD_INSET;
+    if (w <= 0 || h <= 0) continue;
+    const card = { x: x + CARD_INSET, y: y + CARD_INSET, w, h };
+    cards.push(card);
+    for (const id of members) cardOf.set(id, card);
+  }
+  const clipped = new Map<PanelId, Rect>();
+  for (const [id, r] of slots) {
+    const card = cardOf.get(id);
+    clipped.set(id, card ? intersect(r, card) : r);
+  }
+
+  const dividers: Rect[] = [];
+  for (const a of ids)
+    for (const b of ids) {
+      if (a === b || !cardOf.has(a) || cardOf.get(a) !== cardOf.get(b)) continue;
+      const [sa, sb, ca, cb] = [slots.get(a)!, slots.get(b)!, clipped.get(a)!, clipped.get(b)!];
+      if (near(sa.y + sa.h, sb.y) && overlapX(ca, cb) > 0) dividers.push({ x: Math.max(ca.x, cb.x), y: cb.y - 1, w: overlapX(ca, cb), h: 1 });
+      if (near(sa.x + sa.w, sb.x) && overlapY(ca, cb) > 0) dividers.push({ x: cb.x - 1, y: Math.max(ca.y, cb.y), w: 1, h: overlapY(ca, cb) });
+    }
+
+  const radii: Partial<Record<PanelId, string>> = {};
+  for (const [id, r] of clipped) {
+    const c = cardOf.get(id);
+    if (!c || id === "sub") continue;
+    const [left, right] = [near(r.x, c.x), near(r.x + r.w, c.x + c.w)];
+    const [top, bottom] = [near(r.y, c.y), near(r.y + r.h, c.y + c.h)];
+    const corner = (a: boolean, b: boolean) => (a && b ? `${CARD_RADIUS}px` : "0");
+    radii[id] = `${corner(left, top)} ${corner(right, top)} ${corner(right, bottom)} ${corner(left, bottom)}`;
+  }
+
+  const pick = (id: PanelId) => clipped.get(id) ?? raw(id);
+  const section = clipped.get("sub");
+  const size = section ? Math.max(1, Math.min(section.w, section.h) - 2 * SUB_CLEAR) : 0;
+  const comment = pick("comment");
+  const table = pick("table");
+  const seam = (r: Rect | null, along: Rect) => r && { ...r, x: along.x, w: along.w };
+  const panels: Panels = {
+    ...p,
+    captured: pick("captured"),
+    stat: pick("stat"),
+    graph: pick("graph"),
+    comment,
+    tree: pick("tree"),
+    table,
+    sub: section ? { x: section.x + i((section.w - size) / 2), y: section.y + i((section.h - size) / 2), w: size, h: size } : p.sub,
+    status: pick("status"),
+    handles: p.handles && { ...p.handles, commentTop: seam(p.handles.commentTop, comment), variationList: seam(p.handles.variationList, table) },
+  };
+  return { cards, dividers, panels, radii };
+}
+
 export interface BoardGeom {
   /** Wood rectangle relative to the panel the board was laid out in. */
   x: number;

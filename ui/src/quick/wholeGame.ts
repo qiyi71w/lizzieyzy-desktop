@@ -1,10 +1,15 @@
-// WholeGameAnalysisDialog: modeless, never disables the board. Only the draft/visibility lives
-// here; Rust owns the session, progress, plan and engine handback.
+// WholeGameAnalysisDialog: a non-modal tool window that never disables the board. Only the
+// draft/visibility lives here; Rust owns the session, progress, plan and engine handback. The
+// window is grouped rows (engine/controls.ts): the description, 每个局面搜索次数, the run's
+// progress, then the buttons in the footer.
 import { registerViewHandler, run, state } from "../app";
 import { COMMANDS } from "../commands";
 import { dispatch } from "../contract/client";
 import type { WholeGameAnalysisView, WholeGameState } from "../contract/generated";
 import { message } from "../dialogs";
+import { icon } from "../design/icons";
+import { stepper } from "../design/stepper";
+import { groupNote, row } from "../engine/controls";
 import { boardUi, togglePolicy } from "../display/state";
 import { format, t } from "../i18n";
 import "./wholeGame.css";
@@ -50,8 +55,9 @@ function keyText(key: string): string {
   };
   return texts[key] ?? t(key);
 }
-function notice(text: string, ms: number): void {
-  const el = document.createElement("div"); el.className = "whole-game-notice"; el.role = "status"; el.textContent = text;
+/** A 提示条 above the bottom bar that goes by itself after `ms`. */
+function notice(text: string, ms: number, kind: "warning" | "success"): void {
+  const el = document.createElement("div"); el.className = `whole-game-notice ${kind}`; el.role = "status"; el.textContent = text;
   document.body.append(el); window.setTimeout(() => el.remove(), ms);
 }
 function visits(): number { return preset.value === "custom" ? Number(custom.value) : Number(preset.value); }
@@ -70,22 +76,25 @@ function hide(): void { if (win) win.hidden = true; }
 function build(): HTMLElement {
   const box = document.createElement("section"); box.className = "whole-game-window"; box.hidden = true;
   box.role = "dialog"; box.setAttribute("aria-label", t("WholeGameAnalysis.title")); box.dataset.freeWindow = "";
-  const close = document.createElement("button"); close.className = "whole-game-close"; close.textContent = "×";
-  close.dataset.key = "wholeGame.hide"; close.setAttribute("aria-label", t("WholeGameAnalysis.hide")); close.onclick = hide;
+  const close = document.createElement("button"); close.className = "whole-game-close"; close.append(icon("close"));
+  close.dataset.key = "wholeGame.hide"; close.setAttribute("aria-label", t("WholeGameAnalysis.hide")); close.title = t("WholeGameAnalysis.hide"); close.onclick = hide;
   const header = document.createElement("header");
-  const icon = document.createElement("span"); icon.className = "whole-game-icon"; icon.textContent = "●";
-  const text = document.createElement("div"), title = document.createElement("h2"), description = document.createElement("p");
-  title.textContent = t("WholeGameAnalysis.title"); description.textContent = t("WholeGameAnalysis.description"); text.append(title, description); header.append(icon, text);
-  const card = document.createElement("div"); card.className = "whole-game-card";
-  const controls = document.createElement("div"); controls.className = "whole-game-visits";
+  const title = document.createElement("h2");
+  title.textContent = t("WholeGameAnalysis.title"); header.append(title, close); box.append(header);
+  groupNote(box, t("WholeGameAnalysis.description"));
+  const controls = document.createElement("div"); controls.className = "whole-game-group";
   const label = document.createElement("label"); label.textContent = t("WholeGameAnalysis.visits.label"); label.htmlFor = "wholeGamePreset";
   preset = document.createElement("select"); preset.id = "wholeGamePreset"; preset.dataset.key = "wholeGame.visitsPreset";
   const options: [string,string][] = [["500", t("WholeGameAnalysis.visits.quick")], ["1000", t("WholeGameAnalysis.visits.standard")], ["3000", t("WholeGameAnalysis.visits.deep")], ["10000", t("WholeGameAnalysis.visits.professional")], ["custom", t("WholeGameAnalysis.visits.custom")]];
   for (const [value,text] of options) { const o = document.createElement("option"); o.value = value; o.textContent = text; preset.append(o); }
   custom = document.createElement("input"); custom.type = "number"; custom.min = "500"; custom.max = "1000000"; custom.step = "100";
   custom.dataset.key = "wholeGame.customVisits"; custom.setAttribute("aria-label", t("WholeGameAnalysis.visits.customValue"));
-  hint = document.createElement("p"); hint.dataset.key = "wholeGame.visitsHint";
-  controls.append(label, preset, custom, hint); preset.onchange = () => void updateHint(); custom.oninput = () => void updateHint();
+  // The hint, or the estimate, is the row's description under its name.
+  hint = document.createElement("span"); hint.className = "ds-row-sub"; hint.dataset.key = "wholeGame.visitsHint";
+  row(controls, label, "", preset, stepper(custom)).firstElementChild!.append(hint);
+  preset.onchange = () => void updateHint(); custom.oninput = () => void updateHint();
+  // The run's progress as a group of its own: phase, bar with its percentage, counts, then mode and time left.
+  const status = document.createElement("div"); status.className = "ds-row whole-game-status";
   phase = document.createElement("h3"); phase.dataset.key = "wholeGame.phase";
   const bar = document.createElement("div"); bar.className = "whole-game-bar";
   progress = document.createElement("progress"); progress.max = 100; progress.dataset.key = "wholeGame.progress";
@@ -93,7 +102,7 @@ function build(): HTMLElement {
   counts = document.createElement("p"); counts.dataset.key = "wholeGame.counts";
   const metadata = document.createElement("div"); metadata.className = "whole-game-metadata";
   mode = document.createElement("span"); remaining = document.createElement("span"); mode.dataset.key = "wholeGame.mode"; remaining.dataset.key = "wholeGame.remaining";
-  metadata.append(mode, remaining); card.append(controls, phase, bar, counts, metadata);
+  metadata.append(mode, remaining); status.append(phase, bar, counts, metadata);
   const actions = document.createElement("footer");
   const button = (key: string) => { const b = document.createElement("button"); b.dataset.key = `wholeGame.${key}`; actions.append(b); return b; };
   start = button("start"); pause = button("pause"); stop = button("stop");
@@ -116,7 +125,7 @@ function build(): HTMLElement {
       e.preventDefault(); (start.disabled ? pause.disabled ? stop.disabled ? null : stop : pause : start)?.click();
     }
   };
-  box.append(close, header, card, actions); document.body.append(box); return box;
+  box.append(controls, status, actions); document.body.append(box); return box;
 }
 function render(v?: WholeGameAnalysisView): void {
   if (!win || !v) return;
@@ -166,7 +175,7 @@ for (const id of ["lightning-analysis-settings", "engine.rules", "game.komi"]) {
 registerViewHandler((view) => {
   const v = view.whole_game;
   if (active(v.state)) draft = false;
-  if (v.save_failed && v.run !== saveNoticeRun) { saveNoticeRun = v.run; notice(t("WholeGameAnalysis.visits.saveFailed"), 4000); }
-  if (v.state === "Complete" && v.run !== completedRun) { completedRun = v.run; hide(); notice(t("WholeGameAnalysis.resultsShown"), 5000); }
+  if (v.save_failed && v.run !== saveNoticeRun) { saveNoticeRun = v.run; notice(t("WholeGameAnalysis.visits.saveFailed"), 4000, "warning"); }
+  if (v.state === "Complete" && v.run !== completedRun) { completedRun = v.run; hide(); notice(t("WholeGameAnalysis.resultsShown"), 5000, "success"); }
   render(v);
 });

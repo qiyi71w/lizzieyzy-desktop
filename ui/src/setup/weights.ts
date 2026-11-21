@@ -1,11 +1,30 @@
 // Java KataGoAutoSetupDialog.createWeightsSection / createWeightCatalogBlock.
 import { run, state } from "../app";
 import type { Model, ResourceItem, ResourcesView } from "../contract/generated";
+import { icon } from "../design/icons";
 import { ask } from "../dialogs";
-import { product, t } from "../i18n";
-import type { SetupCard, SetupContext } from "./card";
+import { product, registerProduct, t } from "../i18n";
+import { tagged, type SetupCard, type SetupContext } from "./card";
 import { currentTarget, packageTarget, planSetup, resourceCommand, resourceView, setupBusy, setupStatus, setupVerified } from "./dialog";
 import { action, actions, node, notice, resourceText, section, size } from "./setupText";
+
+/** The catalog's purpose tiers, after the model family in a row's name, so two models of one
+ *  family (10B balanced and 10B lightweight) read apart; the words of the recommendation cards. */
+registerProduct({
+  ZhCn: { setupTierStrongest: "棋力优先", setupTierBalanced: "速度均衡", setupTierLightweight: "轻量快速" },
+  ZhTw: { setupTierStrongest: "棋力優先", setupTierBalanced: "速度均衡", setupTierLightweight: "輕量快速" },
+  EnUs: { setupTierStrongest: "strength first", setupTierBalanced: "balanced speed", setupTierLightweight: "lightweight fast" },
+  JaJp: { setupTierStrongest: "棋力優先", setupTierBalanced: "速度バランス", setupTierLightweight: "軽量・高速" },
+  KoKr: { setupTierStrongest: "기력 우선", setupTierBalanced: "속도 균형", setupTierLightweight: "경량 고속" },
+  ThTh: { setupTierStrongest: "เน้นความแข็งแกร่ง", setupTierBalanced: "สมดุลความเร็ว", setupTierLightweight: "เบาและเร็ว" },
+});
+
+/** A catalog model as the list, its details and the download question name it: its family and,
+ *  for a tiered model, its tier. */
+function modelName(model: Model): string {
+  const tiers: Record<string, string> = { strongest: product("setupTierStrongest"), balanced: product("setupTierBalanced"), lightweight: product("setupTierLightweight") };
+  return tiers[model.tier] ? `${model.displayFamily} · ${tiers[model.tier]}` : model.displayFamily;
+}
 
 interface WeightRow {
   id: string;
@@ -26,9 +45,9 @@ export function weightsCard(_ctx: SetupContext): SetupCard {
     const r = resourceView(); if (!r) return;
     last = r; element.replaceChildren();
     element.append(node("h2", t("AutoSetup.weightsTitle")), node("p", t("AutoSetup.weightsSubtitle"), "setup-hint"));
-    const current = node("div", "", "setup-current-weight"); const stone = node("span", "", "setup-stones");
-    const description = node("div"); description.append(node("small", t("AutoSetup.currentWeight")), node("strong", r.currentSetup.modelName ?? t("AutoSetup.notFound")));
-    current.append(stone, description, node("span", r.currentSetup.weight ? t("AutoSetup.currentlyUsingShort") : t("AutoSetup.notReady"), "setup-use-badge"));
+    const current = node("div", "", "setup-current-weight");
+    current.append(node("span", t("AutoSetup.currentWeight")), node("strong", r.currentSetup.modelName ?? t("AutoSetup.notFound")),
+      tagged(node("span", r.currentSetup.weight ? t("AutoSetup.currentlyUsingShort") : t("AutoSetup.notReady")), r.currentSetup.weight ? "ready" : "missing"));
     element.append(current, notice());
     const target = currentTarget() ?? r.inventory.packages.filter((p) => p.usable).map(packageTarget).find((p) => p !== null) ?? null;
     const installed = target && r.inventory.packages.find((p) => p.executable === target.executable);
@@ -47,7 +66,7 @@ export function weightsCard(_ctx: SetupContext): SetupCard {
       const incompatible = model.architecture === "transformer" && !supportsTransformer;
       const use = action(`setup.weight.recommend.${model.id}.action`, inUse ? t("AutoSetup.currentlyUsingShort") : weight ? incompatible ? t("AutoSetup.transformerRequires117Short") : t("AutoSetup.useWeight") : t("AutoSetup.downloadShort"), async () => {
         if (weight && target) await planSetup(target, weight.path);
-        else if (!weight && await ask(t("AutoSetup.title"), node("p", product("setupDownloadConfirm", model.displayFamily, size(model.sizeBytes))), t("AutoSetup.downloadShort"), product("cancel"), true)) await resourceCommand({ type: "Download", item: { type: "Model", model: model.id } });
+        else if (!weight && await ask(t("AutoSetup.title"), node("p", product("setupDownloadConfirm", modelName(model), size(model.sizeBytes))), t("AutoSetup.downloadShort"), product("cancel"), true)) await resourceCommand({ type: "Download", item: { type: "Model", model: model.id } });
       }, !inUse && (!weight || setupVerified(target) && !incompatible));
       if (weight && incompatible) use.title = t("AutoSetup.transformerRequires117");
       card.append(button, use); card.classList.toggle("selected", selected === model.id); recommendations.append(card);
@@ -55,9 +74,13 @@ export function weightsCard(_ctx: SetupContext): SetupCard {
     element.append(recommendations, node("h3", t("AutoSetup.moreWeights")));
     const catalog = section(""), tabs = node("div", "", "setup-weight-tabs");
     for (const [id, title] of [["official", t("AutoSetup.officialWeightTab")], ["custom", t("AutoSetup.customWeightTab")]] as const) {
-      const button = action(`setup.weight.tab.${id}`, title, () => { tab = id; selected = ""; render(); }); button.classList.toggle("selected", id === tab); tabs.append(button);
+      const button = action(`setup.weight.tab.${id}`, title, () => { tab = id; selected = ""; render(); });
+      button.classList.add("setup-segment"); button.classList.toggle("selected", id === tab); button.setAttribute("aria-pressed", String(id === tab)); tabs.append(button);
     }
-    const reload = action("setup.weight.reload", "↻", () => tab === "official" ? resourceCommand({ type: "RefreshRemoteWeights" }) : resourceCommand({ type: "Inspect", refresh: true })); reload.title = t("AutoSetup.refreshOfficialWeights"); reload.setAttribute("aria-label", t("AutoSetup.refreshOfficialWeights")); tabs.append(reload); catalog.append(tabs);
+    // 刷新 as its icon; its name and tooltip are the refresh's full name.
+    const reload = action("setup.weight.reload", "", () => tab === "official" ? resourceCommand({ type: "RefreshRemoteWeights" }) : resourceCommand({ type: "Inspect", refresh: true }));
+    reload.className = "setup-icon-button"; reload.append(icon("refresh"));
+    reload.title = t("AutoSetup.refreshOfficialWeights"); reload.setAttribute("aria-label", t("AutoSetup.refreshOfficialWeights")); tabs.append(reload); catalog.append(tabs);
     const rows: WeightRow[] = [];
     if (tab === "official") {
       const seen = new Set<string>();
@@ -65,7 +88,7 @@ export function weightsCard(_ctx: SetupContext): SetupCard {
         const name = model.fileName.replace(/\.(bin|txt)\.gz$/i, ""); seen.add(name);
         const installed = r.inventory.weights.find((w) => w.catalogModelId === model.id || w.modelName === name);
         const remote = r.onlineWeights.find((w) => w.name === name);
-        rows.push({ id: model.id, name: model.displayFamily, transformer: model.architecture === "transformer", elo: remote?.elo ?? "—", date: model.publishedAt, bytes: model.sizeBytes, path: installed?.path ?? null, item: { type: "Model", model: model.id }, url: r.modelUrls[model.id] ?? model.downloadUrl, model });
+        rows.push({ id: model.id, name: modelName(model), transformer: model.architecture === "transformer", elo: remote?.elo ?? "—", date: model.publishedAt, bytes: model.sizeBytes, path: installed?.path ?? null, item: { type: "Model", model: model.id }, url: r.modelUrls[model.id] ?? model.downloadUrl, model });
       }
       for (const remote of r.onlineWeights) {
         if (seen.has(remote.name)) continue; seen.add(remote.name);
@@ -87,9 +110,12 @@ export function weightsCard(_ctx: SetupContext): SetupCard {
     for (const w of rows) {
       const tr = node("tr"); tr.classList.toggle("selected", w.id === selected);
       const model = node("td"); const select = action(`setup.weight.select.${w.id}`, w.name, () => { selected = w.id; render(); }); select.title = w.url || w.path || w.name; model.append(select);
-      const badge = node("td"); badge.append(node("span", w.transformer ? "TF" : "CNN", "setup-architecture"));
-      const status = inUsePath(w.path) ? t("AutoSetup.currentlyUsingShort") : w.path ? t("AutoSetup.downloaded") : t("AutoSetup.notDownloaded");
-      tr.append(model, badge, node("td", w.elo), node("td", w.date.slice(0, 10)), node("td", status)); tbody.append(tr);
+      const badge = node("td"); badge.append(tagged(node("span", w.transformer ? "TF" : "CNN"), "neutral"));
+      const status = node("td");
+      if (inUsePath(w.path)) status.append(tagged(node("span", t("AutoSetup.currentlyUsingShort")), "ready"));
+      else if (w.path) status.append(tagged(node("span", t("AutoSetup.downloaded")), "neutral"));
+      else status.textContent = t("AutoSetup.notDownloaded");
+      tr.append(model, badge, node("td", w.elo), node("td", w.date.slice(0, 10)), status); tbody.append(tr);
     }
     table.append(tbody); tableWrap.append(table); catalog.append(tableWrap);
     if (!rows.length) catalog.append(node("p", tab === "custom" ? t("AutoSetup.noCustomWeights") : t("AutoSetup.noRemoteWeights"), "setup-hint"));
@@ -103,14 +129,16 @@ export function weightsCard(_ctx: SetupContext): SetupCard {
     details.append(info);
     const blocked = !!chosen?.transformer && !supportsTransformer;
     if (blocked) info.append(node("p", t("AutoSetup.transformerRequires117"), "setup-warning"));
-    actions(details,
-      action("setup.weight.download", t("AutoSetup.downloadShort"), async () => {
-        if (!chosen?.item) return;
-        if (await ask(t("AutoSetup.title"), node("p", product("setupDownloadConfirm", chosen.name, size(chosen.bytes))), t("AutoSetup.downloadShort"), product("cancel"), true)) await resourceCommand({ type: "Download", item: chosen.item });
-      }, !!chosen?.item && !chosen.path),
-      action("setup.weight.use", inUsePath(chosen?.path ?? null) ? t("AutoSetup.currentlyUsingShort") : t("AutoSetup.useWeight"), () => target && chosen?.path ? planSetup(target, chosen.path) : undefined, setupVerified(target) && !!chosen?.path && !inUsePath(chosen.path) && !blocked),
-      action("setup.weight.import", t("AutoSetup.importWeight"), () => resourceCommand({ type: "ImportWeight", path: null })));
-    details.querySelector<HTMLButtonElement>("[data-key='setup.weight.import']")!.title = t("AutoSetup.importWeightFilter");
+    const download = action("setup.weight.download", t("AutoSetup.downloadShort"), async () => {
+      if (!chosen?.item) return;
+      if (await ask(t("AutoSetup.title"), node("p", product("setupDownloadConfirm", chosen.name, size(chosen.bytes))), t("AutoSetup.downloadShort"), product("cancel"), true)) await resourceCommand({ type: "Download", item: chosen.item });
+    }, !!chosen?.item && !chosen.path);
+    const use = action("setup.weight.use", inUsePath(chosen?.path ?? null) ? t("AutoSetup.currentlyUsingShort") : t("AutoSetup.useWeight"), () => target && chosen?.path ? planSetup(target, chosen.path) : undefined, setupVerified(target) && !!chosen?.path && !inUsePath(chosen.path) && !blocked);
+    const importWeight = action("setup.weight.import", t("AutoSetup.importWeight"), () => resourceCommand({ type: "ImportWeight", path: null }));
+    importWeight.title = t("AutoSetup.importWeightFilter");
+    // The selected weight's next step: download it, or use it once it is here.
+    (!download.disabled ? download : !use.disabled ? use : null)?.classList.add("primary");
+    actions(details, download, use, importWeight);
     catalog.append(details);
     if (r.remoteStatus === "refreshing") catalog.append(node("p", t("AutoSetup.loadingRemote"), "setup-hint"));
     else if (r.remoteStatus.startsWith("AutoSetup.")) catalog.append(node("p", resourceText(r.remoteStatus), "setup-warning"));
@@ -130,7 +158,7 @@ function humanSlModelCard(): HTMLElement {
   const installed = model.status === "Installed";
   const card = section(t("AutoSetup.humanSlModel"), `${t("AutoSetup.humanSlModelDescription")}  ·  ${t("AutoSetup.humanSlModelRelease")}`);
   card.querySelector("p")!.title = installed && model.path ? model.path : t("AutoSetup.humanSlModelMissing");
-  const tag = node("span", installed ? t("AutoSetup.humanSlModelDownloaded") : t("AutoSetup.notDownloaded"), `setup-status-tag ${installed ? "success" : "gold"}`);
+  const tag = tagged(node("span", installed ? t("AutoSetup.humanSlModelDownloaded") : t("AutoSetup.notDownloaded")), installed ? "ready" : "missing");
   tag.dataset.key = "setup.humansl.status";
   const importButton = action("setup.humansl.import", t("AutoSetup.importHumanSlModel"), () => resourceCommand({ type: "ImportHumanSlModel", path: null }), !setupBusy());
   importButton.title = t("AutoSetup.importHumanSlModel");
@@ -145,11 +173,11 @@ function quickModelCard(): HTMLElement {
   const quick = state.view?.settings.quick_model ?? { status: "Missing" as const, path: null, enabled: false };
   const card = section(t("AutoSetup.quickAnalysisModel"), t("AutoSetup.quickAnalysisModelDescription"));
   card.querySelector("p")!.title = quick.status !== "Missing" && quick.path ? quick.path : t("AutoSetup.quickAnalysisModelMissing");
-  const [text, tone] = quick.status === "Missing" ? [t("AutoSetup.notDownloaded"), "gold"]
-    : quick.status === "RequiresKataGo117" ? [t("AutoSetup.quickAnalysisModelRequires117"), "gold"]
-    : quick.status === "Enabled" ? [t("AutoSetup.quickAnalysisModelEnabled"), "success"]
-    : [t("AutoSetup.quickAnalysisModelInstalled"), "teal"];
-  const tag = node("span", text, `setup-status-tag ${tone}`); tag.dataset.key = "setup.quick.status";
+  const [text, tone] = quick.status === "Missing" ? [t("AutoSetup.notDownloaded"), "missing"] as const
+    : quick.status === "RequiresKataGo117" ? [t("AutoSetup.quickAnalysisModelRequires117"), "missing"] as const
+    : quick.status === "Enabled" ? [t("AutoSetup.quickAnalysisModelEnabled"), "ready"] as const
+    : [t("AutoSetup.quickAnalysisModelInstalled"), "neutral"] as const;
+  const tag = tagged(node("span", text), tone); tag.dataset.key = "setup.quick.status";
   if (quick.status === "Missing") {
     actions(card, tag, action("setup.quick.download", t("AutoSetup.downloadOnDemand"), () => resourceCommand({ type: "Download", item: { type: "QuickModel" } })));
     return card;

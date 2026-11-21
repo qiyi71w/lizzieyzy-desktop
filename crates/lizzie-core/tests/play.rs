@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use lizzie_core::api::{
     BatchCommand, BatchMode, Command, CommandResult, EditCommand, GameCommand, GameEnd, GameKind, GamePhase,
-    LeaseAvailabilityView, OpenSource, ResourceCommand, ResourceResult, ScoreCommand,
+    LeaseAvailabilityView, OpenSource, ReadBoardCommand, ResourceCommand, ResourceResult, ScoreCommand,
 };
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::cloud::{CloudLaunch, CloudProvider};
@@ -13,6 +13,7 @@ use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, KataParam, Launcher};
 use lizzie_core::formats::sgf;
+use lizzie_core::readboard::{HelperHost, HelperId, HelperInput, HelperLaunch};
 use lizzie_core::record::{NodeKind, Point, RecordFormat, Stone, ROOT};
 use lizzie_core::resources as r;
 use lizzie_core::settings::{
@@ -587,7 +588,7 @@ fn batch_analysis_is_refused_while_a_game_holds_or_gives_back_its_engine() {
 }
 
 #[test]
-fn an_analysis_game_uses_the_bottom_bar_autoplay_and_clears_it_at_the_end() {
+fn an_analysis_game_turns_autoplay_on_for_the_engine_and_clears_it_at_the_end() {
     let mut g = Game::new();
     let autoplay = AutoPlaySettings { time_enabled: false, playouts_enabled: true, playouts: 100, ..AutoPlaySettings::default() };
     start(&mut g, GameKind::Analysis, genmove_settings(true), Some(autoplay));
@@ -595,13 +596,6 @@ fn an_analysis_game_uses_the_bottom_bar_autoplay_and_clears_it_at_the_end() {
     let a = g.wb.view(false).settings.autoplay;
     assert!(a.enabled && !a.settings.black && a.settings.white, "自动落子 on for the engine's White: {a:?}");
     play(&mut g, 3, 3);
-    g.serve(&|_| None);
-    let off = AutoPlaySettings { white: true, ..a.settings };
-    g.game(GameCommand::SetAutoPlay { enabled: false, settings: off });
-    g.serve(&|_| None);
-    output(&mut g.wb, g.engine, &info("Q16", 150, 0.5));
-    assert_eq!(last_move(&g.wb).map(|m| m.0), Some(Stone::Black), "自动落子 off: the engine does not move");
-    g.game(GameCommand::SetAutoPlay { enabled: true, settings: off });
     g.serve(&|_| None);
     // 终局点目 stops the game's analysis and its moves too.
     g.wb.score(ScoreCommand::Toggle).unwrap();
@@ -617,12 +611,32 @@ fn an_analysis_game_uses_the_bottom_bar_autoplay_and_clears_it_at_the_end() {
     assert!(!a.enabled && !a.settings.black && !a.settings.white, "cleared after the game: {a:?}");
 }
 
-/// The bottom bar's 自动落子 writes nothing while a viewer's Web 试下 runs, as a desktop move is
-/// refused then; it plays again with its settings once the 试下 ends. (Java still plays, on the
-/// 试下's anchor: an approved difference.)
+/// A 棋盘同步工具 helper that says only what the test gives it; the cell holds its id.
+struct Helper(Arc<Mutex<Option<HelperId>>>);
+impl HelperHost for Helper {
+    fn launch(&mut self, helper: HelperId, _: &HelperLaunch) -> std::io::Result<()> {
+        *self.0.lock().unwrap() = Some(helper);
+        Ok(())
+    }
+    fn send(&mut self, _: HelperId, _: &str) -> std::io::Result<()> {
+        Ok(())
+    }
+    fn stop(&mut self, _: HelperId) -> bool {
+        false
+    }
+}
+
+/// 棋盘同步工具's ordinary 自动落子 (`play>` without `gma`) writes nothing while a viewer's Web 试下
+/// runs, as a desktop move is refused then; it plays again with its settings once the 试下 ends.
+/// (Java still plays, on the 试下's anchor: an approved difference.)
 #[test]
-fn bottom_bar_autoplay_waits_while_a_web_trial_runs_and_resumes_after_it() {
+fn readboard_autoplay_waits_while_a_web_trial_runs_and_resumes_after_it() {
     let mut g = Game::new();
+    let base = g._dir.path().join("app");
+    std::fs::create_dir_all(base.join("readboard")).unwrap();
+    std::fs::write(base.join("readboard").join("readboard.exe"), b"helper").unwrap();
+    let helper = Arc::new(Mutex::new(None));
+    g.wb.set_readboard_host(Box::new(Helper(helper.clone())), vec![base]);
     let t = g.wb.begin_open(OpenOrigin::File { path: "/x.sgf".into(), source: OpenSource::Drop });
     assert!(g.wb.complete_open(t, Ok((RecordFormat::Sgf, sgf::read("(;SZ[19];B[dd];W[pp])").unwrap()))));
     g.wb.navigate(Navigation::Last);
@@ -631,16 +645,21 @@ fn bottom_bar_autoplay_waits_while_a_web_trial_runs_and_resumes_after_it() {
     let web = |wb: &mut Workbench, text: &str| wb.web_board_message(7, parse_client_message(text).unwrap(), Instant::now());
     g.wb.web_board_started(7, "http://192.168.1.5:9998".into());
     assert_eq!(web(&mut g.wb, r#"{"type":"enter_trial","clientId":"a"}"#), None);
+    // Two 试下 moves: Black is to move, as at the anchor.
     assert_eq!(web(&mut g.wb, r#"{"type":"trial_move","clientId":"a","x":16,"y":2}"#), None);
+    assert_eq!(web(&mut g.wb, r#"{"type":"trial_move","clientId":"a","x":2,"y":6}"#), None);
     g.serve(&|_| None);
     let trial_at = g.wb.cursor();
     let revision = g.wb.document().revision;
 
-    let autoplay = AutoPlaySettings { black: true, white: true, time_enabled: false, playouts_enabled: true, playouts: 100, ..AutoPlaySettings::default() };
-    let set = GameCommand::SetAutoPlay { enabled: true, settings: autoplay };
-    assert_eq!(g.wb.game_gate(&Command::Game { op: set.clone() }), None, "the box itself can be ticked");
-    g.game(set);
+    assert_eq!(g.wb.readboard(ReadBoardCommand::Open).unwrap(), CommandResult::Done);
+    let h = helper.lock().unwrap().expect("the helper was started");
+    for line in ["ready", "play>black>5 100 0"] {
+        g.wb.readboard_input(h, HelperInput::Line(line.into()));
+    }
     let sent = g.serve(&|_| None);
+    let a = g.wb.view(false).settings.autoplay;
+    assert!(a.enabled && a.settings.black && !a.settings.white, "自动落子 on for Black: {a:?}");
     assert!(g.analyzing, "the engine analyses the 试下 position: {sent:?}");
     output(&mut g.wb, g.engine, &info("C3", 150, 0.5));
     assert!(g.wb.view(true).web_board.trial_active, "the 试下 still runs");

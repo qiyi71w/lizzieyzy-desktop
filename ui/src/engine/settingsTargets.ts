@@ -5,21 +5,23 @@ import { openAnalysisSettings, SETTINGS_PAGES, type SettingsSection } from "./se
 import { highlight } from "../search/highlight";
 
 // Only actual product rows belong here. A catalog entry alone never makes a setting available.
+// The `menu.*` ids are rows this product moved from Java's small dialogs into 综合设置.
 const targets = new Map<string, SettingsSection>([
   ...[
     "config.kifu.auto-analyze", "config.kifu.jump-last", "config.kifu.read-komi",
   ].map((id): [string, SettingsSection] => [id, "kifu"]),
   ...[
-    "config.analysis.winrate", "settings.black-winrate", "config.analysis.variation", "config.analysis.blunder-bar", "config.analysis.hover",
-    "config.analysis.graph-fill", "config.analysis.max-red", "config.analysis.tracking-visits", "config.analysis.suggestion-limit",
-    "config.analysis.variation-limit", "config.analysis.limit-time", "config.analysis.limit-visits",
+    "config.analysis.winrate", "settings.black-winrate", "config.analysis.variation", "menu.maxTreeWidth", "config.analysis.blunder-bar",
+    "config.analysis.hover", "config.analysis.graph-fill", "menu.initialMaxScoreLead", "config.analysis.max-red", "config.analysis.tracking-visits",
+    "config.analysis.suggestion-limit", "config.analysis.variation-limit", "config.analysis.limit-time", "config.analysis.limit-visits",
     "config.candidates.blue-ring", "config.candidates.color-ratio", "config.candidates.white-style",
-    "config.candidates.no-suggestion-circle", "config.candidates.minimum-playout-ratio",
-    "config.pv.mode", "config.pv.visit-limit", "config.pv.remove-dead",
+    "config.candidates.no-suggestion-circle", "config.candidates.minimum-playout-ratio", "config.candidates.score-lead", "menu.minPlayoutsForNextMove",
+    "menu.setCandidatesDelay",
+    "config.pv.mode", "config.pv.visit-limit", "config.pv.remove-dead", "menu.setReplayInterval",
   ].map((id): [string, SettingsSection] => [id, "engine"]),
   ...[
     "config.play.double-click", "config.play.click-review", "config.play.drag-stone", "config.play.comment-panel",
-    "config.play.hide-panel-controls", "config.play.coordinates", "config.play.freeze-sub-board",
+    "config.play.hide-panel-controls", "config.play.coordinates", "config.play.freeze-sub-board", "config.play.freeze-variation",
     "config.interaction.move-rectangle", "config.interaction.right-click", "config.interaction.coordinates",
   ].map((id): [string, SettingsSection] => [id, "play"]),
   ...[
@@ -56,7 +58,8 @@ export function openSettingsAt(target: string): Promise<boolean> {
     requestAnimationFrame(() => {
       if (!row.isConnected) { resolve(false); return; }
       highlight(row);
-      row.scrollIntoView({ block: "nearest", inline: "nearest" });
+      // Centred, so the row's description below it and its neighbours stay in view.
+      row.scrollIntoView({ block: "center", inline: "nearest" });
       const control = [...row.querySelectorAll<HTMLElement>(
         "input:not(:disabled):not([type='hidden']), select:not(:disabled), textarea:not(:disabled), button:not(:disabled), [tabindex]",
       )].find((element) => element.tabIndex >= 0 && !element.hidden && element.getClientRects().length > 0);

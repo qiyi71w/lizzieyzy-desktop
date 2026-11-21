@@ -256,7 +256,9 @@ fn ordinary_batch_analyses_each_record_in_the_background_while_the_open_record_i
     let (mut wb, world, fg) = setup(dir.path(), false);
     let games = dir.path().join("games");
     std::fs::create_dir(&games).unwrap();
-    let a = write(&games, "a.sgf", GAME_A);
+    // A saved engine game: the batch's analysis ends its marks (BottomToolbar.java:4028).
+    let source_a = GAME_A.replacen("(;", "(;DZ[KW]", 1);
+    let a = write(&games, "a.sgf", &source_a);
     let b = write(&games, "b.sgf", GAME_B);
     let open_doc = wb.document().id;
 
@@ -298,10 +300,11 @@ fn ordinary_batch_analyses_each_record_in_the_background_while_the_open_record_i
     assert_eq!(written.len(), 1);
     let copy = std::fs::read_to_string(&written[0]).unwrap();
     assert!(copy.contains("LZ["), "the copy carries the analysis: {copy}");
+    assert!(copy.contains("DZ[G]") && !copy.contains("DZ[KW]"), "a KataGo record now: {copy}");
     assert_eq!(analysed_copies(&games, "a").len(), 1);
     assert_eq!(
         std::fs::read_to_string(&a).unwrap(),
-        GAME_A,
+        source_a,
         "the source is not replaced"
     );
 

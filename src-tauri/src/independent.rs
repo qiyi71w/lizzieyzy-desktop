@@ -40,7 +40,7 @@ pub(super) fn close(app: &AppHandle, shared: &Shared, board: IndependentBoard) -
             if !window.is_maximized().unwrap_or(false) {
                 if let (Some(mut p), Ok(scale)) = (placement(&window), window.scale_factor()) {
                     let bar = match toolbar { lizzie_core::settings::BottomToolbar::Hidden => 0.0,
-                        lizzie_core::settings::BottomToolbar::Simple => 26.0, lizzie_core::settings::BottomToolbar::Detailed => 70.0 };
+                        lizzie_core::settings::BottomToolbar::Simple => 26.0 };
                     p.width = ((f64::from(p.height) - bar * scale) * 1.65).max(1.0) as u32;
                     if let Err(error) = set_outer(&window, p) { shared.log.warn(&error.message); }
                 }

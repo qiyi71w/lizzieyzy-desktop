@@ -1,31 +1,31 @@
-Copied unchanged from wimi321/lizzieyzy-next at cb53acc55eda42c6c671b5f668cd3b597456bf07,
-src/main/resources/assets/ (GPL-3.0, LICENSE.txt in that repository; byte-identical, checked).
-Default theme fallbacks per Theme.java:146-201,493-511; toolbar icons per Menu.java:8264-8301,
-stone-edit buttons hb.png / playpass.png per Menu.java:3674-3680, 3745-3751; bottom toolbar
-analyse button ready2.png (analysing) / playing2.png (paused) per Menu.java:5758-5769, 11086-11091;
-scroll bar arrows smallUp/Down/Left/Right.png per DemoScrollBarUI.java; sound/*.wav per
-Utils.playVoiceFile; edit-bar selected states smallblack2 / smallwhite4 / hb2.png and the markup
-buttons mark2, label(2), labelnum1/2, x(2), square(2), sanjiao(2), eraser(2).png per
-Menu.java:7552-7643, 8507-8634; board context-menu icons left, right, recycle, setpoint,
-forbidpoint, trackingpoint, upSearch.png per RightClickMenu.java:222-287 and
-RightClickMenu2.java:93-105; the sub-board heat image heatmap.png per SubBoardRenderer.java:1452-1466;
-the 落子评价 button states RankMarkOn / RankMarkOff.png per Menu.java:8432-8447; the 超级鹰眼 fold
-buttons up.png / down.png and settings.png per MoveListFrame.java:780-830 and the 吻合度 formula
-images matchform.png / matchformeng.png per SetMatchAiPara.java; the floating boards' close,
-always-on-top and lock buttons close.png, top.png / btm.png and Locked.png / Unlocked.png per
-IndependentMainBoard.java:125-279 and IndependentSubBoard.java:84-238; the AI 陪练 icon
-ui/ai-coach/coach-target.png per HumanSlTrainingStyle.coachIcon (Menu.java:5703,
-NewHumanSlGameDialog.java:188-190, 342); the 抓取死活题 step pictures capture1/2/3.png per
-CaptureTsumeGoFrame.java:81-91; the 棋力评估 dashboard background and stones
-ui/player_strength_bg.png, player_strength_black_stone.png, player_strength_white_stone.png per
-LizzieFrame.java:18216-18219, 18352-18356.
+Copied from wimi321/lizzieyzy-next at cb53acc55eda42c6c671b5f668cd3b597456bf07,
+src/main/resources/assets/ (GPL-3.0, LICENSE.txt in that repository); each checked against that
+commit with cmp:
+- Byte-identical: sound/*.wav and newtheme/theme.txt.
+- Same pixels, with a provenance note added (a PNG tEXt chunk `impeccable:prompt`, a JPEG
+  comment) naming the Java path: background.jpg, board.png, black0.png, white0.png,
+  newtheme/black.png, newtheme/white.png, heatmap.png, matchform.png, matchformeng.png,
+  capture1.png, capture2.png, capture3.png, paint2.png.
+Default theme fallbacks per Theme.java:146-201,493-511; sound/*.wav per Utils.playVoiceFile; the
+sub-board heat image heatmap.png per SubBoardRenderer.java:1452-1466; the 吻合度 formula images
+matchform.png / matchformeng.png per SetMatchAiPara.java; the 抓取死活题 step pictures
+capture1/2/3.png per CaptureTsumeGoFrame.java:81-91; the painting cursor paint2.png.
+Java's toolbar, menu, window-button, scroll-bar and dashboard pictures are not copied: the program
+draws its icons from ui/src/design/icons.ts.
 The application icons in src-tauri/icons were generated with `tauri icon` from
-packaging/icons/app-icon-1024.png of the same commit.
+packaging/icons/app-icon-1024.png of the same commit. app-icon.png here has the pixels of
+src-tauri/icons/128x128@2x.png, with the same kind of provenance note.
 The five complete theme folders in ../themes (sabaki, yasnaya, Megapack, Custom, Fast)
 are copied byte-for-byte from theme/ of the same fixed commit, under the repository's
 GPL-3.0 LICENSE.txt. No additional per-theme license or attribution files are present
 in those source folders. Bundled themes are read-only; user changes shadow them in
 the application's own configuration directory.
-The assets/newtheme template (theme.txt, black.png, white.png) is copied unchanged
-from src/main/resources/assets/newtheme/ of the same commit. New themes use that
+The assets/newtheme template (theme.txt, black.png, white.png) comes from
+src/main/resources/assets/newtheme/ of the same commit, as listed above. New themes use that
 template plus the default board.png and background.jpg (Utils.java:1268-1277).
+../themes/java-classic holds only a theme.txt written for this product: Java's own default values
+(Theme.java getters, Config.createDefaultConfig), shown with the default images above.
+The workbench wallpapers stage-light.jpg and stage-dark.jpg are made by tools/stage_wallpapers.py
+from the diffuse map of Poly Haven's `rough_linen` texture (https://polyhaven.com/a/rough_linen,
+CC0, by colormass and Rico Cilliers): its lighting is flattened and its fine detail graded to one
+colour per tile. Each carries a provenance note (a JPEG comment) naming that source.

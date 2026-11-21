@@ -12,6 +12,7 @@ import { product, t } from "../i18n";
 import { javaDouble, parseJavaDouble } from "../workbench/paint";
 import type { MenuNode } from "./javaMenus";
 import { openPopupMenu } from "./menubar";
+import { toolbarKeys } from "./bottombar";
 import { FLASH_MENU } from "../quick/flash";
 import { functionSearchRefused, openFunctionSearch } from "../search/controller";
 import { limitPopup } from "../analysis/region";
@@ -26,31 +27,34 @@ import "../strength/commands";
 import { topGroupShown, topToolbarWraps, type TopGroup } from "./topGroups";
 import { toggleDoubleMenu } from "../workbench/panels";
 import "../display/painting";
+import { icon, type IconName } from "../design/icons";
+import { stepper } from "../design/stepper";
+import { buildAiCoachButton } from "../humansl/commands";
+import { buildCommentaryButton } from "../commentary/commands";
 
 const updaters: (() => void)[] = [];
 
-/** A button whose icon shows a selected state (JButton.setIcon with the "2" image). */
-function liveIcon(off: string, on: string, tip: string, selected: () => boolean, action: () => void, cls = ""): HTMLElement {
+/** A toggle button: while its choice is selected the host carries `on` and aria-pressed. */
+function liveIcon(name: IconName, tip: string, selected: () => boolean, action: () => void, cls = ""): HTMLElement {
   const b = document.createElement("span");
   b.className = `tb-icon ${cls}`;
   b.title = tip;
-  const image = document.createElement("img");
-  image.alt = "";
-  b.append(image);
+  b.setAttribute("role", "button");
+  b.setAttribute("aria-label", tip);
+  b.append(icon(name));
   b.onclick = action;
   updaters.push(() => {
     const lit = selected();
-    const src = `/assets/${lit ? on : off}`;
-    if (image.getAttribute("src") !== src) image.src = src;
     b.classList.toggle("on", lit);
+    b.setAttribute("aria-pressed", String(lit));
   });
   return b;
 }
 
-/** A catalog toggle shown as a two-image button. */
-function commandIcon(off: string, on: string, tip: string, command: string, cls = ""): HTMLElement {
+/** A catalog toggle shown as a toggle button. */
+function commandIcon(name: IconName, tip: string, command: string, cls = ""): HTMLElement {
   const entry = COMMANDS[command];
-  const b = liveIcon(off, on, tip, () => entry.checked?.() ?? false, entry.run, cls);
+  const b = liveIcon(name, tip, () => entry.checked?.() ?? false, entry.run, cls);
   b.dataset.key = command;
   return b;
 }
@@ -68,34 +72,33 @@ function markupTools(): HTMLElement[] {
   const tools = document.createElement("span");
   tools.className = "tb-markup";
   tools.append(
-    at("toolbar.markup-letter", commandIcon("label.png", "label2.png", t("Accessibility.markupLetter"), "toolbar.markup-letter")),
-    at("toolbar.markup-number", commandIcon("labelnum1.png", "labelnum2.png", t("Accessibility.markupNumber"), "toolbar.markup-number")),
-    at("toolbar.markup-cross", commandIcon("x.png", "x2.png", t("Accessibility.markupCross"), "toolbar.markup-cross")),
-    at("toolbar.markup-square", commandIcon("square.png", "square2.png", t("Accessibility.markupSquare"), "toolbar.markup-square")),
-    at("toolbar.markup-triangle", commandIcon("sanjiao.png", "sanjiao2.png", t("Accessibility.markupTriangle"), "toolbar.markup-triangle")),
-    at("toolbar.markup-eraser", commandIcon("eraser.png", "eraser2.png", t("Accessibility.markupEraser"), "toolbar.markup-eraser")),
-    at("toolbar.markup-clear", icon("clear.png", t("Menu.btnMarkupClear.toolTipText"), "toolbar.markup-clear")),
-    at("toolbar.painting", icon("paint.png", t("Menu.drawPainting.toolTipText"), "toolbar.painting")),
+    at("toolbar.markup-letter", commandIcon("markup-letter", t("Accessibility.markupLetter"), "toolbar.markup-letter")),
+    at("toolbar.markup-number", commandIcon("markup-number", t("Accessibility.markupNumber"), "toolbar.markup-number")),
+    at("toolbar.markup-cross", commandIcon("markup-cross", t("Accessibility.markupCross"), "toolbar.markup-cross")),
+    at("toolbar.markup-square", commandIcon("markup-square", t("Accessibility.markupSquare"), "toolbar.markup-square")),
+    at("toolbar.markup-triangle", commandIcon("markup-triangle", t("Accessibility.markupTriangle"), "toolbar.markup-triangle")),
+    at("toolbar.markup-eraser", commandIcon("eraser", t("Accessibility.markupEraser"), "toolbar.markup-eraser")),
+    at("toolbar.markup-clear", iconButton("clear", t("Menu.btnMarkupClear.toolTipText"), "toolbar.markup-clear")),
+    at("toolbar.painting", iconButton("paint-brush", t("Menu.drawPainting.toolTipText"), "toolbar.painting")),
   );
   updaters.push(() => {
     const display = markupToolsShown() ? "" : "none";
     if (tools.style.display !== display) tools.style.display = display;
   });
-  return [at("toolbar.markup-tools", commandIcon("mark1.png", "mark2.png", t("Menu.btnMarkup.toolTipText"), "toolbar.markup-tools")), tools];
+  return [at("toolbar.markup-tools", commandIcon("markup", t("Menu.btnMarkup.toolTipText"), "toolbar.markup-tools")), tools];
 }
 
 /** Edit bar (Menu.java:7552-7643): 添加黑子 / 添加白子 toggle back to alternate play when chosen
  *  again; 交替落子 toggles only its own icon. Each clears insert mode. */
 function editBar(): HTMLElement[] {
   return [
-    liveIcon("smallblack1.png", "smallblack2.png", t("Menu.playBlackToolTipText"), () => editing.placement === "Black",
-      () => choosePlacement(editing.placement === "Black" ? "alternate" : "Black", false), "stone"),
-    liveIcon("smallwhite.png", "smallwhite4.png", t("Menu.playWhiteToolTipText"), () => editing.placement === "White",
-      () => choosePlacement(editing.placement === "White" ? "alternate" : "White", false), "stone"),
-    // iconbh = hb.png at menuIconSize + 8 in a 22 px button (Menu.java:3674-3680, 7602-7626)
-    liveIcon("hb.png", "hb2.png", t("Menu.playAlternatelyToolTipText"), alternateLit,
-      () => choosePlacement("alternate", !alternateLit()), "bw"),
-    icon("playpass.png", t("Menu.playPassToolTipText"), "menu.playPassMove", "w22"),
+    liveIcon("stone-black", t("Menu.playBlackToolTipText"), () => editing.placement === "Black",
+      () => choosePlacement(editing.placement === "Black" ? "alternate" : "Black", false)),
+    liveIcon("stone-white", t("Menu.playWhiteToolTipText"), () => editing.placement === "White",
+      () => choosePlacement(editing.placement === "White" ? "alternate" : "White", false)),
+    liveIcon("stone-alternate", t("Menu.playAlternatelyToolTipText"), alternateLit,
+      () => choosePlacement("alternate", !alternateLit())),
+    iconButton("pass", t("Menu.playPassToolTipText"), "menu.playPassMove", "tb-cut"),
   ];
 }
 
@@ -130,16 +133,16 @@ const RANK_POPUP: MenuNode[] = [
   },
 ];
 
-/** btnRankMark: RankMarkOn / RankMarkOff by Menu.setBtnRankMark; opens rankMarkPopup below it. */
+/** btnRankMark: lit while move rank marks are shown (Menu.setBtnRankMark); opens rankMarkPopup below it. */
 function rankMarkButton(): HTMLElement {
-  const b = liveIcon("RankMarkOff.png", "RankMarkOn.png", t("Menu.btnRankMark.toolTipText"), rankMarkLit, () => openPopupMenu(b, RANK_POPUP));
+  const b = liveIcon("move-rank", t("Menu.btnRankMark.toolTipText"), rankMarkLit, () => openPopupMenu(b, RANK_POPUP));
   b.dataset.key = "toolbar.rank-mark";
   return b;
 }
 
 /** btnFlashAnalyze: opens FlashAnalyzeMenu below it (Menu.java:8406-8415). */
 function flashButton(): HTMLElement {
-  const b = icon("flash.png", t("Menu.btnAnalyze.btnFlashAnalyze"));
+  const b = iconButton("flash", t("Menu.btnAnalyze.btnFlashAnalyze"));
   b.classList.remove("unavailable");
   b.title = t("Menu.btnAnalyze.btnFlashAnalyze");
   b.dataset.key = "toolbar.flash";
@@ -149,7 +152,7 @@ function flashButton(): HTMLElement {
 
 /** selectAllowMore / selectAvoidMore: the region's limit popup below the button. */
 function limitButton(allow: boolean, tip: string): HTMLElement {
-  const b = icon("horizonDown.png", tip, undefined, "more");
+  const b = iconButton("chevron-down", tip, undefined, "more");
   b.classList.remove("unavailable");
   b.title = tip;
   b.dataset.key = allow ? "toolbar.force-allow-options" : "toolbar.force-avoid-options";
@@ -157,8 +160,10 @@ function limitButton(allow: boolean, tip: string): HTMLElement {
   return b;
 }
 
+/** A toolbar button running `command`, or reporting that its capability is not available yet. */
 function marked(el: HTMLElement, command: string | undefined, tip: string): HTMLElement {
   const entry = command ? COMMANDS[command] : undefined;
+  el.setAttribute("role", "button");
   if (entry) {
     el.title = tip;
     el.dataset.key = command;
@@ -171,13 +176,11 @@ function marked(el: HTMLElement, command: string | undefined, tip: string): HTML
   return el;
 }
 
-function icon(img: string, tip: string, command?: string, cls = ""): HTMLElement {
+function iconButton(name: IconName, tip: string, command?: string, cls = ""): HTMLElement {
   const b = document.createElement("span");
   b.className = `tb-icon ${cls}`;
-  const image = document.createElement("img");
-  image.src = `/assets/${img}`;
-  image.alt = "";
-  b.append(image);
+  b.setAttribute("aria-label", tip);
+  b.append(icon(name));
   return marked(b, command, tip);
 }
 
@@ -188,15 +191,46 @@ function pill(text: string, cls = "", command?: string): HTMLElement {
   return marked(b, command, "");
 }
 
-/** TopHeaderPanel.ToolbarSeparator (10x24 leading, 8x22 between groups) or "dash" for the
- *  JToolBar.Separator after the komi panel (TopHeaderPanel.java:47-55, Menu.java:9654). */
-function sep(kind = ""): HTMLElement {
+/** Shows `items` while `shown` holds: a 自定义内容 choice, or function search revealed it. */
+function showWhile(shown: () => boolean, ...items: HTMLElement[]): HTMLElement[] {
+  updaters.push(() => {
+    const display = shown() ? "" : "none";
+    for (const item of items) if (item.style.display !== display) item.style.display = display;
+  });
+  return items;
+}
+
+/** A capsule: one raised surface around a group of related controls, which wraps as a whole.
+ *  With `shown` it shows only while that holds. */
+function capsule(shown: (() => boolean) | null, ...items: HTMLElement[]): HTMLElement {
+  const cap = document.createElement("span");
+  cap.className = "tb-cap";
+  cap.append(...items);
+  if (shown) showWhile(shown, cap);
+  return cap;
+}
+
+/** One row of the toolbar; it takes no room while nothing in it shows. */
+function row(...items: HTMLElement[]): HTMLElement {
+  const r = document.createElement("div");
+  r.className = "tb-row";
+  r.append(...items);
+  updaters.push(() => {
+    const display = items.some((item) => !item.classList.contains("tb-grow") && item.style.display !== "none") ? "" : "none";
+    if (r.style.display !== display) r.style.display = display;
+  });
+  return r;
+}
+
+/** The free space of a row: what follows it sits at the row's end. */
+function spacer(): HTMLElement {
   const s = document.createElement("span");
-  s.className = `tb-sep ${kind}`;
+  s.className = "tb-grow";
   return s;
 }
 
-/** A composite toolbar item (komiPanel / pdaFieldPanel / wrnFieldPanel): wraps as a whole. */
+/** A parameter (komiPanel / pdaFieldPanel / wrnFieldPanel) or a captioned set of choices inside a
+ *  capsule. */
 function group(cls: string, ...items: HTMLElement[]): HTMLElement {
   const g = document.createElement("span");
   g.className = `tb-group ${cls}`;
@@ -204,24 +238,13 @@ function group(cls: string, ...items: HTMLElement[]): HTMLElement {
   return g;
 }
 
-/** TopHeaderPanel.GroupPanel: FlowLayout(LEFT, 2, 0) holding a run of buttons. */
-function buttons(...items: HTMLElement[]): HTMLElement {
-  const g = document.createElement("span");
-  g.className = "tb-buttons";
-  g.append(...items);
-  return g;
-}
-
+/** A caption inside a capsule. Its colour sets it apart from the values, so the colon some
+ *  languages' strings end with is left out. */
 function label(text: string): HTMLElement {
   const s = document.createElement("span");
   s.className = "tb-label";
-  s.textContent = text;
+  s.textContent = text.replace(/[:：]\s*$/, "");
   return s;
-}
-
-/** Menu.withTrailingColon (Menu.java:8179-8187). */
-function withColon(text: string): string {
-  return text.endsWith(":") || text.endsWith("：") ? text : `${text}:`;
 }
 
 /** 选点 黑 / 白 (chkShowBlack / chkShowWhite, Menu.java:9714-9753): one colour's candidates. */
@@ -229,7 +252,6 @@ function candidateCheck(text: string, black: boolean): HTMLElement {
   const c = document.createElement("input");
   c.type = "checkbox";
   c.className = "tb-check";
-  c.tabIndex = -1;
   c.dataset.key = black ? "toolbar.candidates-black" : "toolbar.candidates-white";
   c.onchange = () => setCandidateSide(black, c.checked);
   updaters.push(() => (c.checked = black ? boardUi.showBlack : boardUi.showWhite));
@@ -244,25 +266,11 @@ function checkLabel(text: string, key: string): { box: HTMLInputElement; label: 
   const box = document.createElement("input");
   box.type = "checkbox";
   box.className = "tb-check";
-  box.tabIndex = -1;
   box.dataset.key = key;
   const label = document.createElement("label");
   label.className = "tb-checklabel";
   label.append(box, document.createTextNode(text));
   return { box, label };
-}
-
-/** A run of top-toolbar items shown while its 自定义内容 choice is on (or function search revealed
- *  it); the items wrap one by one like Java's. */
-function optional(shown: () => boolean, ...items: HTMLElement[]): HTMLElement {
-  const run = document.createElement("span");
-  run.className = "tb-run";
-  run.append(...items);
-  updaters.push(() => {
-    const display = shown() ? "" : "none";
-    if (run.style.display !== display) run.style.display = display;
-  });
-  return run;
 }
 
 function shownGroup(group: TopGroup): () => boolean {
@@ -284,13 +292,16 @@ function intText(text: string): boolean {
  *  7124-7137): the check writes limit-time / limit-playout and enables the field; every edit of
  *  the field writes its number (an empty field keeps the value, Utils.parseTextToLong). Each
  *  change lets an analysis a limit stopped go on when it is within the new limits. Both are
- *  separate toolbar items, so the field may wrap away from its check box as in Java. */
+ *  separate toolbar items, so the field may wrap away from its check box as in Java. The arrows
+ *  step a second or a hundred visits. */
 function limitControl(time: boolean): HTMLElement[] {
   const { box, label } = checkLabel(t(time ? "Menu.chkTime" : "Menu.chkPlayOut"), time ? "toolbar.limit-time" : "toolbar.limit-visits");
   label.classList.add("fit");
   const field = document.createElement("input");
   field.className = `tb-input ${time ? "time-limit" : "visit-limit"}`;
   field.inputMode = "numeric";
+  field.min = "0";
+  field.step = time ? "1" : "100";
   field.dataset.key = time ? "toolbar.limit-time-value" : "toolbar.limit-visits-value";
   field.setAttribute("aria-label", t(time ? "Menu.chkTime" : "Menu.chkPlayOut"));
   let taken = "";
@@ -317,20 +328,16 @@ function limitControl(time: boolean): HTMLElement[] {
     if (field.value !== value) field.value = taken = value;
   });
   at(time ? "toolbar.time-limit" : "toolbar.visit-limit", box);
-  return [label, field];
+  return [label, stepper(field)];
 }
 
-/** 限制: (Menu.lblLimit, Menu.java:9698-9712): shown while either limit is. */
-function limitGroup(): HTMLElement {
+/** 限制 (Menu.lblLimit, Menu.java:9698-9712): shown while either limit is. */
+function limitCapsule(): HTMLElement {
   const time = shownGroup("showTimeLimit");
   const visits = shownGroup("showVisitLimit");
-  return optional(
+  return capsule(
     () => time() || visits(),
-    sep(),
-    label(t("Menu.lblLimit")),
-    optional(time, ...limitControl(true)),
-    optional(visits, ...limitControl(false)),
-    sep("gap"),
+    group("choices", label(t("Menu.lblLimit")), ...showWhile(time, ...limitControl(true)), ...showWhile(visits, ...limitControl(false))),
   );
 }
 
@@ -381,9 +388,10 @@ function kataGroupShown(param: KataParam): boolean {
 
 /** 激进度 chkPDA / txtGfPDA and 广度 chkWRN / txtWRN (Menu.java:6174-6447). The check box or each
  *  edit of the value sends the value (0 when unchecked or not a number) to the foreground KataGo at
- *  once; a value outside -3..3 / 0..2 only turns the field red. The group shows the values the
- *  engine reports when it starts (Menu.setPdaAndWrn), not the answers to its own sets, and is
- *  disabled while the engine is not free for it (refreshBreadthAdmission).
+ *  once; a value outside -3..3 / 0..2 only turns the field red. The arrows, ↑ / ↓ and the wheel
+ *  step 激进度 by 0.1 and 广度 by 0.01 within those ranges. The group shows the values the engine reports when
+ *  it starts (Menu.setPdaAndWrn), not the answers to its own sets, and is disabled while the
+ *  engine is not free for it (refreshBreadthAdmission).
  *
  *  While 野狐 AI 直连 holds the engine every PDA check and text edit is the session's PDA intent
  *  (FoxLiveSession.submitPda) and the PDA controls show its confirmed value whenever that changes,
@@ -394,10 +402,13 @@ function kataGroup(param: KataParam): HTMLElement {
   const box = document.createElement("input");
   box.type = "checkbox";
   box.className = "tb-check";
-  box.tabIndex = -1;
   box.title = tip;
   const value = document.createElement("input");
   value.className = "tb-input";
+  value.inputMode = "decimal";
+  value.step = pda ? "0.1" : "0.01";
+  value.min = pda ? "-3" : "0";
+  value.max = pda ? "3" : "2";
   value.title = tip;
   box.dataset.key = pda ? "toolbar.pda" : "toolbar.wrn";
   value.dataset.key = pda ? "toolbar.pda-value" : "toolbar.wrn-value";
@@ -457,8 +468,11 @@ function kataGroup(param: KataParam): HTMLElement {
     value.classList.toggle("invalid", kataValueInvalid(param, value.value));
     send(box.checked);
   });
-  const name = pda ? t("Menu.separateLblPda") : t("Menu.separateLblWrn");
-  const g = group(pda ? "pda" : "wrn", at(pda ? "engine.pda" : "toolbar.wrn", box), label(withColon(name)), value);
+  const name = document.createElement("label");
+  name.className = "tb-checklabel";
+  name.title = tip;
+  name.append(at(pda ? "engine.pda" : "toolbar.wrn", box), document.createTextNode(pda ? t("Menu.separateLblPda") : t("Menu.separateLblWrn")));
+  const g = group(pda ? "pda" : "wrn", name, stepper(value, { format: javaDouble }));
   updaters.push(() => {
     const display = kataGroupShown(param) ? "" : "none";
     if (g.style.display !== display) g.style.display = display;
@@ -508,19 +522,21 @@ function pdaMoreShown(): boolean {
 
 /** A KataGoPda engine's own PDA panel, lblCustomPda and txtPDA (Menu.java:5943-5965, 9658-9661,
  *  9970-9986): the label without a colon and the engine's PDA as it reports it ("%.3f"), shown
- *  until the field is being edited. Each key release with a number sets it on the engine
- *  (`kata-set-param playoutDoublingAdvantage`); empty, "-" or "." send nothing. While 野狐 AI 直连
- *  holds the engine its own 激进度 group shows instead. */
+ *  until the field is being edited. Each edit that leaves a number sets it on the engine
+ *  (`kata-set-param playoutDoublingAdvantage`); empty, "-" or "." send nothing. The arrows step it
+ *  by 0.1. While 野狐 AI 直连 holds the engine its own 激进度 group shows instead. */
 function customPdaGroup(): HTMLElement {
   const value = document.createElement("input");
   value.className = "tb-input custom-pda";
+  value.inputMode = "decimal";
+  value.step = "0.1";
   value.dataset.key = "toolbar.customPda";
   value.setAttribute("aria-label", t("Menu.chkPDA.toolTopText"));
-  value.addEventListener("keyup", () => {
+  value.addEventListener("input", () => {
     const pda = parseJavaDouble(value.value);
     if (pda !== null) void run({ type: "SetKataParam", param: "Pda", enabled: true, value: pda });
   });
-  const g = group("custom-pda", label(t("Menu.separateLblPda")), value);
+  const g = group("custom-pda", label(t("Menu.separateLblPda")), stepper(value, { format: (pda) => pda.toFixed(3) }));
   let shown: number | null | undefined = undefined;
   updaters.push(() => {
     const display = kataGoPda() && !foxOwnsEngine() && pdaIdleShown() ? "" : "none";
@@ -534,8 +550,9 @@ function customPdaGroup(): HTMLElement {
 }
 
 function pdaMoreButton(): HTMLElement {
-  const b = pill("...", "small pda-more");
-  b.classList.remove("unavailable");
+  const b = document.createElement("span");
+  b.className = "tb-icon pda-more";
+  b.append(icon("more"));
   b.title = t("Accessibility.pdaOptions");
   b.setAttribute("role", "button");
   b.setAttribute("aria-label", t("Accessibility.pdaOptions"));
@@ -550,67 +567,30 @@ function pdaMoreButton(): HTMLElement {
   return b;
 }
 
-/** sepForPdaWrn: the separator after the komi panel goes with the last PDA / WRN group. */
-function kataSeparator(): HTMLElement {
-  const s = sep("dash");
-  updaters.push(() => {
-    const display = kataGroupShown("Pda") || kataGroupShown("Wrn") || pdaMoreShown() ? "" : "none";
-    if (s.style.display !== display) s.style.display = display;
-  });
-  return s;
-}
-
-function komiSpinner(): HTMLElement {
-  const spinner = document.createElement("span"); spinner.className = "tb-spin";
-  for (const step of [0.5, -0.5]) {
-    const arrow = document.createElement("i");
-    arrow.title = step > 0 ? t("Accessibility.increaseKomi") : t("Accessibility.decreaseKomi");
-    arrow.onclick = () => {
-      const field = document.getElementById("komiField") as HTMLInputElement;
-      if (!field.value.trim() || !Number.isFinite(Number(field.value))) return;
-      const komi = Number(field.value) + step;
-      field.value = String(komi);
-      void run({ type: "SetKomi", komi });
-    };
-    spinner.append(arrow);
-  }
-  return spinner;
-}
-
-function komiField(): HTMLInputElement {
+/** 贴目: typed in, or stepped by 0.5 with the arrows, ↑ / ↓ and the wheel; Enter or leaving the
+ *  field sets it. */
+function komiField(): HTMLElement {
   const control = document.createElement("input"); control.id = "komiField"; control.className = "tb-input";
   control.type = "number"; control.step = "0.5"; control.setAttribute("aria-label", t("Menu.komi"));
-  const commit = () => { if (control.value.trim() && Number.isFinite(Number(control.value))) void run({ type: "SetKomi", komi: Number(control.value) }); };
-  control.onchange = commit;
-  control.onkeydown = (event) => {
-    if (event.key === "Enter") { commit(); control.blur(); }
-    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-      event.preventDefault();
-      const komi = Number(control.value) + (event.key === "ArrowUp" ? 0.5 : -0.5);
-      control.value = String(komi); void run({ type: "SetKomi", komi });
-    }
-  };
-  return control;
+  control.onchange = () => { if (control.value.trim() && Number.isFinite(Number(control.value))) void run({ type: "SetKomi", komi: Number(control.value) }); };
+  control.onkeydown = (event) => { if (event.key === "Enter") control.blur(); };
+  return stepper(control, { titles: [t("Accessibility.increaseKomi"), t("Accessibility.decreaseKomi")] });
 }
 
-/** The search features button (Menu.java:8660-8685): FunctionSearchDialog.SearchIcon and the title,
- *  which collapses to the icon alone below a 900 px wide window. Not focusable, so the control
- *  that had the focus gets it back when the search is cancelled. */
+/** The search features button (Menu.java:8660-8685): the search icon and the title, which
+ *  collapses to the icon alone below a 900 px wide window. A press does not focus it, so the
+ *  control that had the focus gets it back when the search is cancelled. */
 function searchButton(): HTMLElement {
   const title = t("FunctionSearch.title");
   const b = document.createElement("span");
-  b.className = "tb-pill plain search";
+  b.className = "tb-search";
   b.dataset.key = "function.search";
   b.title = title;
   b.setAttribute("role", "button");
   b.setAttribute("aria-label", title);
-  const glass = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  glass.setAttribute("viewBox", "0 0 16 16");
-  glass.setAttribute("aria-hidden", "true");
-  glass.innerHTML = '<circle cx="5.5" cy="5.5" r="4.5"/><line x1="9" y1="9" x2="14" y2="14"/>';
   const text = document.createElement("span");
   text.className = "label";
-  b.append(glass, text);
+  b.append(icon("search"), text);
   const fit = () => {
     const narrow = window.innerWidth < 900;
     text.textContent = narrow ? "" : title;
@@ -619,15 +599,16 @@ function searchButton(): HTMLElement {
   fit();
   window.addEventListener("resize", fit);
   // Decided on the press: a text control keeps the focus (preventDefault) and the press has not
-  // yet closed an open menu, so both still refuse the search as the shortcut does.
-  let admitted = false;
+  // yet closed an open menu, so both still refuse the search as the shortcut does. Enter / Space
+  // on the focused button decide at the click.
+  let admitted: boolean | null = null;
   b.addEventListener("mousedown", (e) => {
     e.preventDefault();
     admitted = !functionSearchRefused();
   });
   b.onclick = () => {
-    if (admitted) void openFunctionSearch();
-    admitted = false;
+    if (admitted ?? !functionSearchRefused()) void openFunctionSearch();
+    admitted = null;
   };
   return b;
 }
@@ -664,7 +645,9 @@ function gameControls(): HTMLElement[] {
     newGame.style.display = game || match ? "none" : "";
     stop.style.display = game || match ? "" : "none";
     resign.style.display = game ? "" : "none";
-    pause.classList.toggle("disabled", !game && !match);
+    const idle = !game && !match;
+    pause.classList.toggle("disabled", idle);
+    pause.setAttribute("aria-disabled", String(idle));
     const paused = match ? match.phase === "Paused" : game?.phase === "Paused";
     pause.textContent = paused ? t("Menu.continueGameBtn") : t("Menu.pauseGameBtn");
   });
@@ -688,134 +671,137 @@ function clockLabel(): HTMLElement {
 
 /** btnFoxKifu (Menu.java:8353-8367): primary style, 野狐棋谱 as its tip. */
 function foxKifuButton(): HTMLElement {
-  const b = pill(t("Menu.foxKifuButton"), "w80", "menu.foxKifu");
+  const b = pill(t("Menu.foxKifuButton"), "", "menu.foxKifu");
   b.title = t("Menu.foxKifu");
   return b;
 }
 
 /** btnTencentKifu (Menu.java:8369-8384): primary style, 腾讯棋谱 as its tip. */
 function tencentKifuButton(): HTMLElement {
-  const b = pill(t("Menu.tencentKifuButton"), "w80", "menu.tencentKifu");
+  const b = pill(t("Menu.tencentKifuButton"), "", "menu.tencentKifu");
   b.title = t("Menu.tencentKifu");
   return b;
 }
 
 /** btnDoubleMenu (Menu.java:7534-7550, 8259): first in the row while its 自定义内容 choice is on.
- *  The row shows only 分开, so the button shows ▲, which turns the row to 合并. */
+ *  The row shows only 分开, so the button shows the up chevron, which turns the row to 合并. */
 function doubleMenuButton(): HTMLElement {
   const b = document.createElement("span");
   b.className = "tb-icon";
   b.dataset.key = "toolbar.double-menu";
   b.title = t("Accessibility.toolbarDetailsDescription");
-  const image = document.createElement("img");
-  image.src = "/assets/up.png";
-  image.alt = "";
-  b.append(image);
+  b.setAttribute("role", "button");
+  b.setAttribute("aria-label", t("Accessibility.toolbarDetailsDescription"));
+  b.append(icon("chevron-up"));
   b.onclick = toggleDoubleMenu;
   return b;
 }
 
-/** 选点: (lblShowCandidate, Menu.java:9874-9899): shown with either 黑 / 白 or 胜率 / 计算量 / 目数,
- *  with a separator between the two while both are. */
-function candidateGroup(): HTMLElement {
+/** 选点 (lblShowCandidate, Menu.java:9874-9899): shown with either 黑 / 白 or 胜率 / 计算量 / 目数,
+ *  the two parts divided while both show. */
+function candidateCapsule(): HTMLElement {
   const sides = shownGroup("showCandidateSides");
   const info = shownGroup("showCandidateInfo");
-  const caption = label(t("Menu.lblShowCandidate"));
-  caption.classList.add("candidate");
-  return optional(
+  return capsule(
     () => sides() || info(),
-    sep(),
-    caption,
-    optional(sides, at("toolbar.candidate-sides", candidateCheck(t("Menu.Black"), true)), candidateCheck(t("Menu.White"), false)),
-    optional(
+    group(
+      "choices",
+      label(t("Menu.lblShowCandidate")),
+      ...showWhile(sides, at("toolbar.candidate-sides", candidateCheck(t("Menu.Black"), true)), candidateCheck(t("Menu.White"), false)),
+    ),
+    ...showWhile(
       info,
-      optional(sides, sep()),
-      at("toolbar.candidate-info", candidateInfoCheck(t("Menu.winrate"), "menu.suggestion1", "toolbar.candidate-winrate")),
-      candidateInfoCheck(t("Menu.visits"), "menu.suggestion2", "toolbar.candidate-visits"),
-      candidateInfoCheck(t("Menu.score"), "menu.suggestion3", "toolbar.candidate-score"),
+      group(
+        "choices",
+        at("toolbar.candidate-info", candidateInfoCheck(t("Menu.winrate"), "menu.suggestion1", "toolbar.candidate-winrate")),
+        candidateInfoCheck(t("Menu.visits"), "menu.suggestion2", "toolbar.candidate-visits"),
+        candidateInfoCheck(t("Menu.score"), "menu.suggestion3", "toolbar.candidate-score"),
+      ),
     ),
   );
 }
 
-/** Menu.doubleMenu / setKomiPanelInDoubleMenu (Menu.java:8251-9931): each 自定义内容 group with
- *  the separator after it; 自动换行 off keeps one row (LizzieFrame.java:14503-14507). */
+/** The double menu's toolbar (Menu.doubleMenu / setKomiPanelInDoubleMenu, Menu.java:8251-9931) as
+ *  two rows of capsules, one capsule per 自定义内容 group: the icon groups and the search field in
+ *  the upper row; the game controls, AI 陪练 / AI 解说, the engine parameters and the text
+ *  buttons in the lower one. 自动换行 off keeps one row (LizzieFrame.java:14503-14507). */
 export function buildToolbar(host: HTMLElement): void {
-  const search = searchButton();
-  const setup = pill(t("Menu.autoSetupButton"), "wide w80", "engine.setup");
-  setup.dataset.key = "engine.setup"; setup.title = t("Menu.autoSetup"); setup.setAttribute("role", "button"); setup.tabIndex = 0;
-  setup.onkeydown = (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); COMMANDS["engine.setup"].run(); } };
+  const setup = pill(t("Menu.autoSetupButton"), "", "engine.setup");
+  setup.title = t("Menu.autoSetup");
+  const basic = shownGroup("showBasicButtons");
   const rules = shownGroup("showRules");
   const parameters = shownGroup("showParameters");
   const boardSize = shownGroup("showBoardSize");
   const saveLoad = shownGroup("showSaveLoad");
+  const tsumego = () => state.view?.settings.tsumego.showButton !== false;
   host.append(
-    optional(shownGroup("showDoubleMenuButton"), doubleMenuButton()),
-    optional(
-      shownGroup("showBasicButtons"),
-      sep("lead"),
-      buttons(
-        icon("newFile.png", t("Menu.btnNewFile.toolTipText"), "files.new"),
-        icon("open.png", t("Menu.btnOpen.toolTipText"), "files.open"),
-        icon("save.png", t("Menu.btnSave.toolTipText"), "files.save"),
-        foxKifuButton(),
-        tencentKifuButton(),
-        strengthButton(),
+    row(
+      capsule(shownGroup("showDoubleMenuButton"), doubleMenuButton()),
+      capsule(
+        basic,
+        iconButton("new-file", t("Menu.btnNewFile.toolTipText"), "files.new"),
+        iconButton("open", t("Menu.btnOpen.toolTipText"), "files.open"),
+        iconButton("save", t("Menu.btnSave.toolTipText"), "files.save"),
       ),
-      buttons(setup, flashButton(), search),
-      buttons(
-        icon("hawkeye2.png", t("Menu.btnHawkeye.toolTipText"), "analysis.bad-moves"),
+      capsule(
+        basic,
+        flashButton(),
+        iconButton("hawkeye", t("Menu.btnHawkeye.toolTipText"), "analysis.bad-moves"),
         rankMarkButton(),
-        at("toolbar.change-turn", icon("pass.png", t("Menu.btnChangeTurn.toolTipText"), "toolbar.change-turn")),
-        icon("setmain.png", t("Menu.btnSetMain.toolTipText"), "menu.setAsMain"),
-        icon("backmain.png", t("Menu.btnBackMain.toolTipText"), "menu.backToMainBranch"),
-        icon("control.png", t("Menu.btnContrlPanel.toolTipText"), "menu.ctrlPanel"),
+        at("toolbar.change-turn", iconButton("swap-turn", t("Menu.btnChangeTurn.toolTipText"), "toolbar.change-turn")),
+        iconButton("set-main", t("Menu.btnSetMain.toolTipText"), "menu.setAsMain"),
+        iconButton("back-to-main", t("Menu.btnBackMain.toolTipText"), "menu.backToMainBranch"),
+        iconButton("control-panel", t("Menu.btnContrlPanel.toolTipText"), "menu.ctrlPanel"),
         ...markupTools(),
       ),
-      sep(),
+      capsule(shownGroup("showEditBar"), ...editBar()),
+      capsule(
+        shownGroup("showForce"),
+        at("toolbar.force-allow", commandIcon("region-allow", t("Menu.selectAllowToolTipText"), "toolbar.force-allow")),
+        at("toolbar.force-allow-options", limitButton(true, t("Accessibility.allowMoveOptions"))),
+        at("toolbar.force-avoid", commandIcon("region-avoid", t("Menu.selectAvoidToolTipText"), "toolbar.force-avoid")),
+        at("toolbar.force-avoid-options", limitButton(false, t("Accessibility.avoidMoveOptions"))),
+        at("toolbar.force-clear", iconButton("clear", t("Menu.clearSelectToolTipText"), "toolbar.force-clear")),
+      ),
+      spacer(),
+      ...showWhile(basic, searchButton()),
     ),
-    optional(shownGroup("showEditBar"), ...editBar(), sep()),
-    optional(
-      shownGroup("showForce"),
-      at("toolbar.force-allow", commandIcon("blueallow.png", "blueallow2.png", t("Menu.selectAllowToolTipText"), "toolbar.force-allow", "force")),
-      at("toolbar.force-allow-options", limitButton(true, t("Accessibility.allowMoveOptions"))),
-      at("toolbar.force-avoid", commandIcon("redavoid.png", "redavoid2.png", t("Menu.selectAvoidToolTipText"), "toolbar.force-avoid", "force")),
-      at("toolbar.force-avoid-options", limitButton(false, t("Accessibility.avoidMoveOptions"))),
-      at("toolbar.force-clear", icon("clear.png", t("Menu.clearSelectToolTipText"), "toolbar.force-clear", "force")),
-      sep(),
+    row(
+      capsule(shownGroup("showGameControls"), ...gameControls()),
+      capsule(null, buildAiCoachButton(), buildCommentaryButton()),
+      capsule(null, group("komi", label(t("Menu.komi")), komiField()), kataGroup("Pda"), customPdaGroup(), pdaMoreButton(), kataGroup("Wrn")),
+      limitCapsule(),
+      capsule(shownGroup("showAnalyzeSides"), group("choices", label(t("Menu.lblShowAnalyze")), analyzeCheck(true), analyzeCheck(false))),
+      candidateCapsule(),
+      capsule(basic, foxKifuButton(), tencentKifuButton(), strengthButton(), setup),
+      spacer(),
+      capsule(
+        () => rules() || parameters() || boardSize() || saveLoad() || tsumego(),
+        ...showWhile(rules, pill(t("Menu.rulesBtn"), "", "engine.rules")),
+        tsumegoButton(),
+        ...showWhile(parameters, pill(t("Menu.paramsBtn"), "", "engine.parameters")),
+        // setBoardSize opens 设置棋盘大小 (Menu.java:6145-6153).
+        ...showWhile(boardSize, pill(t("Menu.gobanBtn"), "", "menu.setBoard")),
+        ...showWhile(saveLoad, pill(t("Menu.saveBtn"), "", "menu.saveAndLoad")),
+      ),
+      clockLabel(),
     ),
-    optional(shownGroup("showGameControls"), ...gameControls(), sep()),
-    group("komi", label(t("Menu.komi")), komiField(), komiSpinner()),
-    kataSeparator(),
-    kataGroup("Pda"),
-    customPdaGroup(),
-    pdaMoreButton(),
-    kataGroup("Wrn"),
-    limitGroup(),
-    optional(shownGroup("showAnalyzeSides"), sep(), label(t("Menu.lblShowAnalyze")), analyzeCheck(true), analyzeCheck(false)),
-    candidateGroup(),
-    // 死活题 alone brings no separator (Menu.java:9905-9909).
-    optional(() => rules() || parameters() || boardSize() || saveLoad(), sep()),
-    optional(rules, pill(t("Menu.rulesBtn"), "small", "engine.rules")),
-    tsumegoButton(),
-    optional(parameters, pill(t("Menu.paramsBtn"), "small", "engine.parameters")),
-    // setBoardSize opens 设置棋盘大小 (Menu.java:6145-6153).
-    optional(boardSize, pill(t("Menu.gobanBtn"), "small", "menu.setBoard")),
-    optional(saveLoad, pill(t("Menu.saveBtn"), "small", "menu.saveAndLoad")),
-    clockLabel(),
   );
   updaters.push(() => host.classList.toggle("nowrap", !topToolbarWraps()));
+  // After every other updater, so the Tab stop sees what they showed or hid.
+  updaters.push(toolbarKeys(host, t("Menu.topToolBar")));
 }
 
 /** btnPlayerStrengthEstimate (Menu.java:8386-8404): 棋力评估 with the menu item's text as its tip. */
 function strengthButton(): HTMLElement {
-  const b = pill(t("Menu.playerStrengthEstimateButton"), "w80", "menu.playerStrengthEstimate");
+  const b = pill(t("Menu.playerStrengthEstimateButton"), "", "menu.playerStrengthEstimate");
   b.title = t("Menu.playerStrengthEstimate");
   return b;
 }
 
 /** Menu.tsumeGoBtn: 死活题, shown while 自定义工具栏 > 死活 is on (show-tsume-go-menu). */
 function tsumegoButton(): HTMLElement {
-  const b = pill(t("Menu.tsumeGoBtn"), "small", "game.tsumego");
+  const b = pill(t("Menu.tsumeGoBtn"), "", "game.tsumego");
   b.dataset.key = "toolbar.tsumego";
   updaters.push(() => {
     const display = state.view?.settings.tsumego.showButton === false ? "none" : "";

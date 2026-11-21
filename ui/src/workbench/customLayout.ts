@@ -1,12 +1,15 @@
 // 显示 > 自定义布局1/2 (Alt+8 / Alt+9, Menu.java:1974-2128) and their 设置 buttons, and 面板 >
 // 可视化面板设置 (Menu.visualizedPanelSettings): LizzieFrame.switchToCustomMode applies a saved
 // snapshot (Config.loadCustomLayout, done by the core and src-tauri, which also places the
-// windows); SetCustomMode (SetCustomMode.java) edits the layout live and 确定 saves it.
+// windows); SetCustomMode (SetCustomMode.java) edits the layout live as grouped rows
+// (engine/controls.ts), 确定 saves it and 取消 puts the saved one back.
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { run, state } from "../app";
 import type { WindowPlacement } from "../contract/generated";
 import { formPanel } from "../dialogs";
+import { button, footer, primaryButton, row, switchRow } from "../engine/controls";
 import { t } from "../i18n";
+import "../display/dialogs.css";
 import { holdIndependent } from "./independent";
 import { listShown, presentation, setPresentationDraft, statusShown, type Presentation } from "./presentation";
 
@@ -68,26 +71,27 @@ export function openSetCustomMode(slot: 1 | 2 | null): void {
   const show = () => setPresentationDraft({ ...d, panels: { ...p } });
   show();
 
-  const grid = document.createElement("div");
-  grid.className = "custom-mode-grid";
-  const row = (text: string, control: HTMLInputElement, tooltip?: string) => {
-    const label = document.createElement("label");
-    label.textContent = text;
-    if (tooltip) label.title = tooltip;
-    label.htmlFor = control.id = control.dataset.key = `custom-mode-${grid.childElementCount / 2}`;
-    grid.append(label, control);
-    return control;
-  };
+  // Three untitled groups of rows: the panels, their sizes and the board position, the floating
+  // boards. Each panel is a switch row, the board position a slider row; keys number the rows.
+  const body = document.createElement("div");
+  body.className = "custom-layout";
+  const groups = [0, 1, 2].map(() => {
+    const g = document.createElement("div");
+    g.className = "custom-layout-group";
+    body.append(g);
+    return g;
+  });
+  let group = groups[0];
+  let rows = 0;
   const box = (text: string, checked: boolean, change: (on: boolean) => void, tooltip?: string) => {
-    const c = document.createElement("input");
-    c.type = "checkbox";
-    c.checked = checked;
-    if (tooltip) c.title = tooltip;
+    const { row: r, input: c } = switchRow(group, text, "", checked);
+    r.htmlFor = c.id = c.dataset.key = `custom-mode-${rows++}`;
+    if (tooltip) r.title = c.title = tooltip;
     c.addEventListener("change", () => {
       change(c.checked);
       show();
     });
-    return row(text, c, tooltip);
+    return c;
   };
   const autoHidden = () => d.mode === "FourSub" || d.mode === "DoubleEngine";
   const commentTip = () => (autoHidden() ? t("LizzieConfig.title.showComment.autoHidden.tooltip") : t("SetCustomMode.commentPanel.tooltip"));
@@ -111,7 +115,7 @@ export function openSetCustomMode(slot: 1 | 2 | null): void {
   const syncComment = () => {
     comment.checked = p.showComment;
     comment.disabled = autoHidden();
-    comment.title = commentTip();
+    (comment.closest(".ds-row") as HTMLElement).title = comment.title = commentTip();
   };
   syncComment();
   box(t("SetCustomMode.variationPanel"), p.showVariationGraph, (on) => {
@@ -143,6 +147,7 @@ export function openSetCustomMode(slot: 1 | 2 | null): void {
     p.showStatus = on;
     if (on) p.classicMode = false;
   });
+  group = groups[1];
   const bigSubBoard = box(t("SetCustomMode.bigSubBoard"), p.showSubBoard && p.largeSubBoard, (on) => {
     p.largeSubBoard = on;
     if (on) {
@@ -175,7 +180,9 @@ export function openSetCustomMode(slot: 1 | 2 | null): void {
     d.boardPositionProportion = Number(slider.value);
     show();
   });
-  row(t("SetCustomMode.sldBoardPositionProportion"), slider);
+  slider.id = slider.dataset.key = `custom-mode-${rows++}`;
+  row(group, t("SetCustomMode.sldBoardPositionProportion"), "", slider);
+  group = groups[2];
   // EngineManager.publishExtraMode: the mode changes without the mode's panel defaults.
   const floatMain = box(t("SetCustomMode.floatMainBoard"), d.mode === "FloatBoard", (on) => {
     d.mode = on ? "FloatBoard" : "Normal";
@@ -206,16 +213,11 @@ export function openSetCustomMode(slot: 1 | 2 | null): void {
   if (p.showWinrateGraph && p.largeWinrateGraph) list.checked = false;
   if ((p.showSubBoard && p.largeSubBoard) || (p.showWinrateGraph && p.largeWinrateGraph)) slider.disabled = true;
 
-  const buttons = document.createElement("div");
-  buttons.className = "modal-buttons";
-  const ok = document.createElement("button");
-  ok.className = "primary";
-  ok.textContent = t("SetKataEngines.btnApply");
-  const cancel = document.createElement("button");
-  cancel.textContent = t("SetKataEngines.btnCancel");
-  buttons.append(ok, cancel);
-  const body = document.createElement("div");
-  body.append(grid, buttons);
+  const ok = primaryButton(t("SetKataEngines.btnApply"), () => {});
+  ok.dataset.key = "custom-mode.ok";
+  const cancel = button(t("SetKataEngines.btnCancel"), () => {});
+  cancel.dataset.key = "custom-mode.cancel";
+  footer(body, { primary: ok, cancel });
 
   let confirmed = false;
   const finish = async () => {

@@ -1,9 +1,9 @@
 import { registerViewHandler, run, state } from "../app";
 import type { EngineFailureView, RulesPromptView } from "../contract/generated";
-import { chooseSave, formPanel, message, panel } from "../dialogs";
+import { chooseSave, closeBox, formPanel, message, panel } from "../dialogs";
 import { format, product, t } from "../i18n";
 import { chooseEngine, openMoreEngines } from "./catalog";
-import { actions, button, checkbox } from "./controls";
+import { actions, button, checkbox, footer, row } from "./controls";
 import { remoteFailureText } from "./remote";
 import { openAutoSetup } from "../setup/dialog";
 
@@ -30,43 +30,57 @@ function details(failure: EngineFailureView, error: string): void {
 /** A configured engine that ended after it was ready (Leelaz.finishTerminatedReaderIncarnation):
  *  a non-modal EngineFailedMessage (tryToDignosticForTerminalReader, modal false) whose text
  *  starts with 引擎异常关闭 (`engineEndUnormalHint`), then the cause and the engine's last lines.
- *  The window stays usable while an automatic restart brings the engine back. */
+ *  The window stays usable while an automatic restart brings the engine back. Escape, with the
+ *  focus anywhere in it, presses its close box. */
 function endedWindow(failure: EngineFailureView): void {
   const text = failure.remote ? remoteFailureText(failure.remote) : failure.message;
   const box = document.createElement("section"); box.className = "engine-limit-notice engine-failure engine-ended";
   box.setAttribute("role", "dialog"); box.setAttribute("aria-label", t("Leelaz.engineFailed")); box.setAttribute("data-free-window", "");
   box.dataset.key = "engine.failure.ended";
+  box.tabIndex = -1;
+  box.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Escape") { e.preventDefault(); box.remove(); }
+  });
+  // The title row ends in the close box (its own key: a modal dialog's close box may be open at
+  // the same time); 详细信息 opens more and stays at the footer's start.
+  const head = document.createElement("div"); head.className = "engine-ended-title";
   const title = document.createElement("strong"); title.textContent = t("Leelaz.engineFailed");
+  const x = closeBox(() => box.remove()); x.dataset.key = "engine.failure.ended.closeBox";
+  head.append(title, x);
   const summary = document.createElement("pre");
   summary.textContent = [t("Leelaz.engineEndUnormalHint"), `${failure.engine_name}: ${text}`, ...failure.output].join("\n");
   const label = document.createElement("div"); label.textContent = t("EngineFailedMessage.engineCmd");
   const command = document.createElement("pre"); command.textContent = failure.command;
-  box.append(title, summary, label, command);
+  box.append(head, summary, label, command);
   const close = button(product("close"), () => box.remove()); close.dataset.key = "engine.failure.ended.close";
-  actions(box, button(t("EngineFailedMessage.details"), () => details(failure, errorText(failure, text))), close);
+  footer(box, { start: [button(t("EngineFailedMessage.details"), () => details(failure, errorText(failure, text)))], cancel: close });
   document.body.append(box);
 }
 
-/** EngineFailedMessage: the failure text, the launch command and 详细信息. A remote engine's
- *  failure takes SSHController's wording; a configured engine whose login or connection failed
- *  opens 更多引擎 afterwards (SSHController.java:38-54). The 跑谱贡献 engine's failure also offers
- *  重启引擎 (restartContribute, EngineFailedMessage.java:331-340). */
+/** EngineFailedMessage: the failure text, then the launch command as a row whose text takes a line
+ *  of its own, and 详细信息. A remote engine's failure takes SSHController's wording; a configured
+ *  engine whose login or connection failed opens 更多引擎 afterwards (SSHController.java:38-54).
+ *  The 跑谱贡献 engine's failure also offers 重启引擎 (restartContribute,
+ *  EngineFailedMessage.java:331-340). */
 async function failureDialog(failure: EngineFailureView, restartContribution = false): Promise<void> {
   const body = document.createElement("div"); body.className = "engine-failure";
   const text = failure.remote ? remoteFailureText(failure.remote) : failure.message;
-  const summary = document.createElement("pre"); summary.textContent = `${failure.engine_name}: ${text}`;
-  const label = document.createElement("div"); label.textContent = t("EngineFailedMessage.engineCmd");
+  const summary = document.createElement("pre"); summary.className = "engine-failure-summary"; summary.textContent = `${failure.engine_name}: ${text}`;
   const command = document.createElement("pre"); command.textContent = failure.command;
-  body.append(summary, label, command);
+  body.append(summary);
+  row(body, t("EngineFailedMessage.engineCmd").replace(/\\?[:：]\s*$/, ""), "").append(command);
   const error = errorText(failure, text);
   const dialog = formPanel(t("Leelaz.engineFailed"), body);
+  // Buttons that end the dialog another way sit with 关闭; 详细信息 opens more and stays at the start.
+  const others: HTMLElement[] = [];
   if (failure.repair) {
     const repair = button(t("EngineFailedMessage.openTensorRtRepair"), async () => { await dialog.close(); await openAutoSetup("acceleration", { engineId: failure.repair!.profileId }); });
     repair.dataset.key = "engine.failure.repair";
     repair.setAttribute("aria-label", t("EngineFailedMessage.openTensorRtRepairAccessibleName"));
     repair.setAttribute("aria-description", t("EngineFailedMessage.openTensorRtRepairAccessibleDescription"));
     repair.title = t("EngineFailedMessage.openTensorRtRepairAccessibleDescription");
-    actions(body, repair);
+    others.push(repair);
   }
   const remote = failure.remote;
   const index = state.view?.settings.engine.engines.findIndex((e) => e.id === failure.profile_id) ?? -1;
@@ -81,7 +95,7 @@ async function failureDialog(failure: EngineFailureView, restartContribution = f
       if (r?.type === "Done" && index >= 0) await restart();
     });
     trust.dataset.key = "engine.failure.trustHostKey";
-    actions(body, trust);
+    others.push(trust);
   }
   if (restartContribution) {
     const restart = button(t("EngineFailedMessage.btnRestart"), async () => {
@@ -89,9 +103,9 @@ async function failureDialog(failure: EngineFailureView, restartContribution = f
       await run({ type: "Contribution", op: { type: "Start" } });
     });
     restart.dataset.key = "engine.failure.restartContribution";
-    actions(body, restart);
+    others.push(restart);
   }
-  actions(body, button(t("EngineFailedMessage.details"), () => details(failure, error)), button(product("close"), () => dialog.close()));
+  footer(body, { start: [button(t("EngineFailedMessage.details"), () => details(failure, error))], others, cancel: button(product("close"), () => dialog.close()) });
   await dialog.closed;
   if (index >= 0 && (remote?.type === "Authentication" || remote?.type === "Connect" || remote?.type === "PasswordMissing")) await openMoreEngines();
 }

@@ -3,12 +3,25 @@
 // method keep their keys. It is a modal layer of the dialog host (dialogs.ts openModalLayer): the
 // rest of the window is inert while it is open, and a dialog opened over it takes the input.
 import { state } from "../app";
-import { isApiError, searchFunctions } from "../contract/client";
+import { searchFunctions } from "../contract/client";
+import { errorText } from "../errorText";
 import type { FunctionMatch, FunctionTarget } from "../contract/generated";
 import { openModalLayer } from "../dialogs";
-import { t } from "../i18n";
+import { product, registerProduct, t } from "../i18n";
+import { icon } from "../design/icons";
+import { DARK_READY } from "../design/theme";
 import { reasonKey, reasonText, resolveFunction, type Resolution } from "./targets";
 import "./search.css";
+
+/** The visible mark of a result that cannot be opened now; its reason is in the row's details. */
+registerProduct({
+  ZhCn: { fsUnavailableMark: "不可用" },
+  ZhTw: { fsUnavailableMark: "無法使用" },
+  EnUs: { fsUnavailableMark: "Unavailable" },
+  JaJp: { fsUnavailableMark: "利用不可" },
+  KoKr: { fsUnavailableMark: "사용 불가" },
+  ThTh: { fsUnavailableMark: "ใช้ไม่ได้" },
+});
 
 /** FunctionCatalog.categoryKeys: the category box's order after 全部功能. */
 const CATEGORIES = [
@@ -132,11 +145,10 @@ export function openSearchDialog(): SearchDialog {
   surface.setAttribute("aria-label", t("FunctionSearch.title"));
 
   const top = element("div", "fs-top");
-  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  icon.setAttribute("class", "fs-icon");
-  icon.setAttribute("viewBox", "0 0 16 16");
-  icon.setAttribute("aria-hidden", "true");
-  icon.innerHTML = '<circle cx="5.5" cy="5.5" r="4.5"/><line x1="9" y1="9" x2="14" y2="14"/>';
+  // The search field: the field ground with the magnifier at its left.
+  const field = element("label", "fs-field");
+  const magnifier = icon("search");
+  magnifier.classList.add("fs-icon");
   const input = element("input", "fs-input");
   input.type = "text";
   input.spellcheck = false;
@@ -147,7 +159,8 @@ export function openSearchDialog(): SearchDialog {
   input.dataset.key = "function.search.input";
   const cancel = element("button", "fs-button", t("FunctionSearch.cancel"));
   cancel.dataset.key = "function.search.cancel";
-  top.append(icon, input, cancel);
+  field.append(magnifier, input);
+  top.append(field, cancel);
 
   const lower = element("div", "fs-lower");
   const browse = element("button", "fs-button fs-browse", t("FunctionSearch.browse"));
@@ -213,8 +226,11 @@ export function openSearchDialog(): SearchDialog {
     r.classList.toggle("unavailable", resolution.reason !== null);
     const title = t(m.title);
     const path = m.path.map((key) => t(key)).join(" › ");
+    const mark = resolution.reason !== null ? product("fsUnavailableMark") : "";
     const heading = element("div", "fs-heading");
-    heading.append(element("span", "fs-title", title), element("span", "fs-path", `  ${path}`));
+    heading.append(element("span", "fs-title", title));
+    if (mark) heading.append(element("span", "fs-mark", mark));
+    heading.append(element("span", "fs-path", `  ${path}`));
     r.append(heading);
     if (isSelected) {
       const lines = [typeText(m.target) + (m.shortcut ? ` · ${m.shortcut}` : ""), t(m.description)];
@@ -222,7 +238,7 @@ export function openSearchDialog(): SearchDialog {
       if (resolution.reason) lines.push(reasonText(resolution.reason));
       r.append(element("div", "fs-detail", lines.join("\n")));
     }
-    r.setAttribute("aria-label", `${title} ${path}`);
+    r.setAttribute("aria-label", [title, mark, path].filter(Boolean).join(" "));
     r.setAttribute("aria-description", resolution.reason ? reasonText(resolution.reason) : t(m.description) + (resolution.dependency ? ` ${reasonText(resolution.dependency)}` : ""));
     return r;
   }
@@ -292,7 +308,7 @@ export function openSearchDialog(): SearchDialog {
         console.error("function search failed", e);
         model = [];
         selected = -1;
-        failure = isApiError(e) ? e.message : String(e);
+        failure = errorText(e);
         availability.clear();
         count.textContent = "";
         renderRows();
@@ -308,6 +324,8 @@ export function openSearchDialog(): SearchDialog {
     let total = 0;
     for (const m of matches) {
       if (category && m.category !== category) continue;
+      // 外观模式 is not offered until the dark interface is ready (design/theme.ts).
+      if (!DARK_READY && m.id.startsWith("menu.appearanceMode")) continue;
       total++;
       if (browsing || shown.length < QUERY_CAP) shown.push(m);
     }

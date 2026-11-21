@@ -27,6 +27,30 @@ registerProduct({
     contributionPasswordStored: "Kept in the system credential store; unchanged unless you edit it",
     contributionPasswordSession: "Kept until you quit; unchanged unless you edit it",
   },
+  JaJp: {
+    contributionResourceUnsupported: "選択したエンジンパッケージは貢献に対応していないため、開始しませんでした。分散トレーニング対応の公式 KataGo を選択してください。",
+    contributionUnsupported: "KataGo {0}（{1}）は貢献に対応していないため、開始できません。分散トレーニング対応の公式 KataGo を選択してください。",
+    contributionUnverified: "KataGo {0}（{1}）は公式の分散トレーニング用ビルドです。トレーニングサーバーがこのバージョンを受け付けるかは、本アプリでは未検証です。",
+    contributionUnknown: "このエンジンで貢献できるかは未確認です。開始後、エンジンの出力とトレーニングサーバーが判定します。",
+    contributionPasswordStored: "システムの資格情報ストレージに保存済み。変更しなければそのまま使用",
+    contributionPasswordSession: "今回の実行中のみ保持。変更しなければそのまま使用",
+  },
+  KoKr: {
+    contributionResourceUnsupported: "선택한 엔진 패키지는 분산훈련 기여를 지원하지 않아 시작하지 않았습니다. 분산 훈련을 지원하는 공식 KataGo를 선택하세요.",
+    contributionUnsupported: "KataGo {0}({1})은(는) 분산훈련 기여를 지원하지 않아 시작할 수 없습니다. 분산 훈련을 지원하는 공식 KataGo를 선택하세요.",
+    contributionUnverified: "KataGo {0}({1})은(는) 공식 분산 훈련 빌드입니다. 훈련 서버가 이 버전을 받아들이는지는 이 앱에서 아직 확인하지 않았습니다.",
+    contributionUnknown: "이 엔진으로 분산훈련 기여가 가능한지 확인되지 않았습니다. 시작한 뒤 엔진 출력과 훈련 서버가 판정합니다.",
+    contributionPasswordStored: "시스템 자격 증명 저장소에 저장됨. 수정하지 않으면 그대로 유지",
+    contributionPasswordSession: "이번 실행 동안 기억됨. 수정하지 않으면 그대로 유지",
+  },
+  ThTh: {
+    contributionResourceUnsupported: "แพ็กเกจเอนจินที่เลือกไม่รองรับการมีส่วนร่วม จึงยังไม่ได้เริ่ม โปรดเลือก KataGo ทางการที่รองรับการฝึกแบบกระจาย",
+    contributionUnsupported: "KataGo {0} ({1}) ไม่รองรับการมีส่วนร่วม จึงเริ่มไม่ได้ โปรดเลือก KataGo ทางการที่รองรับการฝึกแบบกระจาย",
+    contributionUnverified: "KataGo {0} ({1}) เป็นรุ่นทางการสำหรับการฝึกแบบกระจาย แต่แอปนี้ยังไม่ได้ยืนยันว่าเซิร์ฟเวอร์ฝึกยอมรับรุ่นนี้หรือไม่",
+    contributionUnknown: "ยังไม่ทราบว่าเอนจินนี้มีส่วนร่วมได้หรือไม่ หลังเริ่มแล้ว ผลลัพธ์ของเอนจินและเซิร์ฟเวอร์ฝึกจะเป็นตัวตัดสิน",
+    contributionPasswordStored: "บันทึกไว้ในที่เก็บข้อมูลรับรองของระบบ หากไม่แก้ไขจะคงเดิม",
+    contributionPasswordSession: "จำไว้จนกว่าจะปิดโปรแกรม หากไม่แก้ไขจะคงเดิม",
+  },
 });
 
 /** The text of a key the core sends for 跑谱贡献 (tip line, message notices, refusals). Every Java

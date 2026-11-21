@@ -1,0 +1,36 @@
+/* 诊断与日志 (diagnostics.ts): one column of grouped rows (design/dialog.css) in a form dialog;
+   its frame keeps the title and the 关闭 footer while the rows scroll. */
+.diagnostics {
+  width: min(560px, 90vw);
+}
+/* Within a group, each switch and its categories are a block of their own. */
+.diag-block + .diag-block {
+  margin-top: 8px;
+}
+/* A category under its switch, indented to the switch it belongs to. */
+.diag-sub > .ds-row-text {
+  padding-left: 20px;
+}
+/* The notes keep their line breaks (the active scopes, then how to change them). */
+.diagnostics .ds-note {
+  white-space: pre-line;
+}
+.diagnostics .ds-note + .ds-note {
+  margin-top: 4px;
+}
+/* A ReadBoard value at its row's end; a long session id wraps rather than widening the row. */
+.diag-value {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+/* The log folder takes the whole line under its name and wraps anywhere from that line's start. */
+.diag-path {
+  color: var(--ds-text-2);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  font-size: var(--ds-size-s);
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  user-select: text;
+}

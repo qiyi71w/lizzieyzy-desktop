@@ -1,11 +1,13 @@
 // 腾讯棋谱 window (TencentKifuDownload.java): the nickname / UID row, 当前腾讯查询, 近期搜索, the
-// game table with its 打开 buttons, the page buttons and the progress overlay. The layout is
-// 野狐棋谱's (same Java frame and measures) without its 查询方式, with the grey input hint. The
-// core owns the search, the list and every busy state; this window keeps only the field draft.
+// game table with its 打开 buttons (or, while it has no rows, what the search came to), the page
+// buttons and the progress overlay. The layout is 野狐棋谱's (same Java frame and measures) without
+// its 查询方式, with the grey input hint. The core owns the search, the list and every busy state;
+// this window keeps only the field draft.
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { dispatch, isApiError } from "../contract/client";
+import { errorText } from "../errorText";
 import type { Command, KifuAfterGet, KifuPage, TencentKifuCommand, TencentKifuRow, TencentKifuView } from "../contract/generated";
 import { confirm, dialogOpen, message } from "../dialogs";
 import { isChinese, setLanguage, t } from "../i18n";
@@ -16,7 +18,10 @@ import {
   type TencentKifuPayload,
   type TencentKifuReport,
 } from "./model";
-import "../styles.css";
+import { icon } from "../design/icons";
+import "../design/window";
+import "../design/stage.css";
+import { kifuEmpty, type KifuOutcome } from "../foxkifu/window";
 import "../foxkifu/foxkifu.css";
 import "./tencentkifu.css";
 
@@ -104,6 +109,7 @@ export function bootTencentKifu(): void {
   let notice = -1;
   let opened = -1;
   let shownMessage: string | null = null;
+  let outcome: KifuOutcome = { kind: "idle" };
 
   // ---------------------------------------------------------------- layout
   const north = el("div", "fk-north");
@@ -113,7 +119,7 @@ export function bootTencentKifu(): void {
   query.type = "text";
   query.id = "tk-query";
   queryLabel.htmlFor = query.id;
-  const searchButton = el("button", "fk-btn");
+  const searchButton = el("button", "primary");
   searchButton.dataset.key = "tencent.search";
   const hint = el("span", "tk-hint");
   const afterLabel = el("label");
@@ -122,12 +128,16 @@ export function bootTencentKifu(): void {
   afterLabel.htmlFor = after.id;
   const afterOptions = AFTER_GET.map(() => el("option"));
   after.append(...afterOptions);
-  searchRow.append(queryLabel, query, searchButton, hint, afterLabel, after);
+  const searchPair = el("span", "fk-pair");
+  searchPair.append(queryLabel, query, searchButton);
+  const afterPair = el("span", "fk-pair");
+  afterPair.append(afterLabel, after);
+  searchRow.append(searchPair, hint, afterPair);
   const currentUser = el("div", "fk-current");
   const recentRow = el("div", "fk-recent");
   const recentLabel = el("span", "fk-recent-label");
   const recentButtons = el("div", "fk-recent-list");
-  const clearRecent = el("button", "fk-btn fk-clear");
+  const clearRecent = el("button", "fk-clear");
   clearRecent.dataset.key = "tencent.clearRecent";
   recentRow.append(recentLabel, recentButtons, clearRecent);
   north.append(searchRow, currentUser, recentRow);
@@ -135,9 +145,10 @@ export function bootTencentKifu(): void {
   const scroll = el("div", "fk-scroll");
   const table = el("table", "fk-table");
   const columns = el("colgroup");
-  for (const width of [40, 180, 160, 50, 160, 50, 95, 55, 45]) {
+  // Fixed columns in multiples of the type size; the two player columns share the rest.
+  for (const width of [4.5, 12, 0, 4.5, 0, 4.5, 10, 4.5, 5]) {
     const c = el("col");
-    c.style.width = `${width}px`;
+    if (width) c.style.width = `calc(var(--ds-size) * ${width})`;
     columns.append(c);
   }
   const head = el("thead");
@@ -145,17 +156,20 @@ export function bootTencentKifu(): void {
   head.append(headRow);
   const body = el("tbody");
   table.append(columns, head, body);
-  scroll.append(table);
+  const empty = kifuEmpty();
+  scroll.append(table, empty.el);
 
   const south = el("div", "fk-south");
-  const pageButtons: [string, KifuPage][] = [
-    ["|<", "First"],
-    ["<", "Previous"],
-    [">", "Next"],
-    [">|", "Last"],
+  const pageButtons: [string, KifuPage, "step-first" | "step-back" | "step-forward" | "step-last"][] = [
+    ["|<", "First", "step-first"],
+    ["<", "Previous", "step-back"],
+    [">", "Next", "step-forward"],
+    [">|", "Last", "step-last"],
   ];
-  for (const [text, to] of pageButtons) {
-    const b = el("button", "fk-btn fk-page", text);
+  for (const [text, to, glyph] of pageButtons) {
+    // The icon shows; the Java text stays as the button's (unseen) text.
+    const b = el("button", "fk-page");
+    b.append(icon(glyph), el("span", "fk-unseen", text));
     b.dataset.key = `tencent.page.${to}`;
     b.onclick = () => void command({ type: "Page", to });
     south.append(b);
@@ -168,8 +182,7 @@ export function bootTencentKifu(): void {
   const card = el("div", "fk-card");
   const overlayText = el("div", "fk-card-text");
   const bar = el("div", "fk-bar");
-  const barText = el("span", "fk-bar-text");
-  bar.append(el("span", "fk-bar-run"), barText);
+  bar.append(el("span", "fk-bar-run"));
   card.append(overlayText, bar);
   overlay.append(card);
   overlay.setAttribute("role", "progressbar");
@@ -196,7 +209,7 @@ export function bootTencentKifu(): void {
       const result = await dispatch(cmd);
       if (result.type === "Refused") await show(coreText(result.message_key));
     } catch (e) {
-      if (isApiError(e)) await show(e.message);
+      if (isApiError(e)) await show(errorText(e));
     }
   }
 
@@ -254,11 +267,11 @@ export function bootTencentKifu(): void {
   function renderRows(view: TencentKifuView): void {
     body.replaceChildren();
     for (const r of view.rows) {
-      const tr = el("tr", r.won ? "won" : "");
+      const tr = el("tr", r.won ? "won" : r.winner === 1 || r.winner === 2 ? "lost" : "");
       if (r.chessid === selected) tr.classList.add("selected");
-      for (const text of cells(r)) tr.append(el("td", "", text));
+      cells(r).forEach((text, column) => tr.append(el("td", column === 6 ? "fk-result" : "", text)));
       const openCell = el("td", "fk-open-cell");
-      const open = el("button", "fk-btn fk-open", t("TencentKifuDownload.column.open"));
+      const open = el("button", "fk-open", t("TencentKifuDownload.column.open"));
       open.dataset.key = `tencent.open.${r.chessid}`;
       open.onclick = (e) => {
         e.stopPropagation();
@@ -301,7 +314,7 @@ export function bootTencentKifu(): void {
     recentButtons.replaceChildren();
     if (view.recent.length === 0) recentButtons.append(el("span", "fk-recent-empty", t("TencentKifuDownload.recentEmpty")));
     for (const r of view.recent) {
-      const b = el("button", "fk-btn fk-recent-btn", tencentUser(r.query, r.uid));
+      const b = el("button", "fk-recent-btn", tencentUser(r.query, r.uid));
       const keyword = r.query.trim() || r.uid.trim();
       b.dataset.key = `tencent.recent.${keyword}`;
       b.onclick = () => {
@@ -316,7 +329,6 @@ export function bootTencentKifu(): void {
     const text = overlayMessage(view);
     overlay.hidden = text === null;
     overlayText.textContent = text ?? "";
-    barText.textContent = text ?? "";
     // showProgressNotice → presentWindow: progress brings the window back, even when it was closed.
     if (text !== null && (!previous || overlayMessage(previous) !== text)) {
       void self.unminimize().then(() => self.show()).then(() => self.setFocus());
@@ -324,11 +336,13 @@ export function bootTencentKifu(): void {
     if (view.notice && view.notice.id !== notice) {
       const first = notice === -1 && !previous;
       notice = view.notice.id;
-      if (!first) {
-        const n = view.notice;
-        void show(coreText(n.message_key) + (n.message_key === "TencentKifuDownload.getKifuFailed" ? n.detail : ""));
-      }
+      const n = view.notice;
+      const text = coreText(n.message_key) + (n.message_key === "TencentKifuDownload.getKifuFailed" ? n.detail : "");
+      if (n.message_key === "TencentKifuDownload.noKifu") outcome = { kind: "none", query: view.last_name };
+      else if (n.message_key === "TencentKifuDownload.getKifuFailed") outcome = { kind: "failed", reason: text };
+      if (!first) void show(text);
     }
+    empty.show(view.rows.length === 0 && !view.busy ? outcome : null, searchButton.textContent ?? "");
     if (opened !== -1 && view.opened > opened) {
       // completeTencentKifuLoad: 打开棋谱后此窗口, then the main window comes forward.
       void invoke("tencent_kifu_opened", { minimize: view.after_get === "Minimize", close: view.after_get === "Close" });

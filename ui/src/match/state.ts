@@ -1,28 +1,15 @@
-// 引擎对战 presentation state the core does not own: the toolbar's 引擎对战 check box (chkenginePk,
-// never saved), the batch title LizzieFrame keeps between games (enginePkTitile) and the match
-// values of the last projection, which the one-shot outcome needs after the match view is gone.
+// 引擎对战 presentation state the core does not own: the batch title LizzieFrame keeps between
+// games (enginePkTitile) and the match values of the last projection, which the one-shot outcome
+// needs after the match view is gone.
 import { state } from "../app";
 import type { MatchPhase, MatchSessionSettings, MatchSettings, MatchView, WorkbenchView } from "../contract/generated";
 
-const listeners: (() => void)[] = [];
-
 export const matchUi = {
-  /** chkenginePk: the 黑/白 engine boxes are enabled only while it is checked. */
-  engineMatchChecked: false,
   /** LizzieFrame.hasEnginePkTitile / enginePkTitile: null when off; "" or the batch score title. */
   pkTitle: null as string | null,
   /** The match of the latest view that had one. */
   last: null as MatchView | null,
 };
-
-export function onMatchUiChange(listener: () => void): void {
-  listeners.push(listener);
-}
-
-export function setEngineMatchChecked(checked: boolean): void {
-  matchUi.engineMatchChecked = checked;
-  listeners.forEach((l) => l());
-}
 
 /** EngineGameSnapshot.playing(): a game of the batch is on (running or paused). */
 export function matchPlaying(v: WorkbenchView | null = state.view): boolean {

@@ -6,10 +6,11 @@
 import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type { LiveCategory, LiveGameView } from "../contract/generated";
-import { UI_FONT } from "../hawkeye/model";
-import { isChinese, setLanguage, t } from "../i18n";
+import { icon } from "../design/icons";
+import { setLanguage, t } from "../i18n";
 import { LIVE_DATA_EVENT, LIVE_INPUT_EVENT, type LiveInput, type LivePayload, type LiveReport } from "./model";
 import { onlineText } from "./text";
+import "../design/window";
 import "./live.css";
 
 /** The combo's entries in Java order (推荐 official=1, 地方 0, 个人 4). */
@@ -36,6 +37,17 @@ function cells(g: LiveGameView): string[] {
   return [g.status, g.time, g.game, g.black, g.white, String(g.hands), g.rate, g.attention];
 }
 
+/** 状态, 时间, 手数, 胜率 and 关注: the columns sized to their widest cell, never cut. 对局, 黑方 and
+ *  白方 share the rest; the players keep their own width while it is under a third of the rest,
+ *  对局 takes what is left and ellipsises first (every cell carries its full text as a tooltip).
+ *  A window too narrow for that scrolls sideways rather than cut a name below its least width. */
+const DATA_COLUMNS = [0, 1, 5, 6, 7];
+const PLAYER_COLUMNS = [3, 4];
+const GAME_COLUMN = 2;
+/** A shared column's least width: four characters and the ellipsis, enough to tell players and
+ *  events apart. */
+const MIN_TEXT = 80;
+
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, id = "", text = ""): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
   if (id) e.id = id;
@@ -44,7 +56,6 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, id = "", text = ""): 
 }
 
 export function bootYikeLive(): void {
-  document.body.style.fontFamily = UI_FONT;
   const send = (input: LiveInput) => void emitTo("main", LIVE_INPUT_EVENT, input);
   const self = getCurrentWebviewWindow();
 
@@ -76,9 +87,12 @@ export function bootYikeLive(): void {
   const table = el("table");
   table.tabIndex = 0;
   table.dataset.key = "yikeLive.table";
+  const colgroup = el("colgroup");
+  const cols = COLUMNS.map(() => el("col"));
+  colgroup.append(...cols);
   const head = el("thead");
   const body = el("tbody");
-  table.append(head, body);
+  table.append(colgroup, head, body);
   scroll.append(table);
 
   const bottom = el("div", "yl-bottom");
@@ -148,20 +162,82 @@ export function bootYikeLive(): void {
     send({ type: "report", report: r });
   };
 
+  /** The header that holds the header row's Tab stop. */
+  let headCursor = 0;
+  /** Header clicks and Enter / Space on a header toggle the column ascending / descending
+   *  (DefaultRowSorter.toggleSortOrder); another column starts ascending. */
+  const sortBy = (column: number) => {
+    sort = sort?.column === column ? { column, ascending: !sort.ascending } : { column, ascending: true };
+    drawRows();
+  };
+
   const drawHeader = () => {
+    // A redraw keeps the focus on the header that had it.
+    const refocus = head.contains(document.activeElement);
     const tr = el("tr");
     COLUMNS.forEach((text, column) => {
-      const th = el("th", "", text());
+      const th = el("th");
+      const label = el("span", "", text());
+      th.append(label);
       th.dataset.key = `yikeLive.column.${column}`;
-      if (sort?.column === column) th.classList.add(sort.ascending ? "asc" : "desc");
-      // Header clicks toggle the column ascending / descending (DefaultRowSorter.toggleSortOrder).
-      th.onclick = () => {
-        sort = sort?.column === column ? { column, ascending: !sort.ascending } : { column, ascending: true };
-        drawRows();
+      th.tabIndex = column === headCursor ? 0 : -1;
+      if (sort?.column === column) {
+        th.classList.add(sort.ascending ? "asc" : "desc");
+        th.setAttribute("aria-sort", sort.ascending ? "ascending" : "descending");
+        label.append(icon(sort.ascending ? "chevron-up" : "chevron-down"));
+      }
+      // A press focuses the table, as it does on a row: the header takes the focus from Tab only.
+      th.onmousedown = (e) => {
+        e.preventDefault();
+        table.focus({ preventScroll: true });
+      };
+      th.onclick = () => sortBy(column);
+      th.onfocus = () => {
+        headCursor = column;
+        for (const cell of tr.cells) cell.tabIndex = cell === th ? 0 : -1;
       };
       tr.append(th);
     });
     head.replaceChildren(tr);
+    if (refocus) tr.cells[headCursor].focus({ preventScroll: true });
+  };
+  // The header row is one Tab stop: ←/→ and Home/End move between the columns, Enter or Space
+  // sorts the focused one as a click does.
+  head.addEventListener("keydown", (e) => {
+    const cells = head.rows[0].cells;
+    const n = cells.length;
+    const k = headCursor;
+    let to: number;
+    if (e.key === "ArrowRight") to = Math.min(k + 1, n - 1);
+    else if (e.key === "ArrowLeft") to = Math.max(k - 1, 0);
+    else if (e.key === "Home") to = 0;
+    else if (e.key === "End") to = n - 1;
+    else if (e.key === "Enter" || e.key === " ") to = -1;
+    else return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (to < 0) sortBy(k);
+    else cells[to].focus();
+  });
+
+  /** Each column's content width (the widest of its header and cells, padding included), taken
+   *  with the table laid out at its content size. */
+  let natural: number[] = [];
+  const fitColumns = () => {
+    const rest = scroll.clientWidth - DATA_COLUMNS.reduce((s, k) => s + natural[k], 0);
+    const widths = [...natural];
+    for (const k of PLAYER_COLUMNS) widths[k] = Math.min(natural[k], Math.max(MIN_TEXT, Math.floor(rest / 3)));
+    widths[GAME_COLUMN] = Math.max(Math.min(natural[GAME_COLUMN], MIN_TEXT), rest - PLAYER_COLUMNS.reduce((s, k) => s + widths[k], 0));
+    cols.forEach((col, k) => (col.style.width = `${widths[k]}px`));
+    table.style.width = `${widths.reduce((s, w) => s + w, 0)}px`;
+  };
+  const measureColumns = () => {
+    for (const col of cols) col.style.width = "";
+    table.style.width = "";
+    table.classList.add("measure");
+    natural = [...head.rows[0].cells].map((th) => Math.ceil(th.getBoundingClientRect().width));
+    table.classList.remove("measure");
+    fitColumns();
   };
 
   const drawRows = () => {
@@ -187,6 +263,7 @@ export function bootYikeLive(): void {
         return tr;
       }),
     );
+    measureColumns();
     showSelection();
   };
 
@@ -227,7 +304,9 @@ export function bootYikeLive(): void {
   category.onchange = () => load(false);
   filter.oninput = () => drawRows();
 
+  // The row keys act on the table itself, not on a focused header.
   table.addEventListener("keydown", (e) => {
+    if (e.target !== table) return;
     if (e.key === "Enter") {
       e.preventDefault();
       syncSelected();
@@ -248,13 +327,15 @@ export function bootYikeLive(): void {
       void self.close();
     }
   });
+  window.addEventListener("resize", () => {
+    if (natural.length) fitColumns();
+  });
   document.addEventListener("contextmenu", (e) => e.preventDefault());
 
   const render = (p: LivePayload) => {
     const first = payload === null;
     payload = p;
     setLanguage(p.language);
-    document.documentElement.lang = isChinese() ? "zh" : "en";
     document.title = t("YikeLiveDialog.title");
     categoryLabel.textContent = t("YikeLiveDialog.category");
     filterLabel.textContent = t("YikeLiveDialog.filter");

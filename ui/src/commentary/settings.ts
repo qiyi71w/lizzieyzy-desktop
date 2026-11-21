@@ -1,14 +1,18 @@
 // AI 解说设置 (TeacherSettingsDialog + ChatGptSettingsPanel): a modal dialog over the commentary
-// window with the 连接服务 and 讲解偏好 pages. Every field is a draft owned here until 保存设置 /
-// 保存偏好; 取消 and Escape discard them. Account sign-in, selection and sign-out act at once, as in
-// Java. The access key exists only in its field and in the command that saves or lists with it.
+// window with the 连接服务 and 讲解偏好 pages as grouped rows. Every field is a draft owned here until
+// 保存设置 / 保存偏好; 取消, the close box and Escape discard them. Account sign-in, selection and
+// sign-out act at once, as in Java. The access key exists only in its field and in the command that
+// saves or lists with it.
 import { invoke } from "@tauri-apps/api/core";
 import type { Command, CommentaryAccount, CommentaryModel, CommentaryView, Preferences, Provider } from "../contract/generated";
 import { format, product, t } from "../i18n";
-import { icon } from "./icons";
+import { icon } from "../design/icons";
+import { closeBox } from "../dialogs";
+import { footer, groupTitle, row, segmented, switchRow } from "../engine/controls";
 import type { SettingsReport } from "./model";
 import { send } from "./send";
 import { failureText, keyOr } from "./text";
+import "../design/dialog.css";
 
 export interface SettingsDialog {
   refresh(): void;
@@ -85,7 +89,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text 
 }
 
 function btn(text: string, className: string, key: string): HTMLButtonElement {
-  const b = el("button", `tc-btn ${className}`.trim(), text);
+  const b = el("button", className, text);
   b.type = "button";
   b.dataset.key = key;
   return b;
@@ -123,8 +127,8 @@ export function openSettings(host: Host): SettingsDialog {
   const windowRoot = document.getElementById("tc-root");
   windowRoot?.setAttribute("inert", "");
 
-  const overlay = el("div", "ts-overlay");
-  const box = el("div", "ts-box");
+  const overlay = el("div", "modal ts-overlay");
+  const box = el("div", "modal-box ts-box");
   box.setAttribute("role", "dialog");
   box.setAttribute("aria-modal", "true");
   box.setAttribute("aria-label", t("Teacher.settings.title"));
@@ -152,16 +156,23 @@ export function openSettings(host: Host): SettingsDialog {
   const modelsRequested = new Set<string>();
   let apiModels: string[] = [];
 
-  // ------------------------------------------------------------- header, rail, footer
+  // ------------------------------------------------------------- title, rail, footer
+  // The close box is 取消: it discards the drafts, and waits while a save runs.
+  const closeX = closeBox(() => {
+    if (!saving) close();
+  });
+  closeX.dataset.key = "commentary.settings.close";
+  const titleRow = el("div", "modal-title");
+  titleRow.append(el("span", "", t("Teacher.settings.title")), closeX);
   const head = el("div", "ts-head");
-  head.append(el("div", "ts-title", t("Teacher.settings.title")), el("div", "ts-subtitle", design("subtitle")));
+  head.append(titleRow, el("div", "ts-subtitle", design("subtitle")));
   const main = el("div", "ts-main");
   const rail = el("div", "ts-rail");
-  const navButton = (value: "connection" | "preferences", glyph: "link" | "sliders", text: string) => {
+  const navButton = (value: "connection" | "preferences", text: string) => {
     const b = el("button", "ts-nav");
     b.type = "button";
     b.dataset.key = `commentary.settings.page.${value}`;
-    b.append(icon(glyph), el("span", "", text));
+    b.textContent = text;
     b.onclick = () => {
       page = value;
       render();
@@ -169,47 +180,42 @@ export function openSettings(host: Host): SettingsDialog {
     rail.append(b);
     return b;
   };
-  const connectionNav = navButton("connection", "link", design("connection"));
-  const preferencesNav = navButton("preferences", "sliders", design("preferences"));
+  const connectionNav = navButton("connection", design("connection"));
+  const preferencesNav = navButton("preferences", design("preferences"));
   const pages = el("div", "ts-pages");
   main.append(rail, pages);
-  const foot = el("div", "ts-foot");
   const status = el("div", "ts-status");
   status.dataset.key = "commentary.settings.status";
   status.setAttribute("role", "status");
   status.setAttribute("aria-label", t("Teacher.settings.title"));
   const cancel = btn(t("Teacher.settings.cancel"), "", "commentary.settings.cancel");
   const save = btn(design("save"), "primary", "commentary.settings.save");
-  foot.append(status, cancel, save);
-  box.append(head, main, foot);
+  box.append(head, main);
+  footer(box, { start: [status], primary: save, cancel });
 
   // ------------------------------------------------------------- 连接服务
   const connectionPage = el("div", "ts-page");
   connectionPage.append(el("div", "ts-heading", design("connection")), el("div", "ts-note", design("connectionHint")));
-  const providerTabs = el("div", "ts-providers");
-  const providerTab = (value: Provider, text: string, key: string) => {
-    const b = el("button", "ts-provider", text);
-    b.type = "button";
-    b.dataset.key = key;
-    b.onclick = () => chooseProvider(value);
-    providerTabs.append(b);
-    return b;
-  };
-  const chatTab = providerTab("chatGpt", t("Teacher.chatgpt.tab"), "commentary.settings.provider.chatgpt");
-  const apiTab = providerTab("apiKey", t("Teacher.settings.apiKey"), "commentary.settings.provider.apikey");
-  connectionPage.append(providerTabs);
+  const providers = segmented<Provider>("ts-provider", [["chatGpt", t("Teacher.chatgpt.tab")], ["apiKey", t("Teacher.settings.apiKey")]], "unselected");
+  providers.el.classList.add("ts-providers");
+  providers.el.setAttribute("aria-label", design("connectionHint"));
+  const [chatTab, apiTab] = providers.inputs;
+  chatTab.dataset.key = "commentary.settings.provider.chatgpt";
+  apiTab.dataset.key = "commentary.settings.provider.apikey";
+  for (const radio of providers.inputs) radio.onchange = () => chooseProvider(providers.value());
+  connectionPage.append(providers.el);
 
   // UNSELECTED: the setup welcome.
   const welcome = el("div", "ts-body");
   const welcomeIntro = el("div", "ts-welcome");
   const welcomeText = el("div");
   welcomeText.append(el("div", "ts-welcome-title", design("setupTitle")), el("div", "ts-note", t("Teacher.chatgpt.choose")));
-  welcomeIntro.append(icon("browser"), welcomeText);
+  welcomeIntro.append(welcomeText);
   welcome.append(welcomeIntro, privacyRow());
 
-  // API Key
+  // API Key: the address, the key, the model and 记住密钥 as one group.
   const api = el("div", "ts-body");
-  const form = el("div", "ts-form");
+  const apiRows = el("div", "ts-rows");
   const field = (key: string, type: string, placeholder = "") => {
     const input = el("input", "ts-field");
     input.type = type;
@@ -219,15 +225,8 @@ export function openSettings(host: Host): SettingsDialog {
     input.autocomplete = "off";
     return input;
   };
-  const formRow = (text: string, control: HTMLElement, target: HTMLInputElement) => {
-    const label = el("label", "", text);
-    target.id ||= `ts-${target.dataset.key?.replace(/\W/g, "-")}`;
-    label.htmlFor = target.id;
-    form.append(label, control);
-  };
   const baseUrl = field("commentary.settings.baseUrl", "text", t("Teacher.settings.addressExample"));
-  formRow(t("Teacher.settings.baseUrl"), baseUrl, baseUrl);
-  const keyRow = el("div", "ts-row");
+  row(apiRows, t("Teacher.settings.baseUrl"), "", baseUrl);
   const apiKey = field("commentary.settings.apiKey", "password");
   apiKey.dataset.secret = "";
   const showKeyLabel = el("label", "ts-check");
@@ -238,15 +237,14 @@ export function openSettings(host: Host): SettingsDialog {
   showKey.onchange = () => {
     apiKey.type = showKey.checked ? "text" : "password";
   };
-  keyRow.append(apiKey, showKeyLabel);
-  formRow(t("Teacher.settings.keyLabel"), keyRow, apiKey);
+  row(apiRows, t("Teacher.settings.keyLabel"), "", apiKey, showKeyLabel);
   // The editable model combo: typed text or one of the listed models.
-  const modelRow = el("div", "ts-row");
   const combo = el("div", "ts-combo");
   const modelInput = field("commentary.settings.model", "text", t("Teacher.settings.modelExample"));
   modelInput.setAttribute("role", "combobox");
   modelInput.setAttribute("aria-expanded", "false");
-  const comboToggle = el("button", "ts-combo-toggle", "▾");
+  const comboToggle = el("button", "ts-combo-toggle");
+  comboToggle.append(icon("chevron-down"));
   comboToggle.type = "button";
   comboToggle.tabIndex = -1;
   comboToggle.dataset.key = "commentary.settings.modelList";
@@ -285,46 +283,31 @@ export function openSettings(host: Host): SettingsDialog {
     }
   });
   const getModels = btn(t("Teacher.settings.refreshModels"), "", "commentary.settings.getModels");
-  modelRow.append(combo, getModels);
-  formRow(t("Teacher.settings.model"), modelRow, modelInput);
-  const rememberLabel = el("label", "ts-check");
-  const remember = el("input");
-  remember.type = "checkbox";
+  row(apiRows, t("Teacher.settings.model"), "", combo, getModels);
+  const rememberRow = switchRow(apiRows, t("Teacher.settings.rememberKey"), t("Teacher.settings.privacy"), false);
+  const remember = rememberRow.input;
   remember.dataset.key = "commentary.settings.remember";
-  rememberLabel.append(remember, document.createTextNode(t("Teacher.settings.rememberKey")));
-  form.append(el("span"), rememberLabel);
-  api.append(el("div", "ts-note", t("Teacher.settings.apiHint")), form, el("div", "ts-note", t("Teacher.settings.privacy")), privacyRow());
+  api.append(el("div", "ts-note", t("Teacher.settings.apiHint")), apiRows, privacyRow());
 
   // ChatGPT 登录
   const chat = el("div", "ts-body");
   const chatWelcome = el("div", "ts-welcome");
   const chatWelcomeText = el("div");
   chatWelcomeText.append(el("div", "ts-welcome-title", design("chatTitle")), el("div", "ts-welcome-hint", design("chatHint")));
-  chatWelcome.append(icon("browser"), chatWelcomeText);
-  const chatFields = el("div", "ts-body");
+  chatWelcome.append(chatWelcomeText);
+  // The account, then the model and its thinking depth once the account is authorized.
+  const chatRows = el("div", "ts-rows");
   const accountSelect = select("commentary.settings.account", t("Teacher.chatgpt.account"));
-  accountSelect.id = "ts-account";
-  const accountLabel = el("label", "ts-label", t("Teacher.chatgpt.account"));
-  accountLabel.htmlFor = accountSelect.id;
-  const modelFields = el("div", "ts-body");
-  const chatGrid = el("div", "ts-chat-grid");
+  const accountRow = row(chatRows, t("Teacher.chatgpt.account"), "", accountSelect);
   const chatModel = select("commentary.settings.chatModel", t("Teacher.chatgpt.model"));
-  chatModel.id = "ts-chat-model";
-  const chatModelLabel = el("label", "", t("Teacher.chatgpt.model"));
-  chatModelLabel.htmlFor = chatModel.id;
   const refresh = btn(t("Teacher.chatgpt.refresh"), "", "commentary.settings.refreshModels");
-  const chatModelRow = el("div", "ts-row");
-  chatModelRow.append(chatModel, refresh);
+  const chatModelRow = row(chatRows, t("Teacher.chatgpt.model"), "", chatModel, refresh);
   const effort = select("commentary.settings.effort", t("Teacher.chatgpt.reasoning"));
-  effort.id = "ts-effort";
-  const effortLabelEl = el("label", "", t("Teacher.chatgpt.reasoning"));
-  effortLabelEl.htmlFor = effort.id;
-  chatGrid.append(chatModelLabel, chatModelRow, effortLabelEl, effort);
-  const effortHint = el("div", "ts-note");
-  modelFields.append(chatGrid, effortHint);
-  chatFields.append(accountLabel, accountSelect, modelFields);
+  const effortRow = row(chatRows, t("Teacher.chatgpt.reasoning"), "", effort);
+  const effortHint = el("span", "ds-row-sub");
+  effortRow.querySelector(".ds-row-text")!.append(effortHint);
   const signInRow = el("div", "ts-actions");
-  const connect = btn(t("Teacher.chatgpt.connect"), "primary ts-connect", "commentary.settings.connect");
+  const connect = btn(t("Teacher.chatgpt.connect"), "ts-connect", "commentary.settings.connect");
   const cancelSignIn = btn(t("Teacher.chatgpt.cancel"), "", "commentary.settings.cancelSignIn");
   // ChatGptSettingsPanel.retry: shown while saved credentials cannot be read; reloads the account.
   const retry = btn(t("Teacher.chatgpt.retry"), "", "commentary.settings.retry");
@@ -337,22 +320,18 @@ export function openSettings(host: Host): SettingsDialog {
   const planNotice = el("div", "ts-note", design("planNotice").replace(/\\n/g, "\n"));
   const chatStatus = el("div", "ts-note");
   chatStatus.dataset.key = "commentary.settings.chatStatus";
-  chat.append(chatWelcome, chatFields, signInRow, chatActions, planNotice, chatStatus, privacyRow());
+  chat.append(chatWelcome, chatRows, signInRow, chatActions, planNotice, chatStatus, privacyRow());
   connectionPage.append(welcome, api, chat);
 
   // ------------------------------------------------------------- 讲解偏好
   const preferencesPage = el("div", "ts-page");
   preferencesPage.append(el("div", "ts-heading", design("preferences")), el("div", "ts-note", design("preferencesHint")));
+  const preferenceRows = el("div", "ts-rows");
   const preference = (section: string | null, title: string, hint: string, key: string, options: string[]) => {
-    if (section) preferencesPage.append(el("div", "ts-section", section));
-    const row = el("div", "ts-pref");
-    const text = el("div", "ts-pref-text");
+    if (section) groupTitle(preferenceRows, section);
     const s = select(key, title);
-    s.setAttribute("aria-description", hint);
     setOptions(s, options.map((o, k) => [String(k), o]));
-    text.append(el("div", "ts-pref-title", title), el("div", "ts-note", hint));
-    row.append(text, s);
-    preferencesPage.append(row);
+    row(preferenceRows, title, hint, s);
     return s;
   };
   const level = preference(design("personal"), design("level"), design("levelHint"), "commentary.settings.level",
@@ -368,8 +347,8 @@ export function openSettings(host: Host): SettingsDialog {
   const reload = el("button", "ts-link");
   reload.type = "button";
   reload.dataset.key = "commentary.settings.reloadKnowledge";
-  reload.append(icon("book"), el("span", "", t("Teacher.settings.reloadKnowledge")));
-  preferencesPage.append(reload);
+  reload.textContent = t("Teacher.settings.reloadKnowledge");
+  preferencesPage.append(preferenceRows, reload);
   pages.append(connectionPage, preferencesPage);
 
   document.body.append(overlay);
@@ -654,7 +633,7 @@ export function openSettings(host: Host): SettingsDialog {
       e.stopPropagation();
       if (!comboList.hidden) showModelList(false);
       else if (!saving) close();
-    } else if (e.key === "Enter" && !e.isComposing && e.target instanceof HTMLInputElement && e.target.type !== "checkbox") {
+    } else if (e.key === "Enter" && !e.isComposing && e.target instanceof HTMLInputElement && e.target.type !== "checkbox" && e.target.type !== "radio") {
       // getRootPane().setDefaultButton(saveButton)
       e.preventDefault();
       if (!save.disabled) save.click();
@@ -670,33 +649,40 @@ export function openSettings(host: Host): SettingsDialog {
 
   // ------------------------------------------------------------- render
   // ChatGptSettingsPanel.java:295-308: the first authorized use shows a modal welcome once per
-  // account (titled 正在使用 ChatGPT 套餐); the adapter persists `welcomed` and reports it once.
+  // account (titled 正在使用 ChatGPT 套餐); the adapter persists `welcomed` and reports it once. It
+  // only informs: 关闭, the title's close box, Enter and Escape close it.
   const welcomed = new Set<string>();
   function welcomeOnce(statusKey: string | undefined, account: string | undefined): void {
     if (statusKey !== "Teacher.chatgpt.welcome" || !account || welcomed.has(account)) return;
     welcomed.add(account);
-    const layer = el("div", "ts-overlay ts-notice-layer");
-    const card = el("div", "ts-notice");
-    card.setAttribute("role", "alertdialog");
+    const layer = el("div", "modal ts-overlay ts-notice-layer");
+    const card = el("div", "modal-box ts-notice");
+    card.setAttribute("role", "dialog");
     card.setAttribute("aria-modal", "true");
     card.setAttribute("aria-label", t("Teacher.chatgpt.usingPlan"));
-    const ok = el("button", "tc-btn primary", product("ok"));
     const close = () => {
       layer.remove();
       box.focus();
     };
-    ok.onclick = close;
+    const x = closeBox(close);
+    x.dataset.key = "commentary.welcome.close";
+    const title = el("div", "modal-title");
+    title.append(el("span", "", t("Teacher.chatgpt.usingPlan")), x);
+    const closeButton = btn(product("close"), "", "commentary.welcome.closeButton");
+    closeButton.onclick = close;
+    const buttons = el("div", "modal-buttons");
+    buttons.append(closeButton);
     layer.onkeydown = (e) => {
-      if (e.key === "Escape" || e.key === "Enter") {
+      if ((e.key === "Escape" || e.key === "Enter") && !e.isComposing) {
         e.preventDefault();
         e.stopPropagation();
         close();
       }
     };
-    card.append(el("div", "ts-notice-title", t("Teacher.chatgpt.usingPlan")), el("div", "ts-notice-text", t("Teacher.chatgpt.welcome")), ok);
+    card.append(title, el("div", "modal-body", t("Teacher.chatgpt.welcome")), buttons);
     layer.append(card);
     document.body.append(layer);
-    ok.focus();
+    closeButton.focus();
   }
 
   function renderChat(): void {
@@ -711,8 +697,9 @@ export function openSettings(host: Host): SettingsDialog {
     const busy = chatBusy || signingIn || saving;
     welcomeOnce(g?.status_key, a?.id);
     chatWelcome.hidden = signedIn || accounts.length > 0;
-    chatFields.hidden = accounts.length === 0;
-    modelFields.hidden = !authorized;
+    accountRow.hidden = accounts.length === 0;
+    chatModelRow.hidden = effortRow.hidden = !authorized;
+    chatRows.hidden = accountRow.hidden && chatModelRow.hidden;
     chatActions.hidden = !signedIn;
     const offerSignIn = !unavailable && !authorized;
     planNotice.hidden = !offerSignIn;
@@ -779,8 +766,8 @@ export function openSettings(host: Host): SettingsDialog {
     connectionNav.disabled = preferencesNav.disabled = locked;
     connectionPage.hidden = page !== "connection";
     preferencesPage.hidden = page !== "preferences";
-    chatTab.classList.toggle("selected", provider === "chatGpt");
-    apiTab.classList.toggle("selected", provider === "apiKey");
+    chatTab.checked = provider === "chatGpt";
+    apiTab.checked = provider === "apiKey";
     chatTab.disabled = apiTab.disabled = locked;
     welcome.hidden = provider !== "unselected";
     api.hidden = provider !== "apiKey";
@@ -791,7 +778,7 @@ export function openSettings(host: Host): SettingsDialog {
     getModels.disabled = locked || restoring || listing;
     const storage = v?.facts.secure_storage.available ?? false;
     remember.disabled = locked || !storage;
-    rememberLabel.title = storage ? "" : t("Teacher.settings.storageUnavailable");
+    rememberRow.row.title = storage ? "" : t("Teacher.settings.storageUnavailable");
     for (const s of [level, style, density, pace, variation]) s.disabled = locked;
     reload.disabled = locked;
     renderChat();
