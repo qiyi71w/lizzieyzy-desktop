@@ -912,12 +912,14 @@ importing the matching LizzieYzy Next settings.
     three connection attempts with a fresh socket token for each; temporary token-service
     failures share that budget, while fatal authentication or service rejection does not retry.
     A 智子 start that fails says why, in the failure window and in the center's status: the
-    socket token request failed (in the service's words when its failure key is a known one), the
-    service or the proxy could not be reached, the service refused the session, it closed the
+    socket token request failed (with a specific message for the service's known failure keys),
+    the service or the proxy could not be reached, the service refused the session, it closed the
     connection before the engine was ready, or the engine was not ready within 60 seconds. A
     refusal shows the first line of the service's message only when that line names no
     credential, address, account, long number or structured data. On the VIP plan (also when
-    the plan is left empty) a plan or quota refusal adds the hint to try 按量 1x.
+    the plan is left empty) a plan or quota refusal adds the hint to try 按量 1x. A proxy setting
+    that cannot be used at all (no host or port) fails before any attempt, with the general
+    message.
     Account HTTP and both cloud WebSocket transports use the selected direct, system-proxy or
     manual-proxy mode. Invalid or unavailable manual proxies never fall back to a direct connection.
     An established Zhizi analysis that has no accepted visit

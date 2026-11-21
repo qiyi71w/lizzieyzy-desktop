@@ -139,8 +139,13 @@ function createCenter(initial: WorkbenchView): Center {
   let overviewSeq = 0, catalogSeq = 0, operationSeq = 0;
   let weightOptions: { name: string; confirmed: boolean }[] = [];
   /** The engine switch in progress (switchPrimaryEngine's monitor), armed before its command is
-   *  sent; `receipt` is the seat and view boundary the committed command reported. */
-  let monitor: { launch: Launch; success: string; failure: string; receipt: { profile: string; after: number } | null } | null = null;
+   *  sent; `receipt` is the seat and view boundary the committed command reported, `seen` the
+   *  latest engine failure a view showed meanwhile (a failure is in one view only, which may come
+   *  before the receipt). */
+  let monitor: {
+    launch: Launch; success: string; failure: string; receipt: { profile: string; after: number } | null;
+    seen: { seq: number; failure: NonNullable<WorkbenchView["engine_failure"]> } | null;
+  } | null = null;
 
   const request = (op: CloudCommand): Promise<AccountOutcome | null> => accountRequest(op, owner);
   const write = (op: CloudCommand): Promise<AccountOutcome | null> => accountRequest(op, writes);
@@ -737,7 +742,7 @@ function createCenter(initial: WorkbenchView): Center {
   // ---- engine switches ---------------------------------------------------------------------
   /** switchPrimaryEngine: the command, then the views after its commit decide success or failure. */
   async function switchEngine(command: Command, launch: Launch, starting: string, success: string, failure: string) {
-    const pending: NonNullable<typeof monitor> = { launch, success, failure, receipt: null };
+    const pending: NonNullable<typeof monitor> = { launch, success, failure, receipt: null, seen: null };
     monitor = pending;
     busy = true;
     status(starting, true);
@@ -755,13 +760,15 @@ function createCenter(initial: WorkbenchView): Center {
   }
 
   function watch(view: WorkbenchView) {
-    const receipt = monitor?.receipt;
-    if (!monitor || !receipt) return;
+    if (!monitor) return;
+    if (view.engine_failure) monitor.seen = { seq: view.seq, failure: view.engine_failure };
+    const receipt = monitor.receipt;
+    if (!receipt) return;
     const ok = switchOutcome(view, receipt.profile, receipt.after, monitor.launch);
     if (ok === null) return;
     // A 智子 engine that never became ready says why (ZhiziGtpTransport, friendlyZhiziErrorMessage);
-    // only the requested foreground profile's own failure speaks for this switch.
-    const failed = view.engine_failure;
+    // only the requested foreground profile's own failure after the commit speaks for this switch.
+    const failed = monitor.seen && monitor.seen.seq > receipt.after ? monitor.seen.failure : undefined;
     const reason = !ok && failed && !failed.secondary && failed.profile_id === receipt.profile ? failed.cloud : undefined;
     const launch = monitor.launch;
     finishSwitch(ok, ok ? monitor.success : reason && launch.provider === "zhizi" ? cloudStartText(reason, launch.args) : monitor.failure);

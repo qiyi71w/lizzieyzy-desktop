@@ -339,18 +339,29 @@ async fn credentials(
 /// `IO.socket(socketIOURL, options)` reads it: the URL's decoded path names the namespace
 /// (socket.io-client-java 2.1.2 hands `URI.getPath()` to `Manager.socket`), Engine.IO is at
 /// `/socket.io.v4/` on the same host, and a query of the URL's own takes the place of the token's
-/// (engine.io-client 2.1.0 `Options.fromURI` puts `getRawQuery()` over `options.query`).
+/// (engine.io-client 2.1.0 `Options.fromURI` puts `getRawQuery()` over `options.query`). Like
+/// Engine.IO's query map, a repeated name keeps its last value and `EIO` / `transport` are its own.
 fn socket_endpoint(credentials: &SocketCredentials) -> Option<(String, String)> {
     let mut url = Url::parse(&credentials.socket_url).ok()?;
     let scheme = match url.scheme() { "http" | "ws" => "ws", "https" | "wss" => "wss", _ => return None };
     let namespace = match url.path() { "" => "/".to_string(), path => percent_decode_str(path).decode_utf8().ok()?.into_owned() };
-    let query = url.query().map(str::to_owned);
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    if url.query().is_some() {
+        for (name, value) in url.query_pairs() {
+            match pairs.iter_mut().find(|(known, _)| *known == name) {
+                Some(pair) => pair.1 = value.into_owned(),
+                None => pairs.push((name.into_owned(), value.into_owned())),
+            }
+        }
+        pairs.retain(|(name, _)| name != "EIO" && name != "transport");
+    } else {
+        pairs.push(("zz-socketio-token".into(), credentials.token.clone()));
+    }
     url.set_scheme(scheme).ok()?;
     url.set_path("/socket.io.v4/");
     url.set_fragment(None);
-    url.set_query(query.as_deref());
-    if query.is_none() { url.query_pairs_mut().append_pair("zz-socketio-token", &credentials.token); }
-    url.query_pairs_mut().append_pair("EIO", "4").append_pair("transport", "websocket");
+    url.set_query(None);
+    url.query_pairs_mut().extend_pairs(&pairs).append_pair("EIO", "4").append_pair("transport", "websocket");
     Some((url.into(), namespace))
 }
 
@@ -444,7 +455,8 @@ impl SocketIo {
         let Some(packet) = text.strip_prefix('4') else { return Some(Packet::Other); };
         let Some(&kind) = packet.as_bytes().first().filter(|kind| kind.is_ascii_digit()) else { return Some(Packet::Other); };
         let mut rest = &packet[1..];
-        let binary = kind == b'5';
+        // A binary event (5) or a binary acknowledgement (6) is followed by its attachments.
+        let binary = matches!(kind, b'5' | b'6');
         let mut attachments = 0;
         if binary {
             let (count, body) = rest.split_once('-')?;
@@ -452,10 +464,11 @@ impl SocketIo {
             rest = body;
         }
         let (namespace, rest) = if rest.starts_with('/') { rest.split_once(',').unwrap_or((rest, "")) } else { ("/", rest) };
-        // Another namespace's packet, such as the main namespace's own CONNECT answer; the binary
-        // frames of its event follow it and are not this session's either.
-        if namespace != self.namespace {
-            self.skip += attachments;
+        // Another namespace's packet, such as the main namespace's own CONNECT answer, or an
+        // acknowledgement (this session asks for none): its binary frames are not this session's
+        // either.
+        if namespace != self.namespace || kind == b'6' {
+            self.skip = self.skip.saturating_add(attachments);
             return Some(Packet::Other);
         }
         if binary && (attachments != 1 || self.binary_event.is_some()) { return None; }
@@ -526,17 +539,17 @@ fn redact(mut line: String, secrets: &[String]) -> Option<String> {
     (!sensitive).then_some(line)
 }
 
-/// A refusal reason fit to show: not JSON or a status payload (Java `friendlyZhiziErrorMessage`),
-/// no e-mail and no run of seven or more digits (spaces, `-`, `+` and brackets between them count
-/// as one run).
+/// A refusal reason fit to show: no structured data (`{`, a leading `[`) or status payload (Java
+/// `friendlyZhiziErrorMessage`), no e-mail and no run of seven or more digits (spaces, `.`, `-`,
+/// `+` and brackets between them count as one run).
 fn plain_reason(text: &str) -> bool {
-    if text.starts_with(['{', '[']) || text.contains("\"key\"") || text.contains('@') || text.to_ascii_lowercase().contains("statuscode") { return false; }
+    if text.starts_with('[') || text.contains('{') || text.contains('@') || text.to_ascii_lowercase().contains("statuscode") { return false; }
     let mut digits = 0;
     for c in text.chars() {
         if c.is_ascii_digit() {
             digits += 1;
             if digits >= 7 { return false; }
-        } else if !matches!(c, ' ' | '-' | '+' | '(' | ')') {
+        } else if !(c.is_whitespace() || matches!(c, '.' | '-' | '+' | '(' | ')')) {
             digits = 0;
         }
     }
@@ -677,6 +690,11 @@ async fn run_zhizi(
                     if let Ok(parsed) = Url::parse(&credentials.socket_url) {
                         secrets.push(parsed.username().to_string());
                         if let Some(password) = parsed.password() { secrets.push(password.to_string()); }
+                    }
+                    // The address actually used may carry its own token in its query.
+                    if let Ok(endpoint) = Url::parse(&url) {
+                        secrets.extend(endpoint.query_pairs().filter(|(name, value)| name != "EIO" && name != "transport" && value.len() >= 8)
+                            .map(|(_, value)| value.into_owned()));
                     }
                     // A service may echo them URL-encoded.
                     let encoded: Vec<String> = secrets.iter().map(|secret| form_urlencoded::byte_serialize(secret.as_bytes()).collect::<String>())

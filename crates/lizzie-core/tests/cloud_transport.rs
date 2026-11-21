@@ -344,11 +344,14 @@ fn zhizi_uses_the_namespace_its_socket_url_names() {
         // socket.io-client-java `IO.socket("…/zhizi-ns")` connects that namespace, not `/`.
         assert_eq!(text(&mut peer), "40/zhizi-ns,");
         // The main namespace's packets are not this session's: no readiness, no queued GTP, and
-        // another namespace's binary event with its attachment does not end the connection.
+        // another namespace's binary event or acknowledgement with its attachment does not end the
+        // connection.
         peer.send(Message::Text("40{\"sid\":\"main\"}".into())).unwrap();
         peer.send(Message::Text("42[\"ready\"]".into())).unwrap();
         peer.send(Message::Text("451-/other,[\"stdout\",{\"_placeholder\":true,\"num\":0}]".into())).unwrap();
         peer.send(Message::Binary(b"not this session\n".to_vec().into())).unwrap();
+        peer.send(Message::Text("461-/other,7[{\"_placeholder\":true,\"num\":0}]".into())).unwrap();
+        peer.send(Message::Binary(b"not this session either\n".to_vec().into())).unwrap();
         // Its own `ready` before its CONNECT is answered waits for it, as socket.io-client's
         // receive buffer does.
         peer.send(Message::Text("42/zhizi-ns,[\"ready\"]".into())).unwrap();
@@ -372,7 +375,8 @@ fn zhizi_uses_the_namespace_its_socket_url_names() {
 #[test]
 fn zhizi_reads_its_socket_url_as_socket_io_client_java_does() {
     // socket.io-client-java 2.1.2 joins the decoded path (`URI.getPath`); engine.io-client 2.1.0
-    // `Options.fromURI` puts the URL's own query over the token query.
+    // `Options.fromURI` puts the URL's own query over the token query, decoded into a map (a
+    // repeated name keeps its last value) whose `EIO` and `transport` are Engine.IO's own.
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let peer = thread::spawn(move || {
@@ -380,11 +384,10 @@ fn zhizi_reads_its_socket_url_as_socket_io_client_java_does() {
         stream.set_read_timeout(Some(Duration::from_secs(8))).unwrap();
         let mut peer = tokio_tungstenite::tungstenite::accept_hdr(stream, |request: &tokio_tungstenite::tungstenite::handshake::server::Request, response| {
             assert_eq!(request.uri().path(), "/socket.io.v4/");
-            let pairs: Vec<(String, String)> = url::form_urlencoded::parse(request.uri().query().unwrap().as_bytes()).into_owned().collect();
-            for pair in [("route", "a b"), ("zz-socketio-token", "url-token"), ("EIO", "4"), ("transport", "websocket")] {
-                assert!(pairs.contains(&(pair.0.into(), pair.1.into())), "{pair:?} in {pairs:?}");
-            }
-            assert!(!pairs.iter().any(|(_, value)| value == "private-socket-token"));
+            let mut pairs: Vec<(String, String)> = url::form_urlencoded::parse(request.uri().query().unwrap().as_bytes()).into_owned().collect();
+            pairs.sort();
+            let expected = [("EIO", "4"), ("route", "c d"), ("transport", "websocket"), ("zz-socketio-token", "url-token")];
+            assert_eq!(pairs, expected.map(|(name, value)| (name.to_string(), value.to_string())));
             Ok(response)
         }).unwrap();
         let prefix = socketio_ready_in(&mut peer, "/zhizi/ns");
@@ -394,14 +397,15 @@ fn zhizi_reads_its_socket_url_as_socket_io_client_java_does() {
         peer.send(Message::Text(format!("42{prefix}[\"stdout\",\"=1 KataGo\\n\\n\"]").into())).unwrap();
         let _ = peer.read();
     });
-    let mut engine = Running::zhizi(format!("http://{address}/zhizi%2Fns?route=a%20b&zz-socketio-token=url-token"));
+    let mut engine = Running::zhizi(format!("http://{address}/zhizi%2Fns?route=a%20b&EIO=3&transport=polling&route=c%20d&zz-socketio-token=url-token"));
     engine.send("1 name"); engine.stdout("=1 KataGo");
     engine.stop(); peer.join().unwrap();
 }
 
 /// How a 智子 startup ends whose namespace CONNECT the service answers with `44/zhizi-ns,{data}`,
-/// the events up to it, and the number of socket token requests.
-fn refusal(data: &str) -> (CloudStartFailure, Vec<EngineInput>, usize) {
+/// the socket address carrying `query`; the events up to it, and the number of socket token
+/// requests.
+fn refusal(data: &str, query: &str) -> (CloudStartFailure, Vec<EngineInput>, usize) {
     let packet = format!("44/zhizi-ns,{data}");
     let (url, peer) = server(move |mut peer| {
         peer.send(Message::Text("0{\"sid\":\"fixture\"}".into())).unwrap();
@@ -410,9 +414,10 @@ fn refusal(data: &str) -> (CloudStartFailure, Vec<EngineInput>, usize) {
         let _ = peer.read();
     });
     let calls = Arc::new(Mutex::new(0)); let observed = calls.clone();
+    let socket_url = format!("{url}/zhizi-ns{query}");
     let mut engine = Running::new(CloudProvider::Zhizi, String::new(), Arc::new(move |_, _| {
         *observed.lock().unwrap() += 1;
-        Ok(SocketCredentials { socket_url: format!("{url}/zhizi-ns"), token: "private-socket-token".into() })
+        Ok(SocketCredentials { socket_url: socket_url.clone(), token: "private-socket-token".into() })
     }));
     let events = engine.until(|event| matches!(event, EngineInput::CloudStartFailed(_)));
     engine.stop(); peer.join().unwrap();
@@ -425,24 +430,30 @@ fn refusal(data: &str) -> (CloudStartFailure, Vec<EngineInput>, usize) {
 fn a_refused_zhizi_session_ends_the_startup_with_a_reason_free_of_credentials() {
     // A plan refusal is final (Java `isFatalStartupFailure`): one attempt, no retry; the first
     // line of its reason shows, with the socket token removed.
-    let (reason, _, calls) = refusal(r#"{"message":"该账号未开通 VIP 包月 private-socket-token\nsecond line"}"#);
+    let (reason, _, calls) = refusal(r#"{"message":"该账号未开通 VIP 包月 private-socket-token\nsecond line"}"#, "");
     assert_eq!(calls, 1);
+    assert_eq!(reason, CloudStartFailure::Refused { detail: "该账号未开通 VIP 包月 [redacted]".into() });
+    // The token an address carries in its own query is the one used, and as secret.
+    let (reason, _, _) = refusal(r#""该账号未开通 VIP 包月 url-private-token""#, "?zz-socketio-token=url-private-token");
     assert_eq!(reason, CloudStartFailure::Refused { detail: "该账号未开通 VIP 包月 [redacted]".into() });
     // A reason naming the account however it is written, a credential, an address or structured
     // data is left out, from the reason and from the engine's output alike.
     for data in [
         r#"{"message":"账号 138 0000 0000 未开通 VIP 包月"}"#,
+        r#"{"message":"账号 138.0000.0000 未开通 VIP 包月"}"#,
+        "{\"message\":\"账号 138\u{a0}0000\u{a0}0000 未开通 VIP 包月\"}",
         r#"{"message":"VIP 包月：fixture-account@example.invalid 无权限"}"#,
         r#""Bearer private-bearer 套餐无效""#,
         r#""套餐无效，详见 https://example.invalid/private-path""#,
         r#""VIP 未开通 {\"key\":\"private-key\"}""#,
+        r#""VIP 未开通 {\"account\":\"private-account\"}""#,
         r#""[\"13900000000\", \"VIP\"]""#,
     ] {
-        let (reason, events, calls) = refusal(data);
+        let (reason, events, calls) = refusal(data, "");
         assert_eq!((calls, reason), (1, CloudStartFailure::Refused { detail: String::new() }), "{data}");
         for event in &events {
             if let EngineInput::Stderr(line) = event {
-                for secret in ["0000", "fixture-account", "private-bearer", "private-path", "private-key", "13900000000"] {
+                for secret in ["0000", "fixture-account", "private-bearer", "private-path", "private-key", "private-account", "13900000000"] {
                     assert!(!line.contains(secret), "{line}");
                 }
             }
