@@ -4,8 +4,49 @@
 // on the network and must not hold back board commands or the cancel request that ends it.
 // Nothing here logs a command, reply or link: they can carry passwords, codes or link secrets.
 import { dispatch, isApiError } from "../contract/client";
-import type { CloudCatalog, CloudCommand, CloudFailure, CloudReply, Command, CommandResult, Weight } from "../contract/generated";
-import { format, t } from "../i18n";
+import type { CloudCatalog, CloudCommand, CloudFailure, CloudReply, CloudStartFailure, Command, CommandResult, Weight } from "../contract/generated";
+import { format, product, registerProduct, t } from "../i18n";
+
+// Why the 智子 engine did not start (ZhiziGtpTransport's startup messages, which Java wrote in
+// Chinese only).
+registerProduct({
+  ZhCn: {
+    cloudStartNotReady: "智子云算力 60 秒内没有准备好，请稍后重试。",
+    cloudStartDisconnected: "智子云算力在准备好之前断开了连接，请稍后重试。",
+    cloudStartRefused: "智子云算力拒绝了连接，请检查账号和套餐。",
+    cloudStartRefusedDetail: "智子云算力拒绝了连接：{0}",
+  },
+  ZhTw: {
+    cloudStartNotReady: "智子雲算力 60 秒內沒有準備好，請稍後重試。",
+    cloudStartDisconnected: "智子雲算力在準備好之前中斷了連線，請稍後重試。",
+    cloudStartRefused: "智子雲算力拒絕了連線，請檢查帳號和方案。",
+    cloudStartRefusedDetail: "智子雲算力拒絕了連線：{0}",
+  },
+  EnUs: {
+    cloudStartNotReady: "Zhizi Cloud was not ready within 60 seconds. Try again later.",
+    cloudStartDisconnected: "Zhizi Cloud closed the connection before it was ready. Try again later.",
+    cloudStartRefused: "Zhizi Cloud refused the connection. Check the account and plan.",
+    cloudStartRefusedDetail: "Zhizi Cloud refused the connection: {0}",
+  },
+  JaJp: {
+    cloudStartNotReady: "Zhizi Cloud は 60 秒以内に準備できませんでした。しばらくしてから再試行してください。",
+    cloudStartDisconnected: "Zhizi Cloud は準備が整う前に接続を切断しました。しばらくしてから再試行してください。",
+    cloudStartRefused: "Zhizi Cloud が接続を拒否しました。アカウントとプランを確認してください。",
+    cloudStartRefusedDetail: "Zhizi Cloud が接続を拒否しました：{0}",
+  },
+  KoKr: {
+    cloudStartNotReady: "Zhizi Cloud가 60초 안에 준비되지 않았습니다. 잠시 후 다시 시도하세요.",
+    cloudStartDisconnected: "Zhizi Cloud가 준비되기 전에 연결을 끊었습니다. 잠시 후 다시 시도하세요.",
+    cloudStartRefused: "Zhizi Cloud가 연결을 거부했습니다. 계정과 요금제를 확인하세요.",
+    cloudStartRefusedDetail: "Zhizi Cloud가 연결을 거부했습니다: {0}",
+  },
+  ThTh: {
+    cloudStartNotReady: "Zhizi Cloud ไม่พร้อมภายใน 60 วินาที กรุณาลองใหม่ภายหลัง",
+    cloudStartDisconnected: "Zhizi Cloud ตัดการเชื่อมต่อก่อนที่จะพร้อม กรุณาลองใหม่ภายหลัง",
+    cloudStartRefused: "Zhizi Cloud ปฏิเสธการเชื่อมต่อ กรุณาตรวจสอบบัญชีและแพ็กเกจ",
+    cloudStartRefusedDetail: "Zhizi Cloud ปฏิเสธการเชื่อมต่อ: {0}",
+  },
+});
 
 /** Java RemoteComputeConfig *_ZHIZI_ARGS, in the dialog's 连接方式 order. */
 export const VIP_ARGS = "--platform all --engine-type go --gpu-type vip-share --kata-name katago-TENSORRT --kata-weight 10b512t";
@@ -251,8 +292,24 @@ export function customDisplayName(url: string): string {
 
 /** RemoteComputeConfig.friendlyZhiziErrorMessage for a sanitized failure key. */
 export function failureText(f: CloudFailure, args: string, sendCode = false): string {
+  return withVipHint(keyText(f.key, sendCode), args);
+}
+
+/** Why the 智子 engine did not start, with the plan hint like any 智子 failure. Without `args` (a
+ *  failure dialog that does not know the plan) there is no hint. */
+export function cloudStartText(f: CloudStartFailure, args: string): string {
+  switch (f.type) {
+    case "Token": return withVipHint(keyText(f.key), args);
+    case "Unreachable": return t("RemoteCompute.error.network");
+    case "Refused": return withVipHint(f.detail ? product("cloudStartRefusedDetail", f.detail) : product("cloudStartRefused"), args);
+    case "Disconnected": return product("cloudStartDisconnected");
+    case "NotReady": return product("cloudStartNotReady");
+  }
+}
+
+function keyText(key: string, sendCode = false): string {
   let text: string;
-  switch (f.key) {
+  switch (key) {
     case "invalid_phone": case "invalid_email": text = t("RemoteCompute.error.invalidAccount"); break;
     case "invalid_account": text = t("RemoteCompute.error.accountRequired"); break;
     case "password_required": text = t("RemoteCompute.error.accountPasswordRequired"); break;
@@ -276,11 +333,15 @@ export function failureText(f: CloudFailure, args: string, sendCode = false): st
     case "invalid_response": text = t("RemoteCompute.error.invalidResponse"); break;
     default: text = sendCode ? t("RemoteCompute.error.codeSendTemporary") : t("RemoteCompute.error.genericConnection");
   }
-  // VIP 包月 access problems get the plan hint (RemoteComputeConfig.looksLikeVipAccessProblem).
+  return text;
+}
+
+/** VIP 包月 access problems get the plan hint (RemoteComputeConfig.looksLikeVipAccessProblem). */
+function withVipHint(text: string, args: string): string {
   const lower = text.toLowerCase();
   const vipProblem = ["worker", "vip", "quota", "permission", "forbidden", "unauthorized", "403"].some((w) => lower.includes(w))
     || ["无权限", "未开通", "额度", "余额"].some((w) => text.includes(w));
-  if (optionValue(args, "--gpu-type", "vip-share") === "vip-share" && args && vipProblem) text += `\n\n${t("RemoteCompute.error.vipHint")}`;
+  if (optionValue(args, "--gpu-type", "vip-share") === "vip-share" && args && vipProblem) return `${text}\n\n${t("RemoteCompute.error.vipHint")}`;
   return text;
 }
 

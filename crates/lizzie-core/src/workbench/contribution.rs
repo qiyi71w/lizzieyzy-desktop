@@ -992,6 +992,7 @@ impl Workbench {
             output: session.output.clone(),
             repair: None,
             remote: session.last_remote.clone(),
+            cloud: None,
             profile_id: String::new(),
             secondary: false,
         });

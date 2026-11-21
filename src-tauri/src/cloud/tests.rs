@@ -437,7 +437,7 @@ fn socket_token_adapter_obeys_the_transport_startup_budget() {
         let connector=CloudConnector::new(Arc::new(move |account,args| {
             tokens.token(account,args)
                 .map(|token|SocketCredentials {socket_url:token.socket_url,token:token.token})
-                .map_err(|error|CloudConnectError {message:error.to_string(),fatal:!error.retryable})
+                .map_err(|error|CloudConnectError {message:error.to_string(),fatal:!error.retryable,key:error.key})
         }));
         let endings=Arc::new(Mutex::new(Vec::new()));
         let (send,receive)=mpsc::channel();
@@ -447,7 +447,13 @@ fn socket_token_adapter_obeys_the_transport_startup_budget() {
         loop {
             let event=receive.recv_timeout(Duration::from_secs(10)).unwrap();
             if recover && matches!(&event,EngineInput::Stdout(line) if line=="=1 KataGo") {break;}
-            if matches!(event,EngineInput::Exited(_)) {assert!(!recover,"transient token failure prevented startup");break;}
+            if let EngineInput::CloudStartFailed(reason)=&event {
+                assert!(!recover,"transient token failure prevented startup");
+                // The service's failure key reaches the failure text, not its response body.
+                let key=if status==401 {"unauthorized"} else {"unknown_error"};
+                assert_eq!(reason,&lizzie_core::engine::cloud::CloudStartFailure::Token {key:key.into()});
+                break;
+            }
         }
         io.terminate();
         for handle in std::mem::take(&mut *endings.lock().unwrap()) {handle.join().unwrap();}

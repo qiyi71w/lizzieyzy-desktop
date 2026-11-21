@@ -2226,12 +2226,12 @@ pub fn run() {
                 token_adapter.token(account, args)
                     .map(|t| lizzie_core::engine::cloud::SocketCredentials { socket_url: t.socket_url, token: t.token })
                     .map_err(|e| lizzie_core::engine::cloud::CloudConnectError {
-                        message: e.to_string(), fatal: !e.retryable,
+                        message: e.to_string(), fatal: !e.retryable, key: e.key,
                     })
             })).with_network(Arc::new(move || {
                 network_cell.get().map(|shared| shared.workbench.lock().unwrap().config().network.clone())
                     .ok_or_else(|| lizzie_core::engine::cloud::CloudConnectError {
-                        message: "Cloud network settings unavailable".into(), fatal: true,
+                        message: "Cloud network settings unavailable".into(), fatal: true, key: String::new(),
                     })
             }));
             let launcher = ProcessLauncher::new(Arc::new(move |instance, input| {

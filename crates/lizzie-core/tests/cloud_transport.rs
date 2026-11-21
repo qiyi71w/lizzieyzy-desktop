@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use lizzie_core::api::GameCommand;
 use lizzie_core::browse::Navigation;
-use lizzie_core::engine::cloud::{CloudConnectError, CloudConnector, CloudLaunch, CloudProvider, SocketCredentials, SocketTokenSource};
+use lizzie_core::engine::cloud::{CloudConnectError, CloudConnector, CloudLaunch, CloudProvider, CloudStartFailure, SocketCredentials, SocketTokenSource};
 use lizzie_core::engine::gtp::{parse_info, Dialect, Frame, Framer};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, FocusCapability};
 use lizzie_core::record::{BoardSize, Point, ROOT};
@@ -49,10 +49,22 @@ fn write(peer: &mut Peer, value: Value) {
 }
 
 fn socketio_ready(peer: &mut Peer) {
+    socketio_ready_in(peer, "/");
+}
+
+/// The Socket.IO handshake and readiness on `namespace`; returns what leads its packets' data.
+fn socketio_ready_in(peer: &mut Peer, namespace: &str) -> String {
+    let prefix = if namespace == "/" { String::new() } else { format!("{namespace},") };
     peer.send(Message::Text("0{\"sid\":\"fixture\",\"upgrades\":[],\"pingInterval\":25000,\"pingTimeout\":20000}".into())).unwrap();
-    assert_eq!(text(peer), "40");
-    peer.send(Message::Text("40{\"sid\":\"fixture\"}".into())).unwrap();
-    peer.send(Message::Text("42[\"ready\"]".into())).unwrap();
+    assert_eq!(text(peer), format!("40{prefix}"));
+    peer.send(Message::Text(format!("40{prefix}{{\"sid\":\"fixture\"}}").into())).unwrap();
+    peer.send(Message::Text(format!("42{prefix}[\"ready\"]").into())).unwrap();
+    prefix
+}
+
+/// A cloud engine that failed before it was ready: a custom one exits, a 智子 one names why.
+fn ended(event: &EngineInput) -> bool {
+    matches!(event, EngineInput::Exited(None) | EngineInput::CloudStartFailed(_))
 }
 
 struct Running {
@@ -325,6 +337,130 @@ fn zhizi_waits_for_real_ready_and_decodes_text_binary_chunks_and_heartbeats() {
     engine.stop(); peer.join().unwrap();
 }
 
+#[test]
+fn zhizi_uses_the_namespace_its_socket_url_names() {
+    let (url, peer) = server(|mut peer| {
+        peer.send(Message::Text("0{\"sid\":\"fixture\",\"upgrades\":[],\"pingInterval\":25000,\"pingTimeout\":20000}".into())).unwrap();
+        // socket.io-client-java `IO.socket("…/zhizi-ns")` connects that namespace, not `/`.
+        assert_eq!(text(&mut peer), "40/zhizi-ns,");
+        // The main namespace's packets are not this session's: no readiness, no queued GTP, and
+        // another namespace's binary event or acknowledgement with its attachment does not end the
+        // connection.
+        peer.send(Message::Text("40{\"sid\":\"main\"}".into())).unwrap();
+        peer.send(Message::Text("42[\"ready\"]".into())).unwrap();
+        peer.send(Message::Text("451-/other,[\"stdout\",{\"_placeholder\":true,\"num\":0}]".into())).unwrap();
+        peer.send(Message::Binary(b"not this session\n".to_vec().into())).unwrap();
+        peer.send(Message::Text("461-/other,7[{\"_placeholder\":true,\"num\":0}]".into())).unwrap();
+        peer.send(Message::Binary(b"not this session either\n".to_vec().into())).unwrap();
+        // Its own `ready` before its CONNECT is answered waits for it, as socket.io-client's
+        // receive buffer does.
+        peer.send(Message::Text("42/zhizi-ns,[\"ready\"]".into())).unwrap();
+        peer.get_mut().set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+        assert!(peer.read().is_err());
+        peer.get_mut().set_read_timeout(Some(Duration::from_secs(8))).unwrap();
+        peer.send(Message::Text("40/zhizi-ns,{\"sid\":\"fixture\"}".into())).unwrap();
+        let input = text(&mut peer);
+        let event: Value = serde_json::from_str(input.strip_prefix("42/zhizi-ns,").unwrap()).unwrap();
+        assert_eq!(event, json!(["stdin", "1 name\n"]));
+        peer.send(Message::Text("42/zhizi-ns,[\"stdout\",\"=1 KataGo\\n\\n\"]".into())).unwrap();
+        let _ = peer.read();
+    });
+    let mut engine = Running::zhizi(format!("{url}/zhizi-ns"));
+    engine.send("1 name");
+    let events = engine.stdout("=1 KataGo");
+    assert!(!events.iter().any(|event| matches!(event, EngineInput::Stdout(line) if line.contains("not this session"))));
+    engine.stop(); peer.join().unwrap();
+}
+
+#[test]
+fn zhizi_reads_its_socket_url_as_socket_io_client_java_does() {
+    // socket.io-client-java 2.1.2 joins the decoded path (`URI.getPath`); engine.io-client 2.1.0
+    // `Options.fromURI` puts the URL's own query over the token query, decoded into a map (a
+    // repeated name keeps its last value) whose `EIO` and `transport` are Engine.IO's own.
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let peer = thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(8))).unwrap();
+        let mut peer = tokio_tungstenite::tungstenite::accept_hdr(stream, |request: &tokio_tungstenite::tungstenite::handshake::server::Request, response| {
+            assert_eq!(request.uri().path(), "/socket.io.v4/");
+            let mut pairs: Vec<(String, String)> = url::form_urlencoded::parse(request.uri().query().unwrap().as_bytes()).into_owned().collect();
+            pairs.sort();
+            let expected = [("EIO", "4"), ("route", "c d"), ("transport", "websocket"), ("zz-socketio-token", "url-token")];
+            assert_eq!(pairs, expected.map(|(name, value)| (name.to_string(), value.to_string())));
+            Ok(response)
+        }).unwrap();
+        let prefix = socketio_ready_in(&mut peer, "/zhizi/ns");
+        let input = text(&mut peer);
+        let event: Value = serde_json::from_str(input.strip_prefix(&format!("42{prefix}")).unwrap()).unwrap();
+        assert_eq!(event, json!(["stdin", "1 name\n"]));
+        peer.send(Message::Text(format!("42{prefix}[\"stdout\",\"=1 KataGo\\n\\n\"]").into())).unwrap();
+        let _ = peer.read();
+    });
+    let mut engine = Running::zhizi(format!("http://{address}/zhizi%2Fns?route=a%20b&EIO=3&transport=polling&route=c%20d&zz-socketio-token=url-token"));
+    engine.send("1 name"); engine.stdout("=1 KataGo");
+    engine.stop(); peer.join().unwrap();
+}
+
+/// How a 智子 startup ends whose namespace CONNECT the service answers with `44/zhizi-ns,{data}`,
+/// the socket address carrying `query`; the events up to it, and the number of socket token
+/// requests.
+fn refusal(data: &str, query: &str) -> (CloudStartFailure, Vec<EngineInput>, usize) {
+    let packet = format!("44/zhizi-ns,{data}");
+    let (url, peer) = server(move |mut peer| {
+        peer.send(Message::Text("0{\"sid\":\"fixture\"}".into())).unwrap();
+        assert_eq!(text(&mut peer), "40/zhizi-ns,");
+        peer.send(Message::Text(packet.into())).unwrap();
+        let _ = peer.read();
+    });
+    let calls = Arc::new(Mutex::new(0)); let observed = calls.clone();
+    let socket_url = format!("{url}/zhizi-ns{query}");
+    let mut engine = Running::new(CloudProvider::Zhizi, String::new(), Arc::new(move |_, _| {
+        *observed.lock().unwrap() += 1;
+        Ok(SocketCredentials { socket_url: socket_url.clone(), token: "private-socket-token".into() })
+    }));
+    let events = engine.until(|event| matches!(event, EngineInput::CloudStartFailed(_)));
+    engine.stop(); peer.join().unwrap();
+    let Some(EngineInput::CloudStartFailed(reason)) = events.last() else { panic!("{events:?}") };
+    let calls = *calls.lock().unwrap();
+    (reason.clone(), events, calls)
+}
+
+#[test]
+fn a_refused_zhizi_session_ends_the_startup_with_a_reason_free_of_credentials() {
+    // A plan refusal is final (Java `isFatalStartupFailure`): one attempt, no retry; the first
+    // line of its reason shows, with the socket token removed.
+    let (reason, _, calls) = refusal(r#"{"message":"该账号未开通 VIP 包月 private-socket-token\nsecond line"}"#, "");
+    assert_eq!(calls, 1);
+    assert_eq!(reason, CloudStartFailure::Refused { detail: "该账号未开通 VIP 包月 [redacted]".into() });
+    // The token an address carries in its own query is the one used, and as secret.
+    let (reason, _, _) = refusal(r#""该账号未开通 VIP 包月 url-private-token""#, "?zz-socketio-token=url-private-token");
+    assert_eq!(reason, CloudStartFailure::Refused { detail: "该账号未开通 VIP 包月 [redacted]".into() });
+    // A reason naming the account however it is written, a credential, an address or structured
+    // data is left out, from the reason and from the engine's output alike.
+    for data in [
+        r#"{"message":"账号 138 0000 0000 未开通 VIP 包月"}"#,
+        r#"{"message":"账号 138.0000.0000 未开通 VIP 包月"}"#,
+        "{\"message\":\"账号 138\u{a0}0000\u{a0}0000 未开通 VIP 包月\"}",
+        r#"{"message":"VIP 包月：fixture-account@example.invalid 无权限"}"#,
+        r#""Bearer private-bearer 套餐无效""#,
+        r#""套餐无效，详见 https://example.invalid/private-path""#,
+        r#""VIP 未开通 {\"key\":\"private-key\"}""#,
+        r#""VIP 未开通 {\"account\":\"private-account\"}""#,
+        r#""[\"13900000000\", \"VIP\"]""#,
+    ] {
+        let (reason, events, calls) = refusal(data, "");
+        assert_eq!((calls, reason), (1, CloudStartFailure::Refused { detail: String::new() }), "{data}");
+        for event in &events {
+            if let EngineInput::Stderr(line) = event {
+                for secret in ["0000", "fixture-account", "private-bearer", "private-path", "private-key", "private-account", "13900000000"] {
+                    assert!(!line.contains(secret), "{line}");
+                }
+            }
+        }
+    }
+}
+
 /// Lets the blocked token resolver go when dropped, so every exit of a test (a failed assertion
 /// too) releases it before the engine is dropped and joins it.
 struct Release(mpsc::Sender<()>);
@@ -373,9 +509,9 @@ fn fatal_resource_authorization_does_not_retry_or_expose_resolver_diagnostics() 
     let calls = Arc::new(Mutex::new(0)); let observed = calls.clone();
     let mut engine = Running::new(CloudProvider::Zhizi, String::new(), Arc::new(move |_, _| {
         *observed.lock().unwrap() += 1;
-        Err(CloudConnectError { message: "403 private-token-in-service-response".into(), fatal: true })
+        Err(CloudConnectError { message: "403 private-token-in-service-response".into(), fatal: true, key: String::new() })
     }));
-    let events = engine.until(|event| matches!(event, EngineInput::Exited(None)));
+    let events = engine.until(|event| matches!(event, EngineInput::CloudStartFailed(CloudStartFailure::Token { .. })));
     assert_eq!(*calls.lock().unwrap(), 1); assert!(!format!("{events:?}").contains("private-token"));
     engine.stop();
 }
@@ -392,7 +528,7 @@ fn zhizi_transient_startup_retries_with_fresh_credentials_and_drops_stale_output
     let calls = Arc::new(Mutex::new(0)); let observed = calls.clone();
     let mut engine = Running::new(CloudProvider::Zhizi, String::new(), Arc::new(move |_, _| {
         let mut count = observed.lock().unwrap(); *count += 1;
-        if *count == 1 { Err(CloudConnectError { message: "worker unavailable".into(), fatal: false }) }
+        if *count == 1 { Err(CloudConnectError { message: "worker unavailable".into(), fatal: false, key: String::new() }) }
         else { Ok(SocketCredentials { socket_url: url.clone(), token: "secret".into() }) }
     }));
     engine.send("1 name"); engine.stdout("=1 KataGo"); assert_eq!(*calls.lock().unwrap(), 2);
@@ -513,10 +649,13 @@ fn zhizi_transient_startup_is_bounded_to_three_attempts() {
     let calls = Arc::new(Mutex::new(0)); let observed = calls.clone();
     let mut engine = Running::new(CloudProvider::Zhizi, String::new(), Arc::new(move |_, _| {
         *observed.lock().unwrap() += 1;
-        Err(CloudConnectError { message: "no worker available".into(), fatal: false })
+        Err(CloudConnectError { message: "no worker available".into(), fatal: false, key: "failed_to_insert_socket_io_token".into() })
     }));
     let start = Instant::now();
-    engine.until(|event| matches!(event, EngineInput::Exited(None)));
+    let events = engine.until(|event| matches!(event, EngineInput::CloudStartFailed(_)));
+    assert_eq!(events.last(), Some(&EngineInput::CloudStartFailed(CloudStartFailure::Token {
+        key: "failed_to_insert_socket_io_token".into(),
+    })));
     assert_eq!(*calls.lock().unwrap(), 3);
     assert!(start.elapsed() >= Duration::from_millis(5400));
     assert!(engine.events.recv_timeout(Duration::from_millis(100)).is_err());
@@ -562,12 +701,13 @@ fn accept_bounded(listener: &TcpListener) -> TcpStream {
     }
 }
 
-fn proxy_session(peer: &mut Peer, provider: CloudProvider) {
+/// `namespace`: the path of the address the 智子 token names (the custom link doubles as it).
+fn proxy_session(peer: &mut Peer, provider: CloudProvider, namespace: &str) {
     match provider {
         CloudProvider::Zhizi => {
-            socketio_ready(peer);
+            let prefix = socketio_ready_in(peer, namespace);
             assert!(text(peer).contains("1 name"));
-            peer.send(Message::Text("42[\"stdout\",\"=1 fixture\\n\\n\"]".into())).unwrap();
+            peer.send(Message::Text(format!("42{prefix}[\"stdout\",\"=1 fixture\\n\\n\"]").into())).unwrap();
         }
         CloudProvider::Custom => {
             let query: Value = serde_json::from_str(&text(peer)).unwrap();
@@ -600,7 +740,7 @@ fn upgrade_proxy(listener: TcpListener, provider: CloudProvider) -> JoinHandle<(
                 }
                 Ok(response)
             }).unwrap();
-        proxy_session(&mut peer, provider);
+        proxy_session(&mut peer, provider, "/private-link");
     })
 }
 
@@ -646,7 +786,7 @@ fn system_proxy_and_direct_modes_use_an_isolated_process_environment() {
         // Direct must ignore even an unreachable proxy from the environment.
         std::env::set_var("http_proxy", "http://127.0.0.1:1");
         std::env::set_var("all_proxy", "http://127.0.0.1:1");
-        let (url, peer) = server(move |mut peer| proxy_session(&mut peer, provider));
+        let (url, peer) = server(move |mut peer| proxy_session(&mut peer, provider, "/"));
         let mut engine = Running::network(provider, url, NetworkSettings::default());
         routed_request(&mut engine, provider);
         engine.stop(); peer.join().unwrap();
@@ -668,7 +808,7 @@ fn invalid_or_unreachable_manual_proxy_never_falls_through_to_the_destination() 
             engine.send("1 name");
             // Windows takes about 2 s to refuse a closed loopback port, and Zhizi makes three
             // attempts with 1.5 s + 4 s backoff between them (cloud.rs run_zhizi): about 11.6 s.
-            let events = engine.until_within(Duration::from_secs(20), |event| matches!(event, EngineInput::Exited(None)));
+            let events = engine.until_within(Duration::from_secs(20), ended);
             for event in events {
                 if let EngineInput::Stderr(message) = event {
                     for secret in ["private-user", "private-password", "private-proxy", "private-link", "private-socket-token", "ws://"] {
@@ -679,6 +819,33 @@ fn invalid_or_unreachable_manual_proxy_never_falls_through_to_the_destination() 
             assert!(matches!(destination.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock));
             engine.stop();
         }
+    }
+}
+
+#[test]
+fn a_refused_upgrade_is_the_services_answer_and_a_refusing_proxy_is_not() {
+    // 智子 turning the WebSocket upgrade away (401) refuses the session; a manual proxy asking
+    // for credentials (407) has not reached 智子. Neither is worth another attempt.
+    for (status, proxied, expected) in [
+        ("401 Unauthorized", false, CloudStartFailure::Refused { detail: String::new() }),
+        ("407 Proxy Authentication Required", true, CloudStartFailure::Unreachable),
+    ] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let answer = thread::spawn(move || {
+            let mut stream = accept_bounded(&listener);
+            read_http_head(&mut stream);
+            write!(stream, "HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+        });
+        let (target, network) = if proxied {
+            ("ws://zhizi.invalid/zhizi-ns".to_string(), manual_proxy(port))
+        } else {
+            (format!("ws://127.0.0.1:{port}/zhizi-ns"), NetworkSettings { proxy_mode: ProxyMode::Direct, proxy_host: String::new(), proxy_port: 0 })
+        };
+        let mut engine = Running::network(CloudProvider::Zhizi, target, network);
+        let events = engine.until(|event| matches!(event, EngineInput::CloudStartFailed(_)));
+        assert_eq!(events.last(), Some(&EngineInput::CloudStartFailed(expected)), "{status}");
+        engine.stop(); answer.join().unwrap();
     }
 }
 
@@ -740,7 +907,7 @@ fn proxy_tunnel_cannot_downgrade_tls_to_a_plain_websocket() {
         });
         let mut engine = Running::network(provider, "wss://cloud-proxy.invalid/private-link".into(), settings);
         engine.send("1 name");
-        let events = engine.until(|event| matches!(event, EngineInput::Exited(None)));
+        let events = engine.until(ended);
         assert!(!events.iter().any(|event| matches!(event, EngineInput::Stdout(_))));
         engine.stop(); peer.join().unwrap();
     }
@@ -760,7 +927,7 @@ fn invalid_websocket_accept_is_rejected_through_the_proxy() {
         });
         let mut engine = Running::network(provider, "ws://cloud-proxy.invalid/private-link".into(), settings);
         engine.send("1 name");
-        let events = engine.until(|event| matches!(event, EngineInput::Exited(None)));
+        let events = engine.until(ended);
         assert!(!events.iter().any(|event| matches!(event, EngineInput::Stdout(_))));
         engine.stop(); peer.join().unwrap();
     }
@@ -771,7 +938,7 @@ fn connector_reads_current_proxy_again_for_each_launch() {
     for provider in [CloudProvider::Custom, CloudProvider::Zhizi] {
         let current = Arc::new(Mutex::new(manual_proxy(0)));
         let source = current.clone();
-        let (url, peer) = server(move |mut peer| proxy_session(&mut peer, provider));
+        let (url, peer) = server(move |mut peer| proxy_session(&mut peer, provider, "/"));
         let socket_url = url.clone();
         let connector = CloudConnector::new(Arc::new(move |_, _| Ok(SocketCredentials {
             socket_url: socket_url.clone(), token: "private-socket-token".into(),
@@ -793,7 +960,7 @@ fn unavailable_network_snapshot_fails_closed_without_disclosing_its_error() {
         let destination = TcpListener::bind("127.0.0.1:0").unwrap();
         destination.set_nonblocking(true).unwrap();
         let connector = CloudConnector::new(Arc::new(|_, _| panic!("network failure must precede token resolution")))
-            .with_network(Arc::new(|| Err(CloudConnectError { message: "private-proxy-password".into(), fatal: true })));
+            .with_network(Arc::new(|| Err(CloudConnectError { message: "private-proxy-password".into(), fatal: true, key: String::new() })));
         let launch = CloudLaunch { provider, identifier: String::new(), args: String::new(), url: format!("ws://{}", destination.local_addr().unwrap()) };
         let engine = Running::launch(launch, connector);
         let events = engine.until(|event| matches!(event, EngineInput::Exited(None)));

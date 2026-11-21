@@ -150,6 +150,7 @@ fn generate() -> String {
         lizzie_core::tsumego::TsumegoAttacker, lizzie_core::tsumego::TsumegoKoThreat,
         lizzie_core::tsumego::capture::CapturedProblem, lizzie_core::tsumego::capture::CapturePreview,
         lizzie_core::engine::ssh::SshSettings, lizzie_core::engine::ssh::RemoteFailure,
+        lizzie_core::engine::cloud::CloudStartFailure,
         SshCredentialCommand, SshPasswordState,
         ContributionCommand, ContributionFile, ContributionLink, ContributionPhase, ContributionTip,
         ContributionGameView, ContributionView, ContributionNotice, SavedEngineKind, SavedEngineReason,

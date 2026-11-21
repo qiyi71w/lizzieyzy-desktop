@@ -22,39 +22,43 @@ pub(super) fn client(network: &NetworkSettings) -> Result<reqwest::Client, Start
         ProxyMode::Manual => {
             let host = network.proxy_host.trim();
             if host.is_empty() || network.proxy_port == 0 {
-                return Err(StartupError { fatal: true });
+                return Err(StartupError::FATAL);
             }
             let host = if host.contains(':') && !host.starts_with('[') { format!("[{host}]") } else { host.into() };
             let proxy_url = Url::parse(&format!("http://{host}:{}", network.proxy_port))
-                .map_err(|_| StartupError { fatal: true })?;
+                .map_err(|_| StartupError::FATAL)?;
             if proxy_url.host_str().is_none() || !proxy_url.username().is_empty() || proxy_url.password().is_some()
                 || proxy_url.path() != "/" || proxy_url.query().is_some() || proxy_url.fragment().is_some()
             {
-                return Err(StartupError { fatal: true });
+                return Err(StartupError::FATAL);
             }
-            let proxy = reqwest::Proxy::all(proxy_url).map_err(|_| StartupError { fatal: true })?;
+            let proxy = reqwest::Proxy::all(proxy_url).map_err(|_| StartupError::FATAL)?;
             builder = builder.no_proxy().proxy(proxy);
         }
     }
-    builder.build().map_err(|_| StartupError { fatal: true })
+    builder.build().map_err(|_| StartupError::FATAL)
 }
 
 /// The caller bounds this entire future (proxy negotiation, TLS, upgrade) and drops it on cancel.
-/// Only a fatality bit escapes: reqwest errors and HTTP bodies can contain credentials or URLs.
+/// Only the kind of failure escapes: reqwest errors and HTTP bodies can contain credentials or URLs.
 pub(super) async fn connect(client: &reqwest::Client, url: &str) -> Result<Socket, StartupError> {
-    let request = url.into_client_request().map_err(|_| StartupError { fatal: true })?;
+    let request = url.into_client_request().map_err(|_| StartupError::FATAL)?;
     let expected = derive_accept_key(request.headers()[SEC_WEBSOCKET_KEY].as_bytes());
-    let mut target = Url::parse(url).map_err(|_| StartupError { fatal: true })?;
+    let mut target = Url::parse(url).map_err(|_| StartupError::FATAL)?;
     let scheme = match target.scheme() {
         "ws" => "http",
         "wss" => "https",
-        _ => return Err(StartupError { fatal: true }),
+        _ => return Err(StartupError::FATAL),
     };
-    target.set_scheme(scheme).map_err(|_| StartupError { fatal: true })?;
+    target.set_scheme(scheme).map_err(|_| StartupError::FATAL)?;
     let response = client.get(target).headers(request.headers().clone()).send().await
-        .map_err(|_| StartupError { fatal: false })?;
+        .map_err(|_| StartupError::RETRY)?;
     if response.status() != reqwest::StatusCode::SWITCHING_PROTOCOLS {
-        return Err(StartupError { fatal: matches!(response.status().as_u16(), 401 | 403 | 407) });
+        return Err(match response.status().as_u16() {
+            401 | 403 => StartupError::REFUSED,
+            407 => StartupError::FATAL,
+            _ => StartupError::RETRY,
+        });
     }
     let headers = response.headers();
     let upgrade = headers.get(UPGRADE).and_then(|value| value.to_str().ok())
@@ -64,8 +68,8 @@ pub(super) async fn connect(client: &reqwest::Client, url: &str) -> Result<Socke
     if !upgrade || !connection || headers.get(SEC_WEBSOCKET_ACCEPT).is_none_or(|value| value != expected.as_str())
         || headers.contains_key(SEC_WEBSOCKET_PROTOCOL) || headers.contains_key(SEC_WEBSOCKET_EXTENSIONS)
     {
-        return Err(StartupError { fatal: false });
+        return Err(StartupError::RETRY);
     }
-    let stream = response.upgrade().await.map_err(|_| StartupError { fatal: false })?;
+    let stream = response.upgrade().await.map_err(|_| StartupError::RETRY)?;
     Ok(WebSocketStream::from_raw_socket(stream, Role::Client, None).await)
 }

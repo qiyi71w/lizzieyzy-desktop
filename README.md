@@ -611,7 +611,10 @@ importing the matching LizzieYzy Next settings.
   comment's top edge changes its height (at least 68 px) and dragging the line between the
   variation tree and the list shares that column (the list keeps at least 36 px); a drag is
   saved when the button is released and `Esc` cancels it. `[` / `]` (界面 > 主棋盘位置) move the
-  board one eighth of the free width; 面板 > 恢复默认面板尺寸 restores the default sizes. Holding
+  board one eighth of the free width; 面板 > 恢复默认面板尺寸 restores the default sizes. In a small
+  window or at a large interface font the list keeps each column wide enough for its header and
+  figures and scrolls sideways, and the win-rate graph scales a readout down to fit its plot
+  instead of cutting it. Holding
   `X` shows Java's key list over the workbench until the key is released; moving over the board,
   the variation tree or the list returns the keyboard to the workbench unless a comment is being
   edited. 工具栏 > 顶部工具栏 is 分开 (the second toolbar row), 合并 or 不显示 (no toolbar row, as in
@@ -876,7 +879,10 @@ importing the matching LizzieYzy Next settings.
   远程算力 entry open the same non-modal center. 智子云算力 supports password/code sign-in,
   password reset, account balances, usage and credit details, available models, membership
   and balance orders. 自建算力 takes a `ws://` or `wss://` KataGo Analysis WebSocket link,
-  including one imported from a QR image. It is not a raw GTP-over-WebSocket endpoint.
+  including one imported from a QR image. It is not a raw GTP-over-WebSocket endpoint. In a
+  window narrower than about 660 px the center stacks its two columns, and a column too narrow
+  at the interface font puts 连接方式 and 智子模型 above their fields, so the fields keep room
+  for their values.
   - Sign-in and account refresh do not start an engine. 启用智子云算力 or 使用此远程链接
     explicitly selects and starts the configured service; 创建订单 separately authorizes an
     order. Failed or uncertain order creation is not automatically retried. Closing a payment
@@ -900,9 +906,21 @@ importing the matching LizzieYzy Next settings.
     leaves an established engine running. Closing the engine while a switch is still starting
     it (for example 关闭所有引擎), or switching to another engine, ends that switch: the center
     becomes usable again and reports that the switch did not complete.
-  - Zhizi uses HTTPS account operations and its Socket.IO v4 transport. A startup has at most
+  - Zhizi uses HTTPS account operations and its Socket.IO v4 transport. Like Java's
+    socket.io client, the session joins the namespace named by the (decoded) path of the address
+    the socket token gives, and an address with its own query sends that query in place of the
+    token's. A startup has at most
     three connection attempts with a fresh socket token for each; temporary token-service
     failures share that budget, while fatal authentication or service rejection does not retry.
+    A 智子 start that fails says why, in the failure window and in the center's status: the
+    socket token request failed (with a specific message for the service's known failure keys),
+    the service or the proxy could not be reached, the service refused the session, it closed the
+    connection before the engine was ready, or the engine was not ready within 60 seconds. A
+    refusal shows the first line of the service's message only when that line names no
+    credential, address, account, long number or structured data. On the VIP plan (also when
+    the plan is left empty) a plan or quota refusal adds the hint to try 按量 1x. A proxy setting
+    that cannot be used at all (no host or port) fails before any attempt, with the general
+    message.
     Account HTTP and both cloud WebSocket transports use the selected direct, system-proxy or
     manual-proxy mode. Invalid or unavailable manual proxies never fall back to a direct connection.
     An established Zhizi analysis that has no accepted visit
@@ -916,9 +934,12 @@ importing the matching LizzieYzy Next settings.
     commands were already answered; when that happens while a newer analysis is reporting, the
     confirmation follows the end of that analysis, so its reports stay with it. A refused
     terminate fails the custom engine, as in Java.
-  - Local protocol fixtures and the Linux desktop exercise these paths. Authorized live Zhizi
-    and independently hosted custom-service acceptance, including real billing, have not yet
-    been completed; fixture success is not a claim of current provider availability.
+  - Local protocol fixtures, a fake service (below) and the Linux desktop exercise these paths.
+    Signed in to the live 智子 service on Windows, the account, usage and credit details and the
+    payment page (without an order) work, and one authorized 按量 1x start analysed through the
+    live service before switching back to the local engine. VIP 包月 starts, paid orders, longer
+    billed sessions and independently hosted custom-service acceptance have not been run;
+    fixture success is not a claim of current provider availability.
 - 闪电分析 (分析 menu and the toolbar's lightning button): 整盘速览 (`Ctrl+B`) asks every main-trunk
   move, 局部精析 asks from its start move up to, not including, its end move (an empty field means
   from the first / to the last move; the range is remembered), and 全部分支精析 asks every move of
@@ -1793,8 +1814,16 @@ current view without consuming anything the UI receives, and `{"query": "ui"}` r
 window shows (title, focus, open dialogs, status lines, tree scroll, last stone sound and the
 positions of visible controls). With the feature, `LIZZIEYZY_TAURI_RESOURCE_BASE=<url>` makes
 engine resource downloads fetch `<url>/<file name>` instead of the trusted source (digests and
-sizes stay pinned), for isolated download tests. The feature is off by default; builds made
-without `--features acceptance` contain neither, whatever the profile.
+sizes stay pinned), for isolated download tests, and `LIZZIEYZY_TAURI_ZHIZI_BASE=<url>` sends
+every 智子 account, payment and socket-token request, and the model catalog's metadata, to `<url>`
+instead of the live service. `node tools/fake-zhizi.mjs` is such a service on the loopback
+interface: sign-in with any phone and `fixture-password` (or code `123456`), account and details
+(`--account vip|expired|none|rich|empty`), membership and top-up orders whose QR code is a fake
+that never charges (`--pay-after N` marks an order paid), and the engine socket (`--engine
+"<KataGo GTP command>"`, or a minimal built-in responder), with `--scenario ok|not-ready|refused|
+disconnect|token-error` for the start failures. It does not serve the catalog's SSH query, so 刷新
+模型 fails against it. The feature is off by default; builds made
+without `--features acceptance` contain none of these, whatever the profile.
 
 These source builds, and the Rust-only rebuild below, keep the normal application identifier
 `io.github.qiyi71w.lizzieyzy-tauri`, so started as they are they use the normal program's

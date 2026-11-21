@@ -49,6 +49,8 @@ pub enum EngineInput {
     Remote(super::ssh::RemoteFailure),
     /// This cloud transport has retired itself; rebuild a session and replay the current board.
     CloudRecovery { message: String },
+    /// A 智子 engine never became ready; the instance is gone.
+    CloudStartFailed(super::cloud::CloudStartFailure),
 }
 
 /// Writing side of a running engine process.
@@ -253,6 +255,8 @@ pub struct EngineFailure {
     pub output: Vec<String>,
     /// A remote engine's connection failure or end.
     pub remote: Option<super::ssh::RemoteFailure>,
+    /// Why a 智子 engine never became ready.
+    pub cloud: Option<super::cloud::CloudStartFailure>,
     /// It held the foreground seat when it ended.
     pub foreground: bool,
     /// It held the 双引擎模式 secondary seat when it ended, or was being started for it.
@@ -969,6 +973,7 @@ impl Instance {
             message,
             output: self.output_tail.iter().cloned().collect(),
             remote: None,
+            cloud: None,
             // Filled in by `Engines::fail`, which knows the seats.
             foreground: false,
             secondary: false,
@@ -1433,6 +1438,7 @@ impl Engines {
             message,
             output: Vec::new(),
             remote: None,
+            cloud: None,
             foreground: false,
             secondary: false,
             held: false,
@@ -2592,6 +2598,13 @@ impl Engines {
                 failure.cloud_recovery = true;
                 events.push(self.fail(id, failure));
             }
+            EngineInput::CloudStartFailed(reason) => {
+                let message = reason.to_string();
+                let mut failure = inst.failure(message.clone());
+                failure.cloud = Some(reason);
+                self.trace(&name, "--", &message);
+                events.push(self.fail(id, failure));
+            }
             EngineInput::Stdout(line) => {
                 let mut frames = Vec::new();
                 // A private setter echoes `pda:` / `PDACap:` outside a response frame; the
@@ -3678,6 +3691,13 @@ impl Engines {
             }
             EngineInput::CloudRecovery { message } => {
                 let output = w.tail.iter().cloned().collect();
+                self.terminate(id);
+                events.push(RuntimeEvent::WorkerExited { instance: id, message, output, remote: None });
+            }
+            EngineInput::CloudStartFailed(reason) => {
+                let message = reason.to_string();
+                let output = w.tail.iter().cloned().collect();
+                self.trace(&name, "--", &message);
                 self.terminate(id);
                 events.push(RuntimeEvent::WorkerExited { instance: id, message, output, remote: None });
             }

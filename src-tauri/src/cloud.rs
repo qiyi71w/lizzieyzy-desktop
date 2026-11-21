@@ -42,9 +42,9 @@ pub struct Adapter {
 }
 impl Adapter {
     pub fn new(store: crate::secrets::Store) -> Self {
+        let (base, world) = service();
         Self { session: Mutex::new(Session::default()), generation: Arc::new(AtomicU64::new(0)),
-            network: Mutex::new(NetworkSettings::default()), store,
-            base: BASE.into(), world: None }
+            network: Mutex::new(NetworkSettings::default()), store, base, world }
     }
     /// The credential storage this account uses, for the Java import's read of Java's entries.
     pub fn store(&self) -> &crate::secrets::Store {
@@ -359,6 +359,17 @@ impl Adapter {
         if token.is_empty() || socket_url.is_empty() { return Err(CloudFailure::new("invalid_response")); }
         Ok(CloudSocketToken {token,socket_url})
     }
+}
+/// The service address and the model catalog's metadata address (`None`: the official one).
+/// Acceptance builds point both at a local service with `LIZZIEYZY_TAURI_ZHIZI_BASE`.
+fn service() -> (String, Option<String>) {
+    #[cfg(feature = "acceptance")]
+    if let Ok(base) = std::env::var("LIZZIEYZY_TAURI_ZHIZI_BASE") {
+        let base = base.trim_end_matches('/').to_string();
+        let world = format!("{base}/world.json");
+        return (base, Some(world));
+    }
+    (BASE.into(), None)
 }
 fn same_account(a: &str, b: &str) -> bool { a.trim().eq_ignore_ascii_case(b.trim()) }
 fn require_token(token: &str) -> Result<(),CloudFailure> { if token.is_empty() {Err(CloudFailure::new("login_required"))} else {Ok(())} }

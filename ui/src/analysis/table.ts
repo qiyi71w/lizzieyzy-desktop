@@ -562,7 +562,7 @@ function contentWidths(table: HTMLTableElement, heads: string[], last: number): 
  *  (`least`) and one-line (`fit`) content width, never wider, as it holds nothing longer. The
  *  others start from `preferred`, no narrower than their one-line content where the list has
  *  room, else than the stacked actual row, and share the room left over. A list too narrow even
- *  for `least` shares its whole width. */
+ *  for `least` keeps it and scrolls sideways, so its header and figures stay whole. */
 function mainLayout(preferred: number[], width: number, fit: number[], least: number[]): number[] {
   const rank = Math.max(least[0], Math.min(preferred[0], fit[0]));
   const atLeast = (floor: number[]) => preferred.slice(1).map((w, k) => Math.max(w, floor[k + 1]));
@@ -570,7 +570,7 @@ function mainLayout(preferred: number[], width: number, fit: number[], least: nu
   for (const [first, rest] of levels) {
     if (first + rest.reduce((s, w) => s + w, 0) <= width) return [first, ...layoutColumns(rest, width - first)];
   }
-  return layoutColumns(least, width);
+  return least;
 }
 
 /** The main 选点列表 (getRowCount / getValueAt, LizzieFrame.java:14725-14916): at most 20 rows;
