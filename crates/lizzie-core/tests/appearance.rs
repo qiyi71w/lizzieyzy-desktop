@@ -99,8 +99,8 @@ fn saving_a_named_theme_writes_only_the_keys_the_page_edits() {
     assert!(saved.get("glass-corner-radius").is_none(), "{saved}");
     assert!(saved.get("glass-accent-color").is_none(), "{saved}");
 }
-/// Every value the 主题外观 page edits (ConfigDialog2.java:6204-6285) is written by a save and read
-/// back the same; the images stay as the theme has them.
+/// Every value the 主题外观 page edits (ConfigDialog2.java:6204-6285, the 界面颜色 and the 棋盘 /
+/// 棋子 choices) is written by a save and read back the same.
 #[test]
 fn every_value_the_theme_page_edits_survives_a_save_and_a_reload() {
     let dir=tempfile::tempdir().unwrap(); let mut wb=workbench(dir.path());
@@ -119,6 +119,8 @@ fn every_value_the_theme_page_edits_survives_a_save_and_a_reload() {
         scorediff_in_variation_tree_factor:0.25,
         font_name:"Serif".into(), ui_font_name:"Sans".into(), winrate_font_name:"Mono".into(),
         blunder_winrate_thresholds:vec![-20.0,-5.0,0.0], blunder_node_colors:vec![vec![1,1,1],vec![2,2,2],vec![3,3,3]],
+        ui_chrome_color:vec![33,34,35], ui_control_color:vec![36,37,38], ui_accent_color:vec![39,40,41], ui_text_color:vec![42,43,44],
+        board_image:"/themes/sabaki/board.png".into(), black_stone_image:"/assets/black0.png".into(), white_stone_image:"/assets/white0.png".into(),
         ..theme.clone()
     };
     wb.set_appearance_settings(AppearanceSettings { theme:"Personal".into(), ..Default::default() },edited.clone()).unwrap();
@@ -215,6 +217,99 @@ fn failed_image_settings_commit_removes_its_uncommitted_copies() {
     // Neither the copy nor the folders made for it remain.
     assert!(!appearance::themes_dir(wb.storage()).exists());
     assert!(external.is_file());
+}
+
+/// 界面颜色 belong to the theme that sets them: the 默认 theme keeps its own in the settings, a
+/// named theme keeps its own in its file and does not take the 默认 theme's, and an unset colour
+/// leaves no key behind.
+#[test]
+fn interface_colours_belong_to_their_theme_and_an_unset_one_leaves_the_file() {
+    let dir=tempfile::tempdir().unwrap(); let mut wb=workbench(dir.path());
+    wb.add_theme("Personal").unwrap();
+    let defaults=ThemeSettings { ui_chrome_color:vec![30,30,30], ui_text_color:vec![230,230,230], glass_corner_radius:20, ..Default::default() };
+    wb.set_appearance_settings(AppearanceSettings::default(),defaults.clone()).unwrap();
+    assert_eq!(workbench(dir.path()).view(true).settings.theme,defaults);
+    // The template has no glass-corner-radius, so that one still comes from the 默认 theme.
+    let personal=appearance::load_theme(wb.storage(),"Personal",&wb.config().appearance_defaults);
+    assert_eq!((personal.ui_chrome_color.len(),personal.ui_text_color.len(),personal.glass_corner_radius),(0,0,20));
+    let file=appearance::theme_file(wb.storage(),"Personal").unwrap();
+    let read=|| serde_json::from_slice::<serde_json::Value>(&std::fs::read(&file).unwrap()).unwrap();
+    let settings=AppearanceSettings { theme:"Personal".into(), ..Default::default() };
+    wb.set_appearance_settings(settings.clone(),ThemeSettings { ui_accent_color:vec![200,60,40], ..personal.clone() }).unwrap();
+    assert_eq!(read()["ui-accent-color"],serde_json::json!([200,60,40]));
+    assert_eq!(wb.view(false).settings.theme.ui_accent_color,vec![200,60,40]);
+    wb.set_appearance_settings(settings,personal.clone()).unwrap();
+    assert!(read().get("ui-accent-color").is_none(), "{}", read());
+    assert_eq!(wb.view(false).settings.theme,personal);
+    // A colour no theme can use is reported and left at the theme's value.
+    let raw=serde_json::json!({"ui-chrome-color":[1,2],"ui-text-color":[1,2,3,4],"ui-accent-color":[5,6,7]});
+    let raw=raw.as_object().unwrap();
+    assert_eq!(appearance::invalid_java_keys(raw),vec!["ui-chrome-color","ui-text-color"]);
+    let merged=appearance::merge_java(&ThemeSettings::default(),raw);
+    assert_eq!((merged.ui_chrome_color.len(),merged.ui_text_color.len(),merged.ui_accent_color),(0,0,vec![5,6,7]));
+}
+
+/// The 棋盘 and 棋子 choices: any theme, the 默认 one included, can name the program's own and
+/// the bundled themes' pictures by address, and a save keeps the address.
+#[test]
+fn any_theme_shows_a_shipped_board_or_stones_named_by_address() {
+    let dir=tempfile::tempdir().unwrap(); let mut wb=workbench(dir.path());
+    let theme=ThemeSettings { board_image:"/themes/sabaki/board.png".into(), black_stone_image:"/themes/Fast/black0.png".into(),
+        white_stone_image:"/assets/white0.png".into(), ..Default::default() };
+    wb.set_appearance_settings(AppearanceSettings::default(),theme.clone()).unwrap();
+    let s=workbench(dir.path()).view(true).settings;
+    assert_eq!(s.theme,theme);
+    let shown=appearance::images(wb.storage(),&s.appearance,&s.theme);
+    assert_eq!((shown.board.as_str(),shown.black.as_str(),shown.white.as_str()),("/themes/sabaki/board.png","/themes/Fast/black0.png","/assets/white0.png"));
+    wb.add_theme("Personal").unwrap();
+    let personal=AppearanceSettings { theme:"Personal".into(), ..Default::default() };
+    let named=ThemeSettings { board_image:"/themes/yasnaya/board7.jpg".into(), ..appearance::load_theme(wb.storage(),"Personal",&ThemeSettings::default()) };
+    assert_eq!(appearance::images(wb.storage(),&personal,&named).board,"/themes/yasnaya/board7.jpg");
+    // An address the program does not ship is no picture.
+    let missing=ThemeSettings { board_image:"/themes/sabaki/missing.png".into(), ..Default::default() };
+    assert_eq!(appearance::images(wb.storage(),&AppearanceSettings::default(),&missing).board,"/assets/board.png");
+}
+
+/// The 默认 theme's relative paths are read from the themes folder, as Java reads the ui section's
+/// (Theme.pathPrefix).
+#[test]
+fn the_default_theme_reads_relative_image_paths_from_the_themes_folder() {
+    let dir=tempfile::tempdir().unwrap(); let wb=workbench(dir.path());
+    let folder=appearance::themes_dir(wb.storage());
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("mine.png"),include_bytes!("../../../ui/public/assets/newtheme/black.png")).unwrap();
+    let theme=ThemeSettings { black_stone_image:"mine.png".into(), ..Default::default() };
+    assert!(appearance::images(wb.storage(),&AppearanceSettings::default(),&theme).black.starts_with("data:image/png;base64,"));
+}
+
+/// The 棋盘 and 棋子 choices list every picture the program ships once, each address loadable.
+#[test]
+fn shipped_boards_and_stones_list_each_picture_once() {
+    use sha2::{Digest, Sha256};
+    let public=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../ui/public");
+    let picture=|address:&str| { assert!(appearance::shipped_image(address), "{address}"); Sha256::digest(std::fs::read(public.join(&address[1..])).unwrap()) };
+    let boards=appearance::shipped_boards();
+    let stones=appearance::shipped_stones();
+    assert_eq!(boards[0].theme,"default"); assert_eq!(stones[0].theme,"default");
+    let mut seen=Vec::new();
+    for board in &boards {
+        let first=picture(&board.addresses[0]);
+        assert!(board.addresses.iter().all(|a| picture(a)==first)); assert!(!seen.contains(&first)); seen.push(first);
+    }
+    let mut seen=Vec::new();
+    for set in &stones {
+        let first=(picture(&set.pairs[0].0),picture(&set.pairs[0].1));
+        assert!(set.pairs.iter().all(|(b,w)| (picture(b),picture(w))==first)); assert!(!seen.contains(&first)); seen.push(first);
+    }
+    // Every bundled theme's own board and stones are among them.
+    let boards:Vec<String>=boards.into_iter().flat_map(|b|b.addresses).collect();
+    let stones:Vec<String>=stones.into_iter().flat_map(|s|s.pairs.into_iter().flat_map(|(b,w)|[b,w])).collect();
+    for theme in ["sabaki","yasnaya","Megapack","Custom","Fast"] {
+        let raw:serde_json::Value=serde_json::from_slice(&std::fs::read(public.join("themes").join(theme).join("theme.txt")).unwrap()).unwrap();
+        let address=|key:&str| format!("/themes/{theme}/{}",raw[key].as_str().unwrap());
+        assert!(boards.contains(&address("board-image")), "{theme}");
+        assert!(stones.contains(&address("black-stone-image")) && stones.contains(&address("white-stone-image")), "{theme}");
+    }
 }
 
 #[test]

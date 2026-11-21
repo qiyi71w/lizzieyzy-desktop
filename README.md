@@ -701,8 +701,9 @@ importing the matching LizzieYzy Next settings.
   - 设置 > 主题 opens 综合设置 > 主题外观: the theme (默认 plus the bundled Java 经典, sabaki,
     yasnaya, Megapack, Custom and Fast, and the user's own), a preview of the edited background, board and
     stones, line widths, the stone shadow (its size a percentage of the stone radius), the three fonts (计算量及其他字体, UI 字体, 胜率目数字体;
-    Lizzie默认, 系统默认 or a system font), pure-colour background / board / stones and the image
-    files of a named theme (the default theme's images are fixed, as in Java), the background
+    Lizzie默认, 系统默认 or a system font), the board and the stones (below), pure-colour
+    background / board / stones and the image files of every theme, 默认 included (Java fixes the
+    default theme's images; its relative paths are read from the themes folder, as Java reads them), the background
     blur (as in Java it blurs the panels only when the glass effect is off: `glass-effect-level`
     0 in an imported Java configuration; the default level 1 draws the
     frosted glass, level 2 the liquid glass, both with the theme's imported glass colours and
@@ -724,6 +725,23 @@ importing the matching LizzieYzy Next settings.
     as Java's glass, Java's comment background, and Java's colours for the win-rate graph, the variation tree, the stones' markers
     and the candidate list (Java's white table). Every other theme keeps the program's own
     colours.
+  - 棋盘 and 棋子 on 主题外观 are chosen from thumbnails: every board and stone set the program
+    ships (默认, sabaki, yasnaya, Megapack, Custom and Fast; a picture two bundled themes share
+    shows once), 纯色, and 其他图片…, which opens the file chooser; the paths stay editable for
+    typing one. A choice belongs to the theme being edited. A shipped picture is saved by its
+    address (`/themes/<theme>/<file>`, `/assets/board.png`), or by its file name in its own
+    bundled theme, so that theme's `theme.txt` keeps Java's value; Java reads such an address as
+    a missing file and falls back as it does for any image it cannot read.
+  - 界面颜色 on 主题外观 (not in Java) sets four colours of the interface per theme: 条栏底色 (window
+    bar, menu bar, toolbar, bottom bar and the button strips of the other windows), 按钮底色
+    (buttons, fields, menus and the bars' capsules; dialogs and tables take a shade between the
+    two), 强调色 (primary buttons, selection, switches, focus ring) and 文字颜色 (text and icons,
+    with separators, hover shading and the secondary text steps derived from it). A colour left
+    unset, or reset with 恢复默认, keeps the theme's skin (the program's own, or Java 经典's);
+    nothing checks contrast, the colours are used as chosen. All windows follow at once. The
+    workbench's panels, the board and the stones keep their own colours, and the danger red stays.
+    A named theme stores them in its `theme.txt` (`ui-chrome-color`, `ui-control-color`,
+    `ui-accent-color`, `ui-text-color`, which Java ignores) and does not take the 默认 theme's.
   - A theme's `glass-corner-radius` other than Java's default 12 rounds buttons, fields, lists
     and popup menus as Java does (an arc of at least 8, a corner radius of half of it);
     `glass-panel-shadow-color` is kept with the theme and, as in Java, nothing draws it.

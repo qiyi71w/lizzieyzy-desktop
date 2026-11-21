@@ -15,7 +15,7 @@ pub async fn appearance_catalog(state:tauri::State<'_,State>) -> Result<Appearan
         let mut fonts:Vec<String>=db.faces().flat_map(|face|face.families.iter().map(|(name,_)|name.clone())).collect();
         fonts.sort_by_key(|s|s.to_lowercase()); fonts.dedup();
         fonts.retain(|s|s!="Lizzie Default" && s!="Dialog.plain"); fonts.insert(0,"Dialog.plain".into()); fonts.insert(0,"Lizzie Default".into());
-        AppearanceCatalog {themes:appearance::catalog(&storage,&defaults),fonts}
+        AppearanceCatalog {themes:appearance::catalog(&storage,&defaults),fonts,boards:appearance::shipped_boards(),stones:appearance::shipped_stones()}
     }).await.map_err(error)
 }
 #[tauri::command]

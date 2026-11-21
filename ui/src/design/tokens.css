@@ -138,8 +138,9 @@
    Java's colours (AppleStyleSupport classic: light grey bars, white controls and menus, the teal
    accent #126b62, cool neutrals). Its workbench is Java's grey metal wallpaper under dark glass, so
    the dark-themed workbench (#main, stage.ts) takes the second set: Java's comment-pane text
-   palette on neutral slate. */
-:root[data-skin="java"] {
+   palette on neutral slate. Besides the root, the hidden probe theme.ts reads the skin's own
+   colours from carries data-skin. */
+[data-skin="java"] {
   color-scheme: light;
 
   --ds-chrome: #f4f5f7;

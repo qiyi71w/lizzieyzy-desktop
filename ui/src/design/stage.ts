@@ -102,7 +102,7 @@ export interface StagePalette {
 }
 
 let cached: StagePalette | null = null;
-let darkProbe: HTMLElement | null = null;
+let probe: HTMLElement | null = null;
 let revision = 0;
 const listeners: (() => void)[] = [];
 
@@ -110,20 +110,17 @@ const listeners: (() => void)[] = [];
 export function stagePalette(): StagePalette {
   if (cached) return cached;
   const builtin = builtinStage();
-  let source: Element = document.documentElement;
-  if (!builtin) {
-    // The dark theme's values whatever the mode (Java 经典's under its skin, the wallpaper cards'
-    // over a wallpaper the user chose): a hidden element fixed to the dark theme.
-    if (!darkProbe?.isConnected) {
-      darkProbe = document.createElement("div");
-      darkProbe.id = "stage-probe";
-      darkProbe.dataset.theme = "dark";
-      darkProbe.hidden = true;
-      document.documentElement.append(darkProbe);
-    }
-    source = darkProbe;
+  // A hidden element fixed to the theme the workbench takes (applyStage): the colour mode's on the
+  // program's stage, else the dark theme's whatever the mode (Java 经典's under its skin, the
+  // wallpaper cards' over a wallpaper the user chose).
+  if (!probe?.isConnected) {
+    probe = document.createElement("div");
+    probe.id = "stage-probe";
+    probe.hidden = true;
+    document.documentElement.append(probe);
   }
-  const style = getComputedStyle(source);
+  probe.dataset.theme = builtin ? resolvedTheme() : "dark";
+  const style = getComputedStyle(probe);
   const token = (name: string) => style.getPropertyValue(name).trim();
   cached = {
     builtin,
@@ -190,15 +187,14 @@ export function onStageChange(listener: () => void): void {
   listeners.push(listener);
 }
 
-/** The stage as the style sheets see it. Over a wallpaper the user chose and under Java 经典, the
- *  workbench's panes take the dark theme's tokens in either colour mode, like the canvas panels
- *  beside them. */
+/** The stage as the style sheets see it. The workbench is fixed to the theme its stage takes, so
+ *  the interface colours a theme sets (design/palette.ts) stay off its panes: the colour mode's
+ *  on the program's stage; over a wallpaper the user chose and under Java 经典 the dark theme's in
+ *  either colour mode, like the canvas panels beside them. */
 function applyStage(): void {
   const builtin = builtinStage();
   document.documentElement.dataset.stage = builtin ? "builtin" : skin() === "java" ? "java" : "wallpaper";
-  const main = document.getElementById("main");
-  if (builtin) main?.removeAttribute("data-theme");
-  else main?.setAttribute("data-theme", "dark");
+  document.getElementById("main")?.setAttribute("data-theme", builtin ? resolvedTheme() : "dark");
 }
 
 function changed(): void {
@@ -206,22 +202,6 @@ function changed(): void {
   revision++;
   applyStage();
   for (const listener of listeners) listener();
-}
-
-const colourProbe = document.createElement("canvas").getContext("2d")!;
-
-/** [r, g, b, a(0-255)] of a CSS colour in any notation: the canvas reports what it parsed as
- *  `#rrggbb` or `rgba(r, g, b, a)`. The build shortens the tokens' own notation (`#fff`). */
-export function rgbaOf(css: string): number[] {
-  colourProbe.fillStyle = "#000";
-  colourProbe.fillStyle = css;
-  const parsed = colourProbe.fillStyle;
-  if (parsed.startsWith("#")) {
-    const n = Number.parseInt(parsed.slice(1), 16);
-    return [(n >> 16) & 255, (n >> 8) & 255, n & 255, 255];
-  }
-  const [r = 0, g = 0, b = 0, a = 1] = parsed.slice(parsed.indexOf("(") + 1, -1).split(",").map(Number);
-  return [r, g, b, Math.round(a * 255)];
 }
 
 onAppearanceChange(changed);
