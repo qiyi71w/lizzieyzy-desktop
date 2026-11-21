@@ -936,8 +936,9 @@ importing the matching LizzieYzy Next settings.
     terminate fails the custom engine, as in Java.
   - Local protocol fixtures, a fake service (below) and the Linux desktop exercise these paths.
     Signed in to the live 智子 service on Windows, the account, usage and credit details and the
-    payment page (without an order) work. Authorized live Zhizi engine start and independently
-    hosted custom-service acceptance, including real billing, have not yet been completed;
+    payment page (without an order) work, and one authorized 按量 1x start analysed through the
+    live service before switching back to the local engine. VIP 包月 starts, paid orders, longer
+    billed sessions and independently hosted custom-service acceptance have not been run;
     fixture success is not a claim of current provider availability.
 - 闪电分析 (分析 menu and the toolbar's lightning button): 整盘速览 (`Ctrl+B`) asks every main-trunk
   move, 局部精析 asks from its start move up to, not including, its end move (an empty field means
