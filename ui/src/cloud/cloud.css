@@ -94,7 +94,7 @@
    content height lets the auto margins centre it. Its body takes its content's height (not the
    rest of a fixed frame) and scrolls once the frame reaches its most. */
 .cloud-window.remote-compute {
-  container-type: inline-size;
+  container: rc-window / inline-size;
   width: min(860px, calc(100vw - 24px));
   height: -webkit-fit-content;
   height: fit-content;
@@ -121,6 +121,7 @@
   border-top: 1px solid var(--ds-line);
 }
 .rc-section {
+  container: rc-column / inline-size;
   min-width: 0;
   overflow: auto;
   padding: 12px 20px 16px;
@@ -143,7 +144,7 @@
 }
 /* A narrow window (520 wide at the least) stacks the two columns, so the fields keep their width
    for their values; the window body scrolls. */
-@container (max-width: 640px) {
+@container rc-window (max-width: 640px) {
   .rc-page {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -347,6 +348,20 @@
 .rc-official {
   grid-column: 2;
   justify-self: start;
+}
+/* A column too narrow for the label beside its field at the interface font (a small window, a
+   large font) puts each label above its field, so the field takes the whole width. */
+@container rc-column (max-width: 24em) {
+  .rc-plan {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  .rc-plan > label:not(:first-child) {
+    margin-top: 8px;
+  }
+  .rc-official {
+    grid-column: 1;
+  }
 }
 /* A refresh beside the list it reloads: the icon alone, as square as a field is tall. */
 .rc-icon-button {

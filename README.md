@@ -880,7 +880,8 @@ importing the matching LizzieYzy Next settings.
   password reset, account balances, usage and credit details, available models, membership
   and balance orders. 自建算力 takes a `ws://` or `wss://` KataGo Analysis WebSocket link,
   including one imported from a QR image. It is not a raw GTP-over-WebSocket endpoint. In a
-  window narrower than about 660 px the center stacks its two columns so the fields keep room
+  window narrower than about 660 px the center stacks its two columns, and a column too narrow
+  at the interface font puts 连接方式 and 智子模型 above their fields, so the fields keep room
   for their values.
   - Sign-in and account refresh do not start an engine. 启用智子云算力 or 使用此远程链接
     explicitly selects and starts the configured service; 创建订单 separately authorizes an
