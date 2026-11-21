@@ -10,8 +10,8 @@ export function ff(): TypeSizes {
   return frameMetrics().type;
 }
 
-/** The chart colours, read from the tokens (design/tokens.css, design/stage.css and the --ps-*
- *  block of strength.css) once per colour mode. */
+/** The chart colours, read from the tokens (design/tokens.css and design/stage.css, its
+ *  --ws-strength-* set included) once per colour mode. */
 export interface Palette {
   text: string;
   text2: string;
@@ -47,8 +47,8 @@ export function palette(): Palette {
     stoneBlackEdge: token("--ws-stone-black-edge"),
     stoneWhite: token("--ws-stone-white"),
     stoneWhiteEdge: token("--ws-stone-white-edge"),
-    rankWindow: token("--ps-rank-window"),
-    ai: token("--ps-ai"),
+    rankWindow: token("--ws-strength-rank-window"),
+    ai: token("--ws-strength-ai"),
   };
   return cached;
 }

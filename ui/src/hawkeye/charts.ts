@@ -2,8 +2,8 @@
 // `matchPanel` (the chart, `draw`) and the 60 px `matchPanelmin` (`drawMin` and its controls;
 // absent on the 翻车现场 tabs). Everything painted comes from the payload; the panel keeps only
 // the mouse-over state and the text of its fields while they are edited. The painters take the
-// window's tokens (stage.css graph and stone colours, hawkeye.css match areas and loss classes)
-// and repaint when the colour mode changes.
+// window's tokens (stage.css graph and stone colours, its --ws-hawkeye-* match areas and loss
+// classes) and repaint when the colour mode changes.
 import type { Command, DisplaySettings, HawkeyeStage, HistoryPoint, MoveEvaluation, Stone } from "../contract/generated";
 import { namedFace } from "../analysis/suggestionsFrame";
 import { icon } from "../design/icons";
@@ -167,8 +167,8 @@ function currentPalette(): Palette {
     stoneBlackEdge: token("--ws-stone-black-edge"),
     stoneWhite: token("--ws-stone-white"),
     stoneWhiteEdge: token("--ws-stone-white-edge"),
-    matchBlack: token("--hk-match-black"),
-    matchWhite: token("--hk-match-white"),
+    matchBlack: token("--ws-hawkeye-match-black"),
+    matchWhite: token("--ws-hawkeye-match-white"),
     face: token("--ds-font"),
     sizes: typeSizes(),
   };
@@ -969,9 +969,9 @@ type Figure = [name: string, value: string];
  *  label. */
 type Key = [mark: (x: number, base: number) => void, label: string];
 
-/** A Java resource fragment without the spaces (and, in some languages, the properties escape)
- *  it was concatenated with. */
-const term = (key: string) => t(key).replace(/^[\s\\]+/, "").trim();
+/** A Java resource fragment's text without the spaces (and, in some languages, the properties
+ *  escape) it was concatenated with. */
+const term = (text: string) => text.replace(/^[\s\\]+/, "").trim();
 
 /** MoveListFrame.drawMin (MoveListFrame.java:2100-3161): two lines of figures. 胜率吻合 and 吻合度走势
  *  set each side's figures as name–value pairs in columns aligned across the two lines, then the
@@ -1095,9 +1095,9 @@ function drawMin(g: G, p: HawkeyePayload, w: number, h: number): void {
     const sides = pane.sides.map((sd, side): Figure[] => {
       const percent = sd.match_analyzed > 0 ? fixed(Math.fround(Math.fround(sd.matched / sd.match_analyzed) * 100), 1) + "%" : "—";
       return [
-        [term(side === 0 ? "Movelistframe.blackMatch" : "Movelistframe.whiteMatch"), `${sd.matched}/${sd.match_analyzed} ${percent}`],
-        [term("Movelistframe.AIscore"), sd.match_analyzed > 0 ? fixed((sd.share_sum * 100) / sd.match_analyzed, 2) : "—"],
-        [term("Movelistframe.avgDifference"), sd.analyzed > 0 ? `${fixed(sd.winrate_loss_sum / sd.analyzed, 2)}% / ${fixed(sd.score_loss_sum / sd.analyzed, 2)}` : "—"],
+        [term(side === 0 ? t("Movelistframe.blackMatch") : t("Movelistframe.whiteMatch")), `${sd.matched}/${sd.match_analyzed} ${percent}`],
+        [term(t("Movelistframe.AIscore")), sd.match_analyzed > 0 ? fixed((sd.share_sum * 100) / sd.match_analyzed, 2) : "—"],
+        [term(t("Movelistframe.avgDifference")), sd.analyzed > 0 ? `${fixed(sd.winrate_loss_sum / sd.analyzed, 2)}% / ${fixed(sd.score_loss_sum / sd.analyzed, 2)}` : "—"],
       ];
     });
     const analyzedMatch = pane.sides[0].match_analyzed + pane.sides[1].match_analyzed;
@@ -1105,8 +1105,8 @@ function drawMin(g: G, p: HawkeyePayload, w: number, h: number): void {
     summary(
       [sides[0], sides[1]],
       [
-        [term("Movelistframe.allmoves"), String(pane.total_moves)],
-        [term("Movelistframe.analyzed"), String(analyzedMatch)],
+        [term(t("Movelistframe.allmoves")), String(pane.total_moves)],
+        [term(t("Movelistframe.analyzed")), String(analyzedMatch)],
       ],
       [
         [swatch(P.matchBlack), t("Movelistframe.blackMatchLabel")],
@@ -1122,12 +1122,12 @@ function drawMin(g: G, p: HawkeyePayload, w: number, h: number): void {
     const counted = p.chinese ? b.match_analyzed + wt.match_analyzed : b.analyzed + wt.analyzed;
     summary(
       [
-        [[term("Movelistframe.blackAIScore"), b.match_analyzed > 0 ? fixed((b.share_sum * 100) / b.match_analyzed, 2) : "—"]],
-        [[term("Movelistframe.whiteAIScore"), wt.match_analyzed > 0 ? fixed((wt.share_sum * 100) / wt.match_analyzed, 2) : "—"]],
+        [[term(t("Movelistframe.blackAIScore")), b.match_analyzed > 0 ? fixed((b.share_sum * 100) / b.match_analyzed, 2) : "—"]],
+        [[term(t("Movelistframe.whiteAIScore")), wt.match_analyzed > 0 ? fixed((wt.share_sum * 100) / wt.match_analyzed, 2) : "—"]],
       ],
       [
-        [term("Movelistframe.allmoves"), String(pane.total_moves)],
-        [term("Movelistframe.analyzed"), String(counted)],
+        [term(t("Movelistframe.allmoves")), String(pane.total_moves)],
+        [term(t("Movelistframe.analyzed")), String(counted)],
       ],
       [
         [

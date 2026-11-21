@@ -828,6 +828,7 @@ fn custom_commands_after_an_unconfirmed_stop_run_while_the_stop_waits_for_its_ac
         "rootInfo": {"visits": 5, "winrate": 0.5, "scoreLead": 0.0}});
     for refuse in [false, true] {
         let (release, released) = mpsc::channel::<()>();
+        let (ended, end_seen) = mpsc::channel::<()>();
         let (url, peer) = server(move |mut peer| {
             let first: Value = serde_json::from_str(&text(&mut peer)).unwrap();
             let terminate: Value = serde_json::from_str(&text(&mut peer)).unwrap();
@@ -852,6 +853,7 @@ fn custom_commands_after_an_unconfirmed_stop_run_while_the_stop_waits_for_its_ac
             // `name` ends the new stream.
             let second: Value = serde_json::from_str(&text(&mut peer)).unwrap();
             assert_eq!(second["terminateId"], next["id"]);
+            ended.send(()).unwrap();
             let _ = peer.read();
         });
         let mut engine = Running::custom(url);
@@ -876,6 +878,9 @@ fn custom_commands_after_an_unconfirmed_stop_run_while_the_stop_waits_for_its_ac
             engine.send("5 name");
             lines.extend(stdout_lines(engine.stdout("=5 KataGo")));
             lines.extend(stdout_lines(engine.stdout("")));
+            // `name` is answered before the terminate it ends the stream with is written; stopping
+            // the engine before the peer has it would cancel that write.
+            end_seen.recv_timeout(Duration::from_secs(8)).unwrap();
         }
         let frames = frames(&lines);
         let info: Vec<(u64, &str)> = frames.iter().filter_map(|f| match f {

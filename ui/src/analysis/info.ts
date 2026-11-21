@@ -213,9 +213,9 @@ function mainTitle(v: WorkbenchView, version: string, history: Map<number, Histo
   const lead = values?.black.score_lead ?? null;
   const numbers = values ? `${values.black.winrate.toFixed(1)}${lead === null ? "" : ` ${lead.toFixed(1)}`} ${playouts(values.visits)}` : "";
   // The bare values named for the pointer: 黑方胜率 30.8% · 黑领先 -1.0 · 计算量 143k.
-  const label = (key: string) => t(key).replace(/\\?[:：]\s*$/, "");
+  const label = (text: string) => text.replace(/\\?[:：]\s*$/, "");
   const detailTip = values
-    ? [`${t("WinrateGraph.legendWinrate")} ${values.black.winrate.toFixed(1)}%`, lead === null ? "" : `${label("LizzieFrame.scoreLeadJustScore")} ${lead.toFixed(1)}`, `${label("LizzieFrame.visits")} ${playouts(values.visits)}`].filter(Boolean).join(" · ")
+    ? [`${t("WinrateGraph.legendWinrate")} ${values.black.winrate.toFixed(1)}%`, lead === null ? "" : `${label(t("LizzieFrame.scoreLeadJustScore"))} ${lead.toFixed(1)}`, `${label(t("LizzieFrame.visits"))} ${playouts(values.visits)}`].filter(Boolean).join(" · ")
     : "";
   const prefix = values ? `[${numbers}] ` : shown && v.game ? "[ ---   ---   --- ] " : "";
   const foreground = v.engine.foreground;

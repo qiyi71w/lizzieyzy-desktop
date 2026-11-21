@@ -48,7 +48,7 @@ importing the matching LizzieYzy Next settings.
   outer level move to the neighbouring menu, and `Esc` closes one level at a time, the focus
   going back where it was. A toolbar popup opened from the keyboard and the board's context
   menu take the same keys. Items that destroy record content (清空棋盘, 删除一手, 删除分支, 清空全部设置子)
-  and 帮助 > 清除所有个人数据 are in red, like the bottom bar's. A menu taller than the room below it scrolls inside, and the
+  and 帮助 > 清除所有个人数据 are in red, like the bottom bar's. A menu or toolbar popup taller than the room it opens into scrolls inside, and the
   arrow keys keep the chosen item in view; a submenu that would cross the window's right edge
   opens to the left, and one that would cross the bottom moves up, so every item is reachable
   down to the smallest window (520 × 400). In a window too narrow for every menu, the last ones
@@ -287,7 +287,8 @@ importing the matching LizzieYzy Next settings.
   where to right-click and returns to the board; an action or window entry runs, as clicking its
   menu item or button does (上一手 takes back a move during a game like the bottom bar's `<`).
   Entries this client does not provide yet, or that the current state refuses (no engine, no
-  KataGo, no edit to restore, a whole-game analysis running, …), are marked 不可用 with their
+  KataGo, no edit to restore, a whole-game analysis running, the engine menu during an engine
+  game, …), are marked 不可用 with their
   reason and cannot be opened. `Ctrl+K` from the 浮动主棋盘 window gives the main window the keyboard for
   the bar; `Esc` or 取消 then gives the keyboard back to the 浮动主棋盘 window. While the bar or
   any other dialog is open, the workbench shortcuts and the floating
@@ -620,8 +621,15 @@ importing the matching LizzieYzy Next settings.
   选点信息控制 (off by default). Each choice is saved at once and taken over by the LizzieYzy Next
   import; 对局控制 still follows the game state while shown, and 死活 has its own item. 独立/合并工具栏按钮
   puts a ▲ button first in the row that switches it to 合并 (the same setting as the menu).
-  自动换行(仅独立显示时), on by default, lets the row wrap; off, it stays one line and what does not
-  fit the window is cut off, with no scroll bar. 棋盘 opens 设置棋盘大小. The optional groups add the
+  自动换行(仅独立显示时), on by default, lets the row wrap as long as the workbench keeps at least
+  half the window's height. When wrapping would leave it less, or with 自动换行 off, the row stays
+  one line: the first control that does not fit and every one after it move to a panel opened by
+  the 更多 button at the row's end. They are the same controls there, and the panel scrolls when
+  it is taller than the room below; `Left`/`Right` go on from the row into the panel,
+  `Enter` on 更多 opens it with the focus on its first control, and a button in it, a click
+  outside, `Esc` or `Tab` closes it (a button that opens a popup leaves it open under the popup,
+  and closing the popup returns to that button). Function search opens the panel for a control it
+  holds. 棋盘 opens 设置棋盘大小. The optional groups add the
   限制: 时间 / 计算 fields, 分析: 黑 / 白 and 选点 胜率 / 计算量 / 目数 to the row. The limit
   fields write 综合设置's analysis limits on every edit (digits only; an empty field keeps the
   value); the 选点 boxes are 显示 > 推荐点's win rate / visits / score items. Function search shows
@@ -1250,8 +1258,8 @@ importing the matching LizzieYzy Next settings.
   new board (square of the captured width when the board is smaller), Black to play, and 死活题
   opens. Escape or a zero first square cancels and the instructions return. Java ran a separate
   Java helper and re-captured the live screen while the pointer moved; here the picture is taken
-  once by the client itself: GDI on Windows, Core Graphics on macOS (needs the Screen Recording
-  permission; a one-time hint says so), `GetImage` on X11 and the desktop portal's screenshot on
+  once by the client itself: GDI on Windows, Core Graphics on macOS (needs System Settings >
+  Privacy & Security > Screen & System Audio Recording; a one-time hint says so), `GetImage` on X11 and the desktop portal's screenshot on
   Wayland (the desktop may ask for permission). Only the primary screen is used, as in Java.
 - Web 旁观 (同步 > Web 旁观, the bottom bar's 同步 popup, function search): 启动 Web 旁观 serves
   Java's viewer page to browsers on the network, at the address shown after the window title

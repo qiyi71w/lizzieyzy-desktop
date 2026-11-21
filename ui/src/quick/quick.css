@@ -1,7 +1,9 @@
 /* 评论 / 问题手 pane: its side filter, progress chip and problem list. The pane's ground and text
    colour come from styles.css. */
-#comment [hidden] {
-  display: none !important;
+/* The parts problems.ts shows and hides: an id with [hidden] outweighs each one's own display
+   (#problemSides, #problemPage here, #commentPage in styles.css). */
+:is(#problemSides, #problemProgress, #commentPage, #problemPage, #problemList, #problemEmpty)[hidden] {
+  display: none;
 }
 #comment .tabs:focus-visible {
   outline: 2px solid var(--ds-ring);

@@ -3,8 +3,8 @@
 // tooltips, the right lossPanel with its 目数损失 / 胜率损失 tabs (drawLossPanel 6003-6379). Both
 // halves paint the core's aggregates of the 统计 range (pane.sides, pane.*_buckets); Java counts
 // them while painting. The selected loss tab is the only input (loss-panel-select-winrate). The
-// painters take the window's tokens (hawkeye.css, stage.css) and repaint when the colour mode
-// changes.
+// painters take the window's tokens (stage.css, its --ws-hawkeye-* loss classes included) and
+// repaint when the colour mode changes.
 import type { Command } from "../contract/generated";
 import { namedFace } from "../analysis/suggestionsFrame";
 import { onThemeChange, token } from "../design/theme";
@@ -49,7 +49,7 @@ function look(p: HawkeyePayload): Look {
     stoneWhiteEdge: token("--ws-stone-white-edge"),
     onBlack: token("--ws-on-black"),
     onWhite: token("--ws-on-white"),
-    loss: [0, 1, 2, 3, 4, 5].map((k) => token(`--hk-loss-${k}`)),
+    loss: [0, 1, 2, 3, 4, 5].map((k) => token(`--ws-hawkeye-loss-${k}`)),
     // LizzieFrame.uiFont: the theme's when it names one.
     face: namedFace(p.fonts.ui) ?? token("--ds-font"),
     sizes: [s.xl, s.l, s.m, s.s],

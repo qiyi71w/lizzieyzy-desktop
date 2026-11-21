@@ -395,7 +395,7 @@ export function moveHitMap(report: StrengthReport): Painted {
   return panel;
 }
 
-/** The six move ranks' window-local colour names (strength.css --ps-rank-*). */
+/** The six move ranks' class names, each selecting its colour (stage.css --ws-strength-rank-*). */
 const RANK_CLASS: Record<MoveRank, string> = {
   Best: "best",
   Good: "good",

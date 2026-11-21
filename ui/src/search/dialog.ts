@@ -24,13 +24,13 @@ registerProduct({
 });
 
 /** FunctionCatalog.categoryKeys: the category box's order after 全部功能. */
-const CATEGORIES = [
-  "FunctionSearch.category.file",
-  "FunctionSearch.category.analysis",
-  "FunctionSearch.category.game",
-  "FunctionSearch.category.engine",
-  "FunctionSearch.category.sync",
-  "FunctionSearch.category.view",
+const CATEGORIES: [string, () => string][] = [
+  ["FunctionSearch.category.file", () => t("FunctionSearch.category.file")],
+  ["FunctionSearch.category.analysis", () => t("FunctionSearch.category.analysis")],
+  ["FunctionSearch.category.game", () => t("FunctionSearch.category.game")],
+  ["FunctionSearch.category.engine", () => t("FunctionSearch.category.engine")],
+  ["FunctionSearch.category.sync", () => t("FunctionSearch.category.sync")],
+  ["FunctionSearch.category.view", () => t("FunctionSearch.category.view")],
 ];
 
 /** A typed query shows at most this many results; browsing shows them all. */
@@ -171,7 +171,7 @@ export function openSearchDialog(): SearchDialog {
   categories.setAttribute("aria-label", t("FunctionSearch.browse"));
   categories.dataset.key = "function.search.category";
   categories.append(new Option(t("FunctionSearch.all"), ""));
-  for (const key of CATEGORIES) categories.append(new Option(t(key), key));
+  for (const [key, text] of CATEGORIES) categories.append(new Option(text(), key));
   const count = element("span", "fs-count");
   categoryLine.append(categories, count);
   const results = element("div", "fs-results");

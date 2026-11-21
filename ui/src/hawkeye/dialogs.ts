@@ -63,6 +63,8 @@ interface Panel {
   titleKey: string;
   el: HTMLElement;
   modal: HTMLElement | null;
+  /** What had the focus when the panel opened; it gets the focus back when the panel closes. */
+  previous: HTMLElement | null;
 }
 
 /** Open panels, bottom first. */
@@ -86,8 +88,17 @@ function close(panel: Panel): void {
   const k = panels.indexOf(panel);
   if (k < 0) return;
   panels.splice(k, 1);
+  const focused = panel.el.contains(document.activeElement);
   panel.el.remove();
   panel.modal?.remove();
+  if (!focused) return;
+  // The focus goes back where it was when the panel opened (the owner dialog's control, like a
+  // Swing dialog returning it to its owner), unless that is gone or under a modal panel still
+  // open: then the topmost remaining panel takes it.
+  const top = panels.at(-1);
+  const previous = panel.previous;
+  if (previous?.isConnected && !(top?.modal && !top.el.contains(previous))) previous.focus();
+  else top?.el.focus();
 }
 
 function closeKind(titleKey: string): void {
@@ -104,6 +115,7 @@ function openPanel(
   keyPrefix: string,
   options: { modal?: boolean; buttons?: (panel: Panel) => FooterButtons; dismiss?: (panel: Panel) => void } = {},
 ): Panel {
+  const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   if (!layer || !layer.isConnected) {
     layer = document.createElement("div");
     layer.className = "hkd-layer";
@@ -122,7 +134,7 @@ function openPanel(
     modal.addEventListener("mousedown", (ev) => ev.preventDefault());
     layer.append(modal);
   }
-  const panel: Panel = { titleKey, el, modal };
+  const panel: Panel = { titleKey, el, modal, previous };
   const bar = document.createElement("div");
   bar.className = "hkd-title modal-title";
   const caption = document.createElement("span");
@@ -139,12 +151,24 @@ function openPanel(
 
   el.addEventListener("mousedown", () => raise(panel), true);
   // The dialog has the focus: the window's own key bindings (Y, Q, arrows, Space) stay out.
-  // Escape is its close box.
+  // Escape is its close box. A modal panel keeps the keyboard: Tab and Shift+Tab cycle among its
+  // rendered controls (the close box is for the pointer), from the panel itself to the first or
+  // the last.
   el.addEventListener("keydown", (ev) => {
     ev.stopPropagation();
     if (ev.key === "Escape") {
       ev.preventDefault();
       (options.dismiss ?? close)(panel);
+    } else if (ev.key === "Tab" && modal) {
+      ev.preventDefault();
+      const items = [
+        ...el.querySelectorAll<HTMLElement>(
+          "button:not(:disabled):not([tabindex='-1']), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex='0']",
+        ),
+      ].filter((c) => c.getClientRects().length > 0);
+      const at = items.findIndex((c) => c === document.activeElement);
+      const next = at < 0 ? items.at(ev.shiftKey ? -1 : 0) : items[(at + (ev.shiftKey ? -1 : 1) + items.length) % items.length];
+      (next ?? el).focus();
     }
   });
   el.addEventListener("keyup", (ev) => ev.stopPropagation());
@@ -428,7 +452,7 @@ export function openStatisticsThreshold(p: HawkeyePayload, actions: DialogAction
     name.className = "hkd-stat-name";
     const colour = document.createElement("span");
     colour.className = "hkd-swatch";
-    colour.style.backgroundColor = `var(--hk-loss-${k})`;
+    colour.style.backgroundColor = `var(--ws-hawkeye-loss-${k})`;
     name.append(colour, text);
     row(body, name, "", score[k], win[k]);
   }
