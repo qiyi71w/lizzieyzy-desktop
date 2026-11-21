@@ -737,8 +737,9 @@ let showOverflow: (open: boolean) => void = () => {};
  *  window's height): the controls that do not fit move, with every control after them in bar
  *  order, to a panel under 更多 at the row's end, and come back when the row has room. The panel
  *  is the toolbar's own ground with the same capsules, so fields and check boxes work there too.
- *  A button in it acts and closes it, as a menu item does; a press outside it, Esc or Tab away
- *  close it as well. The returned updater lays the bar out again when the window, the bar's shown
+ *  A button in it acts and closes it, as a menu item does, unless it opened a popup: the panel
+ *  stays under the popup, whose close gives the focus back to the button. A press outside it, Esc
+ *  or Tab away close it as well. The returned updater lays the bar out again when the window, the bar's shown
  *  controls or their sizes have changed since the last layout. */
 function overflowLayout(host: HTMLElement, rows: HTMLElement[], panel: HTMLElement, settle: () => void): () => void {
   const homes = rows.map((row) => ({ row, children: [...row.children] }));
@@ -786,7 +787,7 @@ function overflowLayout(host: HTMLElement, rows: HTMLElement[], panel: HTMLEleme
   };
   panel.addEventListener("click", (e) => {
     const pressed = e.target instanceof Element ? e.target.closest('[role="button"]') : null;
-    if (pressed && pressed.getAttribute("aria-disabled") !== "true") show(false);
+    if (pressed && pressed.getAttribute("aria-disabled") !== "true" && !menuOpen()) show(false);
   });
   // Esc closes it wherever the focus is, as it closes a menu: not when it closed a menu, nor over
   // a modal dialog (the panel is inert then).

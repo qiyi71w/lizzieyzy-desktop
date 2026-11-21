@@ -624,10 +624,12 @@ importing the matching LizzieYzy Next settings.
   自动换行(仅独立显示时), on by default, lets the row wrap as long as the workbench keeps at least
   half the window's height. When wrapping would leave it less, or with 自动换行 off, the row stays
   one line: the first control that does not fit and every one after it move to a panel opened by
-  the 更多 button at the row's end. They are the same controls there; `Left`/`Right` go on from
-  the row into the panel, `Enter` on 更多 opens it with the focus on its first control, and a
-  button in it, a click outside, `Esc` or `Tab` closes it. Function search opens the panel for
-  a control it holds. 棋盘 opens 设置棋盘大小. The optional groups add the
+  the 更多 button at the row's end. They are the same controls there, and the panel scrolls when
+  it is taller than the room below; `Left`/`Right` go on from the row into the panel,
+  `Enter` on 更多 opens it with the focus on its first control, and a button in it, a click
+  outside, `Esc` or `Tab` closes it (a button that opens a popup leaves it open under the popup,
+  and closing the popup returns to that button). Function search opens the panel for a control it
+  holds. 棋盘 opens 设置棋盘大小. The optional groups add the
   限制: 时间 / 计算 fields, 分析: 黑 / 白 and 选点 胜率 / 计算量 / 目数 to the row. The limit
   fields write 综合设置's analysis limits on every edit (digits only; an empty field keeps the
   value); the 选点 boxes are 显示 > 推荐点's win rate / visits / score items. Function search shows

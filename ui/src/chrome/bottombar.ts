@@ -41,8 +41,9 @@ export const TOOLBAR_ITEM = '[role="button"], input[type="checkbox"]';
  *  The bar is one Tab stop, on the item last focused in it, else on its first enabled item. ←/→
  *  move between the shown items and wrap, Home/End go to the first/last; Enter/Space press the
  *  focused button as a click does (nothing while it is aria-disabled), and a check box keeps Space.
- *  Shown means inside its container's visible box: an item the bar clips away (自动换行 off in a
- *  narrow window) is no stop until the bar shows it again, nor is one in a closed panel. These keys
+ *  Shown means inside the bar's visible box: an item the bar clips away (自动换行 off in a narrow
+ *  window) is no stop until the bar shows it again. The panel scrolls instead, so each item it
+ *  shows is a stop, scrolled into view when focused; none is while the panel is closed. These keys
  *  stay in the bar; every other key goes on to the workbench shortcuts. A press on an item does not
  *  focus it: the focus leaves a field as it did on chrome that takes no focus, and an item that
  *  keeps the focus where it was (its own mousedown preventDefault) keeps doing so. A press outside
@@ -59,12 +60,13 @@ export function toolbarKeys(bar: HTMLElement, name: string, overflow: HTMLElemen
     if (el instanceof HTMLInputElement && el.disabled) return false;
     const box = el.getBoundingClientRect();
     if (box.width === 0 && box.height === 0) return false;
-    // Its container's padding box, where its overflow is clipped; half a pixel absorbs rounding.
-    const holder = overflow?.contains(el) ? overflow : bar;
-    const outer = holder.getBoundingClientRect();
-    const left = outer.left + holder.clientLeft;
-    const top = outer.top + holder.clientTop;
-    return box.left >= left - 0.5 && box.right <= left + holder.clientWidth + 0.5 && box.top >= top - 0.5 && box.bottom <= top + holder.clientHeight + 0.5;
+    // The panel scrolls: focusing an item brings it into view.
+    if (overflow?.contains(el)) return true;
+    // The bar's padding box, where its overflow is clipped; half a pixel absorbs rounding.
+    const outer = bar.getBoundingClientRect();
+    const left = outer.left + bar.clientLeft;
+    const top = outer.top + bar.clientTop;
+    return box.left >= left - 0.5 && box.right <= left + bar.clientWidth + 0.5 && box.top >= top - 0.5 && box.bottom <= top + bar.clientHeight + 0.5;
   };
   let last: HTMLElement | null = null;
   let stop: HTMLElement | null = null;
