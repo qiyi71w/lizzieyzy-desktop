@@ -94,6 +94,7 @@
    content height lets the auto margins centre it. Its body takes its content's height (not the
    rest of a fixed frame) and scrolls once the frame reaches its most. */
 .cloud-window.remote-compute {
+  container-type: inline-size;
   width: min(860px, calc(100vw - 24px));
   height: -webkit-fit-content;
   height: fit-content;
@@ -139,6 +140,20 @@
 }
 .rc-section > .rc-field {
   margin-top: 12px;
+}
+/* A narrow window (520 wide at the least) stacks the two columns, so the fields keep their width
+   for their values; the window body scrolls. */
+@container (max-width: 640px) {
+  .rc-page {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .rc-section {
+    overflow: visible;
+  }
+  .rc-section + .rc-section {
+    border-left: 0;
+    border-top: 1px solid var(--ds-line);
+  }
 }
 
 /* Sign-in: a label column and a control column. */

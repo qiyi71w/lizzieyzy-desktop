@@ -611,7 +611,10 @@ importing the matching LizzieYzy Next settings.
   comment's top edge changes its height (at least 68 px) and dragging the line between the
   variation tree and the list shares that column (the list keeps at least 36 px); a drag is
   saved when the button is released and `Esc` cancels it. `[` / `]` (界面 > 主棋盘位置) move the
-  board one eighth of the free width; 面板 > 恢复默认面板尺寸 restores the default sizes. Holding
+  board one eighth of the free width; 面板 > 恢复默认面板尺寸 restores the default sizes. In a small
+  window or at a large interface font the list keeps each column wide enough for its header and
+  figures and scrolls sideways, and the win-rate graph scales a readout down to fit its plot
+  instead of cutting it. Holding
   `X` shows Java's key list over the workbench until the key is released; moving over the board,
   the variation tree or the list returns the keyboard to the workbench unless a comment is being
   edited. 工具栏 > 顶部工具栏 is 分开 (the second toolbar row), 合并 or 不显示 (no toolbar row, as in
@@ -876,7 +879,9 @@ importing the matching LizzieYzy Next settings.
   远程算力 entry open the same non-modal center. 智子云算力 supports password/code sign-in,
   password reset, account balances, usage and credit details, available models, membership
   and balance orders. 自建算力 takes a `ws://` or `wss://` KataGo Analysis WebSocket link,
-  including one imported from a QR image. It is not a raw GTP-over-WebSocket endpoint.
+  including one imported from a QR image. It is not a raw GTP-over-WebSocket endpoint. In a
+  window narrower than about 660 px the center stacks its two columns so the fields keep room
+  for their values.
   - Sign-in and account refresh do not start an engine. 启用智子云算力 or 使用此远程链接
     explicitly selects and starts the configured service; 创建订单 separately authorizes an
     order. Failed or uncertain order creation is not automatically retried. Closing a payment

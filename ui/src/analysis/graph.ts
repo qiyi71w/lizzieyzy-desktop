@@ -1095,31 +1095,39 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
   const vm = metrics(g);
   const chipH = vm.ascent + vm.descent + 4;
   /** A readout chip centred over the guide at `cx` at the top of the plot, or at its bottom when
-   *  one of the values it reads (`ys`) lies in that band; kept inside the plot. */
+   *  one of the values it reads (`ys`) lies in that band; kept inside the plot. A plot narrower
+   *  than the chip (a small window at a large font) gets it whole, scaled down to fit. */
   const placeChip = (parts: ChipPart[], cx: number, ys: number[]): Box => {
     let w = 2 * CHIP_PAD + CHIP_GAP * (parts.length - 1);
     for (const part of parts) {
       g.font = part.font;
       w += tabularWidth(g, part.text) + (part.swatch ? SWATCH : 0);
     }
+    const scale = Math.min(1, (W0 - posx) / w);
+    w *= scale;
+    const h = chipH * scale;
     const x = Math.max(posx, Math.min(W0 - w, Math.round(cx + 0.5 - w / 2)));
     const topY = posy + 2;
     const clear = MARKER_RADIUS + 3;
-    const y = ys.some((v) => v + clear >= topY && v - clear <= topY + chipH) ? plotBottom - 2 - chipH : topY;
-    return { x, y, w, h: chipH };
+    const y = ys.some((v) => v + clear >= topY && v - clear <= topY + h) ? plotBottom - 2 - h : topY;
+    return { x, y, w, h };
   };
   const drawChip = (box: Box, parts: ChipPart[]) => {
     readoutBoxes.push(box);
+    const scale = box.h / chipH;
     overlay.push(() => {
+      g.save();
+      g.translate(box.x, box.y);
+      g.scale(scale, scale);
       g.fillStyle = p.graphChip;
       g.beginPath();
-      g.roundRect(box.x, box.y, box.w, box.h, CHIP_RADIUS);
+      g.roundRect(0, 0, box.w / scale, chipH, CHIP_RADIUS);
       g.fill();
-      let x = box.x + CHIP_PAD;
+      let x = CHIP_PAD;
       for (const part of parts) {
         g.font = part.font;
         if (part.swatch) {
-          const lineY = box.y + i(box.h / 2) + 0.5;
+          const lineY = i(chipH / 2) + 0.5;
           g.strokeStyle = part.swatch;
           g.lineWidth = 2;
           g.lineCap = "round";
@@ -1131,9 +1139,10 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
           x += SWATCH;
         }
         g.fillStyle = part.color;
-        fillTabular(g, part.text, x, box.y + 2 + vm.ascent);
+        fillTabular(g, part.text, x, 2 + vm.ascent);
         x += tabularWidth(g, part.text) + CHIP_GAP;
       }
+      g.restore();
     });
   };
   /** An engine-game readout: each side's win rate after its curve's swatch and side, Black first;

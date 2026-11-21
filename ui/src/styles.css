@@ -407,9 +407,11 @@ body {
 .tb-group .ds-stepper-arrows {
   width: 16px;
 }
-/* One number per field: centred in it, as the move field in the bottom bar. */
+/* One number per field: centred in it, as the move field in the bottom bar. Each field holds its
+   longest usual value at any interface font (ch grows with it); the px floors are the widths at
+   the 12 px font. */
 .tb-input {
-  width: 44px;
+  width: max(44px, calc(4ch + 8px));
   padding: 0 4px;
   text-align: center;
   font-weight: 600;
@@ -418,13 +420,13 @@ body {
   font-weight: 400;
 }
 .tb-input.custom-pda {
-  width: 54px;
+  width: max(54px, calc(5ch + 8px));
 }
 .tb-input.time-limit {
-  width: 40px;
+  width: max(40px, calc(4ch + 8px));
 }
 .tb-input.visit-limit {
-  width: 66px;
+  width: max(66px, calc(7ch + 8px));
 }
 /* Out of range or not a number: the stepper turns red around it. */
 .tb-input.invalid {
@@ -551,18 +553,20 @@ body {
   outline: none;
   user-select: text;
 }
-/* Candidate list: column widths and row colours come from table.ts. Horizontal hairlines only;
-   the header stays put over the rows on the card as it reads over the wallpaper. The scroll bar
-   is the thin thumb of these rules on every platform: WebView2 would draw its system bar with
-   arrows for the standard scrollbar-width / scrollbar-color properties, so they are not set. */
+/* Candidate list: column widths and row colours come from table.ts; a list narrower than its
+   columns' least widths scrolls sideways. Horizontal hairlines only; the header stays put over
+   the rows on the card as it reads over the wallpaper. The scroll bars are the thin thumbs of
+   these rules on every platform: WebView2 would draw its system bar with arrows for the standard
+   scrollbar-width / scrollbar-color properties, so they are not set. */
 #table {
-  overflow-x: hidden;
+  overflow-x: auto;
   overflow-y: scroll;
   background-color: var(--ws-table-ground);
   color: var(--ds-text);
 }
 #table::-webkit-scrollbar {
   width: 8px;
+  height: 8px;
 }
 #table::-webkit-scrollbar-thumb {
   border: 2px solid transparent;
