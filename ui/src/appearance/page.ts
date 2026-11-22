@@ -822,15 +822,16 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   let stoneSets: ShippedStones[] = [];
   const boardTitle = t("ConfigDialog2.modern.theme.boardImage");
   const pureBoardColor = colorControl("settings.theme.pureBoardColor", false, false, product("themeFieldColor", t("LizzieConfig.title.chkPureBoard")));
-  const boardPath = pathControl("settings.theme.boardImage", redraw);
+  // The paths' own edits and their "..." choices mark the tile they make.
+  const boardPath = pathControl("settings.theme.boardImage", () => syncPictures());
   const boardTiles = tiles(boardTitle, "settings.theme.board", "settings.theme.usePureBoard", (id) => void pickBoard(id));
   row(assets, "config.theme.board-image", boardTitle, product("themeBoardPickSub"), boardTiles.root, pureBoardColor.root, boardPath.root);
   const stoneTiles = tiles(product("themeStones"), "settings.theme.stones", "settings.theme.usePureStone", (id) => void pickStones(id));
   stoneTiles.pure.append(el("span", "appearance-flat-stone black"), el("span", "appearance-flat-stone white"));
   row(assets, null, product("themeStones"), product("themeStonesSub"), stoneTiles.root);
-  const blackPath = pathControl("settings.theme.blackStoneImage", redraw);
+  const blackPath = pathControl("settings.theme.blackStoneImage", () => syncPictures());
   row(assets, "config.theme.black-stone-image", t("ConfigDialog2.modern.theme.blackStoneImage"), product("themeStonePathSub"), blackPath.root);
-  const whitePath = pathControl("settings.theme.whiteStoneImage", redraw);
+  const whitePath = pathControl("settings.theme.whiteStoneImage", () => syncPictures());
   row(assets, "config.theme.white-stone-image", t("ConfigDialog2.modern.theme.whiteStoneImage"), product("themeStonePathSub"), whitePath.root);
   const backgroundFilter = digits("settings.theme.backgroundFilter");
   row(assets, "config.theme.background-blur", t("ConfigDialog2.modern.theme.blur"), t("ConfigDialog2.modern.theme.blurSub"), backgroundFilter);
@@ -844,22 +845,28 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
     shadowSize.disabled = !showShadow.checked;
   };
   pureBackground.addEventListener("change", syncEnabled);
+  /** The selected theme's bundled pictures its folder replaces with the user's own of that name. */
+  const replaced = () => catalog?.themes.find((e) => e.name === selected)?.replaced_images ?? [];
   /** The address an image value names, as the core reads it (appearance::images): a shipped
    *  address as it is, a relative path as the selected theme's own file (a bundled theme's own
-   *  file is its shipped picture), an empty value as the default picture `fallback`. */
+   *  file is its shipped picture unless its folder replaces it, when it is no shipped picture: ""),
+   *  an empty value as the default picture `fallback`. */
   const addressOf = (value: string, fallback: string) => {
-    const path = value.trim();
+    const path = value.trim().replaceAll("\\", "/");
     if (path === "") return fallback;
-    return path.startsWith("/") ? path : `/themes/${selected}/${path.replaceAll("\\", "/")}`;
+    if (path.startsWith("/")) return path;
+    return replaced().includes(path) ? "" : `/themes/${selected}/${path}`;
   };
   /** The value choosing the shipped picture at `addresses` writes: the selected theme's own file by
-   *  its name, so a bundled theme keeps its own value; the 默认 theme's default picture as an empty
-   *  value; else the picture's first address. */
+   *  its name, so a bundled theme keeps its own value, or by its address where the theme's folder
+   *  replaces that file; the 默认 theme's default picture as an empty value; else the picture's
+   *  first address. */
   const valueFor = (addresses: readonly string[], fallback: string) => {
     const own = `/themes/${selected}/`;
     if (selected === DEFAULT_THEME && addresses[0] === fallback) return "";
     const mine = addresses.find((a) => a.startsWith(own));
-    return mine ? mine.slice(own.length) : addresses[0];
+    if (!mine) return addresses[0];
+    return replaced().includes(mine.slice(own.length)) ? mine : mine.slice(own.length);
   };
   /** The tile the draft's values make: 纯色, a shipped picture, or 其他图片… for the user's own;
    *  none until the shipped pictures are known. */

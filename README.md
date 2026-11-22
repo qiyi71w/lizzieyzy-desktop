@@ -726,8 +726,8 @@ importing the matching LizzieYzy Next settings.
     theme, the interface keeps its layout and controls but takes Java's colours: light grey bars,
     white controls and menus, Java's teal accent, Java's grey metal wallpaper under panels as dark
     as Java's glass, Java's comment background, and Java's colours for the win-rate graph, the variation tree, the stones' markers
-    and the candidate list (Java's white table). Every other theme keeps the program's own
-    colours.
+    and the candidate list (Java's white table). Java 柔和 (below) takes Java's Morandi colours;
+    every other theme keeps the program's own colours.
   - Java 柔和 is a bundled theme with the same values and images as Java 经典, shown in the
     colours Java draws with its Morandi switch (`use-morandi-colors`): warm grey bars, cream
     dialogs, menus, fields and table, charcoal text and hairlines, and Java's Morandi colours for
@@ -740,7 +740,9 @@ importing the matching LizzieYzy Next settings.
     typing one. A choice belongs to the theme being edited. A shipped picture is saved by its
     address (`/themes/<theme>/<file>`, `/assets/board.png`), or by its file name in its own
     bundled theme, so that theme's `theme.txt` keeps Java's value; Java reads such an address as
-    a missing file and falls back as it does for any image it cannot read.
+    a missing file and falls back as it does for any image it cannot read. A bundled theme whose
+    folder holds the user's own picture under a shipped picture's file name shows that picture
+    (as Java reads it) as 其他图片…, and choosing the shipped one saves its address.
   - 界面颜色 on 主题外观 (not in Java) sets four colours of the interface per theme: 条栏底色 (window
     bar, menu bar, toolbar, bottom bar and the button strips of the other windows), 按钮底色
     (buttons, fields, menus and the bars' capsules; dialogs and tables take a shade between the
@@ -943,8 +945,9 @@ importing the matching LizzieYzy Next settings.
     failures share that budget. A refusal that names authentication, the plan, the balance or
     the account (the words Java's transport treats as final) does not retry, nor does a proxy
     that asks for credentials (407), whether to a `ws` upgrade or to the tunnel of a `wss`
-    link. Each attempt must open its Socket.IO session within 30 seconds, as Java's socket.io
-    client does, and the engine must report ready within 60 seconds.
+    link. Each attempt must receive the Engine.IO open within 30 seconds, as Java's socket.io
+    client does, and within 60 seconds join the session's namespace and have the engine report
+    ready.
     A 智子 start that fails says why, in the failure window and in the center's status: the
     socket token request failed (with a specific message for the service's known failure keys),
     the service or the proxy could not be reached (also when the session did not open in time),

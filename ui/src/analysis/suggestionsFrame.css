@@ -19,6 +19,7 @@ body {
   overflow-x: hidden;
   overflow-y: auto;
   background-color: var(--ws-table-ground);
+  color: var(--ds-text);
 }
 #top table {
   border-collapse: separate;

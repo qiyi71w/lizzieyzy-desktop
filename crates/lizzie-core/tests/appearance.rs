@@ -284,6 +284,34 @@ fn the_default_theme_reads_relative_image_paths_from_the_themes_folder() {
     assert!(appearance::images(wb.storage(),&AppearanceSettings::default(),&theme).black.starts_with("data:image/png;base64,"));
 }
 
+/// A bundled theme's folder holding the user's own picture under a shipped picture's file name:
+/// the theme shows the user's picture, and the catalog names that file, so the page does not take
+/// it for the shipped one. An untouched copy, or a file that is no picture (the theme falls back to
+/// the shipped one), names nothing.
+#[test]
+fn the_catalog_names_bundled_pictures_a_theme_folder_replaces() {
+    let dir=tempfile::tempdir().unwrap(); let wb=workbench(dir.path());
+    let folder=appearance::themes_dir(wb.storage()).join("Megapack");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("theme.txt"),include_str!("../../../ui/public/themes/Megapack/theme.txt")).unwrap();
+    std::fs::write(folder.join("black.png"),include_bytes!("../../../ui/public/themes/Megapack/black.png")).unwrap();
+    std::fs::write(folder.join("board.png"),include_bytes!("../../../ui/public/assets/newtheme/black.png")).unwrap();
+    let entry=|name:&str| appearance::catalog(wb.storage(),&ThemeSettings::default()).into_iter().find(|e| e.name==name).unwrap();
+    assert_eq!(entry("Megapack").replaced_images,vec!["board.png".to_string()]);
+    assert!(entry("sabaki").replaced_images.is_empty());
+    std::fs::write(folder.join("white.png"),b"").unwrap();
+    assert_eq!(entry("Megapack").replaced_images,vec!["board.png".to_string()]);
+    let white=ThemeSettings { white_stone_image:"white.png".into(), ..appearance::load_theme(wb.storage(),"Megapack",&ThemeSettings::default()) };
+    assert_eq!(appearance::images(wb.storage(),&AppearanceSettings { theme:"Megapack".into(), ..Default::default() },&white).white,"/themes/Megapack/white.png");
+    let megapack=AppearanceSettings { theme:"Megapack".into(), ..Default::default() };
+    let values=appearance::load_theme(wb.storage(),"Megapack",&ThemeSettings::default());
+    let shown=appearance::images(wb.storage(),&megapack,&values);
+    assert!(shown.board.starts_with("data:image/png;base64,"));
+    // The shipped picture's address still shows the shipped picture.
+    let chosen=ThemeSettings { board_image:"/themes/Megapack/board.png".into(), ..values };
+    assert_eq!(appearance::images(wb.storage(),&megapack,&chosen).board,"/themes/Megapack/board.png");
+}
+
 /// The 棋盘 and 棋子 choices list every picture the program ships once, each address loadable.
 #[test]
 fn shipped_boards_and_stones_list_each_picture_once() {

@@ -3073,7 +3073,7 @@ uiChromeColor: Array<number>, uiControlColor: Array<number>, uiAccentColor: Arra
 
 export type ThemeNodeColor = { node: number, color: Array<number>, };
 
-export type ThemeEntry = { name: string, values: ThemeSettings, };
+export type ThemeEntry = { name: string, values: ThemeSettings, replaced_images: Array<string>, };
 
 export type AppearanceCatalog = { themes: Array<ThemeEntry>, fonts: Array<string>, boards: Array<ShippedBoard>, stones: Array<ShippedStones>, };
 

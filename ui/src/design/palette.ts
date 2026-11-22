@@ -97,8 +97,11 @@ export function paletteTokens(own: InterfaceColors, skin: SkinColors): Record<st
   if (isSet(own.chrome) || isSet(own.text)) {
     out["--ds-sunken"] = hex(mix(chrome, text, 0.06));
     const status: [string, readonly number[]][] = [["danger", skin.danger], ["warning", skin.warning], ["success", skin.success]];
+    // Status text keeps its hue (danger stays red): darkened beside dark text, lightened beside
+    // light text.
+    const shade = dark(text) ? BLACK : WHITE;
     for (const [name, hue] of status) {
-      out[`--ds-${name}-text`] = hex(mix(hue, text, 0.3));
+      out[`--ds-${name}-text`] = hex(mix(hue, shade, 0.3));
       out[`--ds-${name}-soft`] = hex(mix(chrome, hue, 0.16));
       out[`--ds-${name}-soft-line`] = hex(mix(chrome, hue, 0.4));
     }

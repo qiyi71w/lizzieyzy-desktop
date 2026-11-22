@@ -185,7 +185,7 @@ pub fn merge_java(base: &ThemeSettings, raw: &Map<String,Value>) -> ThemeSetting
 }
 /// The `theme.txt` keys the 主题外观 page edits: those ConfigDialog2 puts into a named theme
 /// (ConfigDialog2.java:6204-6285), and this product's 界面颜色.
-const PAGE_KEYS: &[&str] = &[
+pub(crate) const PAGE_KEYS: &[&str] = &[
     "use-pure-stone", "use-pure-board", "pure-board-color", "use-pure-background", "pure-background-color",
     "show-stone-shadow", "winrate-stroke-width", "score-lead-stroke-width", "minimum-blunder-bar-width", "shadow-size",
     "font-name", "ui-font-name", "winrate-font-name", "use-scorediff-in-variation-tree", "scorediff-in-variation-tree-factor",
@@ -226,9 +226,11 @@ pub fn load_theme(storage: &Storage, name: &str, defaults: &ThemeSettings) -> Th
     theme
 }
 /// One entry of the theme combo box (ConfigDialog2.loadThemeTab, ConfigDialog2.java:4372-4384);
-/// "default" is Java's LizzieConfig.title.defaultTheme item.
+/// "default" is Java's LizzieConfig.title.defaultTheme item. `replaced_images` names a bundled
+/// theme's pictures (by file name) that a file of the same name in the user's folder replaces with
+/// another picture: the theme reads that file, so the name no longer means the bundled picture.
 #[derive(Serialize, TS)]
-pub struct ThemeEntry { pub name: String, pub values: ThemeSettings }
+pub struct ThemeEntry { pub name: String, pub values: ThemeSettings, pub replaced_images: Vec<String> }
 /// `appearance_catalog`: the themes, the system font families (GraphicsEnvironment) and the
 /// boards and stones the program ships ([`shipped_boards`], [`shipped_stones`]).
 #[derive(Serialize, TS)]
@@ -285,7 +287,17 @@ pub fn catalog(storage: &Storage, defaults: &ThemeSettings) -> Vec<ThemeEntry> {
         if valid_name(&name) && entry.path().join("theme.txt").is_file() && !names.contains(&name) { names.push(name); }
     } }
     names.sort_by_key(|s|s.to_lowercase()); names.insert(0,"default".into());
-    names.into_iter().map(|name|ThemeEntry{values:load_theme(storage,&name,defaults),name}).collect()
+    names.into_iter().map(|name|ThemeEntry{values:load_theme(storage,&name,defaults),replaced_images:replaced_images(storage,&name),name}).collect()
+}
+/// The bundled theme `name`'s pictures its user folder replaces: a file of the same name that is
+/// another picture. A file that is no picture is not shown ([`images`] falls back to the bundled
+/// one), so it replaces nothing.
+fn replaced_images(storage: &Storage, name: &str) -> Vec<String> {
+    use sha2::{Digest, Sha256};
+    let dir = themes_dir(storage).join(name);
+    BUNDLED_IMAGES.iter().filter(|(t,_,_)| *t == name)
+        .filter(|(_,file,hash)| std::fs::read(dir.join(file)).is_ok_and(|bytes| format!("{:x}",Sha256::digest(&bytes)) != *hash && is_image(&bytes)))
+        .map(|(_,file,_)| file.to_string()).collect()
 }
 pub fn add_theme(storage: &Storage, name: &str) -> std::io::Result<()> {
     if !valid_name(name) || name.eq_ignore_ascii_case("default") || SKIN_THEMES.iter().any(|t| name.eq_ignore_ascii_case(t))

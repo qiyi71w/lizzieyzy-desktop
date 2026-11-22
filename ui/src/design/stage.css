@@ -308,12 +308,15 @@
    in AppleStyleSupport classic) inside the dark workbench. Cool neutral hairlines and chart lines
    for the program's wood-toned ones (MoveListFrame's grey grid), the dialog surface under headers,
    a cool grey 占比 underline and the actual move's loss level at Java's own alphas over white. The
-   list repeats the light Java design tokens it reads, since the workbench around it is dark. Java
+   list repeats the light Java design tokens it reads, since the workbench around it is dark; so
+   does 独立选点列表's table (`#top`), which stays white whatever 界面颜色 sets on the root. Java
    柔和 starts from these values; its own follow below. */
 :root[data-skin="java"],
 :root[data-skin="java"] #table,
+:root[data-skin="java"] #top,
 :root[data-skin="soft"],
-:root[data-skin="soft"] #table {
+:root[data-skin="soft"] #table,
+:root[data-skin="soft"] #top {
   --ds-text: #1f2926;
   --ds-text-3: #55635e;
   --ds-hover: rgba(20, 30, 40, 0.06);
@@ -353,7 +356,8 @@
    its ground, the cream dialog surface under headers, charcoal text, and the actual move's loss
    level in MorandiPalette's SUGGESTION_*_LIGHT and _ALPHA colours. */
 :root[data-skin="soft"],
-:root[data-skin="soft"] #table {
+:root[data-skin="soft"] #table,
+:root[data-skin="soft"] #top {
   --ds-text: #3e3a39;
   --ds-hover: rgba(62, 58, 57, 0.11);
   --ws-table-ground: #ece7e0;
