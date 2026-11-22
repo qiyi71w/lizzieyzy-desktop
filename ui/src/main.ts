@@ -7,7 +7,10 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { apply, copyRecord, exportRecord, navigate, pasteRecord, run, saveRecord, saveRecordAs, state, subscribe, unavailable } from "./app";
 import { COMMANDS } from "./commands";
 import { buildBottomBar, layoutBottomBar } from "./chrome/bottombar";
-import { buildMenubar, menuOpen, secondaryMenuTitle } from "./chrome/menubar";
+import { buildMenubar, menuOpen } from "./chrome/menubar";
+import { secondaryMenuTitle } from "./chrome/menuModel";
+import { installNativeMenu, menuModelReport, nativeMenuReport } from "./chrome/nativeMenu";
+import { os } from "./design/theme";
 import { mountWindowBar, setWindowTitle } from "./chrome/windowBar";
 import { buildToolbar, renderToolbar, topToolbarReport } from "./chrome/toolbar";
 import { onUnavailable, onView, snapshot } from "./contract/client";
@@ -1482,6 +1485,10 @@ function uiReport() {
     title: document.title,
     focus: active ? { tag: active.tagName.toLowerCase(), id: active.id, className: active.className, key: active.dataset.key ?? null } : null,
     menuOpen: menuOpen(),
+    /** The menus as the macOS system menu bar has them, from the model on every system, and what
+     *  the system menu bar shows once installed (macOS). */
+    menuModel: menuModelReport(),
+    nativeMenu: nativeMenuReport(),
     dialogs: [...document.querySelectorAll(".modal-box:not([hidden])")].map((box) => ({
       title: box.querySelector(".modal-title")?.textContent ?? "",
       // Form dialogs put their content straight into the box, after the title.
@@ -1759,6 +1766,9 @@ async function boot() {
   for (const v of early) apply(v);
   early = null;
   render();
+  // macOS: the menus go to the system menu bar once the first view is in; the start-up menu serves
+  // until then.
+  if (os === "mac") void installNativeMenu().catch((e: unknown) => console.error("system menu bar failed", e));
   await startFrame(schedule);
   await startHawkeye(schedule);
   await startCommentary();

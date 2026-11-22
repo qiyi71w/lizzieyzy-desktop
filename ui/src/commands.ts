@@ -31,8 +31,9 @@ export interface CommandEntry {
   /** Java items whose text a menu-open listener sets (启动/停止 Web 旁观, Menu.java:4301-4309). */
   label?: () => string;
   /** A button inside the menu item, beside its label (自定义布局's 设置, Menu.java:1985-2050).
-   *  With `icon` it shows the icon, and `label` is its name and tooltip. */
-  button?: { label: () => string; run: () => void; icon?: IconName };
+   *  With `icon` it shows the icon, and `label` is its name and tooltip. `item` names it where a
+   *  menu holds no buttons and it is an item of its own (the macOS menu bar); `label` by default. */
+  button?: { label: () => string; run: () => void; icon?: IconName; item?: () => string };
 }
 
 /** Settings > 语言 (Menu.java:7025-7034): saved now, applied after a restart. */

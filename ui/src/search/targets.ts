@@ -6,7 +6,8 @@
 // method), and SETTING / NAVIGATION menus and toolbar controls are located, never clicked.
 import { state } from "../app";
 import { livePopupAnchor, locateHiddenButton, locateLivePopupItem } from "../chrome/bottombar";
-import { locateMenuItem, menuItemCommand, menuItemState } from "../chrome/menubar";
+import { locateMenuItem } from "../chrome/menubar";
+import { menuItemCommand, menuItemState } from "../chrome/menuModel";
 import { COMMANDS } from "../commands";
 import type { FunctionMatch } from "../contract/generated";
 import { dialogOpen, message } from "../dialogs";

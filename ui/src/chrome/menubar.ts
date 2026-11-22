@@ -1,19 +1,19 @@
-// Java menu bar (Menu.java): every top-level menu and item in Java order. Items run catalog
-// commands; entries without one are disabled and marked as not yet available.
-import { run, state, subscribe } from "../app";
-import { COMMANDS, type CommandEntry } from "../commands";
-import type { DisplaySettings } from "../contract/generated";
+// The window's menus (Menu.java), drawn from the menu model (menuModel.ts): the menu bar on Windows
+// and Linux, the toolbar popups everywhere, and on macOS, whose menus are the system menu bar's
+// (nativeMenu.ts), the menu panel F10 and function search open. Items run catalog commands;
+// entries without one are disabled and marked as not yet available.
+import { state, subscribe } from "../app";
 import { setRankCustomText } from "../display/commands";
-import { isChinese, product, registerProduct, t } from "../i18n";
+import { product, registerProduct, t } from "../i18n";
 import { JAVA_MENUS, type MenuNode, type TopMenu } from "./javaMenus";
-import { chooseEngine } from "../engine/catalog";
-import { DARK_READY } from "../design/theme";
+import { os } from "../design/theme";
 import { icon } from "../design/icons";
 import { highlight } from "../search/highlight";
 import { paintingOpen } from "../display/painting";
 import { contextMenuOpen } from "../editing/contextMenu";
 import { onAppearanceChange } from "../appearance/state";
 import { activateFirst, bindMenuRows, menuKey, OPEN_SUB, reveal, setActiveRow, subOpeners } from "./menuKeys";
+import { entries, functionPath, menuItemState, topEnabled, topShown, topTitle, type Row } from "./menuModel";
 
 /** 更多菜单: the button at the menu bar's end that holds the menus a narrow window has no room for. */
 registerProduct({
@@ -24,42 +24,6 @@ registerProduct({
   KoKr: { menuOverflow: "메뉴 더 보기" },
   ThTh: { menuOverflow: "เมนูเพิ่มเติม" },
 });
-
-/** Java conditional menus: 快速启动 follows 显示快速启动 (Config.java: show-quick-links, false by
- *  default); show-Contribute is settings.contribution.showMenu, true by default; the secondary
- *  engine menu needs double-engine mode; ReadBoard is Windows only. This product's 外观模式 waits
- *  for the dark set (design/theme.ts DARK_READY). */
-function visible(when: string | undefined): boolean {
-  switch (when) {
-    case undefined:
-      return true;
-    case "windows":
-      return navigator.userAgent.includes("Windows");
-    // Config.useJavaLooks defaults to !OS.isWindows() (Config.java:1647).
-    case "javaLooks":
-      return !navigator.userAgent.includes("Windows");
-    case "contribute":
-      return state.view?.settings.contribution.showMenu ?? true;
-    case "quickLinks":
-      return state.view?.settings.quick_links.show ?? false;
-    // Menu.setEngineMenuone2status: the secondary engine menu shows in 双引擎模式 only.
-    case "doubleEngine":
-      return state.view?.settings.extra_mode === "DoubleEngine";
-    case "darkMode":
-      return DARK_READY;
-    default:
-      return false;
-  }
-}
-
-/** Java resource text; `product.*` entries are this product's own items. A `{display.name}` suffix
- *  shows the current display setting, like Java labels rebuilt with the value. */
-function label(node: { key: string; suffix?: string }): string {
-  const suffix = node.suffix
-    ?.replace("{sp}", isChinese() ? "" : " ")
-    .replace(/\{display\.(\w+)\}/g, (_, name: string) => String(state.view?.settings.display[name as keyof DisplaySettings] ?? "")) ?? "";
-  return (node.key.startsWith("product.") ? product(node.key.slice("product.".length)) : t(node.key)) + suffix;
-}
 
 let openMenu: HTMLElement | null = null;
 /** The element focused before the menus opened; it gets the focus back when they close. */
@@ -95,17 +59,15 @@ function replaceMenu(): void {
   closeMenus(true);
 }
 
-/** A JPopupMenu shown below `anchor` (a toolbar button), or above it, drawn and closed like the
- *  menu bar's; like Swing's, it moves left rather than leave the window. One taller than the room
- *  on its side scrolls inside, as the menu bar's dropdowns do. */
-export function openPopupMenu(anchor: HTMLElement, items: MenuNode[], above = false): void {
+/** Shows `list` as a popup below the box `r` or above it, drawn and closed like the menu bar's
+ *  menus; like Swing's, it moves left rather than leave the window. One taller than the room on its
+ *  side scrolls inside, as the menu bar's dropdowns do. */
+function showPopup(r: { left: number; top: number; bottom: number }, list: HTMLElement, above: boolean, keyboard: boolean): void {
   replaceMenu();
-  const r = anchor.getBoundingClientRect();
   const holder = document.createElement("div");
   holder.className = "popup-anchor open";
   holder.style.left = `${r.left}px`;
   holder.style.top = `${r.bottom}px`;
-  const list = dropdown(items);
   list.style.maxHeight = `${above ? r.top - EDGE : window.innerHeight - EDGE - r.bottom}px`;
   holder.append(list);
   document.body.append(holder);
@@ -113,7 +75,12 @@ export function openPopupMenu(anchor: HTMLElement, items: MenuNode[], above = fa
   if (box.right > window.innerWidth) holder.style.left = `${Math.max(0, r.left - (box.right - window.innerWidth))}px`;
   if (above) holder.style.top = `${r.top - box.height}px`;
   openMenu = holder;
-  if (keyboardInput) activateFirst(list);
+  if (keyboard) activateFirst(list);
+}
+
+/** A JPopupMenu shown below `anchor` (a toolbar button), or above it. */
+export function openPopupMenu(anchor: HTMLElement, items: MenuNode[], above = false): void {
+  showPopup(anchor.getBoundingClientRect(), dropdown(items), above, keyboardInput);
 }
 
 /** rankCustomMove: the count is typed into the item itself (Menu.java:9234-9316). */
@@ -138,38 +105,8 @@ export function registerItemField(id: string, make: () => HTMLElement): void {
   itemFields.set(id, make);
 }
 
-/** Java setToolTipText on menu items (Menu.java:892-929, 9564-9569). */
-function tooltip(key: string): string | undefined {
-  switch (key) {
-    case "Menu.moveNumberInBracnhFromOne":
-    case "Menu.moveNumberInBracnhFromOneContinue":
-      return t("Menu.moveNumberInBranchTips");
-    case "Menu.rankMenu.evaluationMode.auto":
-      return t("Menu.rankMenu.evaluationMode.auto.tooltip");
-    case "Menu.rankMenu.evaluationMode.score":
-      return t("Menu.rankMenu.evaluationMode.score.tooltip");
-    case "Menu.rankMenu.evaluationMode.winrate":
-      return t("Menu.rankMenu.evaluationMode.winrate.tooltip");
-    case "Menu.rankMenu.evaluationMode.combined":
-      return t("Menu.rankMenu.evaluationMode.combined.tooltip");
-  }
-  return undefined;
-}
-
-function fileName(path: string): string {
-  return path.split(/[\\/]/).pop() ?? path;
-}
-
-/** Recent entries carry their path in the id. */
-const RECENT = "recent:";
-
 /** The catalog node each shown row stands for, so a function search can find it again. */
 const rowNodes = new WeakMap<Element, MenuNode>();
-
-/** Items that destroy record content or the user's data, in the danger ink like the bottom bar's
- *  清空棋盘 / 删除 (DESIGN.md 危险操作): 编辑's 清空棋盘, 删除一手, 删除分支, 摆棋's 清空全部设置子,
- *  更多's 清空棋盘 / 删除, and 帮助's 清除所有个人数据. */
-const DANGER = new Set(["menu.clearBoard", "menu.delete", "menu.deleteBranch", "menu.setupClearAll", "bottombar.more.clearButton", "bottombar.more.deleteMove", "menu.clearUserData"]);
 
 /** The gap a dropdown keeps from the window's edges. */
 const EDGE = 4;
@@ -207,149 +144,89 @@ function dropdown(items: MenuNode[]): HTMLElement {
     const sub = list.querySelector<HTMLElement>(OPEN_SUB);
     if (sub) placeSub(sub);
   });
-  for (const node of items) {
-    if (node.t === "sep") {
-      if (list.lastElementChild && !list.lastElementChild.classList.contains("sep")) {
-        const sep = document.createElement("div");
-        sep.className = "sep";
-        list.append(sep);
-      }
+  for (const entry of entries(items)) {
+    if (entry.t !== "sep") {
+      list.append(menuRow(entry, list));
       continue;
     }
-    if (!visible(node.when)) continue;
-    if (node.t === "dynamic" && node.key === "engine.list") {
-      // engine.select-secondary: the same list for 双引擎模式's secondary slot (Menu.java:7453-7485).
-      const secondary = node.id === "engine.select-secondary";
-      const current = secondary ? state.view?.engine.secondary : state.view?.engine.foreground;
-      const engines = state.view?.engine.engines ?? [];
-      // Menu.java:7407-7429: the twentieth slot is the overflow chooser.
-      engines.slice(0, engines.length > 20 ? 19 : 20).forEach((engine, index) => {
-        const row = document.createElement("div"); row.className = "mi checkable"; rowNodes.set(row, node);
-        row.dataset.engineIndex = String(index); row.title = engine.command;
-        row.setAttribute("role", "menuitemradio"); row.setAttribute("aria-checked", String(current?.index === index));
-        const mark = document.createElement("span"); mark.className = "mark";
-        mark.textContent = current?.index === index ? "✓" : engine.state === "Ready" ? "●" : engine.state === "Loading" ? "◐" : "○";
-        const text = document.createElement("span"); text.className = "label"; text.textContent = `[${index + 1}] ${engine.name}`;
-        row.append(mark, text);
-        row.onclick = (event) => {
-          event.stopPropagation(); closeMenus();
-          void run(secondary ? { type: "SwitchSecondaryEngine", index } : { type: "SwitchEngine", index });
-        };
-        list.append(row);
-      });
-      if (engines.length > 20) {
-        const more = document.createElement("div"); more.className = "mi"; more.textContent = t("Menu.moreEngines");
-        more.onclick = (event) => { event.stopPropagation(); closeMenus(); void chooseEngine(false, secondary); }; list.append(more);
-      }
-      continue;
-    }
-    if (node.t === "dynamic" && node.key === "quickLinks.programs") {
-      // Menu.refreshQuickLinkItems: one item per saved program, named as saved; choosing one starts
-      // it (FastLink.startProgram).
-      (state.view?.settings.quick_links.programs ?? []).forEach((program, index) => {
-        const row = document.createElement("div"); row.className = "mi"; rowNodes.set(row, node);
-        row.dataset.key = `quickLinks.program.${index}`; row.title = program.command;
-        const mark = document.createElement("span"); mark.className = "mark";
-        const text = document.createElement("span"); text.className = "label"; text.textContent = program.name;
-        row.append(mark, text);
-        row.onclick = (event) => { event.stopPropagation(); closeMenus(); void run({ type: "LaunchQuickLink", index }); };
-        list.append(row);
-      });
-      continue;
-    }
-    if (node.t === "dynamic" && node.key !== "Menu.openRecent") continue;
-    const row = document.createElement("div");
-    row.className = "mi";
-    row.dataset.key = node.key;
-    rowNodes.set(row, node);
-    if (node.id && DANGER.has(node.id)) row.classList.add("danger");
-    const text = document.createElement("span");
-    text.className = "label";
-    text.textContent = label(node);
-    const mark = document.createElement("span");
-    mark.className = "mark";
-    row.append(mark, text);
-    const tip = tooltip(node.key);
-    if (tip) row.title = tip;
-    if (node.key === "Menu.rankMenu.lblCustomMove") row.append(rankCustomField());
-    const itemField = node.id ? itemFields.get(node.id) : undefined;
-    if (itemField) row.append(itemField());
-    if (node.t === "submenu" || node.key === "Menu.openRecent") {
-      row.classList.add("sub");
-      const children = node.key === "Menu.openRecent" ? recentItems() : (node.items ?? []);
-      if (children.length === 0 && node.key !== "Menu.openRecent") {
-        row.classList.add("disabled", "unavailable");
-        row.title = product("unavailable");
-      }
-      // A disabled row opens nothing, though moving onto it still closes its siblings' submenus.
-      const open = () => expand(row, list, row.classList.contains("disabled") ? [] : children);
-      subOpeners.set(row, open);
-      row.addEventListener("mouseenter", open);
-    } else {
-      const recent = node.id?.startsWith(RECENT) ? node.id.slice(RECENT.length) : null;
-      if (recent) row.title = recent;
-      const entry: CommandEntry | undefined = recent
-        ? { run: () => run({ type: "OpenRecord", path: recent, source: "Recent" }) }
-        : (COMMANDS[node.id ?? ""] ?? COMMANDS[node.key]);
-      if (entry?.visible && !entry.visible()) continue;
-      if (entry?.label) text.textContent = entry.label();
-      if (node.t === "check" || node.t === "radio") {
-        const checked = !!entry?.checked?.();
-        mark.textContent = checked ? "✓" : "";
-        row.classList.add("checkable");
-        row.setAttribute("role", node.t === "check" ? "menuitemcheckbox" : "menuitemradio");
-        row.setAttribute("aria-checked", String(checked));
-      }
-      if (!entry) {
-        row.classList.add("disabled", "unavailable");
-        row.title = product("unavailable");
-      } else if (entry.enabled && !entry.enabled()) {
-        row.classList.add("disabled");
-      } else {
-        row.addEventListener("click", (e) => {
-          e.stopPropagation();
-          closeMenus();
-          entry.run();
-        });
-      }
-      if (entry?.button) {
-        const inner = entry.button;
-        const b = document.createElement("button");
-        b.className = "mi-button";
-        b.dataset.key = `${node.id ?? node.key}.set`;
-        // An icon button (the "?" InfoMenuItem) is named and titled by its label.
-        if (inner.icon) {
-          b.classList.add("mi-icon-button");
-          b.append(icon(inner.icon));
-          b.title = inner.label();
-          b.setAttribute("aria-label", b.title);
-        } else b.textContent = inner.label();
-        b.addEventListener("click", (e) => {
-          e.stopPropagation();
-          closeMenus();
-          inner.run();
-        });
-        row.append(b);
-      }
-    }
-    list.append(row);
+    const sep = document.createElement("div");
+    sep.className = "sep";
+    list.append(sep);
   }
-  if (list.lastElementChild?.classList.contains("sep")) list.lastElementChild.remove();
   bindMenuRows(list);
   return list;
 }
 
-/** File > 最近打开: newest first as "1: name", full path as tooltip (Menu.java:7192-7208). Entries
- *  open without changing the recent list; a missing file shows the normal open failure. */
-function recentItems(): MenuNode[] {
-  return (state.view?.recent_files ?? []).map((path, k) => ({ t: "item", key: `${k + 1}: ${fileName(path)}`, id: `${RECENT}${path}` }));
+/** The row of `entry` in the dropdown `list`: its check mark (an engine's state mark while not the
+ *  checked one), its text, a text field or a button its item holds, and a submenu row's submenu. */
+function menuRow(entry: Row, list: HTMLElement): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "mi";
+  if (entry.key !== undefined) row.dataset.key = entry.key;
+  if (entry.engine) row.dataset.engineIndex = String(entry.engine.index);
+  rowNodes.set(row, entry.node);
+  if (entry.danger) row.classList.add("danger");
+  const mark = document.createElement("span");
+  mark.className = "mark";
+  const text = document.createElement("span");
+  text.className = "label";
+  text.textContent = entry.text;
+  row.append(mark, text);
+  if (entry.title !== undefined) row.title = entry.title;
+  if (entry.node.key === "Menu.rankMenu.lblCustomMove") row.append(rankCustomField());
+  const itemField = entry.node.id ? itemFields.get(entry.node.id) : undefined;
+  if (itemField) row.append(itemField());
+  if (entry.t === "submenu") row.classList.add("sub");
+  else if (entry.t !== "item") {
+    mark.textContent = entry.checked ? "✓" : (entry.engine?.mark ?? "");
+    row.classList.add("checkable");
+    row.setAttribute("role", entry.t === "check" ? "menuitemcheckbox" : "menuitemradio");
+    row.setAttribute("aria-checked", String(entry.checked));
+  }
+  if (!entry.enabled) row.classList.add("disabled");
+  if (entry.unavailable) row.classList.add("unavailable");
+  if (entry.t === "submenu") {
+    // A disabled row opens nothing, though moving onto it still closes its siblings' submenus.
+    const open = () => expand(row, list, row.classList.contains("disabled") ? [] : (entry.children ?? []));
+    subOpeners.set(row, open);
+    row.addEventListener("mouseenter", open);
+    return row;
+  }
+  const command = entry.command;
+  if (command && entry.enabled) {
+    row.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeMenus();
+      command.run();
+    });
+  }
+  const inner = command?.button;
+  if (inner) {
+    const b = document.createElement("button");
+    b.className = "mi-button";
+    b.dataset.key = `${entry.node.id ?? entry.node.key}.set`;
+    // An icon button (the "?" InfoMenuItem) is named and titled by its label.
+    if (inner.icon) {
+      b.classList.add("mi-icon-button");
+      b.append(icon(inner.icon));
+      b.title = inner.label();
+      b.setAttribute("aria-label", b.title);
+    } else b.textContent = inner.label();
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeMenus();
+      inner.run();
+    });
+    row.append(b);
+  }
+  return row;
 }
-
-/** The 双引擎模式 secondary engine menu's title element. */
-let secondaryMenu: HTMLElement | null = null;
 
 /** The built top-level menus and how each opens (`keyboard`: with its first item active). */
 const tops = new Map<TopMenu, { top: HTMLElement; open: (keyboard?: boolean) => void }>();
+
+/** The window bar holding the menus. */
+let barHost: HTMLElement | null = null;
 
 /** Whether a menu title stands on the bar: shown now and not moved into 更多菜单. */
 const onBar = (top: HTMLElement) => top.style.display !== "none" && !top.classList.contains("overflowed");
@@ -400,28 +277,76 @@ function showDropdown(top: HTMLElement, list: HTMLElement, keyboard: boolean): v
 }
 
 /** The menus 更多菜单 holds now, in bar order. */
-function overflowedMenus(): [TopMenu, HTMLElement][] {
-  return [...tops].filter(([menu, { top }]) => menu !== OVERFLOW && top.style.display !== "none" && top.classList.contains("overflowed")).map(([menu, { top }]) => [menu, top]);
+function overflowedMenus(): TopMenu[] {
+  return [...tops].filter(([menu, { top }]) => menu !== OVERFLOW && top.style.display !== "none" && top.classList.contains("overflowed")).map(([menu]) => menu);
 }
 
-/** 更多菜单's dropdown: a submenu row per menu it holds, named as that menu's title (an engine
- *  menu's is its engine); a disabled menu's row is disabled. */
-function overflowDropdown(): HTMLElement {
-  const held = overflowedMenus();
-  const list = dropdown(held.map(([menu]): MenuNode => ({ t: "submenu", key: menu.key, items: menu.items })));
+/** A dropdown of whole menus, a submenu row each, named as the menu's title (an engine menu's is
+ *  its engine); a disabled menu's row is disabled. 更多菜单's, and macOS's menu panel. */
+function menusDropdown(menus: TopMenu[]): HTMLElement {
+  const list = dropdown(menus.map((menu): MenuNode => ({ t: "submenu", key: menu.key, items: menu.items })));
   [...list.children].forEach((row, k) => {
-    const name = held[k][1].getAttribute("aria-label") ?? "";
+    const name = topTitle(menus[k]);
     const text = row.querySelector(".label");
     if (text) text.textContent = name;
     row.setAttribute("aria-label", name);
-    if (enabledTop(held[k][1])) return;
+    if (topEnabled(menus[k])) return;
     row.classList.add("disabled");
     row.setAttribute("aria-disabled", "true");
   });
   return list;
 }
 
+/** macOS: the menus are the system menu bar's (nativeMenu.ts), which a page cannot open. F10 and
+ *  function search open them here instead: a panel under the window bar's mark with a row per menu,
+ *  each opening like that menu (DESIGN.md 窗口栏). Returns the panel's list. */
+function openMenuPanel(host: HTMLElement, keyboard: boolean): HTMLElement {
+  const box = host.getBoundingClientRect();
+  const mark = host.querySelector(".app-mark")?.getBoundingClientRect();
+  const list = menusDropdown(JAVA_MENUS.filter(topShown));
+  showPopup({ left: mark?.left ?? box.left, top: box.top, bottom: box.bottom }, list, false, keyboard);
+  return list;
+}
+
+/** The menus of the window bar `host`: on Windows and Linux the menu bar; on macOS, whose menus are
+ *  the system menu bar's, the menu panel. Either way the keys and presses of the open menu or
+ *  toolbar popup. */
 export function buildMenubar(host: HTMLElement): void {
+  barHost = host;
+  if (os !== "mac") buildStrip(host);
+  // In the capture phase: a press on the window bar's free space starts moving the window before
+  // it reaches the document's other listeners, and must still close an open menu.
+  document.addEventListener("mousedown", (e) => {
+    if (openMenu && !openMenu.contains(e.target as Node)) closeMenus();
+  }, true);
+  // Swing's menu keys: F10 opens the first enabled menu on the bar with its first item active (on
+  // macOS the menu panel), or closes the open one; in an open menu or toolbar popup the keys of
+  // menuKey work, Left / Right on a menu's outer level going to the neighbouring enabled menu. Not
+  // over a modal dialog (the bar is inert then), 自由涂鸦 or the board's right-click menu.
+  document.addEventListener("keydown", (e) => {
+    const f10 = e.key === "F10" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;
+    const menu = openMenu;
+    if (menu) {
+      const root = menu.querySelector<HTMLElement>(":scope > .dropdown");
+      if (f10) closeMenus();
+      else if (!root || !menuKey(e, root, closeMenus, menu.classList.contains("popup-anchor") ? undefined : stepTop)) return;
+    } else {
+      if (!f10 || host.closest("[inert]") || paintingOpen() || contextMenuOpen()) return;
+      if (os === "mac") openMenuPanel(host, true);
+      else {
+        const first = [...tops.values()].find(({ top }) => onBar(top) && enabledTop(top));
+        if (!first) return;
+        first.open(true);
+      }
+    }
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
+}
+
+/** Windows and Linux: the menu bar, a title per menu after the mark, and 更多菜单 for the menus a
+ *  narrow window has no room for. */
+function buildStrip(host: HTMLElement): void {
   const measure = document.createElement("canvas").getContext("2d")!;
   // A menu title's width: its own text in its rendered font plus EmptyBorder(5, 10, 5, 10)
   // (WindowMenuStrip.java:295).
@@ -441,9 +366,7 @@ export function buildMenubar(host: HTMLElement): void {
     // 显示跑谱贡献菜单 and 快速启动 显示快速启动; they are built and shown or hidden as the view
     // changes (setVisible).
     const toggled = menu.when === "doubleEngine" || menu.when === "contribute" || menu.when === "quickLinks";
-    if (!toggled && !visible(menu.when)) continue;
-    // AI 陪练 and AI 解说 are buttons in the toolbar's lower row (toolbar.ts), not menus.
-    if (menu.key === "Menu.aiCoach" || menu.key === "Menu.aiCommentary") continue;
+    if (!toggled && !topShown(menu)) continue;
     const top = document.createElement("span");
     top.className = "m";
     top.textContent = t(menu.key);
@@ -457,36 +380,29 @@ export function buildMenubar(host: HTMLElement): void {
     fitTitle(top);
     if (menu.when === "contribute" || menu.when === "quickLinks") {
       const update = () => {
-        const shown = visible(menu.when);
+        const shown = topShown(menu);
         top.style.display = shown ? "" : "none";
         if (!shown && openMenu === top) closeMenus();
       };
       subscribe(update); update();
     }
     if (menu.key === "Menu.noEngine") {
-      // The engine menus' titles (Menu.java:10419, EngineManager.reStartEngine2): "[n]: name" of the
-      // foreground engine, or of the secondary engine on 双引擎模式's menu, else Menu.noEngine.
       const secondary = menu.when === "doubleEngine";
-      if (secondary) secondaryMenu = top;
       let matchShown = false;
       const update = () => {
         if (secondary) {
-          const shown = visible(menu.when);
+          const shown = topShown(menu);
           top.style.display = shown ? "" : "none";
           if (!shown && openMenu === top) closeMenus();
         }
-        const engine = secondary ? state.view?.engine.secondary : state.view?.engine.foreground;
-        // SwingEngineGameChrome: 对战中 and disabled while a batch runs (the menu strip shows no
-        // menu icons, so Playing2 / ready2 are not visible there; java-ref-ui j08a, j09a). Open when
-        // the batch starts, on the bar or inside 更多菜单, it closes.
-        const match = secondary ? null : state.view?.engine_match;
-        top.classList.toggle("match-off", !!match);
-        top.setAttribute("aria-disabled", String(!!match));
+        // Disabled while an 引擎对战 batch runs; open when the batch starts, on the bar or inside
+        // 更多菜单, it closes.
+        const match = !topEnabled(menu);
+        top.classList.toggle("match-off", match);
+        top.setAttribute("aria-disabled", String(match));
         if (match && !matchShown && (openMenu === top || (openMenu?.dataset.key === OVERFLOW.key && top.classList.contains("overflowed")))) closeMenus();
-        matchShown = !!match;
-        // 跑谱贡献中 while the contribution runs (ContributeEngine.java:175, 716).
-        const contributing = !secondary && !!state.view?.contribution?.active;
-        const text = match ? t("EngineManager.engineGamePlaying") : contributing ? t("Contribute.engineMenu.contributing") : engine ? `[${engine.index + 1}]: ${engine.name}` : t("Menu.noEngine");
+        matchShown = match;
+        const text = topTitle(menu);
         if (top.firstChild?.textContent === text) return;
         top.setAttribute("aria-label", text);
         if (top.firstChild?.nodeType === Node.TEXT_NODE) top.firstChild.textContent = text;
@@ -517,7 +433,7 @@ export function buildMenubar(host: HTMLElement): void {
   strip.append(more);
   const openMore = (keyboard = false) => {
     replaceMenu();
-    showDropdown(more, overflowDropdown(), keyboard);
+    showDropdown(more, menusDropdown(overflowedMenus()), keyboard);
   };
   tops.set(OVERFLOW, { top: more, open: openMore });
   pressable(more, openMore);
@@ -560,31 +476,6 @@ export function buildMenubar(host: HTMLElement): void {
     fit();
   });
   fit();
-  // In the capture phase: a press on the window bar's free space starts moving the window before
-  // it reaches the document's other listeners, and must still close an open menu.
-  document.addEventListener("mousedown", (e) => {
-    if (openMenu && !openMenu.contains(e.target as Node)) closeMenus();
-  }, true);
-  // Swing's menu keys: F10 opens the first enabled menu on the bar with its first item active, or
-  // closes the open one; in an open menu or toolbar popup the keys of menuKey work, Left / Right on
-  // a menu's outer level going to the neighbouring enabled menu. Not over a modal dialog (the bar
-  // is inert then), 自由涂鸦 or the board's right-click menu.
-  document.addEventListener("keydown", (e) => {
-    const f10 = e.key === "F10" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;
-    const menu = openMenu;
-    if (menu) {
-      const root = menu.querySelector<HTMLElement>(":scope > .dropdown");
-      if (f10) closeMenus();
-      else if (!root || !menuKey(e, root, closeMenus, menu.classList.contains("popup-anchor") ? undefined : stepTop)) return;
-    } else {
-      if (!f10 || host.closest("[inert]") || paintingOpen() || contextMenuOpen()) return;
-      const first = [...tops.values()].find(({ top }) => onBar(top) && enabledTop(top));
-      if (!first) return;
-      first.open(true);
-    }
-    e.preventDefault();
-    e.stopPropagation();
-  }, true);
 }
 
 /** Whether a menu is open (workbench shortcuts are inactive then, like a Swing popup). */
@@ -592,77 +483,24 @@ export function menuOpen(): boolean {
   return openMenu !== null;
 }
 
-/** The secondary engine menu's title while it shows (acceptance probe), else null. */
-export function secondaryMenuTitle(): string | null {
-  return secondaryMenu && secondaryMenu.style.display !== "none" ? secondaryMenu.firstChild?.textContent ?? null : null;
-}
-
-/** Menu.functionPath: the first item with this Java action id, depth first in menu order, with the
- *  submenus leading to it. */
-function functionPath(id: string): { menu: TopMenu; nodes: MenuNode[] } | null {
-  const find = (items: MenuNode[]): MenuNode[] | null => {
-    for (const node of items) {
-      if (node.t === "sep") continue;
-      if (node.id === id) return [node];
-      const below = node.items && find(node.items);
-      if (below) return [node, ...below];
-    }
-    return null;
-  };
-  for (const menu of JAVA_MENUS) {
-    const nodes = find(menu.items);
-    if (nodes) return { menu, nodes };
-  }
-  return null;
-}
-
-/** Whether a submenu leads to anything this client implements. */
-function implemented(items: MenuNode[]): boolean {
-  return items.some((node) => node.t !== "sep" && (node.t === "dynamic" || (node.t === "submenu" ? implemented(node.items ?? []) : (COMMANDS[node.id ?? ""] ?? COMMANDS[node.key]) !== undefined)));
-}
-
-/** A Java menu destination: null when no menu has the id, "missing" when its item is not
- *  available in this client, "hidden" when it is not shown now, "disabled" when its menu on the
- *  bar is disabled (the engine menu while an engine game runs), else "ok". Read-only. */
-export function menuItemState(id: string): "ok" | "hidden" | "missing" | "disabled" | null {
-  const path = functionPath(id);
-  if (!path) return null;
-  const leaf = path.nodes[path.nodes.length - 1];
-  if (leaf.t === "sep") return null;
-  if (leaf.t === "dynamic" && leaf.key !== "engine.list" && leaf.key !== "Menu.openRecent" && leaf.key !== "quickLinks.programs") return "missing";
-  if (leaf.t === "submenu" && !implemented(leaf.items ?? [])) return "missing";
-  const entry = leaf.t === "item" || leaf.t === "check" || leaf.t === "radio" ? (COMMANDS[leaf.id ?? ""] ?? COMMANDS[leaf.key]) : null;
-  if (entry === undefined) return "missing";
-  const top = tops.get(path.menu)?.top;
-  const shown = top !== undefined && visible(path.menu.when) && path.nodes.every((node) => node.t === "sep" || visible(node.when));
-  if (!shown || (entry?.visible && !entry.visible())) return "hidden";
-  if (leaf.t === "dynamic" && leaf.key === "engine.list" && (state.view?.engine.engines.length ?? 0) === 0) return "hidden";
-  // Its menu takes no press now, so search may not open it either.
-  if (top && !enabledTop(top)) return "disabled";
-  return "ok";
-}
-
-/** What clicking the menu item runs (JMenuItem.doClick, the row's click): null for a submenu, a
- *  dynamic entry or an item this client lacks. */
-export function menuItemCommand(id: string): CommandEntry | null {
-  const nodes = functionPath(id)?.nodes;
-  const leaf = nodes?.[nodes.length - 1];
-  if (!leaf || (leaf.t !== "item" && leaf.t !== "check" && leaf.t !== "radio")) return null;
-  return COMMANDS[leaf.id ?? ""] ?? COMMANDS[leaf.key] ?? null;
-}
-
 /** Menu.locateFunction: opens the real menu path and selects the item (focus and the gold line)
  *  without invoking it or changing its setting. Enter then acts on it like the selected Swing item. */
 export function locateMenuItem(id: string): boolean {
   const path = functionPath(id);
-  const opener = path && tops.get(path.menu);
-  if (!path || !opener || menuItemState(id) !== "ok") return false;
+  if (!path || menuItemState(id) !== "ok") return false;
+  const opener = tops.get(path.menu);
   let list: HTMLElement | null;
-  if (opener.top.classList.contains("overflowed")) {
-    // A menu 更多菜单 holds opens as that menu's submenu there.
-    const more = tops.get(OVERFLOW);
-    more?.open();
-    const outer = more?.top.querySelector<HTMLElement>(":scope > .dropdown") ?? null;
+  if (os === "mac" || opener?.top.classList.contains("overflowed")) {
+    // A menu 更多菜单 holds opens as that menu's submenu there; on macOS the menu panel holds them
+    // all.
+    let outer: HTMLElement | null = null;
+    if (os === "mac") {
+      if (barHost) outer = openMenuPanel(barHost, false);
+    } else {
+      const more = tops.get(OVERFLOW);
+      more?.open();
+      outer = more?.top.querySelector<HTMLElement>(":scope > .dropdown") ?? null;
+    }
     const held = outer && [...outer.children].find((child): child is HTMLElement => {
       const node = rowNodes.get(child);
       return node !== undefined && node.t !== "sep" && node.items === path.menu.items;
@@ -671,10 +509,10 @@ export function locateMenuItem(id: string): boolean {
     setActiveRow(outer, held, false);
     reveal(outer, held);
     list = expand(held, outer, path.menu.items);
-  } else {
+  } else if (opener) {
     opener.open();
     list = opener.top.querySelector<HTMLElement>(":scope > .dropdown");
-  }
+  } else return false;
   let row: HTMLElement | undefined;
   for (const [depth, node] of path.nodes.entries()) {
     if (!list) return false;

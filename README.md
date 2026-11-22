@@ -54,6 +54,18 @@ importing the matching LizzieYzy Next settings.
   down to the smallest window (520 × 400). In a window too narrow for every menu, the last ones
   move into 更多菜单 (`…`) at the end of the menus, each as a submenu with its usual name, and the
   window buttons stay on the bar; `Left`/`Right` reach 更多菜单 like any menu.
+- On macOS the menus are in the system menu bar at the top of the screen, a change from Java,
+  which keeps them inside the window. They have the same items in the same order, with check
+  marks and enabled states kept current, after the application menu (关于, 服务, 隐藏,
+  隐藏其他, 全部显示, 退出 `⌘Q`; 退出 saves and ends like the window's close button). 编辑 ends
+  with the system's text editing items (撤销, 重做, 剪切, 拷贝, 粘贴, 全选), which text fields use.
+  The window bar keeps the mark and the title. A system menu has no red items, tooltips or
+  controls inside an item: 落子评价标记's 显示最后多手 asks for its count in a dialog, as on
+  Windows; 自定义布局 1 and 2's 设置 and 人机对局(分析模式)'s `?` are items of their own after
+  their item; an engine's state (● ready, ◐ loading, ○ otherwise) follows its name. Items show
+  no key hints and the keys work as everywhere else. While a dialog is open the items do nothing.
+  `F10` opens the menus as a panel under the window bar's mark, with the keys above, and function
+  search shows a menu item there. There is no Window menu.
 - The top and bottom toolbars are each one `Tab` stop: `Left`/`Right` and `Home`/`End` move along
   the bar, `Enter` or `Space` presses the focused button (a disabled one, such as 暂停 outside a
   game, does nothing), and the other keys still reach the shortcuts. The bottom bar's step
