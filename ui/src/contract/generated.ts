@@ -3064,15 +3064,24 @@ export type BoardStyle = "Japanese" | "ChineseClassic";
 
 export type AppearanceMode = "System" | "Light" | "Dark";
 
-export type ThemeSettings = { usePureBoard: boolean, usePureBackground: boolean, usePureStone: boolean, pureBoardColor: Array<number>, pureBackgroundColor: Array<number>, showStoneShadow: boolean, shadowSize: number, stoneIndicatorType: number, winrateStrokeWidth: number, scoreLeadStrokeWidth: number, minimumBlunderBarWidth: number, commentFontSize: number, backgroundFilter: number, winrateLineColor: Array<number>, winrateMissLineColor: Array<number>, scoremeanLineColor: Array<number>, blunderBarColor: Array<number>, bestMoveColor: Array<number>, commentBackgroundColor: Array<number>, commentFontColor: Array<number>, commentNodeColor: Array<number>, showCommentNodeColor: boolean, useScorediffInVariationTree: boolean, scorediffInVariationTreeFactor: number, fontName: string, uiFontName: string, winrateFontName: string, boardImage: string, backgroundImage: string, blackStoneImage: string, whiteStoneImage: string, blunderWinrateThresholds: Array<number>, blunderNodeColors: Array<Array<number>>, glassPanelOverlayColor: Array<number>, glassPanelBorderColor: Array<number>, glassPanelHighlightColor: Array<number>, glassPanelShadowColor: Array<number>, glassAccentColor: Array<number>, glassBlurRadius: number, liquidBlurRadius: number, glassCornerRadius: number, };
+export type ThemeSettings = { usePureBoard: boolean, usePureBackground: boolean, usePureStone: boolean, pureBoardColor: Array<number>, pureBackgroundColor: Array<number>, showStoneShadow: boolean, shadowSize: number, stoneIndicatorType: number, winrateStrokeWidth: number, scoreLeadStrokeWidth: number, minimumBlunderBarWidth: number, commentFontSize: number, backgroundFilter: number, winrateLineColor: Array<number>, winrateMissLineColor: Array<number>, scoremeanLineColor: Array<number>, blunderBarColor: Array<number>, bestMoveColor: Array<number>, commentBackgroundColor: Array<number>, commentFontColor: Array<number>, commentNodeColor: Array<number>, showCommentNodeColor: boolean, useScorediffInVariationTree: boolean, scorediffInVariationTreeFactor: number, fontName: string, uiFontName: string, winrateFontName: string, boardImage: string, backgroundImage: string, blackStoneImage: string, whiteStoneImage: string, blunderWinrateThresholds: Array<number>, blunderNodeColors: Array<Array<number>>, glassPanelOverlayColor: Array<number>, glassPanelBorderColor: Array<number>, glassPanelHighlightColor: Array<number>, glassPanelShadowColor: Array<number>, glassAccentColor: Array<number>, glassBlurRadius: number, liquidBlurRadius: number, glassCornerRadius: number, 
+/**
+ * 界面颜色, this product's own (no Java key): the bars', the controls', the accent and the
+ * interface text's colour, `[r, g, b]`; empty leaves the skin's own colour.
+ */
+uiChromeColor: Array<number>, uiControlColor: Array<number>, uiAccentColor: Array<number>, uiTextColor: Array<number>, };
 
 export type ThemeNodeColor = { node: number, color: Array<number>, };
 
 export type ThemeEntry = { name: string, values: ThemeSettings, };
 
-export type AppearanceCatalog = { themes: Array<ThemeEntry>, fonts: Array<string>, };
+export type AppearanceCatalog = { themes: Array<ThemeEntry>, fonts: Array<string>, boards: Array<ShippedBoard>, stones: Array<ShippedStones>, };
 
 export type ThemeImages = { board: string, background: string, black: string, white: string, customBoard: boolean, customBackground: boolean, };
+
+export type ShippedBoard = { theme: string, addresses: Array<string>, };
+
+export type ShippedStones = { theme: string, pairs: Array<[string, string]>, };
 
 export type CustomLayout = { panels: PanelSettings, board_position_proportion: number, window: WindowPlacement | null, independent_main: WindowPlacement | null, independent_sub: WindowPlacement | null, };
 

@@ -1,9 +1,10 @@
-// The document state the design tokens select on: operating system, colour mode, skin and type
-// sizes. Importing this module sets data-os, data-theme, data-skin and the default type sizes
-// before the first paint. The workbench window sets the mode and the skin from the appearance
-// setting; the program's other windows follow them through the storage they share, at once and
-// when they open later.
+// The document state the design tokens select on: operating system, colour mode, skin, the
+// theme's 界面颜色 and type sizes. Importing this module sets data-os, data-theme, data-skin, the
+// interface colours and the default type sizes before the first paint. The workbench window sets
+// the mode, the skin and the colours from the appearance setting; the program's other windows
+// follow them through the storage they share, at once and when they open later.
 import { invoke } from "@tauri-apps/api/core";
+import { paletteTokens, SKIN_COLORS, skinColorsOf, type InterfaceColors, type SkinColors } from "./palette";
 
 /** 外观模式: follow the system, or always light or dark; light by default. */
 export type ThemeMode = "System" | "Light" | "Dark";
@@ -14,15 +15,19 @@ export type Os = "windows" | "mac" | "linux";
  *  theme). The same components either way; only colours and the workbench wallpaper differ. */
 export type Skin = "modern" | "java";
 
-/** Where the workbench window leaves the mode and the skin for the other windows and for the next
- *  start. */
+/** Where the workbench window leaves the mode, the skin and the interface colours for the other
+ *  windows and for the next start. */
 const STORE = "lizzieyzy.themeMode";
 const SKIN_STORE = "lizzieyzy.skin";
+const COLORS_STORE = "lizzieyzy.interfaceColors";
 
 const systemDark = window.matchMedia("(prefers-color-scheme: dark)");
 const listeners: (() => void)[] = [];
 let mode = storedMode();
 let currentSkin = storedSkin();
+let colors = storedColors();
+/** The root style properties the interface colours set last. */
+let colored: string[] = [];
 
 function storedMode(): ThemeMode {
   const stored = localStorage.getItem(STORE);
@@ -31,6 +36,22 @@ function storedMode(): ThemeMode {
 
 function storedSkin(): Skin {
   return localStorage.getItem(SKIN_STORE) === "java" ? "java" : "modern";
+}
+
+function storedColors(): InterfaceColors {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(localStorage.getItem(COLORS_STORE) ?? "null");
+  } catch {
+    return SKIN_COLORS;
+  }
+  if (typeof parsed !== "object" || parsed === null) return SKIN_COLORS;
+  const stored: object = parsed;
+  const color = (key: string): number[] => {
+    const value: unknown = Reflect.get(stored, key);
+    return Array.isArray(value) && value.length === 3 && value.every((v) => Number.isInteger(v) && v >= 0 && v <= 255) ? value : [];
+  };
+  return { chrome: color("chrome"), control: color("control"), accent: color("accent"), text: color("text") };
 }
 
 export const os: Os = navigator.userAgent.includes("Windows") ? "windows" : navigator.userAgent.includes("Mac OS") ? "mac" : "linux";
@@ -75,13 +96,47 @@ export function applyTypeSizes(frame: number): void {
   root.setProperty("--ds-size-xl", `${sizes.xl}px`);
 }
 
+/** Hidden elements that take one skin's token values, whatever is set on the root. */
+const probes: Partial<Record<Skin, HTMLElement>> = {};
+
+/** The skin's own colours (Java 经典's or the program's, the latter in the current colour mode),
+ *  without any interface colour a theme set. */
+export function skinColors(which: Skin): SkinColors {
+  let probe = probes[which];
+  if (!probe?.isConnected) {
+    probe = document.createElement("div");
+    probe.hidden = true;
+    document.documentElement.append(probe);
+    probes[which] = probe;
+  }
+  if (which === "java") probe.dataset.skin = "java";
+  else probe.dataset.theme = resolvedTheme();
+  return skinColorsOf(getComputedStyle(probe));
+}
+
+/** Sets on the root the tokens the theme's interface colours change for the current skin. */
+function applyColors(): void {
+  const root = document.documentElement.style;
+  for (const name of colored) root.removeProperty(name);
+  colored = [];
+  if (![colors.chrome, colors.control, colors.accent, colors.text].some((c) => c.length > 0)) return;
+  const tokens = paletteTokens(colors, skinColors(currentSkin));
+  colored = Object.keys(tokens);
+  for (const name of colored) root.setProperty(name, tokens[name]);
+}
+
+function changed(): void {
+  for (const listener of listeners) listener();
+}
+
 function apply(): void {
   const next = resolvedTheme();
   const root = document.documentElement;
   if (root.dataset.theme === next && root.dataset.skin === currentSkin) return;
   root.dataset.theme = next;
   root.dataset.skin = currentSkin;
-  for (const listener of listeners) listener();
+  applyColors();
+  changed();
 }
 
 export function setThemeMode(next: ThemeMode): void {
@@ -100,7 +155,18 @@ export function setSkin(next: Skin): void {
   apply();
 }
 
-/** Called after data-theme or data-skin changed; canvas painters re-read their token colours here. */
+/** The theme's 界面颜色 (design/palette.ts); an empty colour is the skin's own. */
+export function setInterfaceColors(next: InterfaceColors): void {
+  const stored = JSON.stringify(next);
+  if (stored === JSON.stringify(colors)) return;
+  colors = next;
+  if (localStorage.getItem(COLORS_STORE) !== stored) localStorage.setItem(COLORS_STORE, stored);
+  applyColors();
+  changed();
+}
+
+/** Called after data-theme, data-skin or the interface colours changed; canvas painters re-read
+ *  their token colours here. */
 export function onThemeChange(listener: () => void): void {
   listeners.push(listener);
 }
@@ -114,11 +180,16 @@ document.documentElement.dataset.os = os;
 // The default 界面字体大小 until a window learns the session's.
 applyTypeSizes(12);
 systemDark.addEventListener("change", apply);
-// Another window of the program changed the mode or the skin.
+// Another window of the program changed the mode, the skin or the interface colours.
 window.addEventListener("storage", (e) => {
   if (e.key === STORE) mode = storedMode();
   else if (e.key === SKIN_STORE) currentSkin = storedSkin();
-  else return;
+  else if (e.key === COLORS_STORE) {
+    colors = storedColors();
+    applyColors();
+    changed();
+    return;
+  } else return;
   apply();
 });
 apply();

@@ -58,6 +58,9 @@ pub struct ThemeSettings {
     pub glass_panel_overlay_color: Vec<u8>, pub glass_panel_border_color: Vec<u8>,
     pub glass_panel_highlight_color: Vec<u8>, pub glass_panel_shadow_color: Vec<u8>, pub glass_accent_color: Vec<u8>,
     pub glass_blur_radius: i32, pub liquid_blur_radius: i32, pub glass_corner_radius: i32,
+    /// 界面颜色, this product's own (no Java key): the bars', the controls', the accent and the
+    /// interface text's colour, `[r, g, b]`; empty leaves the skin's own colour.
+    pub ui_chrome_color: Vec<u8>, pub ui_control_color: Vec<u8>, pub ui_accent_color: Vec<u8>, pub ui_text_color: Vec<u8>,
 }
 impl Default for ThemeSettings {
     fn default() -> Self {
@@ -78,7 +81,8 @@ impl Default for ThemeSettings {
             glass_panel_overlay_color:vec![24,24,26,102], glass_panel_border_color:vec![255,255,255,26],
             glass_panel_highlight_color:vec![255,255,255,77], glass_panel_shadow_color:vec![0,0,0,64], glass_accent_color:vec![96,165,250],
             glass_blur_radius:10, liquid_blur_radius:15, glass_corner_radius:12,
-            blunder_node_colors: vec![vec![155,25,150],vec![208,16,19],vec![200,140,50],vec![180,180,0],vec![140,202,34],vec![0,220,0],vec![0,210,210]] }
+            blunder_node_colors: vec![vec![155,25,150],vec![208,16,19],vec![200,140,50],vec![180,180,0],vec![140,202,34],vec![0,220,0],vec![0,210,210]],
+            ui_chrome_color: Vec::new(), ui_control_color: Vec::new(), ui_accent_color: Vec::new(), ui_text_color: Vec::new() }
     }
 }
 impl ThemeSettings {
@@ -88,6 +92,7 @@ impl ThemeSettings {
             &self.comment_font_color,&self.comment_node_color,&self.glass_panel_overlay_color,&self.glass_panel_border_color,
             &self.glass_panel_highlight_color,&self.glass_panel_shadow_color,&self.glass_accent_color];
         colors.iter().all(|c| matches!(c.len(),3|4)) && self.blunder_node_colors.iter().all(|c| matches!(c.len(),3|4))
+            && [&self.ui_chrome_color,&self.ui_control_color,&self.ui_accent_color,&self.ui_text_color].iter().all(|c| matches!(c.len(),0|3))
             && !self.blunder_winrate_thresholds.is_empty() && self.blunder_winrate_thresholds.len() == self.blunder_node_colors.len()
             && self.blunder_winrate_thresholds.iter().all(|v| v.is_finite())
             && self.blunder_winrate_thresholds.windows(2).all(|v| v[0] < v[1])
@@ -172,7 +177,7 @@ pub fn merge_java(base: &ThemeSettings, raw: &Map<String,Value>) -> ThemeSetting
     next
 }
 /// The `theme.txt` keys the 主题外观 page edits: those ConfigDialog2 puts into a named theme
-/// (ConfigDialog2.java:6204-6285).
+/// (ConfigDialog2.java:6204-6285), and this product's 界面颜色.
 const PAGE_KEYS: &[&str] = &[
     "use-pure-stone", "use-pure-board", "pure-board-color", "use-pure-background", "pure-background-color",
     "show-stone-shadow", "winrate-stroke-width", "score-lead-stroke-width", "minimum-blunder-bar-width", "shadow-size",
@@ -181,23 +186,29 @@ const PAGE_KEYS: &[&str] = &[
     "winrate-line-color", "winrate-miss-line-color", "blunder-bar-color", "scoremean-line-color",
     "stone-indicator-type", "show-comment-node-color", "comment-node-color", "comment-background-color", "comment-font-color",
     "best-move-color", "comment-font-size", "background-filter", "blunder-winrate-thresholds", "blunder-node-colors",
+    "ui-chrome-color", "ui-control-color", "ui-accent-color", "ui-text-color",
 ];
 /// The `theme.txt` a save of the named theme `name` writes. Like Theme.save (Theme.java:617-643)
 /// it rewrites the object read from the file, `stored` (the user's file, or the bundled one when
 /// there is none; an empty object for a theme with neither, as `new Theme(name)` reads), with the
 /// page's values put in ([`PAGE_KEYS`]): every other key stays as it was, and a key whose value is
-/// a blank string (String.trim) is left out.
+/// a blank string (String.trim) is left out, as is an unset 界面颜色.
 pub fn to_java(name: &str, stored: Option<&[u8]>, theme: &ThemeSettings) -> Value {
     let mut raw = stored.and_then(|bytes| serde_json::from_slice::<Map<String,Value>>(bytes).ok())
         .or_else(|| BUNDLED.iter().find(|(n,_)| *n == name).and_then(|(_,raw)| serde_json::from_str(raw).ok()))
         .unwrap_or_default();
     let Value::Object(fields) = serde_json::to_value(theme).expect("theme serializes") else { unreachable!() };
-    raw.extend(fields.into_iter().map(|(k,v)|(java_key(&k),v)).filter(|(k,_)| PAGE_KEYS.contains(&k.as_str())));
+    for (key,value) in fields.into_iter().map(|(k,v)|(java_key(&k),v)).filter(|(k,_)| PAGE_KEYS.contains(&k.as_str())) {
+        if value.as_array().is_some_and(Vec::is_empty) { raw.remove(&key); } else { raw.insert(key,value); }
+    }
     raw.retain(|_,v| !v.as_str().is_some_and(|s| s.trim_matches(|c: char| c <= ' ').is_empty()));
     Value::Object(raw)
 }
 pub fn load_theme(storage: &Storage, name: &str, defaults: &ThemeSettings) -> ThemeSettings {
     if name == "default" || !valid_name(name) { return defaults.clone(); }
+    // A key the theme lacks takes the 默认 theme's value (Theme.java:473-478), but the 界面颜色
+    // are each theme's own: a theme without them shows its skin's colours.
+    let defaults = &ThemeSettings { ui_chrome_color: Vec::new(), ui_control_color: Vec::new(), ui_accent_color: Vec::new(), ui_text_color: Vec::new(), ..defaults.clone() };
     let hidden: Vec<String> = settings::load_json(&storage.config_file.with_file_name("hidden-themes.json"));
     if hidden.iter().any(|hidden| hidden == name) && theme_file(storage,name).is_ok_and(|path|!path.is_file()) { return defaults.clone(); }
     let bundled = BUNDLED.iter().find(|(n,_)| *n == name).and_then(|(_,raw)|serde_json::from_str::<Value>(raw).ok());
@@ -211,9 +222,53 @@ pub fn load_theme(storage: &Storage, name: &str, defaults: &ThemeSettings) -> Th
 /// "default" is Java's LizzieConfig.title.defaultTheme item.
 #[derive(Serialize, TS)]
 pub struct ThemeEntry { pub name: String, pub values: ThemeSettings }
-/// `appearance_catalog`: the themes and the system font families (GraphicsEnvironment).
+/// `appearance_catalog`: the themes, the system font families (GraphicsEnvironment) and the
+/// boards and stones the program ships ([`shipped_boards`], [`shipped_stones`]).
 #[derive(Serialize, TS)]
-pub struct AppearanceCatalog { pub themes: Vec<ThemeEntry>, pub fonts: Vec<String> }
+pub struct AppearanceCatalog { pub themes: Vec<ThemeEntry>, pub fonts: Vec<String>, pub boards: Vec<ShippedBoard>, pub stones: Vec<ShippedStones> }
+/// A board the program ships, under the name of the theme it comes with ("default" for the
+/// program's own) and every address a theme can name it by ([`shipped_image`]); bundled themes
+/// that ship the same picture share one entry.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct ShippedBoard { pub theme: String, pub addresses: Vec<String> }
+/// A pair of stones the program ships: black and white addresses, one pair per bundled theme
+/// that ships the same two pictures.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct ShippedStones { pub theme: String, pub pairs: Vec<(String, String)> }
+/// The images each bundled theme's `keys` name, as `/themes/<theme>/<file>` addresses; themes
+/// whose images are the same pictures form one group, under the first such theme, in BUNDLED
+/// order.
+fn shipped<const N: usize>(keys: [&str; N]) -> Vec<(&'static str, Vec<[String; N]>)> {
+    let mut groups: Vec<(&'static str, [&'static str; N], Vec<[String; N]>)> = Vec::new();
+    for (name,raw) in BUNDLED {
+        let Ok(Value::Object(raw)) = serde_json::from_str::<Value>(raw) else { continue };
+        let found = keys.map(|key| raw.get(key).and_then(Value::as_str)
+            .and_then(|file| BUNDLED_IMAGES.iter().find(|(t,f,_)| t == name && *f == file)));
+        if found.iter().any(Option::is_none) { continue; }
+        let found = found.map(|image| image.expect("checked above"));
+        let hashes = found.map(|(_,_,hash)| *hash);
+        let addresses = found.map(|(_,file,_)| format!("/themes/{name}/{file}"));
+        match groups.iter_mut().find(|(_,h,_)| *h == hashes) {
+            Some((_,_,same)) => same.push(addresses),
+            None => groups.push((name, hashes, vec![addresses])),
+        }
+    }
+    groups.into_iter().map(|(name,_,addresses)| (name, addresses)).collect()
+}
+/// The boards the program ships: its own default board, then the bundled themes'.
+pub fn shipped_boards() -> Vec<ShippedBoard> {
+    std::iter::once(ShippedBoard { theme: "default".into(), addresses: vec!["/assets/board.png".into()] })
+        .chain(shipped(["board-image"]).into_iter().map(|(theme,addresses)|
+            ShippedBoard { theme: theme.into(), addresses: addresses.into_iter().map(|[board]| board).collect() }))
+        .collect()
+}
+/// The stones the program ships: its own default pair, then the bundled themes'.
+pub fn shipped_stones() -> Vec<ShippedStones> {
+    std::iter::once(ShippedStones { theme: "default".into(), pairs: vec![("/assets/black0.png".into(),"/assets/white0.png".into())] })
+        .chain(shipped(["black-stone-image","white-stone-image"]).into_iter().map(|(theme,pairs)|
+            ShippedStones { theme: theme.into(), pairs: pairs.into_iter().map(|[black,white]| (black,white)).collect() }))
+        .collect()
+}
 pub fn catalog(storage: &Storage, defaults: &ThemeSettings) -> Vec<ThemeEntry> {
     let dir = themes_dir(storage);
     let hidden: Vec<String> = settings::load_json(&storage.config_file.with_file_name("hidden-themes.json"));
@@ -407,16 +462,27 @@ const BUNDLED_IMAGES: &[(&str, &str, &str)] = &[
 fn bundled_image_exists(theme:&str, image:&str) -> bool {
     BUNDLED_IMAGES.iter().any(|(t,f,_)| *t == theme && *f == image)
 }
+/// The program's own default images, which a theme can name as `/assets/<file>`.
+const DEFAULT_IMAGES: &[&str] = &["board.png","background.jpg","black0.png","white0.png"];
+/// Whether `value` is the address of an image the program ships: `/assets/<file>` for its own
+/// default images, `/themes/<theme>/<file>` for a bundled theme's. Any theme may name one (the
+/// 主题外观 page's 棋盘 and 棋子 choices); the webview loads it as it is.
+pub fn shipped_image(value:&str) -> bool {
+    if let Some(file) = value.strip_prefix("/assets/") { return DEFAULT_IMAGES.contains(&file); }
+    value.strip_prefix("/themes/").and_then(|rest| rest.split_once('/')).is_some_and(|(theme,file)| bundled_image_exists(theme,file))
+}
 pub fn images(storage:&Storage, appearance:&AppearanceSettings, theme:&ThemeSettings) -> ThemeImages {
     let resolve = |custom:&str, value:&str, fallback:&str| {
         for (index,candidate) in [custom,value].into_iter().enumerate() {
             if candidate.is_empty() { continue; }
             let is_custom=index==0;
-            if candidate.starts_with("data:image/") { return (candidate.to_string(),is_custom); }
+            if candidate.starts_with("data:image/") || shipped_image(candidate) { return (candidate.to_string(),is_custom); }
             let path = Path::new(candidate);
             if path.is_absolute() { if let Ok(data) = image_data(path) { return (data,is_custom); } }
             else if valid_name(&appearance.theme) {
-                let root=if is_custom { themes_dir(storage) } else { themes_dir(storage).join(&appearance.theme) };
+                // The custom overrides and the 默认 theme's own paths are relative to the themes
+                // folder (Theme.java:502,523: Theme.pathPrefix), a named theme's to its folder.
+                let root=if is_custom || appearance.theme == "default" { themes_dir(storage) } else { themes_dir(storage).join(&appearance.theme) };
                 if let Ok(data) = image_data(&root.join(path)) { return (data,is_custom); }
                 if !is_custom && bundled_image_exists(&appearance.theme,candidate) {
                     return (format!("/themes/{}/{}",appearance.theme,candidate.replace('\\',"/")),false);

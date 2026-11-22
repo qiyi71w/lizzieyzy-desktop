@@ -5,7 +5,7 @@
 // value this session started with (LizzieFrame.java:20764-20767: applied after a restart).
 import type { AppearanceSettings, ThemeImages, ThemeSettings, WorkbenchView } from "../contract/generated";
 import { appearanceImages } from "../contract/client";
-import { applyTypeSizes, setSkin, setThemeMode, typeSizes, type TypeSizes } from "../design/theme";
+import { applyTypeSizes, setInterfaceColors, setSkin, setThemeMode, typeSizes, type TypeSizes } from "../design/theme";
 import { cssColor, JAVA_CLASSIC_THEME, sameRgba, THEME_DEFAULT } from "./model";
 
 export interface LoadedImages {
@@ -63,16 +63,18 @@ async function loadThemeImages(settings: AppearanceSettings, theme: ThemeSetting
   return { images: { board, background, black, white, themeBoard }, customBoard: !!board && urls.customBoard };
 }
 
-/** The colour mode and the skin (Java 经典 takes Java's colours), and what the theme chooses for the
- *  comment pane: its colours and text size (LizzieFrame.java:11292-11304, 11358-11359), the
- *  评论 / 问题手 underline, the theme's accent colour at alpha 220 (SidebarHeaderPanel.java:226-238),
- *  and the controls' corners: glass-corner-radius is the arc, at least 8, Java rounds its buttons,
- *  fields, lists and popup menus with (AppleStyleSupport.controlCornerRadius, RoundedLineBorder),
- *  a corner radius of half the arc. A value still at the theme default is left to the style
- *  sheet, which draws it for the current colour mode and skin. */
+/** The colour mode, the skin (Java 经典 takes Java's colours) and the theme's 界面颜色, and what the
+ *  theme chooses for the comment pane: its colours and text size (LizzieFrame.java:11292-11304,
+ *  11358-11359), the 评论 / 问题手 underline, the theme's accent colour at alpha 220
+ *  (SidebarHeaderPanel.java:226-238), and the controls' corners: glass-corner-radius is the arc,
+ *  at least 8, Java rounds its buttons, fields, lists and popup menus with
+ *  (AppleStyleSupport.controlCornerRadius, RoundedLineBorder), a corner radius of half the arc. A
+ *  value still at the theme default is left to the style sheet, which draws it for the current
+ *  colour mode and skin. */
 function applyStyles(settings: AppearanceSettings, theme: ThemeSettings): void {
   setThemeMode(settings.mode);
   setSkin(settings.theme === JAVA_CLASSIC_THEME ? "java" : "modern");
+  setInterfaceColors({ chrome: theme.uiChromeColor, control: theme.uiControlColor, accent: theme.uiAccentColor, text: theme.uiTextColor });
   const root = document.documentElement.style;
   const own = (name: string, value: readonly number[], themeDefault: readonly number[], css = cssColor(value)) => {
     if (sameRgba(value, themeDefault)) root.removeProperty(name);

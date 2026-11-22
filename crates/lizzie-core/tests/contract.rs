@@ -140,7 +140,7 @@ fn generate() -> String {
         lizzie_core::appearance::ThemeSettings,
         lizzie_core::appearance::ThemeNodeColor,
         lizzie_core::appearance::ThemeEntry, lizzie_core::appearance::AppearanceCatalog,
-        lizzie_core::appearance::ThemeImages,
+        lizzie_core::appearance::ThemeImages, lizzie_core::appearance::ShippedBoard, lizzie_core::appearance::ShippedStones,
         lizzie_core::settings::CustomLayout, lizzie_core::settings::IndependentBoard,
         RegionCommand, TrackingCommand, RegionView, FocusView, TrackedPointView,
         lizzie_core::engine::runtime::FocusCapability, lizzie_core::settings::RegionSettings,

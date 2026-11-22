@@ -4,10 +4,12 @@
 // writeDefaultTheme 6191-6471, saveConfig 6863-6867); 取消 discards them. 添加 / 删除 manage the
 // theme list at once like Java, without touching the committed appearance. 棋盘预览 paints the
 // draft on its own canvas (pnlBoardPreview 4980-5197). 选点评估关注外框 (3923-3943) edits the
-// 选点重点研究 settings, not the theme, and is saved on its own.
+// 选点重点研究 settings, not the theme, and is saved on its own. Beyond Java: the theme's 界面颜色,
+// and 棋盘 / 棋子 chosen from thumbnails of the pictures the program ships, for every theme
+// including 默认 (Java fixes the default theme's images, 6313-6324).
 import { run, state } from "../app";
 import { appearanceCatalog, appearanceImages, chooseAppearanceImage } from "../contract/client";
-import type { AppearanceCatalog, AppearanceSettings, ThemeSettings } from "../contract/generated";
+import type { AppearanceCatalog, AppearanceSettings, ShippedBoard, ShippedStones, ThemeSettings } from "../contract/generated";
 import { ask, confirm, message } from "../dialogs";
 import { groupTitle, row as groupRow } from "../engine/controls";
 import { SETTINGS_PAGES, type SettingsDialog } from "../engine/settings";
@@ -15,8 +17,11 @@ import { registerSettingTargets } from "../engine/settingsTargets";
 import { isChinese, product, registerProduct, t } from "../i18n";
 import { cssColor, DEFAULT_BLUNDER_COLORS, DEFAULT_BLUNDER_THRESHOLDS, DEFAULT_THEME, JAVA_CLASSIC_THEME, LIZZIE_DEFAULT_FONT, opaque, SYSTEM_DEFAULT_FONT } from "./model";
 import type { LoadedImages } from "./state";
+import { icon } from "../design/icons";
+import type { InterfaceColors } from "../design/palette";
 import { stepper } from "../design/stepper";
 import { programStage, stageReady, stageWallpaper } from "../design/stage";
+import { skinColors } from "../design/theme";
 
 /** ConfigSettingTargets THEME rows this page has (ConfigSettingTargets.java:61-86), in row order,
  *  with 设置 > 界面字体大小's row (its catalog id), which this product keeps here instead of Java's
@@ -114,13 +119,155 @@ const JAVA_CLASSIC_NAMES = {
 };
 registerProduct(JAVA_CLASSIC_NAMES);
 
+/** 界面颜色: the card, its four rows and each row's reset. */
+registerProduct({
+  ZhCn: {
+    themeUiTitle: "界面颜色",
+    themeUiSub: "条栏、按钮、强调色和文字的颜色，随主题保存。未修改的颜色沿用主题配色，工作台面板和棋盘不受影响。",
+    themeUiChrome: "条栏底色",
+    themeUiChromeSub: "标题栏、菜单栏、工具栏、底栏和各窗口顶部的按钮条",
+    themeUiControl: "按钮底色",
+    themeUiControlSub: "按钮、输入框、菜单和条栏里的按钮组；对话框底色取在条栏和按钮之间",
+    themeUiAccent: "强调色",
+    themeUiAccentSub: "主按钮、选中项、开关和焦点框",
+    themeUiText: "文字颜色",
+    themeUiTextSub: "界面文字和图标；分隔线和悬停效果也随它变化",
+    themeUiReset: "恢复默认",
+    themeUiResetFor: "{0}：恢复默认",
+  },
+  ZhTw: {
+    themeUiTitle: "介面顏色",
+    themeUiSub: "條欄、按鈕、強調色和文字的顏色，隨主題儲存。未修改的顏色沿用主題配色，工作台面板和棋盤不受影響。",
+    themeUiChrome: "條欄底色",
+    themeUiChromeSub: "標題列、選單列、工具列、底欄和各視窗頂部的按鈕列",
+    themeUiControl: "按鈕底色",
+    themeUiControlSub: "按鈕、輸入框、選單和條欄裡的按鈕組；對話框底色取在條欄和按鈕之間",
+    themeUiAccent: "強調色",
+    themeUiAccentSub: "主按鈕、選取項目、開關和焦點框",
+    themeUiText: "文字顏色",
+    themeUiTextSub: "介面文字和圖示；分隔線和懸停效果也隨它變化",
+    themeUiReset: "恢復預設",
+    themeUiResetFor: "{0}：恢復預設",
+  },
+  EnUs: {
+    themeUiTitle: "Interface colors",
+    themeUiSub: "Colors of the bars, buttons, accent and text, saved with the theme. Colors you leave unchanged keep the theme's own; the workbench panels and the board stay as they are.",
+    themeUiChrome: "Bar background",
+    themeUiChromeSub: "Title bar, menu bar, toolbar, bottom bar and the button strip at the top of each window",
+    themeUiControl: "Button background",
+    themeUiControlSub: "Buttons, fields, menus and the button groups in the bars; dialogs take a shade between the bars and the buttons",
+    themeUiAccent: "Accent",
+    themeUiAccentSub: "Main buttons, selected items, switches and the focus ring",
+    themeUiText: "Text color",
+    themeUiTextSub: "Interface text and icons; separators and hover shading follow it",
+    themeUiReset: "Reset",
+    themeUiResetFor: "{0}: reset",
+  },
+  JaJp: {
+    themeUiTitle: "画面の色",
+    themeUiSub: "バー、ボタン、強調色、文字の色です。テーマと一緒に保存されます。変更していない色はテーマの配色のままで、作業画面のパネルと碁盤は変わりません。",
+    themeUiChrome: "バーの背景色",
+    themeUiChromeSub: "タイトルバー、メニューバー、ツールバー、下部バー、各ウィンドウ上部のボタン列",
+    themeUiControl: "ボタンの背景色",
+    themeUiControlSub: "ボタン、入力欄、メニュー、バー内のボタン群。ダイアログの背景はバーとボタンの中間の色になります",
+    themeUiAccent: "強調色",
+    themeUiAccentSub: "メインボタン、選択項目、スイッチ、フォーカス枠",
+    themeUiText: "文字色",
+    themeUiTextSub: "画面の文字とアイコン。区切り線やポインターを重ねたときの色もこれに合わせて変わります",
+    themeUiReset: "既定に戻す",
+    themeUiResetFor: "{0}：既定に戻す",
+  },
+  KoKr: {
+    themeUiTitle: "화면 색상",
+    themeUiSub: "바, 버튼, 강조색, 글자의 색상이며 테마와 함께 저장됩니다. 바꾸지 않은 색상은 테마 색을 그대로 쓰고, 작업 화면의 패널과 바둑판은 바뀌지 않습니다.",
+    themeUiChrome: "바 배경색",
+    themeUiChromeSub: "제목 표시줄, 메뉴 표시줄, 도구 모음, 하단 바와 각 창 위쪽의 버튼 줄",
+    themeUiControl: "버튼 배경색",
+    themeUiControlSub: "버튼, 입력란, 메뉴와 바 안의 버튼 묶음. 대화 상자 배경은 바와 버튼의 중간 색이 됩니다",
+    themeUiAccent: "강조색",
+    themeUiAccentSub: "기본 버튼, 선택 항목, 스위치, 포커스 테두리",
+    themeUiText: "글자색",
+    themeUiTextSub: "화면의 글자와 아이콘. 구분선과 마우스를 올렸을 때의 색도 이에 맞춰 바뀝니다",
+    themeUiReset: "기본값으로",
+    themeUiResetFor: "{0}: 기본값으로",
+  },
+  ThTh: {
+    themeUiTitle: "สีของหน้าจอ",
+    themeUiSub: "สีของแถบ ปุ่ม สีเน้น และตัวอักษร บันทึกไปกับธีม สีที่ไม่ได้เปลี่ยนจะใช้สีของธีม แผงในพื้นที่ทำงานและกระดานจะไม่เปลี่ยน",
+    themeUiChrome: "สีพื้นแถบ",
+    themeUiChromeSub: "แถบชื่อเรื่อง แถบเมนู แถบเครื่องมือ แถบล่าง และแถบปุ่มด้านบนของแต่ละหน้าต่าง",
+    themeUiControl: "สีพื้นปุ่ม",
+    themeUiControlSub: "ปุ่ม ช่องป้อนข้อมูล เมนู และกลุ่มปุ่มในแถบ พื้นกล่องโต้ตอบจะเป็นสีระหว่างแถบกับปุ่ม",
+    themeUiAccent: "สีเน้น",
+    themeUiAccentSub: "ปุ่มหลัก รายการที่เลือก สวิตช์ และกรอบโฟกัส",
+    themeUiText: "สีตัวอักษร",
+    themeUiTextSub: "ตัวอักษรและไอคอน เส้นแบ่งและสีเมื่อชี้เมาส์จะเปลี่ยนตามด้วย",
+    themeUiReset: "คืนค่าเริ่มต้น",
+    themeUiResetFor: "{0}: คืนค่าเริ่มต้น",
+  },
+});
+
+/** 棋盘 and 棋子 chosen from thumbnails: the rows' descriptions and the two tiles beside the
+ *  pictures the program ships. */
+registerProduct({
+  ZhCn: {
+    themeBoardPickSub: "选一种自带棋盘或纯色，或用其他图片；路径也可以直接填写",
+    themeStones: "棋子",
+    themeStonesSub: "选一套自带棋子或纯色；用自己的图片时在下面两行分别指定",
+    themeStonePathSub: "图片路径，可直接填写，或点“...”选择文件",
+    themePickPure: "纯色",
+    themePickOther: "其他图片…",
+  },
+  ZhTw: {
+    themeBoardPickSub: "選一種內建棋盤或純色，或用其他圖片；路徑也可以直接填寫",
+    themeStones: "棋子",
+    themeStonesSub: "選一套內建棋子或純色；用自己的圖片時在下面兩行分別指定",
+    themeStonePathSub: "圖片路徑，可直接填寫，或點「...」選擇檔案",
+    themePickPure: "純色",
+    themePickOther: "其他圖片…",
+  },
+  EnUs: {
+    themeBoardPickSub: "Pick a built-in board or a plain color, or use another image; you can also type its path",
+    themeStones: "Stones",
+    themeStonesSub: "Pick a built-in set or plain stones; for your own images, set them in the two rows below",
+    themeStonePathSub: "Image path; type it, or click \"...\" to choose a file",
+    themePickPure: "Plain",
+    themePickOther: "Other image…",
+  },
+  JaJp: {
+    themeBoardPickSub: "内蔵の碁盤か単色を選ぶか、ほかの画像を使います。パスを直接入力することもできます",
+    themeStones: "碁石",
+    themeStonesSub: "内蔵の碁石か単色を選びます。自分の画像を使うときは下の 2 行で指定します",
+    themeStonePathSub: "画像のパス。直接入力するか、「...」でファイルを選びます",
+    themePickPure: "単色",
+    themePickOther: "ほかの画像…",
+  },
+  KoKr: {
+    themeBoardPickSub: "내장 바둑판이나 단색을 고르거나 다른 이미지를 씁니다. 경로를 직접 입력할 수도 있습니다",
+    themeStones: "바둑돌",
+    themeStonesSub: "내장 바둑돌이나 단색을 고릅니다. 직접 고른 이미지는 아래 두 줄에서 지정합니다",
+    themeStonePathSub: "이미지 경로. 직접 입력하거나 \"...\"을 눌러 파일을 고릅니다",
+    themePickPure: "단색",
+    themePickOther: "다른 이미지…",
+  },
+  ThTh: {
+    themeBoardPickSub: "เลือกกระดานในตัวหรือสีพื้น หรือใช้รูปภาพอื่น จะพิมพ์ที่อยู่ไฟล์เองก็ได้",
+    themeStones: "หมาก",
+    themeStonesSub: "เลือกชุดหมากในตัวหรือสีพื้น ถ้าใช้รูปภาพของคุณเอง ให้กำหนดในสองแถวด้านล่าง",
+    themeStonePathSub: "ที่อยู่ไฟล์รูปภาพ พิมพ์เอง หรือคลิก \"...\" เพื่อเลือกไฟล์",
+    themePickPure: "สีพื้น",
+    themePickOther: "รูปภาพอื่น…",
+  },
+});
+
 /** A theme as the list names it: 默认 and Java 经典 translated, every other theme as stored. */
 function themeName(name: string): string {
   if (name === DEFAULT_THEME) return t("LizzieConfig.title.defaultTheme");
   return name === JAVA_CLASSIC_THEME ? product("themeJavaClassic") : name;
 }
 
-/** readDefaultTheme's fixed image paths: the default theme's images are not editable (6313-6324). */
+/** The program's own default images: what the core answers when a theme names no image or one
+ *  that does not read (Theme.java:146-204 fallbacks). */
 const DEFAULT_PATHS = { background: "/assets/background.jpg", board: "/assets/board.png", black: "/assets/black0.png", white: "/assets/white0.png" };
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] => {
@@ -210,6 +357,7 @@ const intValue = (input: HTMLInputElement) => {
  *  `name` names the swatch; the alpha is "`subject`：不透明度". */
 interface ColorControl {
   root: HTMLElement;
+  swatch: HTMLInputElement;
   get(): number[];
   set(c: readonly number[]): void;
   name(swatchName: string, subject?: string): void;
@@ -242,6 +390,7 @@ function colorControl(key: string, alpha: boolean, chooseButton: boolean, name: 
   const hex = (v: number) => v.toString(16).padStart(2, "0");
   const control: ColorControl = {
     root,
+    swatch,
     get() {
       const v = swatch.value;
       const rgb = [1, 3, 5].map((k) => Number.parseInt(v.slice(k, k + 2), 16));
@@ -311,8 +460,15 @@ function fontCombo(key: string): FontCombo {
   return combo;
 }
 
-/** An image path field with its "..." chooser (addAssetRow, 4117-4143; getImagePath 5283-5302). */
-function pathControl(key: string, onChange: () => void): { root: HTMLElement; input: HTMLInputElement; browse: HTMLButtonElement } {
+/** An image path field with its "..." chooser (addAssetRow, 4117-4143; getImagePath 5283-5302);
+ *  `choose` opens the chooser and tells whether a file was chosen. */
+interface PathControl {
+  root: HTMLElement;
+  input: HTMLInputElement;
+  browse: HTMLButtonElement;
+  choose(): Promise<boolean>;
+}
+function pathControl(key: string, onChange: () => void): PathControl {
   const root = el("span", "appearance-path");
   const input = el("input");
   input.type = "text";
@@ -321,15 +477,134 @@ function pathControl(key: string, onChange: () => void): { root: HTMLElement; in
   const browse = el("button", undefined, "...");
   browse.type = "button";
   browse.dataset.key = `${key}.browse`;
-  browse.onclick = async () => {
+  const choose = async () => {
     const path = await chooseAppearanceImage();
-    if (path) {
-      input.value = path;
-      onChange();
-    }
+    if (!path) return false;
+    input.value = path;
+    onChange();
+    return true;
   };
+  browse.onclick = () => void choose();
   root.append(input, browse);
-  return { root, input, browse };
+  return { root, input, browse, choose };
+}
+
+/** A 界面颜色 row's colour: the swatch shows the theme's colour, or the skin's own while the theme
+ *  leaves it unset (empty); 恢复默认 unsets it. */
+interface InterfaceColorControl {
+  root: HTMLElement;
+  get(): readonly number[];
+  set(value: readonly number[], skin: readonly number[]): void;
+}
+function interfaceColor(key: string, name: string): InterfaceColorControl {
+  const color = colorControl(key, false, false, name);
+  const reset = el("button", undefined, product("themeUiReset"));
+  reset.type = "button";
+  reset.dataset.key = `${key}.reset`;
+  reset.setAttribute("aria-label", product("themeUiResetFor", name));
+  const root = el("span", "appearance-pair");
+  root.append(color.root, reset);
+  let value: readonly number[] = [];
+  let skin: readonly number[] = [];
+  const show = () => {
+    color.set(value.length === 3 ? value : skin);
+    reset.disabled = value.length !== 3;
+  };
+  color.swatch.addEventListener("input", () => {
+    value = color.get();
+    reset.disabled = false;
+  });
+  reset.onclick = () => {
+    value = [];
+    show();
+    // The button it was on is unavailable now.
+    color.swatch.focus();
+  };
+  return {
+    root,
+    get: () => value,
+    set(next, base) {
+      value = next;
+      skin = base;
+      show();
+    },
+  };
+}
+
+/** 棋盘 or 棋子 chosen by thumbnail (DESIGN.md 图片选择): a radio group of the pictures the program
+ *  ships and 纯色, then 其他图片…, a button that opens the file chooser. The page keeps the values;
+ *  `show` marks the choice they make. */
+interface Tiles {
+  root: HTMLElement;
+  /** The 纯色 tile's picture. */
+  pure: HTMLElement;
+  /** The 其他图片… tile's picture. */
+  other: HTMLElement;
+  setShipped(list: { id: string; name: string; picture: HTMLElement }[]): void;
+  /** Marks `id`: "pure", "other" or a shipped tile's id. */
+  show(id: string): void;
+}
+function tiles(name: string, keyBase: string, pureKey: string, onPick: (id: string) => void): Tiles {
+  const root = el("span", "appearance-tiles");
+  const group = el("span", "appearance-tile-group");
+  group.setAttribute("role", "radiogroup");
+  group.setAttribute("aria-label", name);
+  const radioName = `appearance-${keyBase.replace(/\W/g, "-")}-${Math.random().toString(36).slice(2)}`;
+  const tile = (id: string, text: string, key: string, picture: HTMLElement) => {
+    const label = el("label", "appearance-tile");
+    const input = el("input");
+    input.type = "radio";
+    input.name = radioName;
+    input.value = id;
+    input.dataset.key = key;
+    input.addEventListener("change", () => {
+      if (input.checked) onPick(id);
+    });
+    const frame = el("span", "appearance-tile-picture");
+    frame.append(picture);
+    label.append(input, frame, el("span", "appearance-tile-name", text));
+    return label;
+  };
+  const pure = el("span", "appearance-tile-fill");
+  const pureTile = tile("pure", product("themePickPure"), pureKey, pure);
+  const other = el("span", "appearance-tile-picture");
+  const otherTile = el("button", "appearance-tile");
+  otherTile.type = "button";
+  otherTile.dataset.key = `${keyBase}.other`;
+  otherTile.append(other, el("span", "appearance-tile-name", product("themePickOther")));
+  otherTile.onclick = () => onPick("other");
+  group.append(pureTile);
+  root.append(group, otherTile);
+  let shipped: HTMLElement[] = [];
+  return {
+    root,
+    pure,
+    other,
+    setShipped(list) {
+      for (const old of shipped) old.remove();
+      shipped = list.map((s) => tile(s.id, s.name, `${keyBase}.${s.id}`, s.picture));
+      pureTile.before(...shipped);
+    },
+    show(id) {
+      for (const input of group.querySelectorAll("input")) input.checked = input.value === id;
+      otherTile.classList.toggle("chosen", id === "other");
+      if (id === "other") otherTile.setAttribute("aria-current", "true");
+      else otherTile.removeAttribute("aria-current");
+    },
+  };
+}
+
+/** A tile's picture: one image (a board), or two side by side (a black and a white stone). */
+function tilePicture(...urls: string[]): HTMLElement {
+  const box = el("span", urls.length > 1 ? "appearance-tile-stones" : "appearance-tile-image");
+  for (const url of urls) {
+    const img = el("img");
+    img.src = url;
+    img.alt = "";
+    img.draggable = false;
+    box.append(img);
+  }
+  return box;
 }
 
 // ------------------------------------------------------------------ 棋盘预览
@@ -412,17 +687,16 @@ function paintPreview(canvas: HTMLCanvasElement, v: ThemeSettings, images: Loade
   stone(x + square, y + square * 2, false, images.white);
 }
 
-/** The draft's preview images. A named theme's image that does not read is left out, so the
+/** The draft's preview images. An image the theme names that does not read is left out, so the
  *  preview shows the pure colour or the plain stone instead (pnlBoardPreview 4994-5049, 5113-5115);
  *  the core answers the default image only when neither the custom override nor the theme's own
- *  file reads. An empty path is the default image, as on the board, and where the workbench shows
- *  the program's own wallpaper for that default background (any theme but Java 经典) the preview
- *  shows it too. */
+ *  file reads. An empty path, or the default image's own address, is the default image, as on the
+ *  board, and where the workbench shows the program's own wallpaper for that default background
+ *  (any theme but Java 经典) the preview shows it too. */
 async function loadPreviewImages(settings: AppearanceSettings, draft: ThemeSettings): Promise<LoadedImages> {
   const urls = await appearanceImages(settings, draft).catch(() => null);
   if (!urls) return {};
-  const named = settings.theme !== DEFAULT_THEME;
-  const unread = (url: string, path: string, fallback: string) => named && path !== "" && url === fallback;
+  const unread = (url: string, path: string, fallback: string) => path !== "" && path !== fallback && url === fallback;
   const decoded = (url: string, path: string, fallback: string): Promise<HTMLImageElement | undefined> => {
     if (unread(url, path, fallback)) return Promise.resolve(undefined);
     const img = new Image();
@@ -459,7 +733,7 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   const committed = { name: view.settings.appearance.theme, values: view.settings.theme };
   let catalog: AppearanceCatalog | null = null;
   let selected = committed.name;
-  /** The values of the selected theme as read; image fields of the default theme round-trip. */
+  /** The values of the selected theme as read; fields the page does not show round-trip. */
   let base: ThemeSettings = structuredClone(committed.values);
   const redraw = () => schedulePreview();
 
@@ -479,6 +753,20 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   preview.style.height = `${PREVIEW_H}px`;
   preview.dataset.key = "settings.theme.preview";
   row(profile, null, t("ConfigDialog2.modern.theme.preview"), t("ConfigDialog2.modern.theme.previewSub"), preview);
+
+  // 界面颜色 (this product's own): each swatch shows the theme's colour, or the skin's while unset.
+  const interfaceCard = card(host, product("themeUiTitle"), product("themeUiSub"));
+  const interfaceRow = (key: string, title: string, sub: string) => {
+    const control = interfaceColor(`settings.theme.${key}`, title);
+    row(interfaceCard, null, title, sub, control.root);
+    return control;
+  };
+  const interfaceColors: Record<keyof InterfaceColors, InterfaceColorControl> = {
+    chrome: interfaceRow("uiChromeColor", product("themeUiChrome"), product("themeUiChromeSub")),
+    control: interfaceRow("uiControlColor", product("themeUiControl"), product("themeUiControlSub")),
+    accent: interfaceRow("uiAccentColor", product("themeUiAccent"), product("themeUiAccentSub")),
+    text: interfaceRow("uiTextColor", product("themeUiText"), product("themeUiTextSub")),
+  };
 
   // 线条与字体.
   const lines = card(host, t("ConfigDialog2.modern.theme.lines"), t("ConfigDialog2.modern.theme.linesSub"));
@@ -523,30 +811,113 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   const pureBackgroundColor = colorControl("settings.theme.pureBackgroundColor", false, false, product("themeFieldColor", pureBackgroundLabel));
   const backgroundPath = pathControl("settings.theme.backgroundImage", redraw);
   row(assets, "config.theme.background-image", t("ConfigDialog2.modern.theme.backgroundImage"), assetHint, labelled(pureBackground, pureBackgroundLabel), pureBackgroundColor.root, backgroundPath.root);
-  const pureBoardLabel = t("LizzieConfig.title.chkPureBoard");
-  const pureBoard = check("settings.theme.usePureBoard", pureBoardLabel);
-  const pureBoardColor = colorControl("settings.theme.pureBoardColor", false, false, product("themeFieldColor", pureBoardLabel));
+  // 棋盘 and 棋子: thumbnails of the pictures the program ships, 纯色 and 其他图片… over the paths,
+  // which stay editable for typing a path.
+  let pureBoard = false;
+  let pureStone = false;
+  let boards: ShippedBoard[] = [];
+  let stoneSets: ShippedStones[] = [];
+  const boardTitle = t("ConfigDialog2.modern.theme.boardImage");
+  const pureBoardColor = colorControl("settings.theme.pureBoardColor", false, false, product("themeFieldColor", t("LizzieConfig.title.chkPureBoard")));
   const boardPath = pathControl("settings.theme.boardImage", redraw);
-  row(assets, "config.theme.board-image", t("ConfigDialog2.modern.theme.boardImage"), assetHint, labelled(pureBoard, pureBoardLabel), pureBoardColor.root, boardPath.root);
+  const boardTiles = tiles(boardTitle, "settings.theme.board", "settings.theme.usePureBoard", (id) => void pickBoard(id));
+  row(assets, "config.theme.board-image", boardTitle, product("themeBoardPickSub"), boardTiles.root, pureBoardColor.root, boardPath.root);
+  const stoneTiles = tiles(product("themeStones"), "settings.theme.stones", "settings.theme.usePureStone", (id) => void pickStones(id));
+  stoneTiles.pure.append(el("span", "appearance-flat-stone black"), el("span", "appearance-flat-stone white"));
+  row(assets, null, product("themeStones"), product("themeStonesSub"), stoneTiles.root);
   const blackPath = pathControl("settings.theme.blackStoneImage", redraw);
-  row(assets, "config.theme.black-stone-image", t("ConfigDialog2.modern.theme.blackStoneImage"), assetHint, blackPath.root);
-  const pureStoneLabel = t("LizzieConfig.title.chkPureStone");
-  const pureStone = check("settings.theme.usePureStone", pureStoneLabel);
+  row(assets, "config.theme.black-stone-image", t("ConfigDialog2.modern.theme.blackStoneImage"), product("themeStonePathSub"), blackPath.root);
   const whitePath = pathControl("settings.theme.whiteStoneImage", redraw);
-  row(assets, "config.theme.white-stone-image", t("ConfigDialog2.modern.theme.whiteStoneImage"), assetHint, labelled(pureStone, pureStoneLabel), whitePath.root);
+  row(assets, "config.theme.white-stone-image", t("ConfigDialog2.modern.theme.whiteStoneImage"), product("themeStonePathSub"), whitePath.root);
   const backgroundFilter = digits("settings.theme.backgroundFilter");
   row(assets, "config.theme.background-blur", t("ConfigDialog2.modern.theme.blur"), t("ConfigDialog2.modern.theme.blurSub"), backgroundFilter);
-  /** The pure toggles' listeners (4934-4976): a named theme's paths follow them; the filter
-   *  follows 纯色背景 for every theme. */
+  /** The pure toggles' listeners (4934-4976): the paths follow them, the 默认 theme's too (Java
+   *  fixes its images); the filter follows 纯色背景. */
   const syncEnabled = () => {
-    const named = selected !== DEFAULT_THEME;
-    backgroundPath.input.disabled = backgroundPath.browse.disabled = !named || pureBackground.checked;
-    boardPath.input.disabled = boardPath.browse.disabled = !named || pureBoard.checked;
-    for (const p of [blackPath, whitePath]) p.input.disabled = p.browse.disabled = !named || pureStone.checked;
+    backgroundPath.input.disabled = backgroundPath.browse.disabled = pureBackground.checked;
+    boardPath.input.disabled = boardPath.browse.disabled = pureBoard;
+    for (const p of [blackPath, whitePath]) p.input.disabled = p.browse.disabled = pureStone;
     backgroundFilter.disabled = pureBackground.checked;
     shadowSize.disabled = !showShadow.checked;
   };
-  for (const toggle of [pureBackground, pureBoard, pureStone]) toggle.addEventListener("change", syncEnabled);
+  pureBackground.addEventListener("change", syncEnabled);
+  /** The address an image value names, as the core reads it (appearance::images): a shipped
+   *  address as it is, a relative path as the selected theme's own file (a bundled theme's own
+   *  file is its shipped picture), an empty value as the default picture `fallback`. */
+  const addressOf = (value: string, fallback: string) => {
+    const path = value.trim();
+    if (path === "") return fallback;
+    return path.startsWith("/") ? path : `/themes/${selected}/${path.replaceAll("\\", "/")}`;
+  };
+  /** The value choosing the shipped picture at `addresses` writes: the selected theme's own file by
+   *  its name, so a bundled theme keeps its own value; the 默认 theme's default picture as an empty
+   *  value; else the picture's first address. */
+  const valueFor = (addresses: readonly string[], fallback: string) => {
+    const own = `/themes/${selected}/`;
+    if (selected === DEFAULT_THEME && addresses[0] === fallback) return "";
+    const mine = addresses.find((a) => a.startsWith(own));
+    return mine ? mine.slice(own.length) : addresses[0];
+  };
+  /** The tile the draft's values make: 纯色, a shipped picture, or 其他图片… for the user's own;
+   *  none until the shipped pictures are known. */
+  const boardChoice = () => {
+    if (pureBoard) return "pure";
+    if (boards.length === 0) return "";
+    const at = addressOf(boardPath.input.value, DEFAULT_PATHS.board);
+    return boards.find((b) => b.addresses.includes(at))?.theme ?? "other";
+  };
+  const stonesChoice = () => {
+    if (pureStone) return "pure";
+    if (stoneSets.length === 0) return "";
+    const black = addressOf(blackPath.input.value, DEFAULT_PATHS.black);
+    const white = addressOf(whitePath.input.value, DEFAULT_PATHS.white);
+    return stoneSets.find((s) => s.pairs.some(([b, w]) => b === black && w === white))?.theme ?? "other";
+  };
+  /** 其他图片… shows the user's own picture while it is the choice. */
+  const otherPictures = () => {
+    const board = boardChoice() === "other" ? previewImages.board : undefined;
+    boardTiles.other.replaceChildren(board ? tilePicture(board.src) : icon("open"));
+    const stones = stonesChoice() === "other" ? [previewImages.black, previewImages.white].filter((img) => img !== undefined) : [];
+    stoneTiles.other.replaceChildren(stones.length > 0 ? tilePicture(...stones.map((img) => img.src)) : icon("open"));
+  };
+  /** The tiles, the paths' availability and the preview after the values changed. */
+  const syncPictures = () => {
+    boardTiles.show(boardChoice());
+    stoneTiles.show(stonesChoice());
+    otherPictures();
+    syncEnabled();
+    redraw();
+  };
+  async function pickBoard(id: string) {
+    if (id === "pure") pureBoard = true;
+    else if (id === "other") {
+      if (await boardPath.choose()) pureBoard = false;
+    } else {
+      const board = boards.find((b) => b.theme === id);
+      if (board) {
+        pureBoard = false;
+        boardPath.input.value = valueFor(board.addresses, DEFAULT_PATHS.board);
+      }
+    }
+    syncPictures();
+  }
+  async function pickStones(id: string) {
+    if (id === "pure") pureStone = true;
+    else if (id === "other") {
+      if (await blackPath.choose()) pureStone = false;
+    } else {
+      const set = stoneSets.find((s) => s.theme === id);
+      if (set) {
+        const [black, white] = set.pairs.find(([b]) => b.startsWith(`/themes/${selected}/`)) ?? set.pairs[0];
+        pureStone = false;
+        blackPath.input.value = valueFor([black], DEFAULT_PATHS.black);
+        whitePath.input.value = valueFor([white], DEFAULT_PATHS.white);
+      }
+    }
+    syncPictures();
+  }
+  for (const p of [boardPath, blackPath, whitePath]) p.input.addEventListener("input", syncPictures);
+  pureBoardColor.swatch.addEventListener("input", () => (boardTiles.pure.style.backgroundColor = pureBoardColor.swatch.value));
 
   // 颜色与标记.
   const colors = card(host, t("ConfigDialog2.modern.theme.colors"), t("ConfigDialog2.modern.theme.colorsSub"));
@@ -698,11 +1069,17 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   /** readThemeValues / readDefaultTheme: the controls show `v`. */
   const fill = (v: ThemeSettings) => {
     base = structuredClone(v);
-    pureStone.checked = v.usePureStone;
+    const skin = skinColors(selected === JAVA_CLASSIC_THEME ? "java" : "modern");
+    interfaceColors.chrome.set(v.uiChromeColor, skin.chrome);
+    interfaceColors.control.set(v.uiControlColor, skin.control);
+    interfaceColors.accent.set(v.uiAccentColor, skin.accent);
+    interfaceColors.text.set(v.uiTextColor, skin.text);
+    pureStone = v.usePureStone;
     pureBackground.checked = v.usePureBackground;
     pureBackgroundColor.set(opaque(v.pureBackgroundColor));
-    pureBoard.checked = v.usePureBoard;
+    pureBoard = v.usePureBoard;
     pureBoardColor.set(opaque(v.pureBoardColor));
+    boardTiles.pure.style.backgroundColor = cssColor(opaque(v.pureBoardColor));
     showShadow.checked = v.showStoneShadow;
     winrateWidth.value = String(v.winrateStrokeWidth);
     scoreWidth.value = String(v.scoreLeadStrokeWidth);
@@ -711,11 +1088,10 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
     infoFont.set(v.fontName);
     uiFont.set(v.uiFontName);
     winrateFont.set(v.winrateFontName);
-    const named = selected !== DEFAULT_THEME;
-    backgroundPath.input.value = named ? v.backgroundImage : DEFAULT_PATHS.background;
-    boardPath.input.value = named ? v.boardImage : DEFAULT_PATHS.board;
-    blackPath.input.value = named ? v.blackStoneImage : DEFAULT_PATHS.black;
-    whitePath.input.value = named ? v.whiteStoneImage : DEFAULT_PATHS.white;
+    backgroundPath.input.value = v.backgroundImage;
+    boardPath.input.value = v.boardImage;
+    blackPath.input.value = v.blackStoneImage;
+    whitePath.input.value = v.whiteStoneImage;
     winrateColor.set(v.winrateLineColor);
     missColor.set(v.winrateMissLineColor);
     blunderColor.set(v.blunderBarColor);
@@ -736,14 +1112,12 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
     scoreDiffPercent.value = String(v.scorediffInVariationTreeFactor * 100);
     scoreDiffPercent.disabled = !useScoreDiff.checked;
     setRules(v.blunderWinrateThresholds, v.blunderNodeColors);
-    remove.disabled = !named;
-    syncEnabled();
-    redraw();
+    remove.disabled = selected === DEFAULT_THEME;
+    syncPictures();
   };
 
   /** writeThemeValues / writeDefaultTheme: the draft as the controls show it. */
   const collect = (): ThemeSettings => {
-    const named = selected !== DEFAULT_THEME;
     const number = (input: HTMLInputElement, fallback: number) => (input.value === "" || !Number.isFinite(Number(input.value)) ? fallback : Number(input.value));
     // finalizeEditedBlunderColors (6473-6479): the rows sorted by threshold, a blank one as 0.
     const rows = rules
@@ -757,8 +1131,8 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
     const percent = Number.parseFloat(scoreDiffPercent.value);
     return {
       ...base,
-      usePureStone: pureStone.checked,
-      usePureBoard: pureBoard.checked,
+      usePureStone: pureStone,
+      usePureBoard: pureBoard,
       pureBoardColor: pureBoardColor.get(),
       usePureBackground: pureBackground.checked,
       pureBackgroundColor: pureBackgroundColor.get(),
@@ -770,10 +1144,10 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
       fontName: infoFont.get(),
       uiFontName: uiFont.get(),
       winrateFontName: winrateFont.get(),
-      backgroundImage: named ? backgroundPath.input.value.trim() : base.backgroundImage,
-      boardImage: named ? boardPath.input.value.trim() : base.boardImage,
-      blackStoneImage: named ? blackPath.input.value.trim() : base.blackStoneImage,
-      whiteStoneImage: named ? whitePath.input.value.trim() : base.whiteStoneImage,
+      backgroundImage: backgroundPath.input.value.trim(),
+      boardImage: boardPath.input.value.trim(),
+      blackStoneImage: blackPath.input.value.trim(),
+      whiteStoneImage: whitePath.input.value.trim(),
       winrateLineColor: winrateColor.get(),
       winrateMissLineColor: missColor.get(),
       blunderBarColor: blunderColor.get(),
@@ -790,6 +1164,10 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
       blunderNodeColors: valid ? rows.map((r) => r.color) : DEFAULT_BLUNDER_COLORS.map((c) => [...c]),
       useScorediffInVariationTree: useScoreDiff.checked,
       scorediffInVariationTreeFactor: (Number.isFinite(percent) ? percent : base.scorediffInVariationTreeFactor * 100) / 100,
+      uiChromeColor: [...interfaceColors.chrome.get()],
+      uiControlColor: [...interfaceColors.control.get()],
+      uiAccentColor: [...interfaceColors.accent.get()],
+      uiTextColor: [...interfaceColors.text.get()],
     };
   };
 
@@ -808,8 +1186,8 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
       previewPending = false;
       if (!preview.isConnected && !host.isConnected) return;
       const draft = collect();
-      // The default theme previews its own images (readDefaultTheme's fixed paths), a named
-      // theme its effective ones (Theme.backgroundPath / boardPath with the custom override).
+      // The default theme previews its own images without the custom overrides (readDefaultTheme),
+      // a named theme its effective ones (Theme.backgroundPath / boardPath with the override).
       const settings = selected === DEFAULT_THEME
         ? { ...view.settings.appearance, theme: selected, customBoardImage: "", customBackgroundImage: "" }
         : { ...view.settings.appearance, theme: selected };
@@ -828,6 +1206,7 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
         if (mine !== previewGeneration || (!preview.isConnected && !host.isConnected)) return;
         previewImages = loaded;
         paintPreview(preview, collect(), previewImages);
+        otherPictures();
       }, delay);
     });
   }
@@ -865,7 +1244,12 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
       return;
     }
     for (const combo of [infoFont, uiFont, winrateFont]) combo.setFonts(catalog.fonts);
+    boards = catalog.boards;
+    stoneSets = catalog.stones;
+    boardTiles.setShipped(boards.map((b) => ({ id: b.theme, name: themeName(b.theme), picture: tilePicture(b.addresses[0]) })));
+    stoneTiles.setShipped(stoneSets.map((s) => ({ id: s.theme, name: themeName(s.theme), picture: tilePicture(...s.pairs[0]) })));
     fillThemes();
+    syncPictures();
   };
 
   // 添加 (4449-4477): a name not yet in the list, compared case-insensitively; then

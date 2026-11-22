@@ -1,15 +1,15 @@
 /* 综合设置 > 主题外观 (ConfigDialog2 createDesignSettingsCard / createDesignRow) as grouped rows
-   (design/dialog.css): a group per card. A row holding a path, the preview or the rules table
-   puts them on a line of their own under its name. */
+   (design/dialog.css): a group per card. A row holding a path, the picture tiles, the preview or
+   the rules table puts them on a line of their own under its name. */
 .appearance-card + .appearance-card {
   margin-top: 14px;
 }
-.appearance-card .ds-row:has(.appearance-path, .appearance-preview, .appearance-blunder-table) {
+.appearance-card .ds-row:has(.appearance-path, .appearance-tiles, .appearance-preview, .appearance-blunder-table) {
   flex-wrap: wrap;
   row-gap: 8px;
   padding-block: 8px 10px;
 }
-.appearance-card .ds-row:has(.appearance-path, .appearance-preview, .appearance-blunder-table) > .ds-row-control {
+.appearance-card .ds-row:has(.appearance-path, .appearance-tiles, .appearance-preview, .appearance-blunder-table) > .ds-row-control {
   flex: 1 1 100%;
   justify-content: flex-start;
 }
@@ -76,6 +76,116 @@
   display: block;
   border: 1px solid var(--ds-line-strong);
   border-radius: var(--ds-radius-s);
+}
+
+/* 棋盘 / 棋子 (DESIGN.md 图片选择): a line of tiles, each a picture over its name. The chosen tile
+   has the accent edge on the soft accent ground, like a selected row; the radios are drawn by
+   their tiles, and 其他图片… is a button among them. */
+.appearance-tiles {
+  display: flex;
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.appearance-tile-group {
+  display: contents;
+}
+.appearance-tile {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: calc(var(--ds-size-s) * 6.2);
+  height: auto;
+  padding: 4px 4px 3px;
+  border: 1px solid transparent;
+  border-radius: var(--ds-radius);
+  background-color: transparent;
+  color: var(--ds-text-2);
+  font-size: var(--ds-size-s);
+  white-space: normal;
+}
+.appearance-tile:hover {
+  background-image: linear-gradient(var(--ds-hover), var(--ds-hover));
+}
+.appearance-tile:has(input:checked),
+.appearance-tile.chosen {
+  border-color: var(--ds-accent);
+  background-color: var(--ds-accent-soft);
+  color: var(--ds-accent-text);
+  font-weight: 600;
+}
+.appearance-tile input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.appearance-tile:has(input:focus-visible) {
+  outline: 2px solid var(--ds-ring);
+  outline-offset: 1px;
+}
+.appearance-tile-picture {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--ds-size-s) * 4.7);
+  height: calc(var(--ds-size-s) * 3.3);
+  overflow: hidden;
+  border-radius: var(--ds-radius-s);
+  background-color: var(--ds-well);
+  box-shadow: inset 0 0 0 1px var(--ds-line);
+  color: var(--ds-text-2);
+}
+.appearance-tile-image,
+.appearance-tile-fill {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+.appearance-tile-image img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.appearance-tile-stones {
+  display: flex;
+  align-items: center;
+}
+.appearance-tile-stones img {
+  display: block;
+  width: calc(var(--ds-size-s) * 2.2);
+  height: calc(var(--ds-size-s) * 2.2);
+}
+.appearance-tile-stones img + img,
+.appearance-flat-stone + .appearance-flat-stone {
+  margin-left: -5px;
+}
+/* 纯色棋子: the flat pair of DESIGN.md 黑白棋子对. */
+.appearance-flat-stone {
+  width: calc(var(--ds-size-s) * 1.85);
+  height: calc(var(--ds-size-s) * 1.85);
+  border-radius: 50%;
+}
+.appearance-flat-stone.black {
+  background-color: var(--ws-stone-black);
+  box-shadow: inset 0 0 0 1px var(--ws-stone-black-edge);
+}
+.appearance-flat-stone.white {
+  background-color: var(--ws-stone-white);
+  box-shadow: inset 0 0 0 1px var(--ws-stone-white-edge);
+}
+.appearance-tile-name {
+  max-width: 100%;
+  line-height: 1.2;
+  text-align: center;
+  overflow-wrap: break-word;
 }
 
 /* 错误节点: the rules table (header on --ds-sunken, a line between rows, the selected row in
