@@ -579,8 +579,8 @@ export function openHumanSlDialog(): void {
     if (e.key === "Escape") {
       e.preventDefault();
       void closeDialog();
-    } else if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement) && !(e.target instanceof HTMLSelectElement)) {
-      // getRootPane().setDefaultButton(startButton).
+    } else if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement) && !(e.target instanceof HTMLSelectElement) && !(e.target instanceof Element && e.target.localName === "summary")) {
+      // getRootPane().setDefaultButton(startButton); 查看详情's summary folds its detail instead.
       e.preventDefault();
       if (e.target === rankInput) readRank();
       if (!startButton.disabled) void primaryAction();

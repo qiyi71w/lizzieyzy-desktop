@@ -583,10 +583,17 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
         g.haloText(text, x, y, color);
       });
     };
-    /** Where a readout clears the ones already placed: at (x, y) as Java puts it, else on the same
-     *  height just right of the readouts it would cover, else just left of them (its value stays
-     *  at its own height), else just below or above them inside the plot. The font is set. */
-    const clear = (text: string, x: number, y: number): [number, number] => {
+    /** (x, y) moved the least that keeps the text's ink box inside the canvas. The font is set. */
+    const within = (text: string, x: number, y: number): [number, number] => {
+      const b = inkBox(text, x, y);
+      return [x + Math.max(0, -b.x) - Math.max(0, b.x + b.w - origW), y + Math.max(0, -b.y) - Math.max(0, b.y + b.h - origH)];
+    };
+    /** Where a readout clears the ones already placed: at (x, y) as Java puts it (moved inside the
+     *  canvas), else on the same height just right of the readouts it would cover, else just left
+     *  of them (its value stays at its own height), else just below or above them inside the plot.
+     *  The font is set. */
+    const clear = (text: string, javaX: number, javaY: number): [number, number] => {
+      const [x, y] = within(text, javaX, javaY);
       const box = inkBox(text, x, y);
       const hit = readoutBoxes.filter((r) => overlaps(box, r));
       if (!hit.length) return [x, y];
@@ -608,32 +615,44 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
       }
       return [x, y];
     };
-    // Java starts the text left of the dot and lets it run off the chart's left edge near the start.
-    const textX = (n: number) => Math.max(0, xOf(n) - shift);
-    const values = (pt: HistoryPoint, n: number, dot: string) => {
+    /** A position's win rate where it is drawn: Java starts it left of the dot; here it stays
+     *  inside the canvas near either end. */
+    const winRate = (pt: HistoryPoint, n: number) => {
       const wr = pt.black.winrate;
-      put(fixed(wr, 1) + "%", textX(n), yOf(wr) + (wr > 50 ? 6 * DOT_RADIUS : -2 * DOT_RADIUS), "l", P.text);
+      const text = fixed(wr, 1) + "%";
+      g.font("l", true, g.fonts.ui);
+      const [x, y] = within(text, xOf(n) - shift, yOf(wr) + (wr > 50 ? 6 * DOT_RADIUS : -2 * DOT_RADIUS));
+      return { text, x, y };
+    };
+    const curAt = cur >= 2 && cur <= total ? line.points.get(cur) : undefined;
+    const shown: [HistoryPoint, number, string][] = [];
+    if (curAt) {
+      // The current position's values give way to the mouse-over ones they would overlap. Java also
+      // measured against an absent mouse-over (x = -1), leaving out the first moves' values.
+      const own = winRate(curAt, cur - 1);
+      if (!hoverAt || Math.abs(own.x - winRate(hoverAt, hm - 1).x) > g.width(own.text)) shown.push([curAt, cur - 1, P.line]);
+    }
+    if (hoverAt) shown.push([hoverAt, hm - 1, P.hover]);
+    // Both win rates first, then the score leads clear of every win rate and of each other.
+    for (const [pt, n, dot] of shown) {
+      const { text, x, y } = winRate(pt, n);
+      put(text, x, y, "l", P.text);
+      const wr = pt.black.winrate;
       readouts.push(() => {
         g.color(dot);
         g.oval(xOf(n) - DOT_RADIUS, yOf(wr) - DOT_RADIUS, DOT_RADIUS * 2, DOT_RADIUS * 2);
       });
+    }
+    for (const [pt, n] of shown) {
       const s = katago ? pt.black.score_lead : null;
-      if (s === null) return;
+      if (s === null) continue;
       const text = scoreLead(s);
       g.font("m", true, g.fonts.ui);
-      // Java steps back 13 px over the last two moves; the B+ / W+ text also stops at the edge.
-      // Near 50% and an even score both readouts land on the midline: the score moves aside.
-      const [x, y] = clear(text, Math.min(numMoves - n < 2 ? xOf(n) - 13 : xOf(n), origW - g.width(text)), scoreY(s));
+      // Java steps back 13 px over the last two moves. Near 50% and an even score the win rate and
+      // the score land on the midline: the score moves aside.
+      const [x, y] = clear(text, numMoves - n < 2 ? xOf(n) - 13 : xOf(n), scoreY(s));
       put(text, x, y, "m", P.scoreText);
-    };
-    const curAt = cur >= 2 && cur <= total ? line.points.get(cur) : undefined;
-    if (curAt) {
-      // The current position's values give way to the mouse-over ones they would overlap. Java also
-      // measured against an absent mouse-over (x = -1), leaving out the first moves' values.
-      g.font("l", true, g.fonts.ui);
-      if (!hoverAt || Math.abs(textX(cur - 1) - textX(hm - 1)) > g.width(fixed(curAt.black.winrate, 1) + "%")) values(curAt, cur - 1, P.line);
     }
-    if (hoverAt) values(hoverAt, hm - 1, P.hover);
   }
   if (chart === 0) {
     // 胜率吻合's scale, as the main window's win-rate graph labels it: tabular labels just above
@@ -1006,9 +1025,8 @@ type Figure = [name: string, value: string];
  *  label. */
 type Key = [mark: (x: number, base: number) => void, label: string];
 
-/** A Java resource fragment's text without the spaces (and, in some languages, the properties
- *  escape) it was concatenated with. */
-const term = (text: string) => text.replace(/^[\s\\]+/, "").trim();
+/** A Java resource fragment's text without the spaces it was concatenated with. */
+const term = (text: string) => text.trim();
 
 /** MoveListFrame.drawMin (MoveListFrame.java:2100-3161): two lines of figures. 胜率吻合 and 吻合度走势
  *  set each side's figures as name–value pairs in columns aligned across the two lines, then the

@@ -11,7 +11,7 @@ import { COMMANDS } from "../commands";
 import type { FunctionMatch } from "../contract/generated";
 import { dialogOpen, message } from "../dialogs";
 import { openSettingsAt, settingTargetAvailable } from "../engine/settingsTargets";
-import { product, t } from "../i18n";
+import { product, registerProduct, t } from "../i18n";
 import { resourceView } from "../setup/dialog";
 import { markupToolsShown, setEditing } from "../editing/state";
 import { revealToolbar } from "../workbench/panels";
@@ -23,6 +23,17 @@ import { kataGoPda, kataRevealed } from "../engine/kataParams";
 import { revealTopGroup, TOP_GROUP_OF } from "../chrome/topGroups";
 import { kataGoCustom } from "../engine/customPda";
 import { clearHighlight, highlight } from "./highlight";
+
+/** The image settings' dependency: only the plain-colour choices turn an image path off (any
+ *  theme, 默认 included, edits its images). */
+registerProduct({
+  ZhCn: { fsThemeImageDependency: "背景、棋盘或棋子选用纯色时，对应的图片路径不可用。" },
+  ZhTw: { fsThemeImageDependency: "背景、棋盤或棋子選用純色時，對應的圖片路徑無法使用。" },
+  EnUs: { fsThemeImageDependency: "An image path is unavailable while its background, board or stones use a plain color." },
+  JaJp: { fsThemeImageDependency: "背景・碁盤・石に単色を選んでいる間は、対応する画像のパスを使えません。" },
+  KoKr: { fsThemeImageDependency: "배경, 바둑판, 바둑돌에 단색을 고른 동안에는 해당 이미지 경로를 쓸 수 없습니다." },
+  ThTh: { fsThemeImageDependency: "เมื่อพื้นหลัง กระดาน หรือหมากใช้สีพื้น จะใช้ที่อยู่ไฟล์รูปภาพของส่วนนั้นไม่ได้" },
+});
 
 export type DestinationKind = "action" | "menu" | "toolbar" | "setting" | "window" | "context";
 
@@ -258,7 +269,7 @@ function dependencyReason(id: string): Reason | null {
     case "config.theme.board-image":
     case "config.theme.black-stone-image":
     case "config.theme.white-stone-image":
-      return { key: "FunctionSearch.dependency.themeImage" };
+      return { key: "fsThemeImageDependency", product: true };
     default:
       return null;
   }

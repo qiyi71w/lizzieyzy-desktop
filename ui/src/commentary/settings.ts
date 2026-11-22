@@ -314,7 +314,7 @@ export function openSettings(host: Host): SettingsDialog {
   const signOut = btn(t("Teacher.chatgpt.logout"), "", "commentary.settings.signOut");
   const manageUsage = btn(t("Teacher.chatgpt.usage"), "", "commentary.settings.usage");
   chatActions.append(addAccount, signOut, manageUsage);
-  const planNotice = el("div", "ts-note", t("Teacher.settings.design.planNotice").replace(/\\n/g, "\n"));
+  const planNotice = el("div", "ts-note", t("Teacher.settings.design.planNotice"));
   const chatStatus = el("div", "ts-note");
   chatStatus.dataset.key = "commentary.settings.chatStatus";
   chat.append(chatWelcome, chatRows, signInRow, chatActions, planNotice, chatStatus, privacyRow());

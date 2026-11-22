@@ -2357,6 +2357,27 @@ fn morandi_colors_choose_java_soft_over_the_default_theme_and_keep_a_named_theme
 }
 
 #[test]
+fn morandi_import_carries_the_default_themes_glass_values_into_java_soft() {
+    // Only glass values differ from Java's defaults, then glass values with a font.
+    for font in [None, Some("Board Font")] {
+        let tmp = tempfile::tempdir().unwrap(); let java = tmp.path().join("java");
+        std::fs::create_dir_all(&java).unwrap();
+        let mut ui = json!({"use-morandi-colors": true, "glass-corner-radius": 20, "glass-blur-radius": 6});
+        if let Some(font) = font { ui["font-name"] = json!(font); }
+        std::fs::write(java.join("config.txt"), json!({"ui": ui}).to_string()).unwrap();
+        let mut wb = workbench(&tmp.path().join("product"), Recorder::default());
+        let p = preview(&mut wb, &java);
+        wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+        let s = wb.view(true).settings;
+        assert_eq!(s.appearance.theme, "java-soft", "{font:?}");
+        assert_eq!((s.theme.glass_corner_radius, s.theme.glass_blur_radius), (20, 6), "{font:?}");
+        let soft = lizzie_core::appearance::load_theme(wb.storage(), "java-soft", &Default::default());
+        assert_eq!((soft.glass_corner_radius, soft.glass_blur_radius), (20, 6), "{font:?}");
+        if let Some(font) = font { assert_eq!(soft.font_name, font); }
+    }
+}
+
+#[test]
 fn a_failed_morandi_import_leaves_no_java_soft_override() {
     let tmp = tempfile::tempdir().unwrap();
     let java = tmp.path().join("java");

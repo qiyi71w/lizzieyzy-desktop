@@ -142,8 +142,9 @@ impl Reader<'_> {
 impl Mapped {
     /// The theme folders the import writes: Java's own, and, when Java's Morandi palette chose
     /// java-soft, java-soft's `theme.txt` as saving it on the 主题外观 page with the 默认 theme's
-    /// imported values writes it (each picture named as the import keeps it). Without a value
-    /// that differs from java-soft's own there is none.
+    /// imported values writes it (each picture named as the import keeps it), with the imported
+    /// values the page does not edit (the glass values) as well. Without a value that differs from
+    /// java-soft's own there is none.
     pub fn theme_folders(&self, storage:&Storage) -> Vec<ThemeFolder> {
         let mut folders=self.themes.clone();
         if !self.soft_theme {return folders;}
@@ -154,8 +155,12 @@ impl Mapped {
                 _ => value.clone(),
             };
         }
-        let theme:ThemeSettings=serde_json::from_value(theme).expect("validated theme values");
-        let Value::Object(raw)=appearance::to_java(JAVA_SOFT,None,&theme) else {unreachable!()};
+        let settings:ThemeSettings=serde_json::from_value(theme.clone()).expect("validated theme values");
+        let Value::Object(mut raw)=appearance::to_java(JAVA_SOFT,None,&settings) else {unreachable!()};
+        for &(field,_) in &self.theme {
+            let key=appearance::java_key(field);
+            if !appearance::PAGE_KEYS.contains(&key.as_str()) { raw.insert(key,theme[field].clone()); }
+        }
         let bundled=appearance::BUNDLED.iter().find(|(n,_)| *n==JAVA_SOFT)
             .and_then(|(_,raw)| serde_json::from_str::<Map<String,Value>>(raw).ok()).unwrap_or_default();
         let base=ThemeSettings::default();
