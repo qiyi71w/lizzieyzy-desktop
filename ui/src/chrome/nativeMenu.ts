@@ -12,6 +12,7 @@ import { COMMANDS } from "../commands";
 import { product, registerProduct } from "../i18n";
 import { JAVA_MENUS } from "./javaMenus";
 import { entries, topEnabled, topShown, topTitle, type Entry } from "./menuModel";
+import { closeMenus } from "./menubar";
 
 /** The application menu's and 编辑's system items, named as macOS names them in each language. */
 registerProduct({
@@ -33,8 +34,6 @@ interface Spec {
   enabled: boolean;
   run?: () => void;
   items?: Spec[];
-  /** Fixed items after the model's: 编辑's text editing. */
-  tail?: PredefinedMenuItemOptions[];
 }
 
 /** A menu level's items for the system menu bar, its submenus' with them. */
@@ -53,53 +52,24 @@ function specs(list: Entry[]): Spec[] {
   });
 }
 
-/** 编辑's text editing items, after Java's: the text fields' ⌘Z, ⌘C, ⌘V and the rest are theirs. */
-function editing(): PredefinedMenuItemOptions[] {
-  return [
-    { item: "Separator" },
-    { item: "Undo", text: product("macUndo") },
-    { item: "Redo", text: product("macRedo") },
-    { item: "Separator" },
-    { item: "Cut", text: product("macCut") },
-    { item: "Copy", text: product("macCopy") },
-    { item: "Paste", text: product("macPaste") },
-    { item: "SelectAll", text: product("macSelectAll") },
-  ];
-}
-
 /** The menus after the application menu: the catalog's shown menus, in Java's order. */
 function menus(): Spec[] {
   return JAVA_MENUS.filter(topShown).map((menu): Spec => {
     const at = menu.when ? `${menu.key}[${menu.when}]` : menu.key;
-    return { uid: at, kind: "submenu", text: topTitle(menu), checked: false, enabled: topEnabled(menu), items: specs(entries(menu.items, at, false)), tail: menu.key === "Menu.edit" ? editing() : undefined };
+    return { uid: at, kind: "submenu", text: topTitle(menu), checked: false, enabled: topEnabled(menu), items: specs(entries(menu.items, at, false)) };
   });
 }
 
-/** A modal dialog, or a window that disabled the workbench, holds the window bar inert: the menus
- *  take no click then, as the window's own menu bar takes none. */
-function blocked(): boolean {
-  return document.getElementById("menubar")?.closest("[inert]") !== null;
+/** Runs a menu action as the window's own menus do: the menu or toolbar popup open in the window
+ *  closes first, as a press elsewhere closes it, and nothing runs while a modal dialog, or a window
+ *  that disabled the workbench, holds the window bar inert. */
+function act(run: (() => void) | undefined): void {
+  closeMenus();
+  if (run && !document.getElementById("menubar")?.closest("[inert]")) run();
 }
 
-/** The application menu: 关于 (帮助 > 关于's), the system's items, and 退出. */
-function application(): SubmenuOptions {
-  return {
-    text: "LizzieYzy Tauri",
-    items: [
-      { text: product("macAbout"), action: () => { if (!blocked()) COMMANDS["menu.about"].run(); } },
-      { item: "Separator" },
-      { item: "Services", text: product("macServices") },
-      { item: "Separator" },
-      { item: "Hide", text: product("macHide") },
-      { item: "HideOthers", text: product("macHideOthers") },
-      { item: "ShowAll", text: product("macShowAll") },
-      { item: "Separator" },
-      // A plain item rather than the system's Quit, which ends the program without closing the
-      // window: 退出 (menu.exit) closes it, so the program saves and ends as from its close button.
-      { text: product("macQuit"), accelerator: "CmdOrCtrl+Q", action: () => COMMANDS["menu.exit"].run() },
-    ],
-  };
-}
+/** Menu text as written: the system menus take `&` for a mnemonic mark, `&&` for the character. */
+const menuText = (text: string) => text.replaceAll("&", "&&");
 
 type Handle = Submenu | MenuItem | PredefinedMenuItem | CheckMenuItem | IconMenuItem;
 
@@ -127,15 +97,32 @@ function track(spec: Spec): Shown {
 
 function options(item: Shown): MenuItemOptions | CheckMenuItemOptions | SubmenuOptions | PredefinedMenuItemOptions {
   const { spec } = item;
+  const text = menuText(spec.text);
   switch (spec.kind) {
     case "sep":
       return { item: "Separator" };
-    case "submenu":
-      return { text: spec.text, enabled: spec.enabled, items: [...item.items.map(options), ...(spec.tail ?? [])] };
+    case "submenu": {
+      const items: (MenuItemOptions | CheckMenuItemOptions | SubmenuOptions | PredefinedMenuItemOptions)[] = item.items.map(options);
+      // 编辑 ends with the system's text editing items: the text fields' ⌘Z, ⌘C, ⌘V and the rest
+      // are theirs.
+      if (spec.uid === "Menu.edit") {
+        items.push(
+          { item: "Separator" },
+          { item: "Undo", text: product("macUndo") },
+          { item: "Redo", text: product("macRedo") },
+          { item: "Separator" },
+          { item: "Cut", text: product("macCut") },
+          { item: "Copy", text: product("macCopy") },
+          { item: "Paste", text: product("macPaste") },
+          { item: "SelectAll", text: product("macSelectAll") },
+        );
+      }
+      return { text, enabled: spec.enabled, items };
+    }
     case "check":
-      return { text: spec.text, enabled: spec.enabled, checked: spec.checked, action: () => choose(item) };
+      return { text, enabled: spec.enabled, checked: spec.checked, action: () => choose(item) };
     case "item":
-      return { text: spec.text, enabled: spec.enabled, action: () => choose(item) };
+      return { text, enabled: spec.enabled, action: () => choose(item) };
   }
 }
 
@@ -144,7 +131,7 @@ function options(item: Shown): MenuItemOptions | CheckMenuItemOptions | SubmenuO
 function choose(item: Shown): void {
   if (item.spec.kind === "check") item.spec = { ...item.spec, checked: !item.spec.checked };
   schedule();
-  if (!blocked()) item.spec.run?.();
+  act(item.spec.run);
 }
 
 /** Lets go of the page's hold on a removed item and on everything in it. */
@@ -180,7 +167,7 @@ async function make(spec: Spec): Promise<{ item: Shown; handle: Handle }> {
 async function refresh(item: Shown, spec: Spec): Promise<void> {
   const handle = item.handle;
   if (handle && !(handle instanceof PredefinedMenuItem)) {
-    if (spec.text !== item.spec.text) await counted(handle.setText(spec.text));
+    if (spec.text !== item.spec.text) await counted(handle.setText(menuText(spec.text)));
     if (spec.enabled !== item.spec.enabled) await counted(handle.setEnabled(spec.enabled));
     if (spec.checked !== item.spec.checked && handle instanceof CheckMenuItem) await counted(handle.setChecked(spec.checked));
   }
@@ -249,9 +236,27 @@ function schedule(): void {
 }
 
 /** macOS: puts the menus in the system menu bar in place of the start-up one (src-tauri
- *  install_macos_quit) and keeps them current. */
+ *  install_macos_quit) and keeps them current. The application menu comes first: 关于 (帮助 >
+ *  关于's), the system's items, and 退出. */
 export async function installNativeMenu(): Promise<void> {
-  const menu = await Menu.new({ items: [application()] });
+  const menu = await Menu.new({
+    items: [{
+      text: "LizzieYzy Tauri",
+      items: [
+        { text: product("macAbout"), action: () => act(COMMANDS["menu.about"].run) },
+        { item: "Separator" },
+        { item: "Services", text: product("macServices") },
+        { item: "Separator" },
+        { item: "Hide", text: product("macHide") },
+        { item: "HideOthers", text: product("macHideOthers") },
+        { item: "ShowAll", text: product("macShowAll") },
+        { item: "Separator" },
+        // A plain item rather than the system's Quit, which ends the program without closing the
+        // window: 退出 (menu.exit) closes it, so the program saves and ends as from its close button.
+        { text: product("macQuit"), accelerator: "CmdOrCtrl+Q", action: () => act(COMMANDS["menu.exit"].run) },
+      ],
+    }],
+  });
   const items: Shown[] = [];
   await update(menu, 1, items, menus());
   const before = await menu.setAsAppMenu();

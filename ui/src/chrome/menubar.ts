@@ -35,9 +35,9 @@ let keyboardInput = false;
 document.addEventListener("keydown", () => (keyboardInput = true), true);
 document.addEventListener("pointerdown", () => (keyboardInput = false), true);
 
-/** Closes the open menu. Focus left in it (or lost with it) returns to where it was before the
- *  menus opened, unless another menu takes over (`handover`). */
-function closeMenus(handover = false): void {
+/** Closes the open menu or toolbar popup. Focus left in it (or lost with it) returns to where it
+ *  was before the menus opened, unless another menu takes over (`handover`). */
+export function closeMenus(handover = false): void {
   const menu = openMenu;
   if (!menu) return;
   const focus = document.activeElement;
