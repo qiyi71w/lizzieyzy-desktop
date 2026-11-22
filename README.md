@@ -64,11 +64,11 @@ importing the matching LizzieYzy Next settings.
   Windows; 自定义布局 1 and 2's 设置 and 人机对局(分析模式)'s `?` are items of their own after
   their item; an engine's state (● ready, ◐ loading, ○ otherwise) follows its name. Item names
   keep Java's key hints, such as 保存(Ctrl+S), but the system menu registers no shortcut for
-  Java's items: the keys work as everywhere else. While a dialog is open, Java's items, 关于 and
-  退出 do nothing; the text editing items still work in the dialog's text fields. Choosing an item
-  closes a menu or toolbar popup open in the window. `F10` opens the menus as a panel under the
-  window bar's mark, with the keys above, and function search shows a menu item there. There is
-  no Window menu.
+  Java's items: the keys work as everywhere else. Java's items, 关于 and 退出 first close a menu
+  or toolbar popup open in the window, and do nothing while a dialog is open; the text editing
+  items still work in the dialog's text fields. `F10` opens the menus as a panel under the window
+  bar's mark, with the keys above, and function search shows a menu item there. There is no
+  Window menu.
 - The top and bottom toolbars are each one `Tab` stop: `Left`/`Right` and `Home`/`End` move along
   the bar, `Enter` or `Space` presses the focused button (a disabled one, such as 暂停 outside a
   game, does nothing), and the other keys still reach the shortcuts. The bottom bar's step
