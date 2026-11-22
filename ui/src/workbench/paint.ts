@@ -24,6 +24,7 @@ import { language, t } from "../i18n";
 import { appearance, frameMetrics, onAppearanceChange } from "../appearance/state";
 import { chineseClassicLabel, cssColor, customFont, drawChineseClassicMarkers, javaHue, localeFonts, opaque, rankColor, reverseColor, sameRgba, THEME_DEFAULT, themeColor, themedFont } from "../appearance/model";
 import { stagePalette, stageWallpaper, type StagePalette } from "../design/stage";
+import { skin } from "../design/theme";
 import { CARD_RADIUS, type BoardGeom, type Rect } from "./layout";
 
 const COLS = "ABCDEFGHJKLMNOPQRSTUVWXYZ";
@@ -744,21 +745,23 @@ function scoreDiff(diff: number): string {
 const RANK_RADIUS: Record<MoveRank, number> = { Best: 0.1, Good: 0.1, Normal: 0.1225, Inaccuracy: 0.145, Mistake: 0.1675, Blunder: 0.19 };
 
 /** Selection squares: allowed blue, avoided red, alpha 45 (BoardRenderer.java:1172-1177,
- *  1201-1212). */
+ *  1201-1212); under Java 柔和 Java's Morandi teal and red. */
 const REGION_COLOR = { allow: "rgba(0,0,120,0.1765)", avoid: "rgba(120,0,0,0.1765)" };
+const MORANDI_REGION_COLOR = { allow: "rgba(120,168,168,0.1765)", avoid: "rgba(176,112,112,0.1765)" };
 
 /** drawAllSelectedRectByCoords and the dragged drawSelectedRect: a square of the square width
  *  centred on each point, the dragged rectangle over the points it covers. */
 function drawRegion(g: CanvasRenderingContext2D, s: BoardScene, X: (x: number) => number, Y: (y: number) => number, sq: number, report: BoardReport): void {
   const half = i(sq / 2);
+  const colors = skin() === "soft" ? MORANDI_REGION_COLOR : REGION_COLOR;
   if (s.region?.points.length) {
-    g.fillStyle = s.region.allow ? REGION_COLOR.allow : REGION_COLOR.avoid;
+    g.fillStyle = s.region.allow ? colors.allow : colors.avoid;
     for (const p of s.region.points) g.fillRect(X(p.x) - half, Y(p.y) - half, sq, sq);
     report.region = { allow: s.region.allow, points: s.region.points.length };
   }
   const d = s.selecting;
   if (d) {
-    g.fillStyle = d.allow ? REGION_COLOR.allow : REGION_COLOR.avoid;
+    g.fillStyle = d.allow ? colors.allow : colors.avoid;
     g.fillRect(X(d.from.x) - half, Y(d.from.y) - half, sq * (d.to.x - d.from.x + 1), sq * (d.to.y - d.from.y + 1));
     report.selecting = d;
   }
@@ -784,7 +787,7 @@ function drawTracking(g: CanvasRenderingContext2D, s: BoardScene, X: (x: number)
     const cx = X(x), cy = Y(y);
     const marker: BoardReport["tracked"][number] = { x, y, outline: null, progress: null, cancelling: false };
     if (s.tracking.showOutline) {
-      marker.outline = p.rank ? rankColor(p.rank) : "rgb(112,118,124)";
+      marker.outline = p.rank ? rankColor(p.rank, skin()) : "rgb(112,118,124)";
       g.globalAlpha = s.tracking.outlineOpacity / 100;
       g.setLineDash([Math.max(4.5, sq * 0.14), Math.max(3, sq * 0.09)]);
       g.lineWidth = qualityWidth;
@@ -1746,7 +1749,7 @@ function drawRankMarks(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardGeo
   const hiddenByBranch = (p: number) => !!preview && (!preview.stones[p] || preview.numbers.has(p));
   for (const m of s.overlay.ranks) {
     if (hiddenByBranch(m.point.y * cols + m.point.x)) continue;
-    g.fillStyle = rankColor(m.rank);
+    g.fillStyle = rankColor(m.rank, skin());
     // drawMoveRankMarkCircle (BoardRenderer.java:644-657): the last move's mark is the triangle
     // with stone-indicator-type 0.
     if (m.last && look.indicator === 0) indicatorTriangle(g, X(m.point.x), Y(m.point.y), r, true);
@@ -2158,7 +2161,7 @@ const FIGURES_GAP = 10;
 
 /** A resource label used as a figure's name: without its trailing colon. */
 function nameOf(label: string): string {
-  return label.replace(/\\?[:：]\s*$/, "").trim();
+  return label.replace(/[:：]\s*$/, "").trim();
 }
 
 /** Width of `figures` side by side, names at `label` px and figures at `size` px. */

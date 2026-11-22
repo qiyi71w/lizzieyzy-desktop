@@ -85,7 +85,19 @@ pub fn list_url(category: LiveCategory, page: u32, since: i64) -> String {
     )
 }
 
-/// One row of the live list (`YikeLiveGame`) with the texts the table shows.
+/// 胜率 of a game under realtime analysis (`YikeLiveGame.winrateText`'s numbers): the UI words them
+/// in the interface language.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, TS)]
+pub struct LiveWinrate {
+    /// `BlackWinRate`, in percent.
+    pub black: f64,
+    /// `100 - BlackWinRate`, kept within 0..=100.
+    pub white: f64,
+    /// `Delta` in points; `None` within 0.01 of 0, which the column leaves out.
+    pub score: Option<f64>,
+}
+
+/// One row of the live list (`YikeLiveGame`) with what the table shows.
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
 pub struct LiveGameView {
     /// 状态: `*` for a pinned game, then 直播预告 / 正在直播 / the result or 已结束 / 未知.
@@ -99,8 +111,8 @@ pub struct LiveGameView {
     pub white: String,
     /// 手数.
     pub hands: i64,
-    /// 胜率: empty without realtime analysis.
-    pub rate: String,
+    /// 胜率: `None` without realtime analysis or a black win rate.
+    pub rate: Option<LiveWinrate>,
     /// 关注.
     pub attention: String,
     /// The room the 同步 button follows (`toRoomUrl`); `None` for a preview without moves
@@ -132,23 +144,6 @@ fn float(item: &Value, key: &str, default: f64) -> f64 {
         Some(Value::String(s)) => s.trim().parse().unwrap_or(default),
         _ => default,
     }
-}
-
-/// Java `DecimalFormat("0.#")`: at most one decimal, half-even, no trailing zero.
-fn rate(value: f64) -> String {
-    let scaled = value * 10.0;
-    let rounded = {
-        let floor = scaled.floor();
-        let diff = scaled - floor;
-        if (diff - 0.5).abs() < 1e-9 {
-            if floor % 2.0 == 0.0 { floor } else { floor + 1.0 }
-        } else {
-            scaled.round()
-        }
-    } / 10.0;
-    let text = format!("{rounded:.1}");
-    let text = text.strip_suffix(".0").unwrap_or(&text).to_string();
-    if text == "-0" { "0".into() } else { text }
 }
 
 fn blank(s: &str) -> bool {
@@ -184,16 +179,12 @@ fn live_game(item: &Value) -> LiveGameView {
     };
     let black_rate = float(item, "BlackWinRate", -1.0);
     let delta = float(item, "Delta", 0.0);
-    let rate_text = if int(item, "RealtimeAnalysisFlag", 0) != 1 || black_rate < 0.0 {
-        String::new()
-    } else {
-        let white = (100.0 - black_rate).clamp(0.0, 100.0);
-        let mut s = format!("黑 {}% / 白 {}%", rate(black_rate), rate(white));
-        if delta.abs() > 0.01 {
-            s.push_str(&format!(" / {}目", rate(delta)));
-        }
-        s
-    };
+    let realtime = int(item, "RealtimeAnalysisFlag", 0) == 1 && black_rate >= 0.0;
+    let rate = realtime.then(|| LiveWinrate {
+        black: black_rate,
+        white: (100.0 - black_rate).clamp(0.0, 100.0),
+        score: (delta.abs() > 0.01).then_some(delta),
+    });
     let pinned = if int(item, "TopFlag", 0) == 1 { "*" } else { "" };
     let room_path = if version == 2 { "new-room" } else { "room" };
     let room_url = (!(status == 1 && hands <= 0)).then(|| {
@@ -210,7 +201,7 @@ fn live_game(item: &Value) -> LiveGameView {
         black: player("BlackName", "BlackCounty"),
         white: player("WhiteName", "WhiteCounty"),
         hands,
-        rate: rate_text,
+        rate,
         attention: int(item, "PersonTimes", 0).to_string(),
         room_url,
     }

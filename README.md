@@ -654,7 +654,10 @@ importing the matching LizzieYzy Next settings.
   open 综合设置 at 棋盘与显示, whose 启动时加载 rows
   (窗口总在最前, 显示快速启动, 显示状态面板, 显示小棋盘, 窗口标题显示胜率) apply with 保存设置. Panel
   sizes and the bottom toolbar mode are window placement (`persist.json`),
-  cleared by 重置界面位置. While 综合设置 is open, however it was opened, no engine analyses; when
+  cleared by 重置界面位置. When 综合设置 is too narrow for its section list beside the page (the
+  smallest window, or a large 界面字体大小), the search field moves above the page and the section
+  list becomes a column of icons, each named in its tooltip, so the page keeps the room for its
+  rows. While 综合设置 is open, however it was opened, no engine analyses; when
   the dialog closes (保存设置 or 取消) analysis goes on as before: a game, an engine match or
   自动分析 continues, and analysis the user paused stays paused.
 - 快速启动 (shown in the menu bar while 综合设置 > 显示快速启动 is on; off by default): one item
@@ -698,8 +701,8 @@ importing the matching LizzieYzy Next settings.
   Java. Java's 界面样式 row (Swing look and feel) has no counterpart here, and the form does not open
   by itself on first start.
 - Appearance (Java defaults; saved and taken over by the LizzieYzy Next import):
-  - 设置 > 主题 opens 综合设置 > 主题外观: the theme (默认 plus the bundled Java 经典, sabaki,
-    yasnaya, Megapack, Custom and Fast, and the user's own), a preview of the edited background, board and
+  - 设置 > 主题 opens 综合设置 > 主题外观: the theme (默认 plus the bundled Java 经典, Java 柔和,
+    sabaki, yasnaya, Megapack, Custom and Fast, and the user's own), a preview of the edited background, board and
     stones, line widths, the stone shadow (its size a percentage of the stone radius), the three fonts (计算量及其他字体, UI 字体, 胜率目数字体;
     Lizzie默认, 系统默认 or a system font), the board and the stones (below), pure-colour
     background / board / stones and the image files of every theme, 默认 included (Java fixes the
@@ -714,7 +717,7 @@ importing the matching LizzieYzy Next settings.
     reopens it, and 添加 (a new theme) and 删除 take effect at once and reopen the dialog,
     dropping unsaved edits on the other pages; the 当前主题 row and 删除's confirmation say so
     first, and 删除 is in red. A new theme's name must differ from every listed theme, including
-    默认 and Java 经典 in any interface language. Saving a named theme writes the page's values
+    默认, Java 经典 and Java 柔和 in any interface language. Saving a named theme writes the page's values
     over that theme's `theme.txt` and keeps the keys the page does not edit, as Java does.
     Bundled themes are read-only: deleting one hides it, and edits are kept as the user's copy.
     The live preview shows the background the workbench would draw (the linen wallpaper for the
@@ -725,6 +728,12 @@ importing the matching LizzieYzy Next settings.
     as Java's glass, Java's comment background, and Java's colours for the win-rate graph, the variation tree, the stones' markers
     and the candidate list (Java's white table). Every other theme keeps the program's own
     colours.
+  - Java 柔和 is a bundled theme with the same values and images as Java 经典, shown in the
+    colours Java draws with its Morandi switch (`use-morandi-colors`): warm grey bars, cream
+    dialogs, menus, fields and table, charcoal text and hairlines, and Java's Morandi colours for
+    the move-rank marks on the board, the candidate list's loss levels and the region selection.
+    Like Java's Morandi palette it keeps Java 经典's teal accent, its status colours (the danger
+    red included) and its dark workbench with the win-rate graph and variation tree.
   - 棋盘 and 棋子 on 主题外观 are chosen from thumbnails: every board and stone set the program
     ships (默认, sabaki, yasnaya, Megapack, Custom and Fast; a picture two bundled themes share
     shows once), 纯色, and 其他图片…, which opens the file chooser; the paths stay editable for
@@ -737,7 +746,7 @@ importing the matching LizzieYzy Next settings.
     (buttons, fields, menus and the bars' capsules; dialogs and tables take a shade between the
     two), 强调色 (primary buttons, selection, switches, focus ring) and 文字颜色 (text and icons,
     with separators, hover shading and the secondary text steps derived from it). A colour left
-    unset, or reset with 恢复默认, keeps the theme's skin (the program's own, or Java 经典's);
+    unset, or reset with 恢复默认, keeps the theme's skin (the program's own, or a Java theme's);
     nothing checks contrast, the colours are used as chosen. All windows follow at once. The
     workbench's panels, the board and the stones keep their own colours, and the danger red stays.
     A named theme stores them in its `theme.txt` (`ui-chrome-color`, `ui-control-color`,
@@ -749,10 +758,12 @@ importing the matching LizzieYzy Next settings.
     numerals counted from the nearer edge as coordinates) and a custom board image (scaled to
     cover the main board under a light shade; the sub board keeps the theme's board) with its 清除
     entry. 外观模式 (跟随系统 / 浅色 / 深色, default 浅色) is saved, and the LizzieYzy Next import
-    takes Java's Apple style (`is-apple-style`) on as 深色 and off as 跟随系统; its Morandi colour
-    switch (`use-morandi-colors`) is reported as not carried over. While the dark interface is
-    unfinished, every window shows the light one whatever the saved mode, and neither the menu nor
-    功能搜索 offers 外观模式.
+    takes Java's Apple style (`is-apple-style`) on as 深色 and off as 跟随系统. Its Morandi colour
+    switch (`use-morandi-colors`) on, with Java's default theme, imports as the theme Java 柔和,
+    which also receives the imported theme values (the 默认 theme keeps them too); with a named
+    Java theme that theme stays chosen and the switch is reported as not carried over. While the
+    dark interface is unfinished, every window shows the light one whatever the saved mode, and
+    neither the menu nor 功能搜索 offers 外观模式.
   - 设置 > 界面字体大小 (12, 16, 20 or 自定义 12-20) sets, from the next start, the interface's
     type: captions at that size and body text 1 px larger on macOS and 2 px larger on Windows and
     Linux (13 and 14 px at the default 12), in the menus, toolbars, panels, the main 选点 list and
@@ -1357,7 +1368,9 @@ importing the matching LizzieYzy Next settings.
   (the change columns cycle largest change, largest gain, largest loss; the header shows `|Δ|`
   and an arrow, or the arrow alone, and names the order). 胜率吻合 labels its win-rate scale on
   the left and, with KataGo data, its score scale (`B+` / `W+`) on the right; its readouts carry
-  their units. A move counts only when
+  their units. The score readout moves beside the win-rate one where the two would overlap, and
+  the current move's readouts show from move 2 without a mouse-over and stay inside the chart
+  (Java left them out near the start, measuring against an absent mouse-over). A move counts only when
   the position before it is analysed, its losses only when both positions are, and a
   first-candidate move loses nothing. 列表筛选 sets the win-rate / score / visits thresholds of
   the lists and 置顶当前手; 统计阈值 sets the loss bands; 分支 chooses the main trunk or the current
@@ -1372,7 +1385,9 @@ importing the matching LizzieYzy Next settings.
   NaN, or 0 for a stage's loss. 关于吻合度's formula image carries the same formula as text for
   screen readers and sits in the dialog's own ground in either colour mode.
   Right-click a list for 导出为xls (a UTF-16
-  tab-separated file named `.xls`, as Java writes it). `Q` keeps the window on top. The page and
+  tab-separated file named `.xls`, as Java writes it); the menu key or `Shift+F10` on a list opens
+  the same menu under the chosen row, and it takes the menus' keys (`Up`/`Down`, `Enter`, `Esc`,
+  focus back where it was). `Q` keeps the window on top. The page and
   chart tabs, the filters and the 统计 range (radio buttons) are reached with `Tab`; in a tab row
   `Left`/`Right`, `Home`/`End` choose the tab, and `Y`/`Q` work everywhere except in a text field.
   Each list's header row and body are a `Tab` stop each: in the header `Left`/`Right` choose a
@@ -1605,7 +1620,10 @@ importing the matching LizzieYzy Next settings.
   - 弈客直播 (`Shift+O`) opens 弈客直播中心: the 推荐 / 地方 / 个人 lists with Java's columns,
     filtering, sorting (by clicking a header, or `Tab` to the header row, `←`/`→` and `Enter`),
     刷新 / 更多, and 同步 (or double-click / Enter) to follow a room. A window too narrow for
-    every column scrolls sideways rather than cut 对局 and the players below four characters.
+    every column scrolls sideways rather than cut 对局 and the players below four characters. The
+    胜率 column reads in the interface language (`Black 1.3% / White 98.7% / -8.9pts`); Java wrote
+    黑 / 白 / 目 in every language. As in Java it is empty without the room's realtime analysis and
+    leaves the score out when it is 0.
   - A followed source only writes the main line. Your variations, comments and marks stay. The
     cursor follows a new move only from the live end, on the first sync, or with
     同步 > 有新的一手时总是跳转到最新一手. Java replaced the whole game on every update, losing
@@ -1776,7 +1794,10 @@ binary with its output and exits non-zero, like `cargo test --no-fail-fast`.
   through `java_text`, and the function catalog's keys; a function's `FunctionSearch.*` aliases and
   description only while the catalog lists the function. `CORRECTIONS` in the script replaces the
   Java entries this product corrects (wrong score-lead wording, slang, a request phrased as a
-  button). Strings this product adds to Java's menus and catalog are kept by hand, in all six
+  button, the `Shif+X` typo, and the Thai, Korean, Japanese and Chinese entries that Java's bundles
+  escape twice, so that Java shows a stray backslash before `:`, `=`, `!`, `"`, a leading space or a
+  `\uXXXX` sequence). The function catalog keeps the same corrected texts
+  (`tools/function_catalog/README.md`). Strings this product adds to Java's menus and catalog are kept by hand, in all six
   languages, in `ui/src/i18n/productStrings.json`; the script does not touch that file.
 
 ### Commands, settings rows and function search

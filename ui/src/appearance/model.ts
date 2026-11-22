@@ -2,11 +2,21 @@
 // derived colours, font roles, the 中式经典 board style and the 错误节点 rules. Pure functions only;
 // the active committed values live in ./state.
 import type { Language, MoveRank } from "../contract/generated";
+import type { Skin } from "../design/theme";
 
 export const DEFAULT_THEME = "default";
 /** The bundled theme with Java's own default values; while it is the committed theme the interface
  *  takes Java's colours and wallpaper (design/theme.ts skin "java"). */
 export const JAVA_CLASSIC_THEME = "java-classic";
+/** The bundled theme with Java's default values under Java's Morandi palette (ui.use-morandi-colors);
+ *  while it is the committed theme the interface takes those colours (skin "soft"). */
+export const JAVA_SOFT_THEME = "java-soft";
+
+/** The skin a theme selects: the bundled Java themes theirs, every other theme the program's. */
+export function themeSkin(theme: string): Skin {
+  return theme === JAVA_CLASSIC_THEME ? "java" : theme === JAVA_SOFT_THEME ? "soft" : "modern";
+}
+
 /** ConfigDialog2.getFontItemName (ConfigDialog2.java:6374-6380): combo index 0 and 1. */
 export const LIZZIE_DEFAULT_FONT = "Lizzie Default";
 export const SYSTEM_DEFAULT_FONT = "Dialog.plain";
@@ -53,7 +63,8 @@ export function reverseColor(c: readonly number[]): number[] {
   return [255 - c[0], 255 - c[1], 255 - c[2]];
 }
 
-/** MoveRankDefinition.Rank colours (MoveRankDefinition.java:22-65). */
+/** MoveRankDefinition.Rank colours (MoveRankDefinition.java:22-65): Java's own, and under Java 柔和
+ *  its Morandi ones (color(useMorandiColors), 101-103; MorandiPalette.SUGGESTION_*). */
 const RANK_COLOR: Record<MoveRank, string> = {
   Best: "rgb(0,180,0)",
   Good: "rgb(140,202,34)",
@@ -62,8 +73,16 @@ const RANK_COLOR: Record<MoveRank, string> = {
   Mistake: "rgb(208,16,19)",
   Blunder: "rgb(155,25,150)",
 };
-export function rankColor(rank: MoveRank): string {
-  return RANK_COLOR[rank];
+const MORANDI_RANK_COLOR: Record<MoveRank, string> = {
+  Best: "rgb(120,168,168)",
+  Good: "rgb(142,172,130)",
+  Normal: "rgb(198,186,138)",
+  Inaccuracy: "rgb(192,155,120)",
+  Mistake: "rgb(176,112,112)",
+  Blunder: "rgb(148,126,158)",
+};
+export function rankColor(rank: MoveRank, skin: Skin): string {
+  return (skin === "soft" ? MORANDI_RANK_COLOR : RANK_COLOR)[rank];
 }
 
 /** A configured font family ahead of the role's default stack. "Lizzie Default" (or empty) keeps the

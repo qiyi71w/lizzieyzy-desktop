@@ -242,8 +242,10 @@
    glass panels over that wallpaper (overlay rgba(24,24,26,102) on panels already shaded), and the
    comment pane adds Java's comment layer (rgba(0,0,0,200) over the wallpaper) on its card. Graph,
    tree and marker colours are Java's defaults (Theme.java, WinrateGraph.java, VariationTree.java),
-   lifted where Java's own value would vanish on the dark glass (the miss line, the comment ring). */
-:root[data-skin="java"] [data-theme="dark"] {
+   lifted where Java's own value would vanish on the dark glass (the miss line, the comment ring).
+   Java 柔和 shares them: Java's Morandi palette leaves the wallpaper, the glass and these colours. */
+:root[data-skin="java"] [data-theme="dark"],
+:root[data-skin="soft"] [data-theme="dark"] {
   --ws-panel: rgba(16, 18, 20, 0.62);
   --ws-panel-line: rgba(255, 255, 255, 0.1);
   --ws-panel-solid: rgba(28, 31, 34, 0.92);
@@ -306,9 +308,12 @@
    in AppleStyleSupport classic) inside the dark workbench. Cool neutral hairlines and chart lines
    for the program's wood-toned ones (MoveListFrame's grey grid), the dialog surface under headers,
    a cool grey 占比 underline and the actual move's loss level at Java's own alphas over white. The
-   list repeats the light Java design tokens it reads, since the workbench around it is dark. */
+   list repeats the light Java design tokens it reads, since the workbench around it is dark. Java
+   柔和 starts from these values; its own follow below. */
 :root[data-skin="java"],
-:root[data-skin="java"] #table {
+:root[data-skin="java"] #table,
+:root[data-skin="soft"],
+:root[data-skin="soft"] #table {
   --ds-text: #1f2926;
   --ds-text-3: #55635e;
   --ds-hover: rgba(20, 30, 40, 0.06);
@@ -343,9 +348,36 @@
   --ws-rank-6-strong: rgba(0, 180, 0, 0.39);
 }
 
-/* Java 经典 keeps the program's own 超级鹰眼 and 棋力评估 chart colours (the light set above): the
-   change classes, loss classes and 吻合 areas, the strength bars, windows and move ranks. */
-:root[data-skin="java"] {
+/* Java 柔和's candidate list and light windows: Java's table in its Morandi palette
+   (LizzieFrame.java:2697-2711, 15017-15104): the cream workspace surface under TABLE_ROW_ODD for
+   its ground, the cream dialog surface under headers, charcoal text, and the actual move's loss
+   level in MorandiPalette's SUGGESTION_*_LIGHT and _ALPHA colours. */
+:root[data-skin="soft"],
+:root[data-skin="soft"] #table {
+  --ds-text: #3e3a39;
+  --ds-hover: rgba(62, 58, 57, 0.11);
+  --ws-table-ground: #ece7e0;
+  --ws-panel-solid: #f0ebe4;
+  --ws-graph-text: #3e3a39;
+  --ws-on-white: #3e3a39;
+  --ws-rank-1: rgba(148, 126, 158, 0.27);
+  --ws-rank-1-strong: rgba(148, 126, 158, 0.47);
+  --ws-rank-2: rgba(176, 112, 112, 0.2);
+  --ws-rank-2-strong: rgba(176, 112, 112, 0.39);
+  --ws-rank-3: rgba(192, 155, 120, 0.2);
+  --ws-rank-3-strong: rgba(192, 155, 120, 0.39);
+  --ws-rank-4: rgba(198, 186, 138, 0.2);
+  --ws-rank-4-strong: rgba(198, 186, 138, 0.39);
+  --ws-rank-5: rgba(142, 172, 130, 0.2);
+  --ws-rank-5-strong: rgba(142, 172, 130, 0.39);
+  --ws-rank-6: rgba(120, 168, 168, 0.24);
+  --ws-rank-6-strong: rgba(120, 168, 168, 0.39);
+}
+
+/* The Java skins keep the program's own 超级鹰眼 and 棋力评估 chart colours (the light set above):
+   the change classes, loss classes and 吻合 areas, the strength bars, windows and move ranks. */
+:root[data-skin="java"],
+:root[data-skin="soft"] {
   --ws-hawkeye-diff-gain: #006462;
   --ws-hawkeye-diff-even: #29653c;
   --ws-hawkeye-diff-1: #824b14;

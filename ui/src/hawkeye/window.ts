@@ -9,6 +9,7 @@ import type { Command, DisplaySettings, HawkeyePeriod, HawkeyeSettings, MoveEval
 import { product, registerProduct, setLanguage, t } from "../i18n";
 import { bindColumnResize, layoutColumns, namedFace } from "../analysis/suggestionsFrame";
 import { icon } from "../design/icons";
+import { activateFirst, bindMenuRows, menuKey } from "../chrome/menuKeys";
 import { frameCoordinate, playouts } from "../workbench/paint";
 import { mountCharts, tabList, type ChartPanel } from "./charts";
 import { dialogTargets, openDialog, openSetThreshold, openStatisticsThreshold, openMatchAiHelp, refreshDialogs } from "./dialogs";
@@ -224,7 +225,7 @@ class ListTable {
   /** The column the rows are sorted by (-1: none). */
   private sorted = -1;
 
-  constructor(key: string, private readonly categorical: number[], onSort: (column: number) => void, onRow: (row: Row) => void, onMenu: (x: number, y: number) => void, onColumns?: (w: number[]) => void) {
+  constructor(key: string, private readonly categorical: number[], onSort: (column: number) => void, onRow: (row: Row) => void, onMenu: (x: number, y: number, keyboard: boolean) => void, onColumns?: (w: number[]) => void) {
     this.scroll.className = "hk-scroll";
     this.scroll.dataset.key = key;
     const thead = document.createElement("thead");
@@ -303,7 +304,18 @@ class ListTable {
     });
     this.scroll.addEventListener("contextmenu", (ev) => {
       ev.preventDefault();
-      if ((ev.target as HTMLElement).closest("tbody, thead") || ev.target === this.scroll) onMenu(ev.clientX, ev.clientY);
+      if ((ev.target instanceof Element && ev.target.closest("tbody, thead")) || ev.target === this.scroll) onMenu(ev.clientX, ev.clientY, false);
+    });
+    // The menu key or Shift+F10 opens the same menu from the keyboard, under the selected row (or
+    // the focused header), with its item active.
+    this.scroll.addEventListener("keydown", (ev) => {
+      if (ev.ctrlKey || ev.altKey || ev.metaKey || !(ev.key === "ContextMenu" || (ev.key === "F10" && ev.shiftKey))) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      const at = ev.target instanceof HTMLTableCellElement ? ev.target : this.body.rows[this.cursor] ?? this.body;
+      const r = at.getBoundingClientRect();
+      const view = this.scroll.getBoundingClientRect();
+      onMenu(Math.max(r.left, view.left), Math.min(Math.max(r.bottom, view.top), view.bottom), true);
     });
   }
 
@@ -528,40 +540,75 @@ function mount(send: (input: HawkeyeInput) => void): (payload: HawkeyePayload) =
     reportLayout();
     render();
   };
+  // The lists' JPopupMenu (导出), drawn and operated like the main window's menus (chrome/menuKeys):
+  // Up / Down / Home / End move, Enter / Space run the item, Escape closes. Opened by a key it
+  // starts with its item active; it closes on a press or the wheel outside it, Escape, the window
+  // losing focus or resizing, and the focus goes back where it was.
   let menuTable: ListTable | null = null;
+  let menuFocusBefore: Element | null = null;
   const menu = document.createElement("div");
   menu.className = "hk-menu";
   menu.hidden = true;
   const exportItem = document.createElement("div");
+  exportItem.className = "mi";
   exportItem.textContent = t("JTabel.export");
   exportItem.dataset.key = "hawkeye.export";
   exportItem.onclick = () => {
-    menu.hidden = true;
+    closeMenu();
     if (menuTable) run({ type: "ExportTable", rows: menuTable.exportRows() });
   };
   menu.append(exportItem);
-  const showMenu = (table: ListTable) => (x: number, y: number) => {
+  bindMenuRows(menu);
+  const closeMenu = () => {
+    if (menu.hidden) return;
+    const focus = document.activeElement;
+    const lost = !focus || focus === document.body || menu.contains(focus);
+    menu.hidden = true;
+    menu.querySelectorAll(".mi.active").forEach((row) => row.classList.remove("active"));
+    const before = menuFocusBefore;
+    menuFocusBefore = null;
+    if (lost && before instanceof HTMLElement && before.isConnected) before.focus({ preventScroll: true });
+  };
+  const showMenu = (table: ListTable) => (x: number, y: number, keyboard: boolean) => {
+    if (menu.hidden) menuFocusBefore = document.activeElement;
     menuTable = table;
+    menu.querySelectorAll(".mi.active").forEach((row) => row.classList.remove("active"));
     menu.hidden = false;
-    // Inside the window, beside the pointer.
+    // Inside the window, beside the pointer (or the row the key was pressed on).
     menu.style.left = `${Math.max(0, Math.min(x, window.innerWidth - menu.offsetWidth))}px`;
     menu.style.top = `${Math.max(0, Math.min(y, window.innerHeight - menu.offsetHeight))}px`;
+    if (keyboard) activateFirst(menu);
   };
-  document.addEventListener("mousedown", (ev) => {
-    if (!menu.contains(ev.target as Node)) menu.hidden = true;
-  });
+  const outside = (ev: Event) => {
+    if (!menu.hidden && !(ev.target instanceof Node && menu.contains(ev.target))) closeMenu();
+  };
+  document.addEventListener("mousedown", outside, true);
+  document.addEventListener("wheel", outside, { capture: true, passive: true });
+  document.addEventListener(
+    "keydown",
+    (ev) => {
+      if (!menu.hidden && menuKey(ev, menu, closeMenu)) {
+        ev.stopPropagation();
+        ev.preventDefault();
+      }
+    },
+    true,
+  );
+  menu.addEventListener("contextmenu", (ev) => ev.preventDefault());
+  window.addEventListener("blur", closeMenu);
+  window.addEventListener("resize", closeMenu);
 
   const katago = () => !!data?.pane.katago;
   const minSort = (column: number) => sortBy(column, column === 2 || (katago() && column === 3));
-  const black: ListTable = new ListTable("hawkeye.simple.black", [1], minSort, onRow, (x, y) => showMenu(black)(x, y));
-  const white: ListTable = new ListTable("hawkeye.simple.white", [1], minSort, onRow, (x, y) => showMenu(white)(x, y));
+  const black: ListTable = new ListTable("hawkeye.simple.black", [1], minSort, onRow, (x, y, keyboard) => showMenu(black)(x, y, keyboard));
+  const white: ListTable = new ListTable("hawkeye.simple.white", [1], minSort, onRow, (x, y, keyboard) => showMenu(white)(x, y, keyboard));
   simplePage.append(black.scroll, white.scroll);
   const detail: ListTable = new ListTable(
     "hawkeye.detail",
     [0, 2],
     (column) => sortBy(column, column === 3 || (katago() && column === 4)),
     onRow,
-    (x, y) => showMenu(detail)(x, y),
+    (x, y, keyboard) => showMenu(detail)(x, y, keyboard),
     () => reportLayout(),
   );
   detailPage.append(detail.scroll);

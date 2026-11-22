@@ -113,7 +113,14 @@ pub const BUNDLED: &[(&str, &str)] = &[
     ("Fast",include_str!("../../../ui/public/themes/Fast/theme.txt")),
     // Java's own 默认 values (Theme.java getters, Config.createDefaultConfig) with the jar's images.
     ("java-classic",include_str!("../../../ui/public/themes/java-classic/theme.txt")),
+    // The same values: Java's Morandi palette (经典配色 off) changes the interface, not the theme.
+    (JAVA_SOFT,include_str!("../../../ui/public/themes/java-soft/theme.txt")),
 ];
+/// The bundled theme of Java's Morandi palette (its 经典配色 off).
+pub const JAVA_SOFT: &str = "java-soft";
+/// The bundled themes whose name chooses the interface skin (Java's classic colours, its Morandi
+/// palette). Each name stays its bundled theme's even after that is deleted (hidden).
+pub const SKIN_THEMES: [&str; 2] = ["java-classic",JAVA_SOFT];
 pub fn themes_dir(storage: &Storage) -> PathBuf { storage.config_file.parent().unwrap_or(Path::new(".")).join("themes") }
 pub fn valid_name(name: &str) -> bool {
     !name.trim().is_empty() && name == name.trim() && !matches!(name,"."|"..") && !name.eq_ignore_ascii_case(".images")
@@ -281,8 +288,7 @@ pub fn catalog(storage: &Storage, defaults: &ThemeSettings) -> Vec<ThemeEntry> {
     names.into_iter().map(|name|ThemeEntry{values:load_theme(storage,&name,defaults),name}).collect()
 }
 pub fn add_theme(storage: &Storage, name: &str) -> std::io::Result<()> {
-    // "java-classic" stays the bundled theme's name even after it is deleted (hidden).
-    if !valid_name(name) || name.eq_ignore_ascii_case("default") || name.eq_ignore_ascii_case("java-classic")
+    if !valid_name(name) || name.eq_ignore_ascii_case("default") || SKIN_THEMES.iter().any(|t| name.eq_ignore_ascii_case(t))
         || catalog(storage,&ThemeSettings::default()).iter().any(|e|e.name.eq_ignore_ascii_case(name)) {
         return Err(std::io::Error::other("invalid or duplicate theme name"));
     }
@@ -509,26 +515,37 @@ impl Drop for ImageCopies {
         for dir in &self.created { let _ = std::fs::remove_dir(dir); }
     }
 }
-pub(crate) fn capture_external_images(storage: &Storage, settings: &mut AppearanceSettings, theme: &mut ThemeSettings) -> std::io::Result<ImageCopies> {
+/// The copy [`capture_external_images`] keeps of the picture `value` names (a `data:` URL, or an
+/// absolute file other than the program's own images): its path under `root` and its bytes.
+/// `None` for a value used as it is.
+fn owned_image(root: &Path, value: &str) -> std::io::Result<Option<(PathBuf, Vec<u8>)>> {
     use sha2::{Digest, Sha256};
+    let path = Path::new(value);
+    if value.is_empty() || (path.starts_with(root) && path.is_file()) { return Ok(None); }
+    let bytes = if value.starts_with("data:image/") {
+        let (_, data) = value.split_once(',').ok_or_else(||std::io::Error::other("invalid image data"))?;
+        base64::engine::general_purpose::STANDARD.decode(data).map_err(std::io::Error::other)?
+    } else if path.is_absolute() && !value.starts_with("/assets/") && !value.starts_with("/themes/") {
+        std::fs::read(path)?
+    } else { return Ok(None); };
+    let format = image::guess_format(&bytes).map_err(std::io::Error::other)?;
+    image::load_from_memory_with_format(&bytes, format).map_err(std::io::Error::other)?;
+    Ok(Some((root.join(format!("{:x}.{}", Sha256::digest(&bytes), format.extensions_str()[0])), bytes)))
+}
+/// The name the picture `value` has once [`capture_external_images`] keeps it; `value` itself
+/// when that keeps it as it is (or cannot read it).
+pub(crate) fn owned_image_name(storage: &Storage, value: &str) -> String {
+    owned_image(&themes_dir(storage).join(".images"), value).ok().flatten()
+        .map_or_else(|| value.to_string(), |(file,_)| file.to_string_lossy().into_owned())
+}
+pub(crate) fn capture_external_images(storage: &Storage, settings: &mut AppearanceSettings, theme: &mut ThemeSettings) -> std::io::Result<ImageCopies> {
     let root = themes_dir(storage).join(".images");
     // Innermost first, so removing them in order empties the parent.
     let created = [root.clone(), themes_dir(storage)].into_iter().filter(|d| !d.exists()).collect();
     let mut copies = ImageCopies { files: Vec::new(), created };
     for value in [&mut settings.custom_board_image, &mut settings.custom_background_image,
         &mut theme.board_image, &mut theme.background_image, &mut theme.black_stone_image, &mut theme.white_stone_image] {
-        if value.is_empty() { continue; }
-        let path = Path::new(value.as_str());
-        if path.starts_with(&root) && path.is_file() { continue; }
-        let bytes = if value.starts_with("data:image/") {
-            let (_, data) = value.split_once(',').ok_or_else(||std::io::Error::other("invalid image data"))?;
-            base64::engine::general_purpose::STANDARD.decode(data).map_err(std::io::Error::other)?
-        } else if path.is_absolute() && !value.starts_with("/assets/") && !value.starts_with("/themes/") {
-            std::fs::read(path)?
-        } else { continue; };
-        let format = image::guess_format(&bytes).map_err(std::io::Error::other)?;
-        image::load_from_memory_with_format(&bytes, format).map_err(std::io::Error::other)?;
-        let file = root.join(format!("{:x}.{}", Sha256::digest(&bytes), format.extensions_str()[0]));
+        let Some((file,bytes)) = owned_image(&root,value)? else { continue };
         if !file.is_file() { settings::write_atomic(&file, &bytes)?; copies.files.push(file.clone()); }
         *value = file.to_string_lossy().into_owned();
     }

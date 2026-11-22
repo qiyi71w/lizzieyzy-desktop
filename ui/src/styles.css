@@ -793,7 +793,7 @@ body {
   padding: 0 28px 0 0;
   border-radius: var(--ds-radius-s);
 }
-/* The active row: the one under the pointer or reached by the keys (menubar.ts setActiveRow). Its
+/* The active row: the one under the pointer or reached by the keys (menuKeys.ts setActiveRow). Its
    wash is the focus indicator, so a focused row draws no ring; a row located by function search
    keeps its gold line. */
 .mi.active {
@@ -855,6 +855,17 @@ body {
   margin-left: 8px;
   padding: 0 6px;
   border-radius: var(--ds-radius-s);
+}
+/* An icon button in an item (the "?" InfoMenuItem's help icon): about as wide as the text one. */
+.mi .mi-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 2px;
+}
+.mi .mi-icon-button > .icon {
+  width: 16px;
+  height: 16px;
 }
 
 /* A JOptionPane input: the message, then the field. */

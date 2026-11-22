@@ -79,6 +79,8 @@ const ICONS = {
   pin: '<path d="M5.75 2.5h4.5M6.75 2.5v3.75L4.5 9.25h7L9.25 6.25V2.5M8 9.25v4.25"/>',
   plus: '<path d="M8 3.5v9M3.5 8h9"/>',
   minus: '<path d="M3.5 8h9"/>',
+  /** A yes in a table cell (更多引擎's 预加载 / 默认 / SSH). */
+  check: '<path d="m3.25 8.5 3 3 6.5-7"/>',
   /** Position: arrows in four directions. */
   move: '<path d="M8 2v12M2 8h12M6.25 3.75 8 2l1.75 1.75M6.25 12.25 8 14l1.75-1.75M3.75 6.25 2 8l1.75 1.75M12.25 6.25 14 8l-1.75 1.75"/>',
   "pen-blue": '<rect class="ic-pen ic-pen-blue" x="2.5" y="2.5" width="11" height="11" rx="2"/>',

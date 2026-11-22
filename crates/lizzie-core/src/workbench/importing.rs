@@ -74,7 +74,7 @@ impl Workbench {
             quick_link_credential: candidate.mapped.quick_link_credential,
             cloud_credentials: candidate.cloud_credentials.clone(),
             replaces: self.java_import_preview_replaces(&candidate),
-            replaced_themes: crate::appearance::replaced_themes(&self.storage, &candidate.mapped.themes),
+            replaced_themes: crate::appearance::replaced_themes(&self.storage, &candidate.mapped.theme_folders(&self.storage)),
             // As choosing the slots would import them; the report shows the choice made.
             recovery: slots::after(&candidate.slots, true),
         };
@@ -188,7 +188,7 @@ impl Workbench {
                 return Err(ApiError::new(ErrorKind::Io, format!("importing the strength models failed: {e}")));
             }
         };
-        let themes = match crate::appearance::install_themes(&self.storage, &candidate.mapped.themes) {
+        let themes = match crate::appearance::install_themes(&self.storage, &candidate.mapped.theme_folders(&self.storage)) {
             Ok(themes) => themes,
             Err(e) => {
                 self.java_preview = Some((id, candidate));
@@ -304,7 +304,7 @@ impl Workbench {
     fn java_import_replaces(&self, candidate: &Candidate, copy_credentials: &[u32]) -> Vec<crate::api::ImportTarget> {
         let has_settings = self.storage.config_file.exists();
         let mut out = candidate.mapped.replaces(&self.config, &self.persisted, has_settings, copy_credentials);
-        if !crate::appearance::replaced_themes(&self.storage, &candidate.mapped.themes).is_empty() {
+        if !crate::appearance::replaced_themes(&self.storage, &candidate.mapped.theme_folders(&self.storage)).is_empty() {
             out.push(crate::api::ImportTarget::Themes);
         }
         out

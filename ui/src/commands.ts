@@ -5,6 +5,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { navigate, pasteRecord, run, saveRecord, saveRecordAs, state } from "./app";
 import type { DisplaySettings, Language } from "./contract/generated";
+import type { IconName } from "./design/icons";
 import { confirm, message } from "./dialogs";
 import { openDiagnostics } from "./diagnostics";
 import { openJavaImport } from "./javaImport";
@@ -29,8 +30,9 @@ export interface CommandEntry {
   visible?: () => boolean;
   /** Java items whose text a menu-open listener sets (启动/停止 Web 旁观, Menu.java:4301-4309). */
   label?: () => string;
-  /** A button inside the menu item, beside its label (自定义布局's 设置, Menu.java:1985-2050). */
-  button?: { label: () => string; run: () => void };
+  /** A button inside the menu item, beside its label (自定义布局's 设置, Menu.java:1985-2050).
+   *  With `icon` it shows the icon, and `label` is its name and tooltip. */
+  button?: { label: () => string; run: () => void; icon?: IconName };
 }
 
 /** Settings > 语言 (Menu.java:7025-7034): saved now, applied after a restart. */

@@ -79,6 +79,30 @@
 .hs-status.error {
   color: var(--ds-danger-text);
 }
+/* A start failure's detail (the engine's output) behind 查看详情: secondary text in a sunken
+   well, monospace and selectable, so the inline error above stays one sentence. */
+.hs-failure-detail {
+  margin-top: 6px;
+}
+.hs-failure-detail > summary {
+  width: fit-content;
+  color: var(--ds-text-2);
+  cursor: pointer;
+}
+.hs-failure-detail > pre {
+  max-height: min(220px, 30vh);
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  overflow: auto;
+  border-radius: var(--ds-radius-s);
+  background: var(--ds-sunken);
+  color: var(--ds-text-2);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  font-size: var(--ds-size-s);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
 
 /* The download and the startup: the bar, its figures, 暂停 / 取消. */
 .hs-download:not([hidden]) {

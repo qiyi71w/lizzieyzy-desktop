@@ -2,8 +2,9 @@
 // Without a theme wallpaper, a custom background image or a pure background colour the stage is
 // the program's own: a linen cloth in the colour mode's ground colour under translucent panels of
 // that mode. A wallpaper or colour the user chose stays as it is, under Java's translucent black
-// panels drawn with the dark theme's colours. The Java 经典 skin is Java's own stage: its grey metal
-// wallpaper (the theme's background, Java's default image) under dark glass, in Java's colours.
+// panels drawn with the dark theme's colours. The Java skins (Java 经典 and Java 柔和) are Java's own
+// stage: its grey metal wallpaper (the theme's background, Java's default image) under dark glass, in
+// Java's colours.
 import { appearance, onAppearanceChange } from "../appearance/state";
 import { onThemeChange, resolvedTheme, skin } from "./theme";
 import "./stage.css";
@@ -30,8 +31,8 @@ export function programStage(javaSkin: boolean, pureBackground: boolean, src: st
  *  program's wallpaper for the current colour mode and the panels take that mode's tokens. */
 export function builtinStage(): boolean {
   const a = appearance();
-  if (!a) return skin() !== "java";
-  return programStage(skin() === "java", a.theme.usePureBackground, a.images.background?.src);
+  if (!a) return skin() === "modern";
+  return programStage(skin() !== "modern", a.theme.usePureBackground, a.images.background?.src);
 }
 
 /** The program's wallpaper for the current colour mode. */
@@ -111,7 +112,7 @@ export function stagePalette(): StagePalette {
   if (cached) return cached;
   const builtin = builtinStage();
   // A hidden element fixed to the theme the workbench takes (applyStage): the colour mode's on the
-  // program's stage, else the dark theme's whatever the mode (Java 经典's under its skin, the
+  // program's stage, else the dark theme's whatever the mode (a Java skin's under that skin, the
   // wallpaper cards' over a wallpaper the user chose).
   if (!probe?.isConnected) {
     probe = document.createElement("div");
@@ -189,11 +190,11 @@ export function onStageChange(listener: () => void): void {
 
 /** The stage as the style sheets see it. The workbench is fixed to the theme its stage takes, so
  *  the interface colours a theme sets (design/palette.ts) stay off its panes: the colour mode's
- *  on the program's stage; over a wallpaper the user chose and under Java 经典 the dark theme's in
- *  either colour mode, like the canvas panels beside them. */
+ *  on the program's stage; over a wallpaper the user chose and under the Java skins the dark
+ *  theme's in either colour mode, like the canvas panels beside them. */
 function applyStage(): void {
   const builtin = builtinStage();
-  document.documentElement.dataset.stage = builtin ? "builtin" : skin() === "java" ? "java" : "wallpaper";
+  document.documentElement.dataset.stage = builtin ? "builtin" : skin() !== "modern" ? "java" : "wallpaper";
   document.getElementById("main")?.setAttribute("data-theme", builtin ? resolvedTheme() : "dark");
 }
 

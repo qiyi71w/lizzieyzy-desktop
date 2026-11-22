@@ -25,6 +25,8 @@ src/main/resources/assets/newtheme/ of the same commit, as listed above. New the
 template plus the default board.png and background.jpg (Utils.java:1268-1277).
 ../themes/java-classic holds only a theme.txt written for this product: Java's own default values
 (Theme.java getters, Config.createDefaultConfig), shown with the default images above.
+../themes/java-soft holds a byte-identical copy of that theme.txt: Java's Morandi palette changes
+the interface colours, not the theme.
 The workbench wallpapers stage-light.jpg and stage-dark.jpg are made by tools/stage_wallpapers.py
 from the diffuse map of Poly Haven's `rough_linen` texture (https://polyhaven.com/a/rough_linen,
 CC0, by colormass and Rico Cilliers): its lighting is flattened and its fine detail graded to one

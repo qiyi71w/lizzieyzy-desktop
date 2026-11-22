@@ -4,5 +4,5 @@ use lizzie_core::api::*;
 use ts_rs::Config;
 
 pub fn decls(cfg: &Config) -> Vec<String> {
-    crate::decls![cfg; OnlineCommand, LiveCategory, OnlineText, LiveGameView, LiveListView, OnlineFollowView, OnlineStatusView, ProxyWarningView, OnlineView]
+    crate::decls![cfg; OnlineCommand, LiveCategory, OnlineText, LiveWinrate, LiveGameView, LiveListView, OnlineFollowView, OnlineStatusView, ProxyWarningView, OnlineView]
 }

@@ -164,14 +164,17 @@ async function openSettings(section: SettingsSection, onOpened: ((body: HTMLElem
     scroller.scrollTop = 0;
   };
   search.oninput = filter;
-  nav.append(searchBox);
+  // The search field heads the page list; a narrow dialog lays it across the top and keeps only
+  // the items' icons, each named by its title (engine.css).
+  const find = document.createElement("div"); find.className = "settings-find"; find.append(searchBox);
   for (const [key, text, glyph] of NAV) {
     const item = document.createElement("button"); item.dataset.key = `settings.nav.${key}`;
-    item.append(icon(glyph), text());
+    const label = document.createElement("span"); label.className = "settings-nav-label"; label.textContent = text();
+    item.append(icon(glyph), label); item.title = text();
     item.onclick = () => showPage(key);
     nav.append(item); navItems.set(key, item);
   }
-  body.append(nav);
+  body.append(find, nav);
   // Numeric analysis fields (addInputRow / addToggleInputRow): checked with 保存设置. A limit's
   // switch shares the row with its value and stands before it, so the value ends on the line of
   // the other fields; locating the row reaches both.

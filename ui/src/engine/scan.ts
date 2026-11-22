@@ -22,7 +22,7 @@ export async function scanEngine(): Promise<string | null> {
   let result;
   if (type === "ikatago") {
     // Java's captions end in a colon; a row's name does not.
-    const caption = (text: string) => text.replace(/\\?[:：]\s*$/, "");
+    const caption = (text: string) => text.replace(/[:：]\s*$/, "");
     const credentials = document.createElement("div"); credentials.className = "engine-scan-credentials";
     const platform = segmented("scan-ikatago-platform", [["colab", "Colab"], ["all", t("MoreEngines.otherPlatform")]], "colab");
     platform.el.dataset.key = "scan.ikatago.platform";

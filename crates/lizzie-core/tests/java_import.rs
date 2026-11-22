@@ -2262,7 +2262,7 @@ fn appearance_import_applies_defaults_styles_fonts_and_owned_images() {
     std::fs::write(java.join("theme/selected.png"), include_bytes!("../../../ui/public/assets/board.png")).unwrap();
     let input = json!({"ui": {
         "theme":"default", "board-style":"chinese-classic", "is-apple-style":true,
-        "use-morandi-colors":true, "custom-board-image":"selected.png",
+        "use-morandi-colors":false, "custom-board-image":"selected.png",
         "custom-window-background-image":"missing.jpg", "font-name":"Board Font",
         "ui-font-name":"UI Font", "winrate-font-name":"Win Font", "frame-font-size":16,
         "glass-effect-level":0, "glass-blur-radius":-1, "liquid-blur-radius":8,
@@ -2277,11 +2277,13 @@ fn appearance_import_applies_defaults_styles_fonts_and_owned_images() {
     let p = preview(&mut wb, &java);
     assert_eq!(item(&p.items,"ui.custom-board-image").status, ImportStatus::Imported);
     assert_eq!(item(&p.items,"ui.custom-window-background-image").status, ImportStatus::Incompatible);
+    // 经典配色 keeps the default theme and is reported as before.
     let morandi = item(&p.items,"ui.use-morandi-colors");
     assert_eq!((morandi.status, morandi.reason), (ImportStatus::NotMigrated, Some(ImportReason::Obsolete)));
     assert!(!p.items.iter().any(|i| i.key.starts_with("file:theme")), "a theme/ folder without theme folders holds no theme");
     wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
     let s = wb.view(true).settings;
+    assert_eq!(s.appearance.theme,"default");
     assert_eq!(s.appearance.board_style,lizzie_core::appearance::BoardStyle::ChineseClassic);
     assert_eq!(s.appearance.mode,lizzie_core::appearance::AppearanceMode::Dark);
     assert_eq!(s.appearance.frame_font_size,16); assert_eq!(s.active_frame_font_size,12);
@@ -2298,6 +2300,80 @@ fn appearance_import_applies_defaults_styles_fonts_and_owned_images() {
     let v = reopened.view(true).settings;
     assert_eq!(v.active_frame_font_size,16);
     assert!(lizzie_core::appearance::images(reopened.storage(),&v.appearance,&v.theme).board.starts_with("data:image/png;"));
+}
+
+/// A Java folder whose 默认 theme holds a font, a colour and a board picture of its own.
+fn morandi_java(java: &Path, theme: Option<&str>, custom: bool) {
+    std::fs::create_dir_all(java.join("theme")).unwrap();
+    std::fs::write(java.join("theme/selected.png"), include_bytes!("../../../ui/public/assets/board.png")).unwrap();
+    let mut ui = json!({"use-morandi-colors": true});
+    if custom {
+        ui["font-name"] = json!("Board Font"); ui["best-move-color"] = json!([1, 2, 3]); ui["board-image"] = json!("selected.png");
+    }
+    if let Some(theme) = theme { ui["theme"] = json!(theme); }
+    std::fs::write(java.join("config.txt"), json!({"ui": ui}).to_string()).unwrap();
+}
+
+#[test]
+fn morandi_colors_choose_java_soft_over_the_default_theme_and_keep_a_named_theme() {
+    for (theme, chosen, custom) in [
+        (Some("默认"), "java-soft", true), (Some("default"), "java-soft", true), (None, "java-soft", true),
+        (Some("默认"), "java-soft", false), (Some("sabaki"), "sabaki", true),
+    ] {
+        let tmp = tempfile::tempdir().unwrap(); let java = tmp.path().join("java");
+        morandi_java(&java, theme, custom);
+        let mut wb = workbench(&tmp.path().join("product"), Recorder::default());
+        let p = preview(&mut wb, &java);
+        let morandi = item(&p.items,"ui.use-morandi-colors");
+        assert_eq!(morandi.target, Some(ImportTarget::Appearance), "{theme:?}");
+        if chosen == "java-soft" {
+            assert_eq!(morandi.status, ImportStatus::Imported, "{theme:?}");
+        } else {
+            // The named theme is kept; the palette has no place over it.
+            assert_eq!((morandi.status, morandi.reason), (ImportStatus::NotMigrated, Some(ImportReason::NotYetAvailable)));
+        }
+        if theme.is_some() { assert_eq!(item(&p.items,"ui.theme").status, ImportStatus::Imported); }
+        assert!(!p.replaces.contains(&ImportTarget::Themes) && p.replaced_themes.is_empty(), "{theme:?}");
+        wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+        let s = wb.view(true).settings;
+        assert_eq!(s.appearance.theme, chosen, "{theme:?}");
+        // The 默认 theme takes the values in every case.
+        let default = wb.config().appearance_defaults.clone();
+        if custom { assert_eq!((&*default.font_name, default.best_move_color.clone()), ("Board Font", vec![1, 2, 3])); }
+        let soft_file = lizzie_core::appearance::themes_dir(wb.storage()).join("java-soft");
+        if chosen == "java-soft" && custom {
+            // java-soft holds them as saving it on the 主题外观 page writes them, picture included.
+            let soft = lizzie_core::appearance::load_theme(wb.storage(), "java-soft", &Default::default());
+            assert_eq!((&*soft.font_name, soft.best_move_color.clone()), ("Board Font", vec![1, 2, 3]), "{theme:?}");
+            assert_eq!(soft.board_image, default.board_image);
+            assert!(Path::new(&soft.board_image).is_file());
+            assert_eq!((&*s.theme.font_name, s.theme.best_move_color.clone()), ("Board Font", vec![1, 2, 3]));
+            assert!(lizzie_core::appearance::images(wb.storage(), &s.appearance, &s.theme).board.starts_with("data:image/png;"));
+        } else {
+            // Java's own values, or a named theme: java-soft keeps its bundled file.
+            assert!(!soft_file.exists(), "{theme:?}");
+        }
+    }
+}
+
+#[test]
+fn a_failed_morandi_import_leaves_no_java_soft_override() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    morandi_java(&java, Some("默认"), true);
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    wb.dismiss_java_import_offer().unwrap();
+    let config_dir = product.join("config");
+    let before = snapshot(&config_dir);
+    let p = preview(&mut wb, &java);
+    // As a_failed_import_with_ui_pictures_leaves_no_new_theme_folders: saving the settings fails.
+    std::fs::create_dir(config_dir.join("themes")).unwrap();
+    let failed = without_settings_file(&product, || wb.apply_java_import(p.id, &[], false, false, true, None));
+    assert!(failed.as_ref().is_err_and(|e| e.message.starts_with(&format!("{SETTINGS_SAVE_FAILED}\n"))), "{failed:?}");
+    assert!(!config_dir.join("themes/java-soft").exists());
+    std::fs::remove_dir(config_dir.join("themes")).unwrap();
+    assert_eq!(snapshot(&config_dir), before);
 }
 
 #[test]
