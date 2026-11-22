@@ -59,6 +59,8 @@ importing the matching LizzieYzy Next settings.
   marks and enabled states kept current, after the application menu (关于, 服务, 隐藏,
   隐藏其他, 全部显示, 退出 `⌘Q`; 退出 saves and ends like the window's close button). 编辑 ends
   with the system's text editing items (撤销, 重做, 剪切, 拷贝, 粘贴, 全选), which text fields use.
+  Items macOS adds by itself, such as dictation and emoji in 编辑, are in the language macOS uses
+  for the program: the system's, or the one chosen for the program in System Settings.
   The window bar keeps the mark and the title. A system menu has no red items, tooltips or
   controls inside an item: 落子评价标记's 显示最后多手 asks for its count in a dialog, as on
   Windows; 自定义布局 1 and 2's 设置 and 人机对局(分析模式)'s `?` are items of their own after
