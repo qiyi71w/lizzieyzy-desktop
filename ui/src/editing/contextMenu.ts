@@ -3,7 +3,7 @@
 // closes on a click outside, the wheel, Escape or window changes, the focus going back where it
 // was. Board input stays blocked while it is open and for Java's 200 ms after it closes
 // (`isShowingRightMenu` is reset by a 200 ms timer in popupMenuWillBecomeInvisible).
-import { bindMenuRows, menuKey } from "../chrome/menubar";
+import { bindMenuRows, menuKey } from "../chrome/menuKeys";
 import { icon, type IconName } from "../design/icons";
 import { product } from "../i18n";
 import "./editing.css";

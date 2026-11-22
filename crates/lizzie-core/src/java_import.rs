@@ -359,6 +359,9 @@ pub struct Mapped {
     pub theme: Vec<(&'static str, Value)>,
     /// Java's own theme folders (`theme/<name>/`), as this product stores them.
     pub themes: Vec<crate::appearance::ThemeFolder>,
+    /// Java's Morandi palette over its 默认 theme chose java-soft, which takes the 默认 theme's
+    /// imported values too ([`Mapped::theme_folders`]).
+    pub soft_theme: bool,
     /// 跑谱贡献 settings other than its account (`ui.contribute-*`, `ui.show-Contribute`,
     /// `leelaz.contribute-engine-ssh-info`).
     pub contribution: Vec<DisplayValue>,
@@ -1678,7 +1681,8 @@ const JAVA_UNUSED: &[&str] = &[
     "ui.contribute-hide-result",
     // Swing Look&Feel choice; not carried over by approved decision (no Swing look here).
     "ui.use-java-looks",
-    // Morandi palette; not carried over by approved decision (外观模式 replaces Java's palettes).
+    // 经典配色 (Morandi palette off); not carried over by approved decision (外观模式 replaces
+    // Java's palettes). The Morandi palette itself is read with the appearance (java-soft).
     "ui.use-morandi-colors",
     // 显示拓展/隐藏详细工具栏按钮; not carried over by approved decision (this product leaves out
     // the 详细工具栏).

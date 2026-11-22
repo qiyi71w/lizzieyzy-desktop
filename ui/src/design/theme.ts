@@ -11,9 +11,10 @@ export type ThemeMode = "System" | "Light" | "Dark";
 export type ResolvedTheme = "light" | "dark";
 export type Os = "windows" | "mac" | "linux";
 
-/** The token values the interface draws with: the program's own, or Java's (the bundled Java 经典
- *  theme). The same components either way; only colours and the workbench wallpaper differ. */
-export type Skin = "modern" | "java";
+/** The token values the interface draws with: the program's own, Java's (the bundled Java 经典
+ *  theme) or Java's Morandi palette (the bundled Java 柔和 theme). The same components either way;
+ *  only colours and the workbench wallpaper differ. */
+export type Skin = "modern" | "java" | "soft";
 
 /** Where the workbench window leaves the mode, the skin and the interface colours for the other
  *  windows and for the next start. */
@@ -35,7 +36,8 @@ function storedMode(): ThemeMode {
 }
 
 function storedSkin(): Skin {
-  return localStorage.getItem(SKIN_STORE) === "java" ? "java" : "modern";
+  const stored = localStorage.getItem(SKIN_STORE);
+  return stored === "java" || stored === "soft" ? stored : "modern";
 }
 
 function storedColors(): InterfaceColors {
@@ -99,7 +101,7 @@ export function applyTypeSizes(frame: number): void {
 /** Hidden elements that take one skin's token values, whatever is set on the root. */
 const probes: Partial<Record<Skin, HTMLElement>> = {};
 
-/** The skin's own colours (Java 经典's or the program's, the latter in the current colour mode),
+/** The skin's own colours (a Java skin's or the program's, the latter in the current colour mode),
  *  without any interface colour a theme set. */
 export function skinColors(which: Skin): SkinColors {
   let probe = probes[which];
@@ -109,8 +111,8 @@ export function skinColors(which: Skin): SkinColors {
     document.documentElement.append(probe);
     probes[which] = probe;
   }
-  if (which === "java") probe.dataset.skin = "java";
-  else probe.dataset.theme = resolvedTheme();
+  if (which === "modern") probe.dataset.theme = resolvedTheme();
+  else probe.dataset.skin = which;
   return skinColorsOf(getComputedStyle(probe));
 }
 

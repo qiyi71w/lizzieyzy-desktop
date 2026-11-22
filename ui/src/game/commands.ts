@@ -35,11 +35,13 @@ const inGameOrMatch = () => !!state.view?.game || !!state.view?.engine_match;
 
 Object.assign(COMMANDS, {
   "menu.newGenmoveGame": { run: () => void openNewGame() },
-  // InfoMenuItem: the "?" beside it shows LizzieFrame.showAnalyzeGenmoveInfo.
+  // InfoMenuItem: the "?" beside it (the help icon, named by the information's title) shows
+  // LizzieFrame.showAnalyzeGenmoveInfo.
   "menu.newAnalyzeModeGame": {
     run: openAnalysisGame,
     button: {
-      label: () => "?",
+      icon: "help",
+      label: () => t("LizzieFrame.aboutAnalyzeGenmoveInfoTitle"),
       run: () => void message(t("LizzieFrame.aboutAnalyzeGenmoveInfoTitle"), plainJava(t("LizzieFrame.aboutAnalyzeGenmoveInfo"))),
     },
   },

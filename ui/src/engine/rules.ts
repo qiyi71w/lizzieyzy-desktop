@@ -30,7 +30,7 @@ export function rulesEditor(body: HTMLElement, initial: Rules, changed: (rules: 
     changed(rules);
   };
   // Java's captions end in a colon; a row's name does not.
-  const caption = (text: string) => text.replace(/\\?[:：]\s*$/, "");
+  const caption = (text: string) => text.replace(/[:：]\s*$/, "");
   const presets = document.createElement("span");
   presets.className = "engine-rules-presets";
   presets.setAttribute("role", "group");

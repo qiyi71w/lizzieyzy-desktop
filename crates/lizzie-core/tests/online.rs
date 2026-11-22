@@ -6,7 +6,7 @@
 
 use std::time::{Duration, Instant};
 
-use lizzie_core::api::{CommandResult, EditCommand, LiveCategory, OnlineCommand, OnlineJob, PageReport};
+use lizzie_core::api::{CommandResult, EditCommand, LiveCategory, LiveWinrate, OnlineCommand, OnlineJob, PageReport};
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::runtime::{EngineIo, InstanceId, Launcher};
@@ -206,6 +206,30 @@ fn live_list_rows_and_previews() {
     assert_eq!(
         yike::parse_list(r#"{"Status":500,"Message":"busy"}"#),
         Err("busy".to_string())
+    );
+}
+
+/// `winrateText`'s numbers: black's rate and white's complement clamped to 0..=100, the score past
+/// 0.01 points, nothing without realtime analysis or a black rate.
+#[test]
+fn live_list_win_rates_are_numbers_for_the_ui() {
+    let body = r#"{"Status":1200,"Result":{"since":0,"list":[
+        {"Id":1,"Status":2,"RealtimeAnalysisFlag":1,"BlackWinRate":1.3,"Delta":-8.9},
+        {"Id":2,"Status":2,"RealtimeAnalysisFlag":1,"BlackWinRate":"67.8","Delta":0.01},
+        {"Id":3,"Status":2,"RealtimeAnalysisFlag":1,"BlackWinRate":100.5},
+        {"Id":4,"Status":2,"RealtimeAnalysisFlag":0,"BlackWinRate":40.0,"Delta":3.0},
+        {"Id":5,"Status":2,"RealtimeAnalysisFlag":1,"Delta":3.0}]}}"#;
+    let (_, games) = yike::parse_list(body).unwrap();
+    let rates: Vec<_> = games.iter().map(|g| g.rate).collect();
+    assert_eq!(
+        rates,
+        [
+            Some(LiveWinrate { black: 1.3, white: 98.7, score: Some(-8.9) }),
+            Some(LiveWinrate { black: 67.8, white: 32.2, score: None }),
+            Some(LiveWinrate { black: 100.5, white: 0.0, score: None }),
+            None,
+            None,
+        ]
     );
 }
 

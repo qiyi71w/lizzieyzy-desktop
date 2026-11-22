@@ -5,7 +5,7 @@
 // reports every request to the main window.
 import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import type { LiveCategory, LiveGameView } from "../contract/generated";
+import type { LiveCategory, LiveGameView, LiveWinrate } from "../contract/generated";
 import { icon } from "../design/icons";
 import { setLanguage, t } from "../i18n";
 import { LIVE_DATA_EVENT, LIVE_INPUT_EVENT, type LiveInput, type LivePayload, type LiveReport } from "./model";
@@ -32,9 +32,26 @@ const COLUMNS: (() => string)[] = [
   () => t("YikeLiveDialog.column.attention"),
 ];
 
+/** YikeApiClient.RATE_FORMAT, DecimalFormat("0.#"): at most one decimal, half-even, no trailing
+ *  zero, and no "-0". */
+function oneDecimal(value: number): string {
+  const scaled = value * 10;
+  const floor = Math.floor(scaled);
+  const tenths = Math.abs(scaled - floor - 0.5) < 1e-9 ? (floor % 2 === 0 ? floor : floor + 1) : Math.round(scaled);
+  const text = (tenths / 10).toFixed(1).replace(/\.0$/, "");
+  return text === "-0" ? "0" : text;
+}
+
+/** winrateText in the interface language (Java wrote 黑 / 白 / 目 in every language). */
+function winrateText(r: LiveWinrate | null): string {
+  if (!r) return "";
+  const text = `${t("Movelistframe.black")} ${oneDecimal(r.black)}% / ${t("Movelistframe.white")} ${oneDecimal(r.white)}%`;
+  return r.score === null ? text : `${text} / ${oneDecimal(r.score)}${t("Movelistframe.pts")}`;
+}
+
 /** LiveTableModel.getValueAt as text (the core's status already carries the pinned `*`). */
 function cells(g: LiveGameView): string[] {
-  return [g.status, g.time, g.game, g.black, g.white, String(g.hands), g.rate, g.attention];
+  return [g.status, g.time, g.game, g.black, g.white, String(g.hands), winrateText(g.rate), g.attention];
 }
 
 /** 状态, 时间, 手数, 胜率 and 关注: the columns sized to their widest cell, never cut. 对局, 黑方 and

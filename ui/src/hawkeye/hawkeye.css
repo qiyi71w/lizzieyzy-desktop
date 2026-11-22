@@ -237,7 +237,8 @@ body {
   bottom: 0;
 }
 
-/* ---- the lists' context menu */
+/* ---- the lists' context menu: the main window's dropdown (.mi rows, menuKeys.ts). The active row
+   (under the pointer or reached by the keys) carries the wash, which is also its focus indicator. */
 .hk-menu {
   position: fixed;
   z-index: 50;
@@ -248,15 +249,18 @@ body {
   box-shadow: var(--ds-shadow-pop);
   white-space: nowrap;
 }
-.hk-menu > div {
+.hk-menu > .mi {
   display: flex;
   align-items: center;
   height: 25px;
   padding: 0 28px;
   border-radius: var(--ds-radius-s);
 }
-.hk-menu > div:hover {
+.hk-menu > .mi.active {
   background: var(--ds-hover);
+}
+.hk-menu > .mi:focus-visible {
+  outline: none;
 }
 
 /* ---- chart panel (charts.ts): the tab strip, the chart and the 60 px strip under it */

@@ -10,6 +10,7 @@ import { configureGtp } from "./gtpConfig";
 import { scanEngine } from "./scan";
 import { tuningText } from "./tuningText";
 import { stepper } from "../design/stepper";
+import { icon } from "../design/icons";
 import { actions, button, footer, input, primaryButton, row, switchBox, switchRow } from "./controls";
 import { aboutRemoteButton, RemoteFields } from "./remote";
 
@@ -26,7 +27,7 @@ export async function openMoreEngines(): Promise<void> {
     const body = document.createElement("div");
     body.className = "engine-catalog";
     // Java's labels end in a colon; a row's name does not.
-    const caption = (text: string) => text.replace(/\\?[:：]\s*$/, "");
+    const caption = (text: string) => text.replace(/[:：]\s*$/, "");
     const radioGroup = (...labels: HTMLLabelElement[]) => {
       const el = document.createElement("span"); el.className = "ds-seg"; el.setAttribute("role", "radiogroup"); el.append(...labels); return el;
     };
@@ -191,13 +192,23 @@ export async function openMoreEngines(): Promise<void> {
       updatePolicy();
       table.replaceChildren();
       const header = table.createTHead().insertRow();
-      for (const text of [t("MoreEngines.column0"), t("MoreEngines.column1"), t("MoreEngines.column2"), t("MoreEngines.column3"), t("MoreEngines.column4"), t("MoreEngines.column5"), t("MoreEngines.column6"), t("MoreEngines.column7"), t("MoreEngines.column8")]) {
+      const headers = [t("MoreEngines.column0"), t("MoreEngines.column1"), t("MoreEngines.column2"), t("MoreEngines.column3"), t("MoreEngines.column4"), t("MoreEngines.column5"), t("MoreEngines.column6"), t("MoreEngines.column7"), t("MoreEngines.column8")];
+      for (const text of headers) {
         const th = document.createElement("th"); th.textContent = text; header.append(th);
       }
       const rows = table.createTBody();
       engines.forEach((engine, index) => {
         const row = rows.insertRow(); row.tabIndex = 0; row.classList.toggle("selected", index === selected);
-        for (const value of [index + 1, engine.name, engine.command, engine.preload ? "✓" : "", engine.width, engine.height, engine.komi, engine.isDefault ? "✓" : "", engine.ssh ? "✓" : ""]) row.insertCell().textContent = String(value);
+        // 预加载 / 默认 / SSH: a check for yes, named by its column for assistive technology; empty for no.
+        [index + 1, engine.name, engine.command, engine.preload, engine.width, engine.height, engine.komi, engine.isDefault, !!engine.ssh].forEach((value, column) => {
+          const cell = row.insertCell();
+          if (typeof value !== "boolean") cell.textContent = String(value);
+          else if (value) {
+            const mark = icon("check");
+            mark.removeAttribute("aria-hidden"); mark.setAttribute("role", "img"); mark.setAttribute("aria-label", headers[column]);
+            cell.append(mark);
+          }
+        });
         row.onclick = async () => { if (index !== selected && await dirty()) { selected = index; load(); } };
         row.onkeydown = (event) => { if (event.key === "Enter") row.click(); };
       });

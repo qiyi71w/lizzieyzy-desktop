@@ -325,7 +325,9 @@ export function bootFoxKifu(): void {
     const name = view.nickname.trim();
     const uid = view.uid.trim();
     const display = !name && !uid ? t("FoxKifuDownload.currentUser.waiting") : !uid ? name : !name ? uid : foxUser(name, uid);
-    return t("FoxKifuDownload.currentUser.label") + display;
+    // Java joins label and name directly; a half-width colon needs the space a full-width one includes.
+    const label = t("FoxKifuDownload.currentUser.label");
+    return label + (label.endsWith(":") ? " " : "") + display;
   }
 
   function overlayMessage(view: FoxKifuView): string | null {

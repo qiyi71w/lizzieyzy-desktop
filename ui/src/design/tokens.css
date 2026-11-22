@@ -139,8 +139,10 @@
    accent #126b62, cool neutrals). Its workbench is Java's grey metal wallpaper under dark glass, so
    the dark-themed workbench (#main, stage.ts) takes the second set: Java's comment-pane text
    palette on neutral slate. Besides the root, the hidden probe theme.ts reads the skin's own
-   colours from carries data-skin. */
-[data-skin="java"] {
+   colours from carries data-skin. Java 柔和 (data-skin="soft") starts from these values; its own
+   follow below. */
+[data-skin="java"],
+[data-skin="soft"] {
   color-scheme: light;
 
   --ds-chrome: #f4f5f7;
@@ -190,7 +192,8 @@
   --ds-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M.8.8 4 4 7.2.8' fill='none' stroke='%2355635e' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
-:root[data-skin="java"] [data-theme="dark"] {
+:root[data-skin="java"] [data-theme="dark"],
+:root[data-skin="soft"] [data-theme="dark"] {
   color-scheme: dark;
 
   --ds-chrome: #2a2f33;
@@ -234,6 +237,37 @@
   --ds-success-soft-line: #34604c;
 
   --ds-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M.8.8 4 4 7.2.8' fill='none' stroke='%23b9c3bf' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* Java 柔和 (data-skin="soft", the bundled theme with Java's defaults under its Morandi palette,
+   ui.use-morandi-colors): Java 经典 in the values AppleStyleSupport's Morandi branch and
+   MorandiPalette give instead (AppleStyleSupport.java:518-591, 683-694): warm grey bars, cream
+   dialogs, menus and fields, charcoal text, warm hairlines and button states, all from charcoal
+   MENU_ITEM_TEXT (62,58,57). Java's Morandi keeps the teal accent, the muted text, the status
+   colours and the dark workbench, so those stay Java 经典's. */
+[data-skin="soft"] {
+  --ds-chrome: #e1dcd5; /* TOOLBAR_BG */
+  --ds-panel: #f0ebe4; /* CREAM_WHITE */
+  --ds-raised: #eee9e2; /* TOOLBAR_BUTTON_BG */
+  --ds-field: #f0ebe4; /* CREAM_WHITE */
+  --ds-sunken: #e6e1da;
+  /* TOOLBAR_BUTTON_HOVER and _PRESSED over TOOLBAR_BUTTON_BG. */
+  --ds-well: rgba(62, 58, 57, 0.11);
+  --ds-hover: rgba(62, 58, 57, 0.11);
+  --ds-pressed: rgba(62, 58, 57, 0.19);
+  --ds-scrim: rgba(36, 33, 32, 0.32);
+
+  /* TOOLBAR_SEPARATOR over TOOLBAR_BG; TOOLBAR_BUTTON_BORDER over TOOLBAR_BUTTON_BG. */
+  --ds-line: rgba(62, 58, 57, 0.12);
+  --ds-line-strong: rgba(62, 58, 57, 0.22);
+
+  --ds-text: #3e3a39; /* MENU_ITEM_TEXT */
+  --ds-text-2: #484441; /* TOOLBAR_TEXT */
+  --ds-text-off: #a09b97;
+
+  --ds-shadow-cap: 0 0 0 0.5px rgba(62, 58, 57, 0.3), 0 1px 1.5px rgba(62, 58, 57, 0.12);
+  --ds-shadow-pop: 0 0 0 1px rgba(62, 58, 57, 0.12), 0 6px 20px -4px rgba(36, 33, 32, 0.24);
+  --ds-shadow-dialog: 0 0 0 1px rgba(62, 58, 57, 0.14), 0 18px 48px -8px rgba(36, 33, 32, 0.32);
 }
 
 /* The platform's own interface face; the document language picks the matching CJK face. */

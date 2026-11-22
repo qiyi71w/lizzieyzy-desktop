@@ -79,7 +79,7 @@ async function failureDialog(failure: EngineFailureView, text: string, restartCo
   const summary = document.createElement("pre"); summary.className = "engine-failure-summary"; summary.textContent = `${failure.engine_name}: ${text}`;
   const command = document.createElement("pre"); command.textContent = failure.command;
   body.append(summary);
-  row(body, t("EngineFailedMessage.engineCmd").replace(/\\?[:：]\s*$/, ""), "").append(command);
+  row(body, t("EngineFailedMessage.engineCmd").replace(/[:：]\s*$/, ""), "").append(command);
   const error = errorText(failure, text);
   const dialog = formPanel(t("Leelaz.engineFailed"), body);
   // Buttons that end the dialog another way sit with 关闭; 详细信息 opens more and stays at the start.

@@ -1,6 +1,7 @@
-use super::{as_bool, as_i64, Handled, ImportReason, ImportStatus, ImportTarget, Reader};
+use super::{as_bool, as_i64, Handled, ImportReason, ImportStatus, ImportTarget, Mapped, Reader};
 use serde_json::{Map, Value};
-use crate::appearance::{self, ThemeSettings};
+use crate::appearance::{self, ThemeFolder, ThemeSettings, JAVA_SOFT};
+use crate::settings::Storage;
 
 const APPEARANCE: &[(&str,&str)] = &[
     ("theme","theme"),("board-style","boardStyle"),("is-apple-style","mode"),
@@ -31,6 +32,10 @@ const THEME: &[(&str,&str)] = &[
 
 impl Reader<'_> {
     pub(super) fn appearance(&mut self, ui:&Map<String,Value>, handled:&mut Handled) {
+        // Java's Morandi palette (经典配色 off, Config.java:1808) over its 默认 theme (also what it
+        // shows without a theme name, Theme.java:63-68) is the bundled java-soft theme here.
+        let morandi=ui.get("use-morandi-colors").filter(|raw| as_bool(raw)==Some(true));
+        let mut soft=morandi.is_some() && !ui.contains_key("theme");
         // Config.java:2226-2285 and Theme.java:219-356: named values override ui defaults.
         for &(key,field) in APPEARANCE {
             let Some(raw)=ui.get(key) else {continue}; handled.push(("ui",key));
@@ -40,7 +45,10 @@ impl Reader<'_> {
                 "theme"=>raw.as_str().map(|v| {
                     let name = super::themes::product_name(v);
                     if self.mapped.themes.iter().any(|t| t.name == name) { name }
-                    else if v.eq_ignore_ascii_case("default") || DEFAULT_THEME_LABELS.contains(&v) { "default".to_string() }
+                    else if v.eq_ignore_ascii_case("default") || DEFAULT_THEME_LABELS.contains(&v) {
+                        soft=morandi.is_some();
+                        (if soft { JAVA_SOFT } else { "default" }).to_string()
+                    }
                     else { v.to_string() }
                 }).filter(|v|appearance::valid_name(v)).map(Value::from),
                 "board-style"=>raw.as_str().and_then(|v|match v {"japanese"=>Some(Value::from("Japanese")),"chinese-classic"=>Some(Value::from("ChineseClassic")),_=>None}),
@@ -65,6 +73,19 @@ impl Reader<'_> {
                 None=> {
                     if !key.contains("image") {self.invalid(format!("ui.{key}"),ImportTarget::Appearance,raw);}
                 }
+            }
+        }
+        if let Some(raw)=morandi {
+            // Anything else is Java's 经典配色, reported with the unused keys.
+            handled.push(("ui","use-morandi-colors"));
+            if soft {
+                self.mapped.soft_theme=true;
+                if !ui.contains_key("theme") { self.mapped.appearance.push(("theme",Value::from(JAVA_SOFT))); }
+                self.imported("ui.use-morandi-colors".into(),ImportTarget::Appearance,super::shown(raw));
+            } else {
+                // A named theme is kept: this product has no Morandi palette over it.
+                self.not_migrated("ui.use-morandi-colors".into(),raw);
+                self.items.last_mut().expect("item just reported").target=Some(ImportTarget::Appearance);
             }
         }
         let mut theme=serde_json::to_value(ThemeSettings::default()).expect("theme serializes");
@@ -115,5 +136,34 @@ impl Reader<'_> {
         item.target=Some(ImportTarget::Appearance); item.reason=Some(ImportReason::Unreadable);
         item.detail=Some(super::sanitize(&paths.iter().map(|p|p.to_string_lossy()).collect::<Vec<_>>().join("\n")));
         None
+    }
+}
+
+impl Mapped {
+    /// The theme folders the import writes: Java's own, and, when Java's Morandi palette chose
+    /// java-soft, java-soft's `theme.txt` as saving it on the 主题外观 page with the 默认 theme's
+    /// imported values writes it (each picture named as the import keeps it). Without a value
+    /// that differs from java-soft's own there is none.
+    pub fn theme_folders(&self, storage:&Storage) -> Vec<ThemeFolder> {
+        let mut folders=self.themes.clone();
+        if !self.soft_theme {return folders;}
+        let mut theme=serde_json::to_value(ThemeSettings::default()).expect("theme serializes");
+        for &(field,ref value) in &self.theme {
+            theme[field]=match value.as_str() {
+                Some(image) if field.ends_with("Image") => Value::from(appearance::owned_image_name(storage,image)),
+                _ => value.clone(),
+            };
+        }
+        let theme:ThemeSettings=serde_json::from_value(theme).expect("validated theme values");
+        let Value::Object(raw)=appearance::to_java(JAVA_SOFT,None,&theme) else {unreachable!()};
+        let bundled=appearance::BUNDLED.iter().find(|(n,_)| *n==JAVA_SOFT)
+            .and_then(|(_,raw)| serde_json::from_str::<Map<String,Value>>(raw).ok()).unwrap_or_default();
+        let base=ThemeSettings::default();
+        if appearance::merge_java(&base,&raw)==appearance::merge_java(&base,&bundled) {return folders;}
+        // The 默认 theme Java showed is java-soft here; a Java folder of that name is not.
+        folders.retain(|f| !f.name.eq_ignore_ascii_case(JAVA_SOFT));
+        let bytes=serde_json::to_vec_pretty(&raw).expect("theme serializes");
+        folders.push(ThemeFolder { name:JAVA_SOFT.into(), files:vec![("theme.txt".into(),bytes)] });
+        folders
     }
 }

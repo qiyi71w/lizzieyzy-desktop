@@ -17,7 +17,7 @@ interface Row { edit: HTMLInputElement; value: HTMLInputElement; autoLoad: HTMLI
  *  "Visits · 最小0 …"). Shared with SetKataEngines. */
 export function paramCaption(label: string): [name: string, hint: string] {
   const at = label.search(/[(（]/);
-  if (at < 0) return [label.replace(/\\?[:：]\s*$/, "").trim(), ""];
+  if (at < 0) return [label.replace(/[:：]\s*$/, "").trim(), ""];
   const hints = [...label.slice(at).matchAll(/[(（]([^)）]*)[)）]/g)].map((match) => match[1].trim());
   return [label.slice(0, at).trim(), hints.join(" · ")];
 }

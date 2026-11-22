@@ -427,6 +427,10 @@ interface Box {
   h: number;
 }
 
+function overlaps(a: Box, b: Box): boolean {
+  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+}
+
 /** Java `params` after a complete `draw`: what `moveNumber` and the 翻车现场 slots use. */
 interface Params {
   posx: number;
@@ -566,18 +570,49 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
   const readoutBoxes: Box[] = [];
   if (chart === 0 && trueNumMoves >= 1) {
     const shift = (katago ? 9 : 3) * DOT_RADIUS;
+    /** The text's ink box at (x, y) with a 2 px margin; the font is set. */
+    const inkBox = (text: string, x: number, y: number): Box => {
+      const ink = g.c.measureText(text);
+      return { x: x - 2, y: y - ink.actualBoundingBoxAscent - 2, w: ink.width + 4, h: ink.actualBoundingBoxAscent + ink.actualBoundingBoxDescent + 4 };
+    };
     const put = (text: string, x: number, y: number, size: "m" | "l", color: string) => {
       g.font(size, true, g.fonts.ui);
-      const ink = g.c.measureText(text);
-      readoutBoxes.push({ x: x - 2, y: y - ink.actualBoundingBoxAscent - 2, w: ink.width + 4, h: ink.actualBoundingBoxAscent + ink.actualBoundingBoxDescent + 4 });
+      readoutBoxes.push(inkBox(text, x, y));
       readouts.push(() => {
         g.font(size, true, g.fonts.ui); // MoveListFrame.java:5860, 5891, 5906, 5929
         g.haloText(text, x, y, color);
       });
     };
+    /** Where a readout clears the ones already placed: at (x, y) as Java puts it, else on the same
+     *  height just right of the readouts it would cover, else just left of them (its value stays
+     *  at its own height), else just below or above them inside the plot. The font is set. */
+    const clear = (text: string, x: number, y: number): [number, number] => {
+      const box = inkBox(text, x, y);
+      const hit = readoutBoxes.filter((r) => overlaps(box, r));
+      if (!hit.length) return [x, y];
+      const left = Math.min(...hit.map((r) => r.x));
+      const right = Math.max(...hit.map((r) => r.x + r.w));
+      const top = Math.min(...hit.map((r) => r.y));
+      const bottom = Math.max(...hit.map((r) => r.y + r.h));
+      const ascent = y - 2 - box.y;
+      const spots: [number, number][] = [
+        [right + 2, y],
+        [left - box.w + 2, y],
+        [x, bottom + ascent + 2],
+        [x, top - (box.h - ascent - 2)],
+      ];
+      for (const [sx, sy] of spots) {
+        const b = inkBox(text, sx, sy);
+        const inside = b.x >= 0 && b.x + b.w <= origW && b.y >= posy && b.y + b.h <= posy + height;
+        if (inside && !readoutBoxes.some((r) => overlaps(b, r))) return [sx, sy];
+      }
+      return [x, y];
+    };
+    // Java starts the text left of the dot and lets it run off the chart's left edge near the start.
+    const textX = (n: number) => Math.max(0, xOf(n) - shift);
     const values = (pt: HistoryPoint, n: number, dot: string) => {
       const wr = pt.black.winrate;
-      put(fixed(wr, 1) + "%", xOf(n) - shift, yOf(wr) + (wr > 50 ? 6 * DOT_RADIUS : -2 * DOT_RADIUS), "l", P.text);
+      put(fixed(wr, 1) + "%", textX(n), yOf(wr) + (wr > 50 ? 6 * DOT_RADIUS : -2 * DOT_RADIUS), "l", P.text);
       readouts.push(() => {
         g.color(dot);
         g.oval(xOf(n) - DOT_RADIUS, yOf(wr) - DOT_RADIUS, DOT_RADIUS * 2, DOT_RADIUS * 2);
@@ -587,14 +622,16 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
       const text = scoreLead(s);
       g.font("m", true, g.fonts.ui);
       // Java steps back 13 px over the last two moves; the B+ / W+ text also stops at the edge.
-      put(text, Math.min(numMoves - n < 2 ? xOf(n) - 13 : xOf(n), origW - g.width(text)), scoreY(s), "m", P.scoreText);
+      // Near 50% and an even score both readouts land on the midline: the score moves aside.
+      const [x, y] = clear(text, Math.min(numMoves - n < 2 ? xOf(n) - 13 : xOf(n), origW - g.width(text)), scoreY(s));
+      put(text, x, y, "m", P.scoreText);
     };
     const curAt = cur >= 2 && cur <= total ? line.points.get(cur) : undefined;
     if (curAt) {
-      // The current position's values give way to the mouse-over ones they would overlap.
+      // The current position's values give way to the mouse-over ones they would overlap. Java also
+      // measured against an absent mouse-over (x = -1), leaving out the first moves' values.
       g.font("l", true, g.fonts.ui);
-      const mPosX = hoverAt ? xOf(hm - 1) - shift : -1;
-      if (Math.abs(xOf(cur - 1) - shift - mPosX) > g.width(fixed(curAt.black.winrate, 1) + "%")) values(curAt, cur - 1, P.line);
+      if (!hoverAt || Math.abs(textX(cur - 1) - textX(hm - 1)) > g.width(fixed(curAt.black.winrate, 1) + "%")) values(curAt, cur - 1, P.line);
     }
     if (hoverAt) values(hoverAt, hm - 1, P.hover);
   }
@@ -612,7 +649,7 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
     const label = (text: string, x: number, base: number, color: string) => {
       const ink = g.c.measureText(text);
       const box = { x, y: base - ink.actualBoundingBoxAscent - 1, w: tabularWidth(g.c, text), h: ink.actualBoundingBoxAscent + ink.actualBoundingBoxDescent + 2 };
-      if (readoutBoxes.some((r) => r.x < box.x + box.w && box.x < r.x + r.w && r.y < box.y + box.h && box.y < r.y + r.h)) return;
+      if (readoutBoxes.some((r) => overlaps(box, r))) return;
       g.color(color);
       fillTabular(g.c, text, x, base);
     };

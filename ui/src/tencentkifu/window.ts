@@ -309,8 +309,10 @@ export function bootTencentKifu(): void {
       query.value = view.last_name;
     }
     after.selectedIndex = AFTER_GET.indexOf(view.after_get);
+    // Java joins label and query directly; a half-width colon needs the space a full-width one includes.
+    const userLabel = t("TencentKifuDownload.currentUser.label");
     currentUser.textContent =
-      t("TencentKifuDownload.currentUser.label") + (view.query.trim() || t("TencentKifuDownload.currentUser.waiting"));
+      userLabel + (userLabel.endsWith(":") ? " " : "") + (view.query.trim() || t("TencentKifuDownload.currentUser.waiting"));
     recentButtons.replaceChildren();
     if (view.recent.length === 0) recentButtons.append(el("span", "fk-recent-empty", t("TencentKifuDownload.recentEmpty")));
     for (const r of view.recent) {

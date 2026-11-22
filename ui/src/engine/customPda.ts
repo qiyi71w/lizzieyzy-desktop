@@ -77,7 +77,7 @@ export async function openCustomPda(): Promise<void> {
   const capValue = live.cap ?? saved.dynamicCap ?? 0;
   const fixedValue = live.pda ?? saved.fixedValue ?? 0;
   // Java's captions end in a colon; a row's name does not.
-  const caption = (text: string) => text.replace(/\\?[:：]\s*$/, "");
+  const caption = (text: string) => text.replace(/[:：]\s*$/, "");
 
   // One group: 当前PDA, the choice, the value each choice uses, 自动加载; the warnings under it.
   const body = el("div", "custom-pda-dialog");

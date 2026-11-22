@@ -4171,6 +4171,20 @@ export type LiveCategory = "Recommend" | "Local" | "Personal";
 
 export type OnlineText = { key: string, args: Array<string>, };
 
+export type LiveWinrate = { 
+/**
+ * `BlackWinRate`, in percent.
+ */
+black: number, 
+/**
+ * `100 - BlackWinRate`, kept within 0..=100.
+ */
+white: number, 
+/**
+ * `Delta` in points; `None` within 0.01 of 0, which the column leaves out.
+ */
+score: number | null, };
+
 export type LiveGameView = { 
 /**
  * 状态: `*` for a pinned game, then 直播预告 / 正在直播 / the result or 已结束 / 未知.
@@ -4193,9 +4207,9 @@ black: string, white: string,
  */
 hands: number, 
 /**
- * 胜率: empty without realtime analysis.
+ * 胜率: `None` without realtime analysis or a black win rate.
  */
-rate: string, 
+rate: LiveWinrate | null, 
 /**
  * 关注.
  */

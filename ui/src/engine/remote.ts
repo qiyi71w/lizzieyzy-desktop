@@ -6,6 +6,7 @@ import type { RemoteFailure, SshPasswordState, SshSettings } from "../contract/g
 import { formPanel } from "../dialogs";
 import { product, registerProduct, t } from "../i18n";
 import { button, footer, input, primaryButton, row } from "./controls";
+import { icon } from "../design/icons";
 
 registerProduct({
   ZhCn: {
@@ -97,9 +98,10 @@ export function remoteFailureText(r: RemoteFailure): string {
   }
 }
 
-/** The 关于远程引擎 information (MoreEngines btnRemoteEngine). */
+/** The 关于远程引擎 information (MoreEngines btnRemoteEngine, a "?" button): the help icon, named
+ *  and titled by the information's title. */
 export function aboutRemoteButton(): HTMLButtonElement {
-  const about = button("?", () => {
+  const about = button("", () => {
     const body = document.createElement("div");
     const text = document.createElement("p"); text.className = "engine-remote-about"; text.textContent = t("MoreEngines.aboutRemoteEngine");
     body.append(text);
@@ -107,7 +109,10 @@ export function aboutRemoteButton(): HTMLButtonElement {
     const dialog = formPanel(t("MoreEngines.aboutRemoteEngineTitle"), body);
   });
   about.dataset.key = "engine.remote.about";
+  about.className = "engine-help-button";
+  about.append(icon("help"));
   about.title = t("MoreEngines.aboutRemoteEngineTitle");
+  about.setAttribute("aria-label", about.title);
   return about;
 }
 

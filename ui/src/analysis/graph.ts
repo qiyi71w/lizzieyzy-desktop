@@ -174,7 +174,7 @@ function graphTheme() {
     /** The ring of the two current markers: the stage's marker ring over a wallpaper the user
      *  chose (a light ring, whatever the graph's ground), else the graph's own ground or the card
      *  under the graph. */
-    markerRing: own && (p.builtin || skin() === "java") ? cssColor(own) : p.graphMarkerRing,
+    markerRing: own && (p.builtin || skin() !== "modern") ? cssColor(own) : p.graphMarkerRing,
     belowFill: own ? cssColor(belowBaselineFill(own)) : p.graphFillBelow,
   };
 }

@@ -15,7 +15,7 @@ import { groupTitle, row as groupRow } from "../engine/controls";
 import { SETTINGS_PAGES, type SettingsDialog } from "../engine/settings";
 import { registerSettingTargets } from "../engine/settingsTargets";
 import { isChinese, product, registerProduct, t } from "../i18n";
-import { cssColor, DEFAULT_BLUNDER_COLORS, DEFAULT_BLUNDER_THRESHOLDS, DEFAULT_THEME, JAVA_CLASSIC_THEME, LIZZIE_DEFAULT_FONT, opaque, SYSTEM_DEFAULT_FONT } from "./model";
+import { cssColor, DEFAULT_BLUNDER_COLORS, DEFAULT_BLUNDER_THRESHOLDS, DEFAULT_THEME, JAVA_CLASSIC_THEME, JAVA_SOFT_THEME, LIZZIE_DEFAULT_FONT, opaque, SYSTEM_DEFAULT_FONT, themeSkin } from "./model";
 import type { LoadedImages } from "./state";
 import { icon } from "../design/icons";
 import type { InterfaceColors } from "../design/palette";
@@ -108,16 +108,18 @@ registerProduct({
   ThTh: { themeManageSub: "{0} การสร้างใหม่และการลบมีผลทันที และจะทิ้งการเปลี่ยนแปลงที่ยังไม่บันทึกในหน้าอื่น", themeDeleteDiscards: "การลบมีผลทันที และจะทิ้งการเปลี่ยนแปลงที่ยังไม่บันทึกในหน้าตั้งค่าอื่น" },
 });
 
-/** The bundled Java classic theme's name in the theme list; it is stored as JAVA_CLASSIC_THEME. */
-const JAVA_CLASSIC_NAMES = {
-  ZhCn: { themeJavaClassic: "Java 经典" },
-  ZhTw: { themeJavaClassic: "Java 經典" },
-  EnUs: { themeJavaClassic: "Java Classic" },
-  JaJp: { themeJavaClassic: "Java クラシック" },
-  KoKr: { themeJavaClassic: "Java 클래식" },
-  ThTh: { themeJavaClassic: "Java คลาสสิก" },
+/** The bundled Java themes' names in the theme list; they are stored as JAVA_CLASSIC_THEME and
+ *  JAVA_SOFT_THEME. */
+const JAVA_THEME_NAMES = {
+  ZhCn: { themeJavaClassic: "Java 经典", themeJavaSoft: "Java 柔和" },
+  ZhTw: { themeJavaClassic: "Java 經典", themeJavaSoft: "Java 柔和" },
+  EnUs: { themeJavaClassic: "Java Classic", themeJavaSoft: "Java Soft" },
+  JaJp: { themeJavaClassic: "Java クラシック", themeJavaSoft: "Java ソフト" },
+  KoKr: { themeJavaClassic: "Java 클래식", themeJavaSoft: "Java 소프트" },
+  ThTh: { themeJavaClassic: "Java คลาสสิก", themeJavaSoft: "Java ซอฟต์" },
 };
-registerProduct(JAVA_CLASSIC_NAMES);
+registerProduct(JAVA_THEME_NAMES);
+const JAVA_THEME_KEYS: Record<string, string> = { [JAVA_CLASSIC_THEME]: "themeJavaClassic", [JAVA_SOFT_THEME]: "themeJavaSoft" };
 
 /** 界面颜色: the card, its four rows and each row's reset. */
 registerProduct({
@@ -260,10 +262,11 @@ registerProduct({
   },
 });
 
-/** A theme as the list names it: 默认 and Java 经典 translated, every other theme as stored. */
+/** A theme as the list names it: 默认 and the Java themes translated, every other theme as stored. */
 function themeName(name: string): string {
   if (name === DEFAULT_THEME) return t("LizzieConfig.title.defaultTheme");
-  return name === JAVA_CLASSIC_THEME ? product("themeJavaClassic") : name;
+  const key = JAVA_THEME_KEYS[name];
+  return key ? product(key) : name;
 }
 
 /** The program's own default images: what the core answers when a theme names no image or one
@@ -692,7 +695,7 @@ function paintPreview(canvas: HTMLCanvasElement, v: ThemeSettings, images: Loade
  *  the core answers the default image only when neither the custom override nor the theme's own
  *  file reads. An empty path, or the default image's own address, is the default image, as on the
  *  board, and where the workbench shows the program's own wallpaper for that default background
- *  (any theme but Java 经典) the preview shows it too. */
+ *  (any theme but the Java ones) the preview shows it too. */
 async function loadPreviewImages(settings: AppearanceSettings, draft: ThemeSettings): Promise<LoadedImages> {
   const urls = await appearanceImages(settings, draft).catch(() => null);
   if (!urls) return {};
@@ -703,7 +706,7 @@ async function loadPreviewImages(settings: AppearanceSettings, draft: ThemeSetti
     img.src = url;
     return img.decode().then(() => img, () => undefined);
   };
-  const linen = !unread(urls.background, draft.backgroundImage, DEFAULT_PATHS.background) && programStage(settings.theme === JAVA_CLASSIC_THEME, false, urls.background);
+  const linen = !unread(urls.background, draft.backgroundImage, DEFAULT_PATHS.background) && programStage(themeSkin(settings.theme) !== "modern", false, urls.background);
   const [background, board, black, white] = await Promise.all([
     linen ? stageReady.then(stageWallpaper) : decoded(urls.background, draft.backgroundImage, DEFAULT_PATHS.background),
     decoded(urls.board, draft.boardImage, DEFAULT_PATHS.board),
@@ -1069,7 +1072,7 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   /** readThemeValues / readDefaultTheme: the controls show `v`. */
   const fill = (v: ThemeSettings) => {
     base = structuredClone(v);
-    const skin = skinColors(selected === JAVA_CLASSIC_THEME ? "java" : "modern");
+    const skin = skinColors(themeSkin(selected));
     interfaceColors.chrome.set(v.uiChromeColor, skin.chrome);
     interfaceColors.control.set(v.uiControlColor, skin.control);
     interfaceColors.accent.set(v.uiAccentColor, skin.accent);
@@ -1257,9 +1260,9 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   add.onclick = async () => {
     const name = await themeNameDialog();
     if (name === null) return;
-    // Java compares the list's names; Java 经典 is also taken under its stored name and in every
-    // language, and stays taken after it is deleted.
-    const names = [t("LizzieConfig.title.defaultTheme"), JAVA_CLASSIC_THEME, ...Object.values(JAVA_CLASSIC_NAMES).map((n) => n.themeJavaClassic), ...(catalog?.themes.map((e) => e.name) ?? [])];
+    // Java compares the list's names; the Java themes are also taken under their stored names and
+    // in every language, and stay taken after they are deleted.
+    const names = [t("LizzieConfig.title.defaultTheme"), JAVA_CLASSIC_THEME, JAVA_SOFT_THEME, ...Object.values(JAVA_THEME_NAMES).flatMap((n) => [n.themeJavaClassic, n.themeJavaSoft]), ...(catalog?.themes.map((e) => e.name) ?? [])];
     if (names.some((n) => n.toLowerCase() === name.toLowerCase())) {
       await message(t("Message.title"), t("ConfigDialog2.duplicateThemeName"));
       return;

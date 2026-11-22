@@ -6,7 +6,7 @@
 import type { AppearanceSettings, ThemeImages, ThemeSettings, WorkbenchView } from "../contract/generated";
 import { appearanceImages } from "../contract/client";
 import { applyTypeSizes, setInterfaceColors, setSkin, setThemeMode, typeSizes, type TypeSizes } from "../design/theme";
-import { cssColor, JAVA_CLASSIC_THEME, sameRgba, THEME_DEFAULT } from "./model";
+import { cssColor, sameRgba, THEME_DEFAULT, themeSkin } from "./model";
 
 export interface LoadedImages {
   board?: HTMLImageElement;
@@ -63,8 +63,8 @@ async function loadThemeImages(settings: AppearanceSettings, theme: ThemeSetting
   return { images: { board, background, black, white, themeBoard }, customBoard: !!board && urls.customBoard };
 }
 
-/** The colour mode, the skin (Java 经典 takes Java's colours) and the theme's 界面颜色, and what the
- *  theme chooses for the comment pane: its colours and text size (LizzieFrame.java:11292-11304,
+/** The colour mode, the skin (the Java themes take Java's colours) and the theme's 界面颜色, and
+ *  what the theme chooses for the comment pane: its colours and text size (LizzieFrame.java:11292-11304,
  *  11358-11359), the 评论 / 问题手 underline, the theme's accent colour at alpha 220
  *  (SidebarHeaderPanel.java:226-238), and the controls' corners: glass-corner-radius is the arc,
  *  at least 8, Java rounds its buttons, fields, lists and popup menus with
@@ -73,7 +73,7 @@ async function loadThemeImages(settings: AppearanceSettings, theme: ThemeSetting
  *  colour mode and skin. */
 function applyStyles(settings: AppearanceSettings, theme: ThemeSettings): void {
   setThemeMode(settings.mode);
-  setSkin(settings.theme === JAVA_CLASSIC_THEME ? "java" : "modern");
+  setSkin(themeSkin(settings.theme));
   setInterfaceColors({ chrome: theme.uiChromeColor, control: theme.uiControlColor, accent: theme.uiAccentColor, text: theme.uiTextColor });
   const root = document.documentElement.style;
   const own = (name: string, value: readonly number[], themeDefault: readonly number[], css = cssColor(value)) => {

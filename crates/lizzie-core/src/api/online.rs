@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-pub use crate::online::yike::{LiveCategory, LiveGameView};
+pub use crate::online::yike::{LiveCategory, LiveGameView, LiveWinrate};
 pub use crate::online::OnlineText;
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]

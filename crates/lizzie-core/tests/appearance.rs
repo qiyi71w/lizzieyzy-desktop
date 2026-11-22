@@ -172,14 +172,16 @@ fn new_themes_use_the_java_template_and_deletion_removes_only_the_chosen_theme()
     wb.delete_theme("sabaki").unwrap();
     assert!(!appearance::catalog(&s,&ThemeSettings::default()).iter().any(|t|t.name=="sabaki"));
     assert_eq!(appearance::load_theme(&s,"sabaki",&ThemeSettings::default()),ThemeSettings::default());
-    // The Java classic bundle lists, hides on delete, and its name stays taken.
-    assert!(appearance::catalog(&s,&ThemeSettings::default()).iter().any(|t|t.name=="java-classic"));
-    // Its values are Java's defaults whatever the ui section holds; its images are the default ones.
-    let ui=ThemeSettings { shadow_size:20, board_image:"ui-board.png".into(), ..Default::default() };
-    assert_eq!(appearance::load_theme(&s,"java-classic",&ui),ThemeSettings::default());
-    wb.delete_theme("java-classic").unwrap();
-    assert!(!appearance::catalog(&s,&ThemeSettings::default()).iter().any(|t|t.name=="java-classic"));
-    assert!(wb.add_theme("Java-Classic").is_err());
+    // The Java classic and soft bundles list, hide on delete, and their names stay taken.
+    for (name,upper) in [("java-classic","Java-Classic"),("java-soft","Java-Soft")] {
+        assert!(appearance::catalog(&s,&ThemeSettings::default()).iter().any(|t|t.name==name));
+        // Its values are Java's defaults whatever the ui section holds; its images are the default ones.
+        let ui=ThemeSettings { shadow_size:20, board_image:"ui-board.png".into(), ..Default::default() };
+        assert_eq!(appearance::load_theme(&s,name,&ui),ThemeSettings::default());
+        wb.delete_theme(name).unwrap();
+        assert!(!appearance::catalog(&s,&ThemeSettings::default()).iter().any(|t|t.name==name));
+        assert!(wb.add_theme(upper).is_err());
+    }
 }
 #[test]
 fn custom_images_are_owned_copies_and_clear_restores_the_default() {

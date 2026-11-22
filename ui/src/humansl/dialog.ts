@@ -9,12 +9,21 @@ import { icon } from "../design/icons";
 import { stepper } from "../design/stepper";
 import { ask, closeBox, openModalLayer } from "../dialogs";
 import { footer, groupNote, groupTitle, row, segmented, switchRow } from "../engine/controls";
-import { format, product, t } from "../i18n";
+import { format, product, registerProduct, t } from "../i18n";
 import { messageText } from "../errorText";
 import { openAutoSetup, resourceCommand, resourceView } from "../setup/dialog";
 import { javaFormat, resourceText } from "../setup/setupText";
 import { humanSlSession, humanSlUi, humanSlUiChanged } from "./state";
 import "./humansl.css";
+
+registerProduct({
+  ZhCn: { humanSlStartFailedEngine: "{0}请检查 HumanSL 模型文件和分析引擎设置，然后重试。" },
+  ZhTw: { humanSlStartFailedEngine: "{0}請檢查 HumanSL 模型檔案和分析引擎設定，然後重試。" },
+  EnUs: { humanSlStartFailedEngine: "{0} Check the HumanSL model file and the analysis engine settings, then try again." },
+  JaJp: { humanSlStartFailedEngine: "{0}HumanSL モデル ファイルと分析エンジンの設定を確認してから、もう一度お試しください。" },
+  KoKr: { humanSlStartFailedEngine: "{0} HumanSL 모델 파일과 분석 엔진 설정을 확인한 뒤 다시 시도하세요." },
+  ThTh: { humanSlStartFailedEngine: "{0} โปรดตรวจสอบไฟล์โมเดล HumanSL และการตั้งค่ากลไกการวิเคราะห์ แล้วลองอีกครั้ง" },
+});
 
 /** HumanSlTrainingConfig move times by 用时 index. */
 const TIMES = [10, 30, 60, 24 * 60 * 60];
@@ -88,11 +97,34 @@ function failureReason(key: string): string {
   return texts[key] ?? t(key);
 }
 
-/** The start failure as the dialog's inline error (showInlineError). */
+/** A start failure as the dialog shows it: one sentence in the interface language (Java's
+ *  HumanSlGame.error.startFailed) and the core's detail behind 查看详情. The detail is the
+ *  engine's last output lines and the failure; a line that is a core message (a settings write
+ *  that failed) is the cause instead, its text already saying what to do. */
+interface StartFailure {
+  text: string;
+  detail: string;
+  /** The detail is the problem the text refers to ("the problem below"), shown unfolded. */
+  open: boolean;
+}
+
+function startFailure(n: Extract<HumanSlNotice, { type: "StartFailed" }>): StartFailure {
+  const reason = javaFormat(t("HumanSlGame.error.startFailed"), failureReason(n.reason));
+  if (!n.detail) return { text: reason, detail: "", open: false };
+  const lines = n.detail.split("\n");
+  const core = lines.findIndex((line) => messageText(line, () => "") !== "");
+  if (core < 0) return { text: product("humanSlStartFailedEngine", reason), detail: n.detail, open: false };
+  return {
+    text: javaFormat(t("HumanSlGame.error.startFailed"), messageText(lines[core])),
+    detail: lines.filter((_, k) => k !== core).join("\n"),
+    open: true,
+  };
+}
+
+/** The start failure as one message (a notice outside the dialog): the sentence, then the detail. */
 export function startFailedText(n: Extract<HumanSlNotice, { type: "StartFailed" }>): string {
-  // The detail's last lines may be a core error message (a settings write that failed).
-  const detail = n.detail?.split("\n").map((line) => messageText(line)).join("\n");
-  return javaFormat(t("HumanSlGame.error.startFailed"), detail ?? failureReason(n.reason));
+  const f = startFailure(n);
+  return f.detail ? `${f.text}\n${f.detail}` : f.text;
 }
 
 /** failing: a start failed and the companion is still being stopped; cleanup: that stop could not
@@ -135,8 +167,9 @@ export function openHumanSlDialog(): void {
   let elapsedTimer: number | undefined;
   /** A TensorRT start failure offers 一键设置's repair on the start button (pendingTensorRtRepairContext). */
   let repair = false;
-  /** The start failure's inline error, shown again once a pending cleanup succeeded. */
-  let failureText = "";
+  /** The start failure: the inline error with its detail, shown again once a pending cleanup
+   *  succeeded. */
+  let failure: StartFailure | null = null;
 
   // ---------------------------------------------------------------- controls
   const overlay = el("div", "modal");
@@ -193,6 +226,10 @@ export function openHumanSlDialog(): void {
   status.setAttribute("aria-live", "polite");
   const summary = el("div", "hs-summary");
   summary.append(modelStatus, status);
+  // The failure's detail (the engine's output) below the inline error: folded, selectable.
+  const failureDetail = keyed(el("details", "hs-failure-detail"), "failureDetail");
+  const failureDetailText = el("pre");
+  failureDetail.append(el("summary", "", t("EngineFailedMessage.details")), failureDetailText);
 
   const handicap = select("handicap", Array.from({ length: 10 }, (_, k) => String(k)));
   handicap.selectedIndex = s.handicap;
@@ -231,7 +268,7 @@ export function openHumanSlDialog(): void {
   row(advanced, t("HumanSlTraining.komi"), "", komi);
   groupNote(advanced, t("HumanSlTraining.moreHint"));
 
-  root.append(el("p", "hs-subtitle", t("HumanSlTraining.subtitle")), form, advanced, summary, downloadPanel);
+  root.append(el("p", "hs-subtitle", t("HumanSlTraining.subtitle")), form, advanced, summary, failureDetail, downloadPanel);
   const caption = el("span");
   caption.append(icon("spark"), t("HumanSlTraining.title"));
   const title = el("div", "modal-title hs-title");
@@ -397,6 +434,7 @@ export function openHumanSlDialog(): void {
     } else if (!text) text = summaryText();
     status.textContent = text;
     status.classList.toggle("error", statusError && (phase === "idle" || phase === "failing" || phase === "cleanup"));
+    failureDetail.hidden = !failure?.detail || text !== failure.text;
     // Java's ESC binding is on the dialog's root pane: a control disabled while it had the focus
     // (开始训练 during a start) must not leave the keyboard outside the modal dialog.
     if (box.isConnected && !box.contains(document.activeElement)) box.focus();
@@ -432,7 +470,7 @@ export function openHumanSlDialog(): void {
     statusText = "";
     statusError = false;
     repair = false;
-    failureText = "";
+    failure = null;
     preparingBase = { secs: 0, at: performance.now() };
     setPhase("starting");
     render();
@@ -573,7 +611,10 @@ export function openHumanSlDialog(): void {
       if (n.type === "StartFailed") {
         // presentPreparationFailure: the inline error; the form stays disabled until the
         // companion is stopped (Ended), then comes back with the user's draft.
-        statusText = failureText = startFailedText(n);
+        failure = startFailure(n);
+        statusText = failure.text;
+        failureDetailText.textContent = failure.detail;
+        failureDetail.open = failure.open;
         statusError = true;
         repair = n.reason === "HumanSlGame.error.tensorRtCompanionMissing";
         setPhase(humanSlSession() ? "failing" : "idle");
@@ -591,7 +632,7 @@ export function openHumanSlDialog(): void {
       }
       if (n.type === "Ended") {
         // A cleanup that finished shows the start failure again (completeFailedRunnerPreparation).
-        if (phase === "cleanup" && failureText) statusText = failureText;
+        if (phase === "cleanup" && failure) statusText = failure.text;
         setPhase("idle");
         render();
         return true;

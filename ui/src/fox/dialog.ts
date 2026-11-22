@@ -140,7 +140,7 @@ export function describeRules(json: string): string {
     if (fields.size === names.length && names.every((n) => fields.has(n) && String(fields.get(n)) === String(preset[n]))) return presetText(key);
   }
   // Dialog labels carry their own trailing colon; the item format supplies one per locale.
-  const label = (text: string) => text.replace(/\\?[:：]\s*$/, "");
+  const label = (text: string) => text.replace(/[:：]\s*$/, "");
   const item = (name: string, value: string) => format(t("Fox.rulesItem"), name, value);
   const items: string[] = [];
   for (const [name, text, values] of ruleFields()) {
