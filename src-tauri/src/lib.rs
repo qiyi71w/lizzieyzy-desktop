@@ -2124,7 +2124,8 @@ fn gtk_cancel_first() -> bool {
 }
 
 /// Cocoa's predefined Quit calls terminate: without Tauri's cancellable ExitRequested.
-/// Keep the default native menu, replacing only Quit with the shared exit request.
+/// Keep the default native menu, replacing only Quit with the shared exit request. It serves until
+/// the workbench page puts the program's menus in the system menu bar (ui/src/chrome/nativeMenu.ts).
 #[cfg(target_os = "macos")]
 fn install_macos_quit(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};

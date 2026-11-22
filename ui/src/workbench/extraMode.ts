@@ -143,8 +143,9 @@ Object.assign(COMMANDS, {
     checked: () => !!panels()?.showingIndependentMain && mode() !== "FloatBoard",
   },
   "menu.independentSubBoard": { run: () => void run({ type: "ToggleIndependentBoard", board: "Sub" }), checked: () => !!panels()?.showingIndependentSub },
-  "menu.custom-layout-1": { run: () => applyCustomLayout(1), button: { label: () => t("Menu.customLayoutSet"), run: () => openSetCustomMode(1) } },
-  "menu.custom-layout-2": { run: () => applyCustomLayout(2), button: { label: () => t("Menu.customLayoutSet"), run: () => openSetCustomMode(2) } },
+  // As an item of its own (the macOS menu bar), 设置 is named by the dialog it opens and the slot.
+  "menu.custom-layout-1": { run: () => applyCustomLayout(1), button: { label: () => t("Menu.customLayoutSet"), run: () => openSetCustomMode(1), item: () => `${t("SetCustomMode.title")} 1` } },
+  "menu.custom-layout-2": { run: () => applyCustomLayout(2), button: { label: () => t("Menu.customLayoutSet"), run: () => openSetCustomMode(2), item: () => `${t("SetCustomMode.title")} 2` } },
   "menu.visualizedPanelSettings": { run: () => openSetCustomMode(null) },
 } satisfies Record<string, CommandEntry>);
 
