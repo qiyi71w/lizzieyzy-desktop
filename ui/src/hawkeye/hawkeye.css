@@ -245,7 +245,7 @@ body {
   min-width: 168px;
   padding: 4px;
   border-radius: var(--ds-radius-menu);
-  background: var(--ds-raised);
+  background: var(--ds-popup);
   box-shadow: var(--ds-shadow-pop);
   white-space: nowrap;
 }

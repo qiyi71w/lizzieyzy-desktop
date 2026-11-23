@@ -101,11 +101,11 @@ function cycleFocus(items: HTMLElement[], back: boolean) {
 }
 
 /** `dismissed` is the answer of Escape and of the title's close box (JOptionPane.CLOSED_OPTION's
- *  role); Enter outside a button chooses the primary button, else the first, which also has the
- *  focus. `buttons` come in Java's order, the affirmative one first; where the platform puts cancel
- *  first (DESIGN.md Buttons) the affirmative button moves to the end with the one Escape answers
- *  before it, whichever of them is the default. Without an option Escape answers, the primary
- *  button moves to the end. */
+ *  role); Enter outside a button and a folded detail's summary chooses the primary button, else the
+ *  first, which also has the focus. `buttons` come in Java's order, the affirmative one first; where
+ *  the platform puts cancel first (DESIGN.md Buttons) the affirmative button moves to the end with
+ *  the one Escape answers before it, whichever of them is the default. Without an option Escape
+ *  answers, the primary button moves to the end. */
 function show<T>(title: string, body: HTMLElement | string, buttons: Button<T>[], kind: "info" | "warning" | "error", dismissed: T): Promise<T> {
   const { promise, resolve } = Promise.withResolvers<T>();
   const previous = document.activeElement as HTMLElement | null;
@@ -145,11 +145,12 @@ function show<T>(title: string, body: HTMLElement | string, buttons: Button<T>[]
   box.addEventListener("keydown", (e) => {
     e.stopPropagation();
     if (e.key === "Escape") close(dismissed);
-    if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement)) close((buttons.find((b) => b.primary) ?? buttons[0]).value);
+    if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement) && !(e.target instanceof Element && e.target.matches("summary"))) close((buttons.find((b) => b.primary) ?? buttons[0]).value);
     if (e.key === "Tab") {
-      // Focus cycles through the dialog's own controls; the close box is for the pointer.
+      // Focus cycles through the dialog's own controls (a folded detail's summary among them);
+      // the close box is for the pointer.
       e.preventDefault();
-      cycleFocus([...box.querySelectorAll<HTMLElement>("button:not(:disabled):not(.modal-close), input:not(:disabled)")], e.shiftKey);
+      cycleFocus([...box.querySelectorAll<HTMLElement>("button:not(:disabled):not(.modal-close), input:not(:disabled), summary")], e.shiftKey);
     }
   });
   head.append(closeBox(() => close(dismissed)));
@@ -174,7 +175,7 @@ function setModal() {
 
 /** JOptionPane.showMessageDialog: it only informs, so its one button is a plain 关闭 (DESIGN.md
  *  Buttons). */
-export function message(title: string, text: string, kind: "info" | "warning" | "error" = "info"): Promise<void> {
+export function message(title: string, text: string | HTMLElement, kind: "info" | "warning" | "error" = "info"): Promise<void> {
   return show(title, text, [{ label: product("close"), value: true }], kind, false).then(() => undefined);
 }
 

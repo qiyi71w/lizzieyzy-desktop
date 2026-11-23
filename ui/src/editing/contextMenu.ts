@@ -75,9 +75,9 @@ export function openContextMenu(clientX: number, clientY: number, entries: Conte
     if (entry.icon) {
       mark.append(icon(entry.icon));
     } else if (entry.checked !== undefined) {
-      // A JCheckBoxMenuItem: editing.css draws the mark of a checked one in the check column.
+      // A JCheckBoxMenuItem: a checked one's check in the check column.
       row.classList.add("checkable");
-      row.classList.toggle("checked", entry.checked);
+      if (entry.checked) mark.append(icon("check"));
       row.setAttribute("role", "menuitemcheckbox");
       row.setAttribute("aria-checked", String(entry.checked));
     }

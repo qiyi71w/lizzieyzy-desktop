@@ -767,7 +767,7 @@ body {
   overflow-x: hidden;
   overflow-y: auto;
   border-radius: var(--ds-radius-menu);
-  background: var(--ds-raised);
+  background: var(--ds-popup);
   box-shadow: var(--ds-shadow-pop);
   color: var(--ds-text);
   font-weight: 400;
@@ -814,6 +814,11 @@ body {
   width: 28px;
   text-align: center;
   font-size: var(--ds-size-s);
+}
+.mi .mark .icon {
+  margin: 0 auto;
+  width: 16px;
+  height: 16px;
 }
 .mi.sub::after {
   content: "";

@@ -65,35 +65,52 @@ function digitHeight(g: CanvasRenderingContext2D): number {
   return Math.round(m.actualBoundingBoxAscent);
 }
 
-/** MoveListFrame.drawStringMid (6785-6815): `s` centred in the box whose top-left is (x, y), at the
- *  largest size of the type scale that fits the box (the smallest when none does). Returns the
- *  size (the caller reuses it for the bar values). */
-function stringMid(g: CanvasRenderingContext2D, lk: Look, x: number, y: number, s: string, maxW: number, maxH: number, bold = false): number {
-  let px = lk.sizes[lk.sizes.length - 1];
+/** The largest size of the type scale at which `s` fits `room` wide and `maxH` high, else the
+ *  smallest, no taller than `maxH` (Java's drawStringMid caps the size at the box's height). */
+function fitSize(g: CanvasRenderingContext2D, lk: Look, s: string, room: number, maxH: number, bold: boolean): number {
   for (const size of lk.sizes) {
     g.font = font(lk, size, bold);
-    if (stringWidth(g, s) <= maxW && size <= maxH) {
-      px = size;
-      break;
-    }
+    if (stringWidth(g, s) <= room && size <= maxH) return size;
   }
-  g.font = font(lk, px, bold);
-  g.fillText(s, x + i((maxW - stringWidth(g, s)) / 2), i(y + maxH / 2 + digitHeight(g) / 2));
-  return px;
+  return Math.min(lk.sizes[lk.sizes.length - 1], maxH);
 }
 
-/** A player's name after their flat stone, centred in its box. */
+/** MoveListFrame.drawStringMid (6785-6815): `s` centred in the box whose top-left is (x, y), at
+ *  `px`, by default the largest size of the type scale that fits the box. */
+function stringMid(g: CanvasRenderingContext2D, lk: Look, x: number, y: number, s: string, maxW: number, maxH: number, bold = false, px = fitSize(g, lk, s, maxW, maxH, bold)): void {
+  g.font = font(lk, px, bold);
+  g.fillText(s, x + i((maxW - stringWidth(g, s)) / 2), i(y + maxH / 2 + digitHeight(g) / 2));
+}
+
+/** The labels between the two sides' tracks, at one size: the largest of the type scale at which
+ *  each fits `fit` of `share` of `aw` and `maxH`. When none does, the smallest, the column widening
+ *  to fit the labels up to a third of `aw`; past that, or taller than `maxH`, the size below the
+ *  scale that fits, as the win-rate graph's readouts shrink in a small window (Java shrinks each
+ *  label to its share). `shrunk`: the size is below the scale, and the bars' values take it too. */
+function middleColumn(g: CanvasRenderingContext2D, lk: Look, labels: string[], aw: number, share: number, fit: number, maxH: number): { px: number; width: number; shrunk: boolean } {
+  const widest = (size: number) => {
+    g.font = font(lk, size);
+    return Math.max(...labels.map((s) => g.measureText(s).width));
+  };
+  const scaled = lk.sizes.find((size) => size <= maxH && widest(size) <= aw * share * fit);
+  if (scaled !== undefined) return { px: scaled, width: aw * share, shrunk: false };
+  const smallest = lk.sizes[lk.sizes.length - 1];
+  const px = Math.min(smallest, maxH, (smallest * (aw / 3) * fit) / widest(smallest));
+  return { px, width: Math.max(aw * share, widest(px) / fit), shrunk: px < smallest };
+}
+
+/** A player's name after their flat stone, centred in its box; a name the type scale's smallest
+ *  size does not fit shrinks to the box, as Java sizes it (drawStringMid). */
 function nameMid(g: CanvasRenderingContext2D, lk: Look, x: number, y: number, name: string, maxW: number, maxH: number, black: boolean): void {
   const dot = 10;
-  let px = lk.sizes[lk.sizes.length - 1];
-  for (const size of lk.sizes) {
-    g.font = font(lk, size, true);
-    if (stringWidth(g, name) + dot + 6 <= maxW && size <= maxH) {
-      px = size;
-      break;
-    }
-  }
+  const room = maxW - dot - 6;
+  let px = fitSize(g, lk, name, room, maxH, true);
   g.font = font(lk, px, true);
+  const wide = g.measureText(name).width;
+  if (wide > room) {
+    px = (px * room) / wide;
+    g.font = font(lk, px, true);
+  }
   const width = stringWidth(g, name) + dot + 6;
   const left = x + i((maxW - width) / 2);
   const mid = y + maxH / 2;
@@ -177,30 +194,34 @@ function paintKey(g: CanvasRenderingContext2D, lk: Look, width: number, height: 
   const startY = i((height * border) / 2);
   const titleHeight = ah / 10;
   g.textBaseline = "alphabetic";
-  // Lizzie.frame.getPlayerName(isBlack, 12), each after its stone.
-  nameMid(g, lk, startX, startY, p.blackName, i(aw * 0.4), i(titleHeight), true);
-  nameMid(g, lk, startX + i(aw * 0.6), startY, p.whiteName, i(aw * 0.4), i(titleHeight), false);
-
   const heightGap = ah * 0.03;
   const valueStartY = i(startY + titleHeight + heightGap);
-  const valueWidth = i(aw * 0.4);
   const valueHeight = i(ah - titleHeight - heightGap);
+  const row = i((ah - titleHeight - heightGap) / 5);
+  const stringH = i(row / 2);
+  const labels = [
+    t("Movelistframe.keyPanel.accuracy"),
+    t("Movelistframe.keyPanel.match"),
+    t("Movelistframe.keyPanel.matchBestMove"),
+    t("Movelistframe.keyPanel.avgScoreLoss"),
+    t("Movelistframe.keyPanel.avgWinLoss"),
+  ];
+  const middle = middleColumn(g, lk, labels, aw, 0.2, 0.9, stringH);
+  const valueWidth = i((aw - middle.width) / 2);
   const xBlack = startX;
-  const xWhite = startX + i(aw * 0.6);
+  const xWhite = startX + i(aw) - valueWidth;
+  // Lizzie.frame.getPlayerName(isBlack, 12), each after its stone, over its side's track.
+  nameMid(g, lk, xBlack, startY, p.blackName, valueWidth, i(titleHeight), true);
+  nameMid(g, lk, xWhite, startY, p.whiteName, valueWidth, i(titleHeight), false);
   track(g, lk, xBlack, valueStartY, valueWidth, valueHeight);
   track(g, lk, xWhite, valueStartY, valueWidth, valueHeight);
 
-  const row = i((ah - titleHeight - heightGap) / 5);
-  const x1 = i(startX + valueWidth + aw * 0.2 * 0.05);
+  const x1 = i(startX + valueWidth + middle.width * 0.05);
   const y1 = valueStartY + i(row / 4);
-  const stringW = aw * 0.2 * 0.9;
-  const stringH = i(row / 2);
   g.fillStyle = lk.label;
-  const px = stringMid(g, lk, x1, y1, t("Movelistframe.keyPanel.accuracy"), stringW, stringH);
-  stringMid(g, lk, x1, y1 + row, t("Movelistframe.keyPanel.match"), stringW, stringH);
-  stringMid(g, lk, x1, y1 + row * 2, t("Movelistframe.keyPanel.matchBestMove"), stringW, stringH);
-  stringMid(g, lk, x1, y1 + row * 3, t("Movelistframe.keyPanel.avgScoreLoss"), stringW, stringH);
-  stringMid(g, lk, x1, y1 + row * 4, t("Movelistframe.keyPanel.avgWinLoss"), stringW, stringH);
+  labels.forEach((s, k) => stringMid(g, lk, x1, y1 + row * k, s, middle.width * 0.9, stringH, false, middle.px));
+  // The values at the size 吻合度 takes in its share of the width (Java reuses its font).
+  const px = middle.shrunk ? middle.px : fitSize(g, lk, labels[0], aw * 0.2 * 0.9, stringH, false);
 
   // Per side over the 统计 range (6492-6575): 吻合度 / 吻合率 / 第一选点率 over the moves whose
   // position before is analysed, both average losses over the moves with both positions analysed.
@@ -295,21 +316,21 @@ function paintLoss(g: CanvasRenderingContext2D, lk: Look, width: number, height:
 
   const heightGap = ah * 0.02;
   const valueStartY = i(startY + titleHeight + heightGap);
-  const valueWidth = i(aw * 0.43);
   const valueHeight = i(ah - titleHeight - heightGap);
+  const row = i((ah - titleHeight - heightGap) / 6);
+  const labels = lossLabels(winrate ? p.winLoss : p.scoreLoss, winrate);
+  const middle = middleColumn(g, lk, labels, aw, 0.14, 0.94, i(row / 2));
+  const valueWidth = i((aw - middle.width) / 2);
   const xBlack = startX;
-  const xWhite = startX + i(aw * 0.57);
+  const xWhite = startX + i(aw) - valueWidth;
   track(g, lk, xBlack, valueStartY, valueWidth, valueHeight);
   track(g, lk, xWhite, valueStartY, valueWidth, valueHeight);
 
-  const row = i((ah - titleHeight - heightGap) / 6);
-  const labelX = i(startX + valueWidth + aw * 0.14 * 0.03);
+  const labelX = i(startX + valueWidth + middle.width * 0.03);
   g.fillStyle = lk.label;
-  let px = 0;
-  lossLabels(winrate ? p.winLoss : p.scoreLoss, winrate).forEach((label, k) => {
-    const s = stringMid(g, lk, labelX, valueStartY + row * k + i(row / 4), label, aw * 0.14 * 0.94, i(row / 2));
-    if (k === 0) px = s;
-  });
+  labels.forEach((label, k) => stringMid(g, lk, labelX, valueStartY + row * k + i(row / 4), label, middle.width * 0.94, i(row / 2), false, middle.px));
+  // The counts at the size the first label takes in its share of the width.
+  const px = middle.shrunk ? middle.px : fitSize(g, lk, labels[0], aw * 0.14 * 0.94, i(row / 2), false);
   for (let k = 0; k < 6; k++) {
     const y = valueStartY + row * k;
     const bar: BarLook = { fill: lk.loss[k], edge: lk.barEdge, outside: lk.text, inside: lk.text };

@@ -357,10 +357,11 @@ pub struct Mapped {
     /// Appearance/default-theme fields, validated against the same types as the live command.
     pub appearance: Vec<(&'static str, Value)>,
     pub theme: Vec<(&'static str, Value)>,
-    /// Java's own theme folders (`theme/<name>/`), as this product stores them.
+    /// The theme folders the import writes: Java's own (`theme/<name>/`), as this product stores
+    /// them, and java-soft's once [`Mapped::settle_theme_folders`] added it.
     pub themes: Vec<crate::appearance::ThemeFolder>,
     /// Java's Morandi palette over its 默认 theme chose java-soft, which takes the 默认 theme's
-    /// imported values too ([`Mapped::theme_folders`]).
+    /// imported values too, until [`Mapped::settle_theme_folders`] wrote them into `themes`.
     pub soft_theme: bool,
     /// 跑谱贡献 settings other than its account (`ui.contribute-*`, `ui.show-Contribute`,
     /// `leelaz.contribute-engine-ssh-info`).

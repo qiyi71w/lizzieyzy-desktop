@@ -81,6 +81,10 @@ const ICONS = {
   minus: '<path d="M3.5 8h9"/>',
   /** A yes in a table cell (更多引擎's 预加载 / 默认 / SSH). */
   check: '<path d="m3.25 8.5 3 3 6.5-7"/>',
+  /** An engine of the engine menu (Java's ● ◐ ○): ready, loading, not running. */
+  "engine-ready": '<circle class="ic-fill" cx="8" cy="8" r="4.5"/>',
+  "engine-loading": '<circle cx="8" cy="8" r="3.75"/><path class="ic-fill" d="M8 4.25a3.75 3.75 0 0 0 0 7.5z"/>',
+  "engine-stopped": '<circle cx="8" cy="8" r="3.75"/>',
   /** Position: arrows in four directions. */
   move: '<path d="M8 2v12M2 8h12M6.25 3.75 8 2l1.75 1.75M6.25 12.25 8 14l1.75-1.75M3.75 6.25 2 8l1.75 1.75M12.25 6.25 14 8l-1.75 1.75"/>',
   "pen-blue": '<rect class="ic-pen ic-pen-blue" x="2.5" y="2.5" width="11" height="11" rx="2"/>',

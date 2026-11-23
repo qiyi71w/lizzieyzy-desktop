@@ -2398,6 +2398,80 @@ fn a_failed_morandi_import_leaves_no_java_soft_override() {
 }
 
 #[test]
+fn morandi_import_with_java_s_own_values_replaces_the_user_s_java_soft_values() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    morandi_java(&java, Some("默认"), false);
+    let mut wb = workbench(&tmp.path().join("product"), Recorder::default());
+    let dir = lizzie_core::appearance::themes_dir(wb.storage()).join("java-soft");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("theme.txt"), json!({"font-name": "Mine"}).to_string()).unwrap();
+    let p = preview(&mut wb, &java);
+    assert_eq!(p.replaced_themes, vec!["java-soft".to_string()]);
+    assert_eq!(wb.apply_java_import(p.id, &[], false, false, false, None).unwrap(), Err(IMPORT_NEEDS_REPLACE));
+    wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    assert_eq!(wb.view(true).settings.appearance.theme, "java-soft");
+    let fresh = workbench(&tmp.path().join("fresh"), Recorder::default());
+    assert_eq!(
+        lizzie_core::appearance::load_theme(wb.storage(), "java-soft", &Default::default()),
+        lizzie_core::appearance::load_theme(fresh.storage(), "java-soft", &Default::default()),
+    );
+}
+
+#[test]
+fn morandi_import_with_java_s_own_values_shows_java_s_default_and_renames_a_java_folder_of_that_name() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    morandi_java(&java, Some("默认"), false);
+    // A Java theme of this name, not the one Java showed.
+    std::fs::create_dir_all(java.join("theme/java-soft")).unwrap();
+    std::fs::write(java.join("theme/java-soft/theme.txt"), json!({"font-name": "Folder Font"}).to_string()).unwrap();
+    let mut wb = workbench(&tmp.path().join("product"), Recorder::default());
+    let p = preview(&mut wb, &java);
+    let it = item(&p.items, "file:theme/java-soft");
+    assert_eq!((it.status, it.value.as_deref()), (ImportStatus::Imported, Some("java-soft (LizzieYzy Next)")));
+    wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    assert_eq!(wb.view(true).settings.appearance.theme, "java-soft");
+    let fresh = workbench(&tmp.path().join("fresh"), Recorder::default());
+    assert_eq!(
+        lizzie_core::appearance::load_theme(wb.storage(), "java-soft", &Default::default()),
+        lizzie_core::appearance::load_theme(fresh.storage(), "java-soft", &Default::default()),
+    );
+    // The Java theme came over under the name the report gives.
+    let renamed = lizzie_core::appearance::load_theme(wb.storage(), "java-soft (LizzieYzy Next)", &Default::default());
+    assert_eq!(renamed.font_name, "Folder Font");
+}
+
+#[test]
+fn importing_a_deleted_bundled_theme_shows_it_again_unless_the_import_fails() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    std::fs::write(java.join("config.txt"), json!({"ui": {"theme": "sabaki"}}).to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    wb.delete_theme("sabaki").unwrap();
+    let listed = |wb: &Workbench| lizzie_core::appearance::catalog(wb.storage(), &Default::default()).iter().any(|t| t.name == "sabaki");
+    assert!(!listed(&wb));
+    let hidden = storage(&product).config_file.with_file_name("hidden-themes.json");
+    // As the user may have written it.
+    std::fs::write(&hidden, "[\"sabaki\"]\n").unwrap();
+    let before = std::fs::read(&hidden).unwrap();
+    let p = preview(&mut wb, &java);
+    let failed = without_settings_file(&product, || wb.apply_java_import(p.id, &[], false, false, true, None));
+    assert!(failed.as_ref().is_err_and(|e| e.message.starts_with(&format!("{SETTINGS_SAVE_FAILED}\n"))), "{failed:?}");
+    assert_eq!(std::fs::read(&hidden).unwrap(), before);
+    assert!(!listed(&wb));
+    wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    assert!(listed(&wb));
+    // An unrelated save and a restart keep it listed and selected.
+    wb.set_frame_font_size(16).unwrap();
+    let mut reopened = workbench(&product, Recorder::default());
+    assert!(listed(&reopened));
+    assert_eq!(reopened.view(true).settings.appearance.theme, "sabaki");
+}
+
+#[test]
 fn importing_a_bundled_theme_selects_it_and_skips_folders_without_theme_txt() {
     let tmp=tempfile::tempdir().unwrap(); let java=tmp.path().join("java");
     std::fs::create_dir_all(java.join("theme/Personal")).unwrap();

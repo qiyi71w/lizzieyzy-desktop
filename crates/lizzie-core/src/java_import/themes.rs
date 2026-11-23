@@ -103,7 +103,7 @@ impl Reader<'_> {
             self.mapped.themes.push(folder(product.clone(), raw, images));
             let it = self.item(key, ImportStatus::Imported);
             it.target = Some(ImportTarget::Themes);
-            // This product's default theme is `default`: the Java theme comes over renamed.
+            // A Java theme named after one of this product's (`default`, `java-soft`) comes over renamed.
             if renamed { it.value = Some(super::sanitize(&product)); }
         }
     }
@@ -116,10 +116,11 @@ impl Reader<'_> {
     }
 }
 
-/// The name a Java theme folder has here: `default` (any case) is this product's default theme,
-/// so a Java theme of that name becomes "<name> (LizzieYzy Next)".
+/// The name a Java theme folder has here: `default` (any case) is this product's default theme and
+/// `java-soft` the theme Java's Morandi palette is here, so a Java theme of either name becomes
+/// "<name> (LizzieYzy Next)".
 pub(super) fn product_name(java: &str) -> String {
-    if java.eq_ignore_ascii_case("default") { format!("{java} (LizzieYzy Next)") } else { java.to_string() }
+    if java.eq_ignore_ascii_case("default") || java.eq_ignore_ascii_case(appearance::JAVA_SOFT) { format!("{java} (LizzieYzy Next)") } else { java.to_string() }
 }
 
 /// `config.optString(key, default)` for an image key; `None` for a value that is not text.

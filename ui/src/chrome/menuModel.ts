@@ -4,7 +4,7 @@
 // search read it; it builds nothing.
 import { run, state } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
-import type { DisplaySettings } from "../contract/generated";
+import type { DisplaySettings, EngineState } from "../contract/generated";
 import { DARK_READY } from "../design/theme";
 import { chooseEngine } from "../engine/catalog";
 import { isChinese, product, t } from "../i18n";
@@ -31,9 +31,9 @@ export interface Row {
   danger: boolean;
   /** The item's tooltip. */
   title?: string;
-  /** An engine of the engine menu: its index and its state mark (Ready ●, Loading ◐, else ○), which
-   *  shows while it is not the checked one. */
-  engine?: { index: number; mark: string };
+  /** An engine of the engine menu: its index and its state (running or not), whose mark (Java's
+   *  ● ◐ ○) shows while it is not the checked one. */
+  engine?: { index: number; state: EngineState | null };
   /** What choosing the item runs; absent on a submenu and on an unavailable item. */
   command?: CommandEntry;
   /** A submenu's items. */
@@ -135,7 +135,7 @@ function engineRows(node: CatalogNode, uid: (name: string) => string): Row[] {
     t: "radio",
     checked: current?.index === index,
     title: engine.command,
-    engine: { index, mark: engine.state === "Ready" ? "●" : engine.state === "Loading" ? "◐" : "○" },
+    engine: { index, state: engine.state },
   }));
   if (engines.length > 20) rows.push(listed(node, uid("engine.more"), t("Menu.moreEngines"), { run: () => void chooseEngine(false, secondary) }));
   return rows;

@@ -1118,18 +1118,31 @@ impl Engines {
         self.get(id).is_some_and(|i| i.phase == Phase::Ready && i.synced)
     }
 
-    /// Whether the foreground engine is producing analysis for this node.
+    /// Whether the foreground engine is analysing this node (Java `isPondering`).
     pub fn analysing(&self, doc: u64, node: NodeId) -> bool {
         self.foreground.is_some_and(|id| self.analysing_by(id, doc, node))
     }
 
-    /// Whether instance `id` is producing analysis for this node.
+    /// Whether instance `id` is analysing this node: its stream is this node's, or its seat wishes
+    /// to analyse this node and the batch it sent before is still unanswered (stepping through the
+    /// moves quickly), so the next batch starts the stream here.
     pub fn analysing_by(&self, id: InstanceId, doc: u64, node: NodeId) -> bool {
-        self.get(id).is_some_and(|i| {
-            i.stream
-                .and_then(|n| i.request(n))
-                .is_some_and(|r| r.key.doc == doc && r.key.node == node)
-        })
+        let Some(i) = self.get(id) else { return false };
+        let here = |key: TargetKey| key.doc == doc && key.node == node;
+        i.stream.and_then(|n| i.request(n)).is_some_and(|r| here(r.key))
+            || self.wish_of(id).is_some_and(|(target, analyse)| {
+                let key = target.key();
+                *analyse
+                    && here(key)
+                    && i.fence.is_some()
+                    && i.phase == Phase::Ready
+                    && i.dialect().is_some()
+                    && i.unrestored.is_none()
+                    && i.rejected != Some(key)
+                    && i.raw_mode == RawNetMode::Off
+                    && !self.leased(id)
+                    && !self.in_game(id)
+            })
     }
 
     /// Whether the identified engine supports local analysis.

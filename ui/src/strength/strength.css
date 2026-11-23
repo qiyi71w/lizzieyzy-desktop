@@ -174,7 +174,7 @@
   padding: 4px;
   overflow-y: auto;
   border-radius: var(--ds-radius-menu);
-  background: var(--ds-raised);
+  background: var(--ds-popup);
   box-shadow: var(--ds-shadow-pop);
 }
 .ps-combo-list[hidden] {

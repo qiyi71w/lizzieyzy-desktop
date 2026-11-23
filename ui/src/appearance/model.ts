@@ -1,7 +1,7 @@
 // Presentation rules of the Java theme values (wimi321/lizzieyzy-next cb53acc): colour arrays,
 // derived colours, font roles, the 中式经典 board style and the 错误节点 rules. Pure functions only;
 // the active committed values live in ./state.
-import type { Language, MoveRank } from "../contract/generated";
+import type { Language } from "../contract/generated";
 import type { Skin } from "../design/theme";
 
 export const DEFAULT_THEME = "default";
@@ -61,28 +61,6 @@ export function javaHue(c: readonly number[]): number {
 /** Config.reverseColor (Config.java:3522-3532): Config.bestColor, the best candidate's max text. */
 export function reverseColor(c: readonly number[]): number[] {
   return [255 - c[0], 255 - c[1], 255 - c[2]];
-}
-
-/** MoveRankDefinition.Rank colours (MoveRankDefinition.java:22-65): Java's own, and under Java 柔和
- *  its Morandi ones (color(useMorandiColors), 101-103; MorandiPalette.SUGGESTION_*). */
-const RANK_COLOR: Record<MoveRank, string> = {
-  Best: "rgb(0,180,0)",
-  Good: "rgb(140,202,34)",
-  Normal: "rgb(180,180,0)",
-  Inaccuracy: "rgb(200,140,50)",
-  Mistake: "rgb(208,16,19)",
-  Blunder: "rgb(155,25,150)",
-};
-const MORANDI_RANK_COLOR: Record<MoveRank, string> = {
-  Best: "rgb(120,168,168)",
-  Good: "rgb(142,172,130)",
-  Normal: "rgb(198,186,138)",
-  Inaccuracy: "rgb(192,155,120)",
-  Mistake: "rgb(176,112,112)",
-  Blunder: "rgb(148,126,158)",
-};
-export function rankColor(rank: MoveRank, skin: Skin): string {
-  return (skin === "soft" ? MORANDI_RANK_COLOR : RANK_COLOR)[rank];
 }
 
 /** A configured font family ahead of the role's default stack. "Lizzie Default" (or empty) keeps the

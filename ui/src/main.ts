@@ -1596,7 +1596,7 @@ function uiReport() {
       .map(({ el, r }) => ({
         key: el.dataset.key ?? el.dataset.name ?? el.id ?? "",
         text: el.textContent ?? "",
-        checked: el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio") ? el.checked : undefined,
+        checked: el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio") ? el.checked : el.hasAttribute("aria-checked") ? el.getAttribute("aria-checked") === "true" : undefined,
         value: (el instanceof HTMLInputElement && (el.type === "text" || el.type === "number")) || el instanceof HTMLSelectElement ? el.value : undefined,
         disabled: el.classList.contains("disabled") || (el instanceof HTMLInputElement && el.disabled) || undefined,
         invalid: el.classList.contains("invalid") || undefined,
@@ -1685,8 +1685,9 @@ function uiReport() {
 // ------------------------------------------------------------------ boot
 
 async function boot() {
-  // Views published before the snapshot is applied are held back and replayed after it; stale
-  // ones (lower seq) are then dropped by apply, so no tree update can be missed.
+  // Views published before the snapshot is applied are held back, then applied with it in the
+  // order the core built them: one built before the snapshot carries its own one-shot parts
+  // (engine failures, outcomes, sounds, notices), and one built after it a later tree.
   let early: WorkbenchView[] | null = [];
   await onView((v) => (early ? early.push(v) : apply(v)));
   const [first, appVersion] = await Promise.all([snapshot(), getVersion()]);
@@ -1762,8 +1763,7 @@ async function boot() {
   });
   await startAutoSave();
   window.addEventListener("resize", schedule);
-  apply(first);
-  for (const v of early) apply(v);
+  for (const v of [...early, first].sort((a, b) => a.seq - b.seq)) apply(v);
   early = null;
   render();
   // macOS: the menus go to the system menu bar once the first view is in; the start-up menu serves
