@@ -1373,7 +1373,8 @@ importing the matching LizzieYzy Next settings.
   Since Java placed only the first placeholder, a 试下 continued past the record's last move could
   extend the main line there; here it stays a branch.
   A 试下 needs a free foreground engine that has finished starting, so none starts while the
-  desktop switches or restarts the engine, nor while 野狐 AI 直连 owns the record, from 开始 on,
+  desktop switches or restarts the engine or, in 双引擎模式, the secondary engine, nor while
+  野狐 AI 直连 owns the record, from 开始 on,
   before its first position arrives; the viewer gets the engine-busy answer (Java admitted the
   试下 while Fox only listened). 停止 Web 旁观 or quitting closes both ports and disconnects
   every viewer; messages of a stopped share never reach a later one. A firewall between viewer and

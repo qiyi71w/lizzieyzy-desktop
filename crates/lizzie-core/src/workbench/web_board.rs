@@ -208,6 +208,9 @@ impl Workbench {
     /// `desktopPlayingProbe`). An engine still starting is a switch or restart that has not
     /// completed: Java's lifecycle reservation refuses the 试下 until it has. That holds while GMA
     /// is armed as well, whose availability (`ReadBoardGma`) answers before the engine's start-up.
+    /// A secondary engine still starting holds it too: its restart or replacement reserves the
+    /// foreground engine until the board sync (`reStartEngine2`, EngineManager.java:4723-4742;
+    /// `reserveEngineLifecycle`, 14393-14432).
     /// A Fox session owns the board from the moment it listens, before it takes the engine; the
     /// desktop gate (`fox_gate`) refuses changes then, and so does this entry (Java admits the 试下
     /// there).
@@ -225,6 +228,7 @@ impl Workbench {
         // A GMA hand or its restore holds `readBoardGmaReservation` (Leelaz.java:15201-15205).
         !held
             && self.engines.foreground_complete()
+            && self.engines.secondary().is_none_or(|id| self.engines.complete(id))
             && !self.readboard.gma.reserved()
             && !self.fox_owns_board()
             && !self.fox_holds_engine()

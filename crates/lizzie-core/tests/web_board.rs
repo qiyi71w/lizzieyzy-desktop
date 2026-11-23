@@ -492,6 +492,26 @@ fn during_a_trial_the_secondary_engine_is_not_restarted_or_replaced_but_can_be_c
     assert!(trial_active(&mut wb));
 }
 
+/// Java's secondary restart reserves the foreground engine until the new process's board sync
+/// (`reStartEngine2` → `reserveEngineLifecycle`), and a 试下 needs that reservation
+/// (`enterTrialWithResult` → `beginEngineModeReservation`).
+#[test]
+fn a_trial_waits_for_a_restarting_secondary_engine() {
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, world, secondary) = sharing_with_two_engines(dir.path(), "(;SZ[9];B[ee];W[cc])");
+    assert!(wb.restart_secondary_engine().unwrap());
+    let restarted = world.latest();
+    assert_ne!(restarted, secondary, "a new process");
+
+    let denied = enter(&mut wb, "a", Instant::now()).expect("refused while it starts");
+    assert!(denied.contains(r#""reason":"engine_busy""#), "{denied}");
+    assert!(!trial_active(&mut wb));
+
+    serve(&mut wb, &world, restarted);
+    assert_eq!(enter(&mut wb, "a", Instant::now()), None);
+    assert!(trial_active(&mut wb));
+}
+
 /// The detailed toolbar's 引擎对战 (the saved match settings) is refused like the dialog's start,
 /// before anything touches the 试下's engine.
 #[test]
