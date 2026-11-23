@@ -694,8 +694,8 @@ function syncTags(): void {
 }
 
 /** Puts the tags in one capsule while they fit on a line of the bar, else in one capsule per line,
- *  filled in order (DESIGN.md 编辑栏), so every tag shows whole at any width and font size. The
- *  keyboard stays on a tag it was on. */
+ *  filled in order (DESIGN.md 编辑栏), so every tag shows whole at any width and font size; a tag
+ *  wider than the bar by itself wraps its name. The keyboard stays on a tag it was on. */
 function fitTags(): void {
   const b = editBar();
   const t = tags!;
@@ -706,11 +706,15 @@ function fitTags(): void {
   const key = `${tagsFor}:${room}:${style.font}`;
   if (key === tagsFit) return;
   tagsFit = key;
+  // Each tag's one-line width, as a tag sharing a line would show it.
+  t.classList.add("measuring");
+  const widths = buttons.map((button) => button.getBoundingClientRect().width);
+  t.classList.remove("measuring");
   // Segments overlap by their 1px dividing line (.tb-cap > .tb-pill + *).
   const lines: HTMLButtonElement[][] = [];
   let used = Infinity;
-  for (const button of buttons) {
-    const w = button.getBoundingClientRect().width - 1;
+  for (const [k, button] of buttons.entries()) {
+    const w = widths[k] - 1;
     if (used + w > room + 1) {
       lines.push([]);
       used = 1;
