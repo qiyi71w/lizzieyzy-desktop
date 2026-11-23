@@ -37,8 +37,8 @@ fn browse_preserves_java_id_order_and_unique_words_results() {
     let browse = function_search::search("", Language::EnUs);
     // Java's 360 functions less the three approved exceptions the product does not offer and the
     // 详细工具栏's eleven, with Java's two interface-style switches replaced by the three 外观模式
-    // choices.
-    assert_eq!(browse.len(), 347);
+    // choices, and this product's 编辑面板布局….
+    assert_eq!(browse.len(), 348);
     let ids: Vec<&str> = browse.iter().map(|m| m.id.as_str()).collect();
     assert!(ids.windows(2).all(|w| w[0] < w[1]), "in id order, each once");
     assert!(browse.iter().all(|m| function_search::categories().contains(&m.category.as_str())));

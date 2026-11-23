@@ -763,7 +763,8 @@ export interface CardLayout {
 
 export const CARD_INSET = 8;
 export const CARD_RADIUS = 10;
-const SUB_CLEAR = 12;
+/** The clear space around the sub board inside its section. */
+export const SUB_CLEAR = 12;
 
 const near = (a: number, b: number) => Math.abs(a - b) <= 1;
 const overlapX = (a: Rect, b: Rect) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);

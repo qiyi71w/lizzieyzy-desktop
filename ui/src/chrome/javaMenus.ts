@@ -1,6 +1,7 @@
 // Java main-window menu bar, in Menu.java add() order: fixed Java
 // wimi321/lizzieyzy-next cb53acc55eda42c6c671b5f668cd3b597456bf07, src/main/java/featurecat/lizzie/gui/Menu.java.
-// 显示 > 外观主题 > 外观模式 is this product's own submenu, shown once the dark set is ready, and
+// 显示 > 外观主题 > 外观模式 is this product's own submenu, shown once the dark set is ready;
+// 显示 > 面板 > 编辑面板布局… is this product's own item (the panel arrangement's edit mode); and
 // this product leaves out 底部工具栏's 详细工具栏(过时的)(仅中文) submenu. `key` is the DisplayStrings resource key,
 // this product's resource key (i18n/productStrings.json), or literal text where Java uses literal
 // text; `id` the Java action id (AutoAnalyzeMenu.ACTION_PROPERTY / FunctionCatalog), or a product
@@ -246,6 +247,11 @@ export const JAVA_MENUS: TopMenu[] = [
       "t": "check",
       "key": "Menu.SuggestionList",
       "id": "menu.SuggestionList"
+     },
+     {
+      "t": "item",
+      "key": "Menu.editPanelLayout",
+      "id": "menu.editPanelLayout"
      },
      {
       "t": "item",
