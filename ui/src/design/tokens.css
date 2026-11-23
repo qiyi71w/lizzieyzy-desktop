@@ -12,7 +12,8 @@
   --ds-chrome: #eae2d1; /* window bar, toolbar, bottom bar */
   --ds-stage: #cdbfa5; /* workbench ground where no wallpaper is drawn */
   --ds-panel: #f1ebde; /* panes, tables, dialogs */
-  --ds-raised: #f8f3e9; /* capsules in the bars, menus and popovers */
+  --ds-raised: #f8f3e9; /* capsules in the bars and buttons */
+  --ds-popup: var(--ds-raised); /* menus, popovers and combo lists */
   --ds-field: #fcf9f2; /* inputs */
   --ds-sunken: #e3dac6; /* table headers, read-only fields */
   --ds-well: rgba(90, 66, 20, 0.1); /* a value shown inside a control */
@@ -91,6 +92,7 @@
   --ds-stage: #4b3f2f;
   --ds-panel: #2a251f;
   --ds-raised: #453e33;
+  --ds-popup: var(--ds-raised);
   --ds-field: #1f1c17;
   --ds-sunken: #231f19;
   --ds-well: rgba(0, 0, 0, 0.26);
@@ -149,6 +151,7 @@
   --ds-stage: #444a50;
   --ds-panel: #f6f7f9;
   --ds-raised: #ffffff;
+  --ds-popup: var(--ds-raised);
   --ds-field: #ffffff;
   --ds-sunken: #eceef1;
   --ds-well: rgba(20, 30, 40, 0.06);
@@ -200,6 +203,7 @@
   --ds-stage: #444a50;
   --ds-panel: #23272b;
   --ds-raised: #3a4045;
+  --ds-popup: var(--ds-raised);
   --ds-field: #1b1e21;
   --ds-sunken: #202427;
   --ds-well: rgba(0, 0, 0, 0.3);
@@ -249,6 +253,7 @@
   --ds-chrome: #e1dcd5; /* TOOLBAR_BG */
   --ds-panel: #f0ebe4; /* CREAM_WHITE */
   --ds-raised: #eee9e2; /* TOOLBAR_BUTTON_BG */
+  --ds-popup: #f0ebe4; /* CREAM_WHITE, popupSurfaceColor() */
   --ds-field: #f0ebe4; /* CREAM_WHITE */
   --ds-sunken: #e6e1da;
   /* TOOLBAR_BUTTON_HOVER and _PRESSED over TOOLBAR_BUTTON_BG. */

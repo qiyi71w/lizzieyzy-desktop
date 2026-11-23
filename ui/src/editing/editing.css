@@ -5,28 +5,10 @@
   top: 0;
   z-index: 40;
 }
-.context-menu .mi .mark .icon {
-  margin: 0 auto;
-  width: 16px;
-  height: 16px;
-}
 /* A greyed item greys its region colours too; stones keep their colours. */
 .context-menu .mi.disabled .mark .icon {
   --icon-allow: var(--ds-text-off);
   --icon-avoid: var(--ds-text-off);
-}
-
-/* A checked item: the check drawn in the check column in the item's text colour (greyed with it). */
-.context-menu .mi.checked > .mark::before {
-  content: "";
-  display: block;
-  width: 4.5px;
-  height: 8.5px;
-  margin: -3px auto 0;
-  border: solid currentColor;
-  border-width: 0 1.5px 1.5px 0;
-  border-radius: 0 0 1px 0;
-  transform: rotate(40deg);
 }
 /* Comment edit pane (LizzieFrame.java:821-826), replacing the comment view while editing: a field
    inside the card section, its text at the section's 14 px side padding, in the comment font. */

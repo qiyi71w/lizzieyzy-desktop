@@ -293,6 +293,10 @@ fn results_belong_to_the_position_they_were_requested_for() {
         world.sent(id).is_empty(),
         "nothing more is sent while a batch is unanswered"
     );
+    assert!(
+        wb.view(false).engine.analysing,
+        "the shown position is being analysed while the batch before it is unanswered"
+    );
 
     // A late line of the root request (still streaming before it read `play`) is history for
     // the root, not analysis of the shown node.

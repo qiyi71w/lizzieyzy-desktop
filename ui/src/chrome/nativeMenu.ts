@@ -9,6 +9,7 @@
 import { CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu, type CheckMenuItemOptions, type IconMenuItem, type MenuItemOptions, type PredefinedMenuItemOptions, type SubmenuOptions } from "@tauri-apps/api/menu";
 import { subscribe } from "../app";
 import { COMMANDS } from "../commands";
+import type { EngineState } from "../contract/generated";
 import { product, registerProduct } from "../i18n";
 import { JAVA_MENUS } from "./javaMenus";
 import { entries, topEnabled, topShown, topTitle, type Entry } from "./menuModel";
@@ -36,6 +37,9 @@ interface Spec {
   items?: Spec[];
 }
 
+/** Java's engine state marks (Menu.java:7407-7429), as text after the name. */
+const ENGINE_MARK: Record<EngineState, string> = { Ready: "●", Loading: "◐" };
+
 /** A menu level's items for the system menu bar, its submenus' with them. */
 function specs(list: Entry[]): Spec[] {
   return list.map((entry, k): Spec => {
@@ -47,7 +51,8 @@ function specs(list: Entry[]): Spec[] {
       return { uid: entry.uid, kind: "submenu", text: entry.text, checked: false, enabled: entry.enabled, items: entry.enabled ? specs(entries(entry.children ?? [], entry.uid, false)) : [] };
     }
     // An engine's state mark joins its name: a system menu has no column for it.
-    const text = entry.engine && !entry.checked ? `${entry.text} ${entry.engine.mark}` : entry.text;
+    const mark = entry.engine?.state ? ENGINE_MARK[entry.engine.state] : "○";
+    const text = entry.engine && !entry.checked ? `${entry.text} ${mark}` : entry.text;
     return { uid: entry.uid, kind: entry.t === "item" ? "item" : "check", text, checked: entry.checked, enabled: entry.enabled, run: entry.command?.run };
   });
 }

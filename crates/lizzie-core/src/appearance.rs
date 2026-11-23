@@ -351,6 +351,10 @@ fn same_name_entries(dir: &Path, name: &str) -> Vec<PathBuf> {
     std::fs::read_dir(dir).into_iter().flatten().flatten()
         .filter(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case(name)).map(|e| e.path()).collect()
 }
+/// The user's themes folder has a folder `name` (in any letter case).
+pub(crate) fn has_folder(storage: &Storage, name: &str) -> bool {
+    !same_name_entries(&themes_dir(storage),name).is_empty()
+}
 /// The folder already exists under exactly this name and holds these files.
 fn unchanged(dir: &Path, folder: &ThemeFolder) -> bool {
     same_name_entries(dir,&folder.name).iter().any(|p| p.file_name().is_some_and(|n| *n == *folder.name))
@@ -408,6 +412,27 @@ pub(crate) fn install_themes(storage: &Storage, folders: &[ThemeFolder]) -> std:
         install.moves.push((staged,target));
     }
     Ok(install)
+}
+/// A deleted bundled theme a settings import selects, shown again; dropping it before
+/// [`Self::keep`] puts the hidden-themes file back as it was.
+pub(crate) struct ShownTheme { path: PathBuf, before: Option<Vec<u8>> }
+impl ShownTheme {
+    /// Keeps it shown; whether it was hidden.
+    pub(crate) fn keep(mut self) -> bool { self.before.take().is_some() }
+}
+impl Drop for ShownTheme {
+    fn drop(&mut self) {
+        if let Some(before) = self.before.take() { let _ = settings::write_atomic(&self.path,&before); }
+    }
+}
+/// Shows the bundled theme `name` again when deleting it hid it ([`delete_theme`]).
+pub(crate) fn show_hidden_theme(storage: &Storage, name: &str) -> std::io::Result<ShownTheme> {
+    let path = storage.config_file.with_file_name("hidden-themes.json");
+    let hidden: Vec<String> = settings::load_json(&path);
+    if !hidden.iter().any(|h| h == name) { return Ok(ShownTheme { path, before: None }); }
+    let before = std::fs::read(&path)?;
+    settings::save_json(&path,&hidden.iter().filter(|h| *h != name).collect::<Vec<_>>())?;
+    Ok(ShownTheme { path, before: Some(before) })
 }
 
 /// Only explicit image settings are read. Bytes are decoded before crossing IPC; no directory

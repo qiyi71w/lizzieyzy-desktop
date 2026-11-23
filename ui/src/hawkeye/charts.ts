@@ -627,10 +627,13 @@ function draw(g: G, p: HawkeyePayload, line: Line, W: number, H: number, hover: 
     const curAt = cur >= 2 && cur <= total ? line.points.get(cur) : undefined;
     const shown: [HistoryPoint, number, string][] = [];
     if (curAt) {
-      // The current position's values give way to the mouse-over ones they would overlap. Java also
-      // measured against an absent mouse-over (x = -1), leaving out the first moves' values.
+      // The current position's values give way to the mouse-over ones when the two win rates
+      // would overlap as drawn, whichever is left (Java compares only how far apart they start
+      // with the current one's width). Java also measured against an absent mouse-over (x = -1),
+      // leaving out the first moves' values.
       const own = winRate(curAt, cur - 1);
-      if (!hoverAt || Math.abs(own.x - winRate(hoverAt, hm - 1).x) > g.width(own.text)) shown.push([curAt, cur - 1, P.line]);
+      const hover = hoverAt ? winRate(hoverAt, hm - 1) : null;
+      if (!hover || !overlaps(inkBox(own.text, own.x, own.y), inkBox(hover.text, hover.x, hover.y))) shown.push([curAt, cur - 1, P.line]);
     }
     if (hoverAt) shown.push([hoverAt, hm - 1, P.hover]);
     // Both win rates first, then the score leads clear of every win rate and of each other.

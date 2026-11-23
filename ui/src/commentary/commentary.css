@@ -534,7 +534,7 @@ body {
   overflow-y: auto;
   list-style: none;
   border-radius: var(--ds-radius);
-  background: var(--ds-raised);
+  background: var(--ds-popup);
   box-shadow: var(--ds-shadow-pop);
 }
 .ts-combo-list li {

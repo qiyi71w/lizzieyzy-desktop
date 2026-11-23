@@ -50,7 +50,8 @@ impl Workbench {
 
     /// Keeps a read Java configuration as the preview the user is looking at (replacing any
     /// earlier one) and describes what importing it would do. Nothing is written.
-    pub fn preview_java_import(&mut self, candidate: Candidate) -> ImportPreviewView {
+    pub fn preview_java_import(&mut self, mut candidate: Candidate) -> ImportPreviewView {
+        candidate.mapped.settle_theme_folders(&self.storage);
         self.next_preview += 1;
         let id = self.next_preview;
         let view = ImportPreviewView {
@@ -74,7 +75,7 @@ impl Workbench {
             quick_link_credential: candidate.mapped.quick_link_credential,
             cloud_credentials: candidate.cloud_credentials.clone(),
             replaces: self.java_import_preview_replaces(&candidate),
-            replaced_themes: crate::appearance::replaced_themes(&self.storage, &candidate.mapped.theme_folders(&self.storage)),
+            replaced_themes: crate::appearance::replaced_themes(&self.storage, &candidate.mapped.themes),
             // As choosing the slots would import them; the report shows the choice made.
             recovery: slots::after(&candidate.slots, true),
         };
@@ -188,11 +189,19 @@ impl Workbench {
                 return Err(ApiError::new(ErrorKind::Io, format!("importing the strength models failed: {e}")));
             }
         };
-        let themes = match crate::appearance::install_themes(&self.storage, &candidate.mapped.theme_folders(&self.storage)) {
+        let themes = match crate::appearance::install_themes(&self.storage, &candidate.mapped.themes) {
             Ok(themes) => themes,
             Err(e) => {
                 self.java_preview = Some((id, candidate));
                 return Err(ApiError::new(ErrorKind::Io, format!("importing the theme folders failed: {e}")));
+            }
+        };
+        // The theme the import selects shows, though deleting it once hid it.
+        let shown = match crate::appearance::show_hidden_theme(&self.storage, &config.appearance.theme) {
+            Ok(shown) => shown,
+            Err(e) => {
+                self.java_preview = Some((id, candidate));
+                return Err(ApiError::new(ErrorKind::Io, format!("showing the imported theme failed: {e}")));
             }
         };
         // After "重置界面位置" the persist file stays deleted until the next start
@@ -244,7 +253,7 @@ impl Workbench {
         }
         images.keep();
         models.keep();
-        if themes.keep() {
+        if themes.keep() | shown.keep() {
             self.theme_files_revision = self.theme_files_revision.wrapping_add(1);
         }
         self.strength_reload_models();
@@ -304,7 +313,7 @@ impl Workbench {
     fn java_import_replaces(&self, candidate: &Candidate, copy_credentials: &[u32]) -> Vec<crate::api::ImportTarget> {
         let has_settings = self.storage.config_file.exists();
         let mut out = candidate.mapped.replaces(&self.config, &self.persisted, has_settings, copy_credentials);
-        if !crate::appearance::replaced_themes(&self.storage, &candidate.mapped.theme_folders(&self.storage)).is_empty() {
+        if !crate::appearance::replaced_themes(&self.storage, &candidate.mapped.themes).is_empty() {
             out.push(crate::api::ImportTarget::Themes);
         }
         out

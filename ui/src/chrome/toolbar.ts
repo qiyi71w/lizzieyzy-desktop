@@ -802,9 +802,19 @@ function overflowLayout(host: HTMLElement, rows: HTMLElement[], panel: HTMLEleme
   document.addEventListener("mousedown", (e) => {
     if (!panel.hidden && !ours(e.target)) show(false);
   }, true);
-  panel.addEventListener("focusout", (e) => {
-    if (e.relatedTarget instanceof Node && !ours(e.relatedTarget)) show(false);
-  });
+  // The focus leaving both 更多 and the panel closes it. Tab off the page's first or last stop moves
+  // it to no element, which a press on an item does too (the panel stays open then): with no
+  // element to look at, Tab is what tells the two apart.
+  let tabbing = false;
+  const left = (e: FocusEvent) => {
+    if (e.relatedTarget instanceof Node ? !ours(e.relatedTarget) : tabbing) show(false);
+    tabbing = false;
+  };
+  for (const el of [panel, button]) {
+    el.addEventListener("focusout", left);
+    // Shift+Tab may arrive as another key (X11's ISO_Left_Tab) on the Tab key's code.
+    el.addEventListener("keydown", (e) => (tabbing = e.key === "Tab" || e.code === "Tab"));
+  }
 
   let key = "";
   let epoch = 0;
@@ -813,7 +823,9 @@ function overflowLayout(host: HTMLElement, rows: HTMLElement[], panel: HTMLEleme
     const shown = host.getClientRects().length > 0;
     const wraps = topToolbarWraps();
     const visible = controls.map((c) => (c.style.display === "none" ? "0" : "1")).join("");
-    const next = [window.innerWidth, window.innerHeight, document.getElementById("bottombar")?.offsetHeight, shown, wraps, epoch, visible].join(":");
+    // The engine start-up notice takes its row from the workbench, as the bottom bar does.
+    const notice = document.querySelector<HTMLElement>(".setup-startup-banner")?.offsetHeight;
+    const next = [window.innerWidth, window.innerHeight, document.getElementById("bottombar")?.offsetHeight, notice, shown, wraps, epoch, visible].join(":");
     if (next === key) return;
     key = next;
     const focused = document.activeElement;
@@ -935,7 +947,7 @@ export function buildToolbar(host: HTMLElement): void {
   panel.id = "toolbarOverflow";
   panel.hidden = true;
   host.after(panel);
-  const settle = toolbarKeys(host, t("Menu.topToolBar"), panel);
+  const settle = toolbarKeys(host, t("Menu.topToolBar"), { panel, show: (open) => showOverflow(open) });
   // After every other updater, so the layout sees what they showed or hid, and the Tab stop what
   // the layout moved.
   updaters.push(overflowLayout(host, rows, panel, settle), settle);

@@ -36,24 +36,25 @@ registerProduct({
  *  fields keep their own keys and Tab stops. */
 export const TOOLBAR_ITEM = '[role="button"], input[type="checkbox"]';
 
-/** The WAI-ARIA toolbar keys on `bar`, named `name`, and on `overflow`, the panel holding the
+/** The WAI-ARIA toolbar keys on `bar`, named `name`, and on `overflow`'s panel, holding the
  *  controls that did not fit on the bar (the top toolbar's 更多), whose items follow the bar's.
  *  The bar is one Tab stop, on the item last focused in it, else on its first enabled item. ←/→
  *  move between the shown items and wrap, Home/End go to the first/last; Enter/Space press the
  *  focused button as a click does (nothing while it is aria-disabled), and a check box keeps Space.
  *  Shown means inside the bar's visible box: an item the bar clips away (自动换行 off in a narrow
  *  window) is no stop until the bar shows it again. The panel scrolls instead, so each item it
- *  shows is a stop, scrolled into view when focused; none is while the panel is closed. These keys
+ *  shows is a stop, scrolled into view when focused; none is a Tab stop while the panel is closed,
+ *  but an arrow or End that goes past the bar's ends opens it and goes on into it. These keys
  *  stay in the bar; every other key goes on to the workbench shortcuts. A press on an item does not
  *  focus it: the focus leaves a field as it did on chrome that takes no focus, and an item that
  *  keeps the focus where it was (its own mousedown preventDefault) keeps doing so. A press outside
  *  the bar takes the focus off it, so a click on the board gives the arrows back to the moves.
  *  Returns the function that moves the Tab stop off an item that was hidden, clipped or disabled;
  *  run it after items show, hide, move or change state. */
-export function toolbarKeys(bar: HTMLElement, name: string, overflow: HTMLElement | null = null): () => void {
+export function toolbarKeys(bar: HTMLElement, name: string, overflow: { panel: HTMLElement; show: (open: boolean) => void } | null = null): () => void {
   bar.setAttribute("role", "toolbar");
   bar.setAttribute("aria-label", name);
-  const boxes = overflow ? [bar, overflow] : [bar];
+  const boxes = overflow ? [bar, overflow.panel] : [bar];
   const all = () => boxes.flatMap((box) => [...box.querySelectorAll<HTMLElement>(TOOLBAR_ITEM)]);
   const inside = (node: Node) => boxes.some((box) => box.contains(node));
   const usable = (el: HTMLElement) => {
@@ -61,7 +62,7 @@ export function toolbarKeys(bar: HTMLElement, name: string, overflow: HTMLElemen
     const box = el.getBoundingClientRect();
     if (box.width === 0 && box.height === 0) return false;
     // The panel scrolls: focusing an item brings it into view.
-    if (overflow?.contains(el)) return true;
+    if (overflow?.panel.contains(el)) return true;
     // The bar's padding box, where its overflow is clipped; half a pixel absorbs rounding.
     const outer = bar.getBoundingClientRect();
     const left = outer.left + bar.clientLeft;
@@ -104,6 +105,16 @@ export function toolbarKeys(bar: HTMLElement, name: string, overflow: HTMLElemen
     if (to === null || items.length === 0) return;
     e.preventDefault();
     e.stopPropagation();
+    if (overflow?.panel.hidden && overflow.panel.querySelector(TOOLBAR_ITEM) && (to < 0 || to >= items.length || e.key === "End")) {
+      overflow.show(true);
+      const held = [...overflow.panel.querySelectorAll<HTMLElement>(TOOLBAR_ITEM)].filter(usable);
+      const next = to >= items.length ? held[0] : held.at(-1);
+      if (next) {
+        next.focus();
+        return;
+      }
+      overflow.show(false);
+    }
     items[(to + items.length) % items.length].focus();
   };
   const mouseDown = (e: MouseEvent) => {

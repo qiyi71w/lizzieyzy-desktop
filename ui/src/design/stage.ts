@@ -5,6 +5,7 @@
 // panels drawn with the dark theme's colours. The Java skins (Java 经典 and Java 柔和) are Java's own
 // stage: its grey metal wallpaper (the theme's background, Java's default image) under dark glass, in
 // Java's colours.
+import type { MoveRank } from "../contract/generated";
 import { appearance, onAppearanceChange } from "../appearance/state";
 import { onThemeChange, resolvedTheme, skin } from "./theme";
 import "./stage.css";
@@ -100,6 +101,12 @@ export interface StagePalette {
   /** The seven 错误节点 levels, worst to best. */
   treeNodes: string[];
   scrollThumb: string;
+  /** 落子评价 colours (the board's rank marks and the tracked points' quality rings, `moveUnranked`
+   *  a tracked point's ring before it is ranked) and the 指定区域 squares, the skin's (stage.css). */
+  moveRank: Record<MoveRank, string>;
+  moveUnranked: string;
+  regionAllow: string;
+  regionAvoid: string;
 }
 
 let cached: StagePalette | null = null;
@@ -173,6 +180,17 @@ export function stagePalette(): StagePalette {
     treeDim: token("--ws-tree-dim"),
     treeNodes: [1, 2, 3, 4, 5, 6, 7].map((k) => token(`--ws-node-${k}`)),
     scrollThumb: token("--ws-scroll-thumb"),
+    moveRank: {
+      Best: token("--ws-move-best"),
+      Good: token("--ws-move-good"),
+      Normal: token("--ws-move-normal"),
+      Inaccuracy: token("--ws-move-inaccuracy"),
+      Mistake: token("--ws-move-mistake"),
+      Blunder: token("--ws-move-blunder"),
+    },
+    moveUnranked: token("--ws-move-unranked"),
+    regionAllow: token("--ws-region-allow"),
+    regionAvoid: token("--ws-region-avoid"),
   };
   return cached;
 }

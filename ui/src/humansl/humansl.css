@@ -74,6 +74,8 @@
   flex: 1;
   min-width: 50%;
   color: var(--ds-text-2);
+  /* A failure's cause (a settings write) on its own line. */
+  white-space: pre-line;
   overflow-wrap: anywhere;
 }
 .hs-status.error {

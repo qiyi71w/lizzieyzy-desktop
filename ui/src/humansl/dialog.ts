@@ -98,33 +98,38 @@ function failureReason(key: string): string {
 }
 
 /** A start failure as the dialog shows it: one sentence in the interface language (Java's
- *  HumanSlGame.error.startFailed) and the core's detail behind 查看详情. The detail is the
- *  engine's last output lines and the failure; a line that is a core message (a settings write
- *  that failed) is the cause instead, its text already saying what to do. */
+ *  HumanSlGame.error.startFailed) and the core's detail, folded behind 查看详情. The detail is the
+ *  engine's last output lines and the failure; a failure that is a core message (a settings write
+ *  that failed: its key, then the system's cause) is the cause instead, shown with the system's
+ *  cause as its text says ("the problem below"), and the engine's lines stay behind 查看详情. */
 interface StartFailure {
   text: string;
   detail: string;
-  /** The detail is the problem the text refers to ("the problem below"), shown unfolded. */
-  open: boolean;
 }
 
 function startFailure(n: Extract<HumanSlNotice, { type: "StartFailed" }>): StartFailure {
   const reason = javaFormat(t("HumanSlGame.error.startFailed"), failureReason(n.reason));
-  if (!n.detail) return { text: reason, detail: "", open: false };
+  if (!n.detail) return { text: reason, detail: "" };
   const lines = n.detail.split("\n");
   const core = lines.findIndex((line) => messageText(line, () => "") !== "");
-  if (core < 0) return { text: product("humanSlStartFailedEngine", reason), detail: n.detail, open: false };
+  if (core < 0) return { text: product("humanSlStartFailedEngine", reason), detail: n.detail };
   return {
-    text: javaFormat(t("HumanSlGame.error.startFailed"), messageText(lines[core])),
-    detail: lines.filter((_, k) => k !== core).join("\n"),
-    open: true,
+    text: javaFormat(t("HumanSlGame.error.startFailed"), messageText(lines.slice(core).join("\n"))),
+    detail: lines.slice(0, core).join("\n"),
   };
 }
 
-/** The start failure as one message (a notice outside the dialog): the sentence, then the detail. */
-export function startFailedText(n: Extract<HumanSlNotice, { type: "StartFailed" }>): string {
+/** The start failure as a message's body (a notice outside the dialog): the sentence, then the
+ *  detail folded behind 查看详情 as in the dialog. */
+export function startFailedBody(n: Extract<HumanSlNotice, { type: "StartFailed" }>): HTMLElement {
   const f = startFailure(n);
-  return f.detail ? `${f.text}\n${f.detail}` : f.text;
+  const body = el("div", "", f.text);
+  if (f.detail) {
+    const detail = keyed(el("details", "hs-failure-detail"), "noticeDetail");
+    detail.append(el("summary", "", t("EngineFailedMessage.details")), el("pre", "", f.detail));
+    body.append(detail);
+  }
+  return body;
 }
 
 /** failing: a start failed and the companion is still being stopped; cleanup: that stop could not
@@ -614,7 +619,7 @@ export function openHumanSlDialog(): void {
         failure = startFailure(n);
         statusText = failure.text;
         failureDetailText.textContent = failure.detail;
-        failureDetail.open = failure.open;
+        failureDetail.open = false;
         statusError = true;
         repair = n.reason === "HumanSlGame.error.tensorRtCompanionMissing";
         setPhase(humanSlSession() ? "failing" : "idle");

@@ -265,7 +265,8 @@ importing the matching LizzieYzy Next settings.
     it is on are read the same way. Positions already placed keep their stones when it is
     switched; it is not a Gomoku rule set (no five-in-a-row detection).
 - Settings available now: reading komi from SGF records, stone sounds on/off, the UI language
-  (zh-CN, zh-TW, en, ja, ko, th; applied after a restart, like Java), and the editing toggles
+  (zh-CN, zh-TW, en, ja, ko, th; applied after a restart, like Java; the Thai texts this client
+  adds to Java's are machine translations no Thai speaker has reviewed yet), and the editing toggles
   (启用双击找子, 启用拖动棋子, 启用点击棋子回看, 显示落子矩形, 显示清空棋盘提示对话框, 标记工具,
   五子棋无提子规则). A setting that cannot be saved is reported in the interface language, with
   the system's reason on its own line, and left unchanged.
@@ -646,10 +647,12 @@ importing the matching LizzieYzy Next settings.
   half the window's height. When wrapping would leave it less, or with 自动换行 off, the row stays
   one line: the first control that does not fit and every one after it move to a panel opened by
   the 更多 button at the row's end. They are the same controls there, and the panel scrolls when
-  it is taller than the room below; `Left`/`Right` go on from the row into the panel,
+  it is taller than the room below; `Left`/`Right` go on from the row into the panel and back
+  (past either end of the row, or with `End`, they open it),
   `Enter` on 更多 opens it with the focus on its first control, and a button in it, a click
-  outside, `Esc` or `Tab` closes it (a button that opens a popup leaves it open under the popup,
-  and closing the popup returns to that button). Function search opens the panel for a control it
+  outside, `Esc`, `Tab` or the focus leaving both 更多 and the panel closes it (a button that
+  opens a popup leaves it open under the popup, and closing the popup returns to that button).
+  Function search opens the panel for a control it
   holds. 棋盘 opens 设置棋盘大小. The optional groups add the
   限制: 时间 / 计算 fields, 分析: 黑 / 白 and 选点 胜率 / 计算量 / 目数 to the row. The limit
   fields write 综合设置's analysis limits on every edit (digits only; an empty field keeps the
@@ -780,7 +783,9 @@ importing the matching LizzieYzy Next settings.
     entry. 外观模式 (跟随系统 / 浅色 / 深色, default 浅色) is saved, and the LizzieYzy Next import
     takes Java's Apple style (`is-apple-style`) on as 深色 and off as 跟随系统. Its Morandi colour
     switch (`use-morandi-colors`) on, with Java's default theme, imports as the theme Java 柔和,
-    which also receives the imported theme values (the 默认 theme keeps them too); with a named
+    which also receives the imported theme values (the 默认 theme keeps them too; a Java 柔和
+    folder of the user's own is replaced with them, after the confirmation every replaced theme
+    asks for, even when they are Java's defaults); with a named
     Java theme that theme stays chosen and the switch is reported as not carried over. While the
     dark interface is unfinished, every window shows the light one whatever the saved mode, and
     neither the menu nor 功能搜索 offers 外观模式.
@@ -1384,14 +1389,18 @@ importing the matching LizzieYzy Next settings.
 - 超级鹰眼 (`Y`, 视图 > 面板 and 分析 menus, the top toolbar's eye button, the bottom-bar button when
   enabled): a separate window on the analysis already stored with the record (nothing is
   analysed for it). Its 统计信息 page shows each side's 吻合度, 吻合率, 第一选点率, average score and
-  win-rate loss and the loss distribution; 简易列表 lists Black's and White's moves; 详细列表
+  win-rate loss and the loss distribution (the labels between the two sides share one size; where
+  they do not fit, the column widens up to a third of the page and past that the labels shrink, so
+  none runs under the bars); 简易列表 lists Black's and White's moves; 详细列表
   lists the checked sides' moves (12 columns with KataGo, 9 without), sortable by every column
   (the change columns cycle largest change, largest gain, largest loss; the header shows `|Δ|`
   and an arrow, or the arrow alone, and names the order). 胜率吻合 labels its win-rate scale on
   the left and, with KataGo data, its score scale (`B+` / `W+`) on the right; its readouts carry
   their units. The score readout moves beside the win-rate one where the two would overlap, and
   the current move's readouts show from move 2 without a mouse-over and stay inside the chart
-  (Java left them out near the start, measuring against an absent mouse-over). A move counts only when
+  (Java left them out near the start, measuring against an absent mouse-over); with a mouse-over
+  they give way when the two win rates would overlap as drawn (Java compared only how far apart
+  they start). A move counts only when
   the position before it is analysed, its losses only when both positions are, and a
   first-candidate move loses nothing. 列表筛选 sets the win-rate / score / visits thresholds of
   the lists and 置顶当前手; 统计阈值 sets the loss bands; 分支 chooses the main trunk or the current
@@ -1484,14 +1493,16 @@ importing the matching LizzieYzy Next settings.
   the next free name, such as `board-2.png`). An image the theme
   itself lacks follows Java's fallback: the default theme's image setting (the theme keeps
   following it), else the file of that name in `theme/`, else the built-in picture. The theme
-  Java had selected stays selected, and Java's translated 默认 / Default entry selects the default
+  Java had selected stays selected (a bundled theme deleted here is listed again), and Java's
+  translated 默认 / Default entry selects the default
   theme. An untouched copy of a bundled theme is skipped; a changed one becomes the user's copy
   of that bundled theme, whose own files are not changed. A theme folder that cannot be read,
   whose TIFF picture cannot be decoded, or whose `theme.txt` holds values no theme can use (such
   as a colour channel above 255), is listed as not usable with those keys or that picture and is
   not imported; the other themes and settings still come over. `default` is
-  this client's default theme, so a Java theme folder named `default` comes over as
-  "default (LizzieYzy Next)" (and stays selected if Java used it). Replacing
+  this client's default theme and `java-soft` the theme Java's Morandi palette is here, so a Java
+  theme folder named `default` or `java-soft` comes over as "default (LizzieYzy Next)" or
+  "java-soft (LizzieYzy Next)" (and stays selected if Java used it). Replacing
   a theme of this client with the same name is listed with the theme names and needs the same
   confirmation as other settings; the folders are written in the same change as the settings,
   so a refused or failed import leaves this client's themes as they were.

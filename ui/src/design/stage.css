@@ -410,6 +410,33 @@
   --ws-strength-rank-blunder: #93358a;
 }
 
+/* 落子评价 marks on the board and the tracked points' quality rings (MoveRankDefinition.java:22-65),
+   the ring of a tracked point not yet ranked, and the 指定区域 squares, allowed and avoided, at
+   alpha 45 (BoardRenderer.java:1172-1212): Java's colours in every colour mode and skin, Java's
+   Morandi ones under Java 柔和 (MoveRankDefinition.java:101-103, MorandiPalette.SUGGESTION_*).
+   Only the root sets them, so every element, the palette probe included, takes the skin's. */
+:root {
+  --ws-move-best: #00b400;
+  --ws-move-good: #8cca22;
+  --ws-move-normal: #b4b400;
+  --ws-move-inaccuracy: #c88c32;
+  --ws-move-mistake: #d01013;
+  --ws-move-blunder: #9b1996;
+  --ws-move-unranked: #70767c;
+  --ws-region-allow: rgba(0, 0, 120, 0.1765);
+  --ws-region-avoid: rgba(120, 0, 0, 0.1765);
+}
+:root[data-skin="soft"] {
+  --ws-move-best: #78a8a8;
+  --ws-move-good: #8eac82;
+  --ws-move-normal: #c6ba8a;
+  --ws-move-inaccuracy: #c09b78;
+  --ws-move-mistake: #b07070;
+  --ws-move-blunder: #947e9e;
+  --ws-region-allow: rgba(120, 168, 168, 0.1765);
+  --ws-region-avoid: rgba(176, 112, 112, 0.1765);
+}
+
 /* Over a wallpaper the user chose, on the workbench and the palette probe (stage.ts): the cards
    are translucent black, grounds that must hide what runs under them a near-opaque black, and the
    胜率图's two current markers keep a light ring so they show on any wallpaper. */

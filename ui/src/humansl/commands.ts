@@ -8,7 +8,7 @@ import { icon } from "../design/icons";
 import { message, timedMessage } from "../dialogs";
 import { t } from "../i18n";
 import { mountTrainingBar, refreshTrainingBar } from "./bar";
-import { dialogNotice, humanSlDialogOpen, openHumanSlDialog, startFailedText } from "./dialog";
+import { dialogNotice, humanSlDialogOpen, openHumanSlDialog, startFailedBody } from "./dialog";
 import { aiCoachBlockedByGame, humanSlGameActive, humanSlUi, onHumanSlUiChange } from "./state";
 
 /** LizzieFrame.startHumanSlGameDialog(Reserved): a game on shows its bar; an 引擎对战 or 人机对弈
@@ -81,7 +81,7 @@ registerViewHandler((view) => {
         timedMessage(t("HumanSlGame.aiMoveFailed"), 4);
         break;
       case "StartFailed":
-        void message(t("Message.title"), startFailedText(n), "warning");
+        void message(t("Message.title"), startFailedBody(n), "warning");
         break;
       case "ExitRecoveryFailed":
         void message(t("Message.title"), t("HumanSlGame.error.exitRecoveryFailed"), "error");

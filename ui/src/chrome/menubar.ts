@@ -3,11 +3,12 @@
 // (nativeMenu.ts), the menu panel F10 and function search open. Items run catalog commands;
 // entries without one are disabled and marked as not yet available.
 import { state, subscribe } from "../app";
+import type { EngineState } from "../contract/generated";
 import { setRankCustomText } from "../display/commands";
 import { product, registerProduct, t } from "../i18n";
 import { JAVA_MENUS, type MenuNode, type TopMenu } from "./javaMenus";
 import { os } from "../design/theme";
-import { icon } from "../design/icons";
+import { icon, type IconName } from "../design/icons";
 import { highlight } from "../search/highlight";
 import { paintingOpen } from "../display/painting";
 import { contextMenuOpen } from "../editing/contextMenu";
@@ -24,6 +25,9 @@ registerProduct({
   KoKr: { menuOverflow: "메뉴 더 보기" },
   ThTh: { menuOverflow: "เมนูเพิ่มเติม" },
 });
+
+/** An engine's state mark (Java's ● ◐ ○) in the check column while it is not the checked one. */
+const ENGINE_ICON: Record<EngineState, IconName> = { Ready: "engine-ready", Loading: "engine-loading" };
 
 let openMenu: HTMLElement | null = null;
 /** The element focused before the menus opened; it gets the focus back when they close. */
@@ -178,7 +182,8 @@ function menuRow(entry: Row, list: HTMLElement): HTMLElement {
   if (itemField) row.append(itemField());
   if (entry.t === "submenu") row.classList.add("sub");
   else if (entry.t !== "item") {
-    mark.textContent = entry.checked ? "✓" : (entry.engine?.mark ?? "");
+    if (entry.checked) mark.append(icon("check"));
+    else if (entry.engine) mark.append(icon(entry.engine.state ? ENGINE_ICON[entry.engine.state] : "engine-stopped"));
     row.classList.add("checkable");
     row.setAttribute("role", entry.t === "check" ? "menuitemcheckbox" : "menuitemradio");
     row.setAttribute("aria-checked", String(entry.checked));

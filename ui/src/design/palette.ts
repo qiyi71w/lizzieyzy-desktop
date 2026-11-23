@@ -90,6 +90,7 @@ export function paletteTokens(own: InterfaceColors, skin: SkinColors): Record<st
   if (isSet(own.chrome)) out["--ds-chrome"] = hex(chrome);
   if (isSet(own.control)) {
     out["--ds-raised"] = hex(control);
+    out["--ds-popup"] = hex(control);
     out["--ds-field"] = hex(control);
     out["color-scheme"] = dark(control) ? "dark" : "light";
   }

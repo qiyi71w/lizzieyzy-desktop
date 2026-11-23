@@ -140,14 +140,13 @@ impl Reader<'_> {
 }
 
 impl Mapped {
-    /// The theme folders the import writes: Java's own, and, when Java's Morandi palette chose
-    /// java-soft, java-soft's `theme.txt` as saving it on the 主题外观 page with the 默认 theme's
-    /// imported values writes it (each picture named as the import keeps it), with the imported
-    /// values the page does not edit (the glass values) as well. Without a value that differs from
-    /// java-soft's own there is none.
-    pub fn theme_folders(&self, storage:&Storage) -> Vec<ThemeFolder> {
-        let mut folders=self.themes.clone();
-        if !self.soft_theme {return folders;}
+    /// Adds to [`Mapped::themes`] java-soft's folder when Java's Morandi palette chose java-soft:
+    /// its `theme.txt` as saving it on the 主题外观 page with the 默认 theme's imported values
+    /// writes it (each picture named as the import keeps it), with the imported values the page
+    /// does not edit (the glass values) as well. Values that equal java-soft's own need no folder,
+    /// unless the user's own java-soft folder would keep other values. Run once, by the preview.
+    pub fn settle_theme_folders(&mut self, storage:&Storage) {
+        if !std::mem::take(&mut self.soft_theme) {return;}
         let mut theme=serde_json::to_value(ThemeSettings::default()).expect("theme serializes");
         for &(field,ref value) in &self.theme {
             theme[field]=match value.as_str() {
@@ -164,11 +163,8 @@ impl Mapped {
         let bundled=appearance::BUNDLED.iter().find(|(n,_)| *n==JAVA_SOFT)
             .and_then(|(_,raw)| serde_json::from_str::<Map<String,Value>>(raw).ok()).unwrap_or_default();
         let base=ThemeSettings::default();
-        if appearance::merge_java(&base,&raw)==appearance::merge_java(&base,&bundled) {return folders;}
-        // The 默认 theme Java showed is java-soft here; a Java folder of that name is not.
-        folders.retain(|f| !f.name.eq_ignore_ascii_case(JAVA_SOFT));
+        if appearance::merge_java(&base,&raw)==appearance::merge_java(&base,&bundled) && !appearance::has_folder(storage,JAVA_SOFT) {return;}
         let bytes=serde_json::to_vec_pretty(&raw).expect("theme serializes");
-        folders.push(ThemeFolder { name:JAVA_SOFT.into(), files:vec![("theme.txt".into(),bytes)] });
-        folders
+        self.themes.push(ThemeFolder { name:JAVA_SOFT.into(), files:vec![("theme.txt".into(),bytes)] });
     }
 }
