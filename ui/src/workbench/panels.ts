@@ -488,13 +488,13 @@ registerViewHandler((v) => {
 
 // ---- the arrangement's dividers
 
-/** Who a divider drag works for: the arrangement a divider moved to `y` gives (from the one
- *  drawn, at the size drawn), or null when that is no change (the layout drawn stays), and what
- *  releasing does with it, resolving true when it was committed so the draft stays drawn until a
- *  published view carries it. Normal use commits (`commitArrangement`); an edit session keeps the
- *  result in its own draft. */
+/** Who a divider drag works for: the arrangement a divider pressed at height `from` (as drawn)
+ *  and moved to `y` gives (from the one drawn, at the size drawn), or null when that is no change
+ *  (the layout drawn stays), and what releasing does with it, resolving true when it was committed
+ *  so the draft stays drawn until a published view carries it. Normal use commits
+ *  (`commitArrangement`); an edit session keeps the result in its own draft. */
 export interface DividerOwner {
-  move(upper: ArrangeablePanel, y: number): PanelArrangement | null;
+  move(upper: ArrangeablePanel, y: number, from: number): PanelArrangement | null;
   release(next: PanelArrangement): Promise<boolean>;
 }
 
@@ -524,7 +524,7 @@ function pressDivider(name: string, e: PointerEvent): Omit<Drag, "el" | "pointer
   return {
     divider: true,
     move(p) {
-      arrangementDraft = owner.move(divider.upper, p.y - grab);
+      arrangementDraft = owner.move(divider.upper, p.y - grab, divider.y);
     },
     async release() {
       const next = arrangementDraft;
