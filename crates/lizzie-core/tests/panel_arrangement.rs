@@ -98,6 +98,23 @@ fn an_unchanged_arrangement_writes_nothing() {
     assert_eq!(wb.set_panel_arrangement(Some(arrangement())).unwrap(), false);
 }
 
+/// A divider drag's weights, as the UI's JSON gives them (shortest round-trip decimals), come
+/// back from the published settings and `persist.json` as the same decimals: the UI keeps its
+/// draft until the view carries exactly the arrangement it sent.
+#[test]
+fn a_committed_arrangement_comes_back_with_the_exact_weights_the_ui_sent() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    let sent = r#"{"type":"SetPanelArrangement","arrangement":{"left":[{"panel":"Captured","weight":93},{"panel":"Winrate","weight":200.66666666666723},{"panel":"Comment","weight":100.33333333333307}],"right":[{"panel":"SubBoard","weight":365},{"panel":"VariationGraph","weight":191},{"panel":"CandidateList","weight":191}]}}"#;
+    let lizzie_core::api::Command::SetPanelArrangement { arrangement } = serde_json::from_str(sent).unwrap() else { panic!("not SetPanelArrangement") };
+    assert!(wb.set_panel_arrangement(arrangement).unwrap());
+    let published = serde_json::to_string(&shown(&mut wb)).unwrap();
+    let persisted = std::fs::read_to_string(storage(dir.path()).persist_file).unwrap();
+    for weights in [published, persisted] {
+        assert!(weights.contains("200.66666666666723") && weights.contains("100.33333333333307"), "{weights}");
+    }
+}
+
 #[test]
 fn a_failed_write_keeps_the_previous_arrangement() {
     let dir = tempfile::tempdir().unwrap();
