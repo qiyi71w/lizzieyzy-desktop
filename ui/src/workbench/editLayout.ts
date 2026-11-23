@@ -15,7 +15,7 @@
 import { registerViewHandler, run, state } from "../app";
 import { COMMANDS } from "../commands";
 import { onNativeDialog } from "../contract/client";
-import type { ArrangeablePanel, ArrangedPanel, ExtraMode, PanelArrangement, WorkbenchView } from "../contract/generated";
+import type { ArrangeablePanel, ArrangedPanel, ExtraMode, PanelArrangement, WorkbenchPanel, WorkbenchView } from "../contract/generated";
 import { icon } from "../design/icons";
 import { os } from "../design/theme";
 import { dialogOpen, timedMessage } from "../dialogs";
@@ -248,14 +248,14 @@ const FLAG = {
   CandidateList: "showListPane",
 } as const satisfies Record<ArrangeablePanel, keyof LayoutRequest>;
 
-/** The 显示 > 面板 item that shows each panel. */
-const MENU: Record<ArrangeablePanel, string> = {
-  Captured: "menu.informationPane",
-  Winrate: "menu.winrateGraph",
-  Comment: "menu.commitPane",
-  SubBoard: "menu.subboard",
-  VariationGraph: "menu.variationPane",
-  CandidateList: "menu.listPane",
+/** The 显示 > 面板 toggle (TogglePanel) of each panel. */
+const TOGGLE: Record<ArrangeablePanel, WorkbenchPanel> = {
+  Captured: "Captured",
+  Winrate: "WinrateGraph",
+  Comment: "Comment",
+  SubBoard: "SubBoard",
+  VariationGraph: "VariationGraph",
+  CandidateList: "ListPane",
 };
 
 /** The workbench panel that tells whether each one is drawn (Panels.shown). */
@@ -345,8 +345,8 @@ export function initialArrangement(width: number, height: number, r: LayoutReque
 interface Session {
   /** The committed arrangement when the session began. */
   base: PanelArrangement | null;
-  /** The layout mode the session edits. */
-  mode: ExtraMode;
+  /** The layout mode the session edits (经典 counted apart from 默认). */
+  mode: LayoutMode;
   /** The arrangement edited; null shows the Java layout (恢复 Java 布局). */
   draft: PanelArrangement | null;
   /** Nothing changed yet. Without a committed arrangement the workbench then shows the Java layout
@@ -363,10 +363,19 @@ function committedArrangement(v: WorkbenchView): PanelArrangement | null {
   return sent ? sent.value : v.settings.panel_arrangement;
 }
 
-/** Why the session `s` no longer edits what is laid out: another layout mode, or a committed
- *  arrangement changed by something other than this session (only 完成 commits its draft). */
+/** The layout mode laid out: 经典 is 默认 (Normal) with its classicMode flag on. */
+type LayoutMode = ExtraMode | "Classic";
+
+function layoutMode(v: WorkbenchView): LayoutMode {
+  const p = presentation(v);
+  return p.mode === "Normal" && p.panels.classicMode ? "Classic" : p.mode;
+}
+
+/** Why the session `s` no longer edits what is laid out: another layout mode (经典 and 默认
+ *  included), or a committed arrangement changed by something other than this session (only 完成
+ *  commits its draft). */
 function superseded(s: Session, v: WorkbenchView): ExitReason | null {
-  if (presentation(v).mode !== s.mode) return "mode";
+  if (layoutMode(v) !== s.mode) return "mode";
   return same(committedArrangement(v), s.base) ? null : "changed";
 }
 
@@ -419,7 +428,7 @@ export function enterEdit(): void {
   const v = state.view;
   if (!v || session || editUnavailable()) return;
   const committed = committedArrangement(v);
-  session = { base: committed, mode: presentation(v).mode, draft: committed, pristine: true };
+  session = { base: committed, mode: layoutMode(v), draft: committed, pristine: true };
   focusNext = "first";
   syncTags();
   editBar().hidden = false;
@@ -430,6 +439,7 @@ export function enterEdit(): void {
 function end(): void {
   session = null;
   focusNext = null;
+  showing.clear();
   if (live) live.textContent = "";
   frame = null;
   cancelPanelDrag();
@@ -564,16 +574,17 @@ export function javaPreview(java: Panels, drawn: Panels, arranged: Panels): Pane
 }
 
 /** Who a divider drag of the arrangement `a` laid out at this size works for: in edit mode the
- *  release becomes the draft, otherwise it is committed (one SetPanelArrangement). */
+ *  release becomes the draft, and a pointer back at the divider's own height (moved only sideways,
+ *  or away and back) changes nothing, so a Java preview stays as it is; otherwise the release is
+ *  committed (one SetPanelArrangement). */
 export function dividerOwner(W: number, H: number, r: LayoutRequest, mode: ExtraMode, a: PanelArrangement): DividerOwner {
+  if (!session) return { move: (upper, y) => moveDivider(W, H, r, mode, a, upper, y), release: commitArrangement };
   return {
-    move: (upper, y) => moveDivider(W, H, r, mode, a, upper, y),
-    release: session
-      ? async (next) => {
-          setDraft(next);
-          return false;
-        }
-      : commitArrangement,
+    move: (upper, y, from) => (Math.abs(y - from) < 0.5 ? null : moveDivider(W, H, r, mode, a, upper, y)),
+    release: async (next) => {
+      setDraft(next);
+      return false;
+    },
   };
 }
 
@@ -595,6 +606,13 @@ let bar: HTMLElement | null = null;
 let tags: HTMLElement | null = null;
 let tagsFor = "";
 let tagsFit = "";
+/** The panels a tag has asked to show until a published view shows them (or the request fails):
+ *  TogglePanel flips, so a second activation in between would hide the panel again. */
+const showing = new Set<ArrangeablePanel>();
+
+registerViewHandler((v) => {
+  for (const panel of showing) if (v.settings.panels[FLAG[panel]]) showing.delete(panel);
+});
 
 function pill(name: string, text: string, run: () => void): HTMLButtonElement {
   const b = document.createElement("button");
@@ -675,10 +693,14 @@ function syncTags(): void {
   tagsFit = "";
   tags!.replaceChildren(capsule(...hidden.map((panel) => {
     const b = pill(`edit-bar-show-${panel}`, "", () => {
-      // Only ever shows it: a tag left from a view the panel was shown in does nothing.
-      if (state.view?.settings.panels[FLAG[panel]] !== false) return;
+      // Only ever shows it: a tag left from a view the panel was shown in, or one chosen again
+      // before the view showing it arrives (a double click, Enter twice), does nothing.
+      if (showing.has(panel) || state.view?.settings.panels[FLAG[panel]] !== false) return;
+      showing.add(panel);
       if (document.activeElement === b) focusNext = panel;
-      COMMANDS[MENU[panel]]?.run();
+      void run({ type: "TogglePanel", panel: TOGGLE[panel] }).then((r) => {
+        if (!r || r.type === "Refused") showing.delete(panel);
+      });
     });
     const name = document.createElement("span");
     name.textContent = panelName(panel);
