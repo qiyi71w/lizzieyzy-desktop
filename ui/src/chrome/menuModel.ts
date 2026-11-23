@@ -167,14 +167,15 @@ function catalogRow(node: CatalogNode, uid: string): Row | null {
     : (COMMANDS[node.id ?? ""] ?? COMMANDS[node.key]);
   if (command?.visible && !command.visible()) return null;
   const kind = node.t === "check" || node.t === "radio" ? node.t : "item";
+  const reason = command?.disabledReason?.() ?? null;
   return {
     ...base,
     t: kind,
     text: command?.label?.() ?? base.text,
     checked: kind !== "item" && !!command?.checked?.(),
-    enabled: command !== undefined && (!command.enabled || command.enabled()),
+    enabled: command !== undefined && reason === null && (!command.enabled || command.enabled()),
     unavailable: command === undefined,
-    title: command === undefined ? product("unavailable") : (recent ?? tip),
+    title: command === undefined ? product("unavailable") : reason !== null ? product(reason) : (recent ?? tip),
     command,
   };
 }

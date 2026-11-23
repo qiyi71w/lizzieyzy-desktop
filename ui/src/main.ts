@@ -20,9 +20,10 @@ import { errorText } from "./errorText";
 import { format, product, setLanguage, t } from "./i18n";
 import { openJavaImport } from "./javaImport";
 import { boardGeom, cardLayout, doubleEngineLayout, floatBoardLayout, mainMarginRatio, selectRange, sideLayout, SUB_MARGIN_RATIO, workbenchLayout, type BoardGeom, type DualPanels, type PanelId, type Panels, type Rect, type SidePanels } from "./workbench/layout";
-import { arrangedLayout, moveDivider, type ArrangementFallback } from "./workbench/arrangement";
+import { arrangedLayout, type ArrangementFallback } from "./workbench/arrangement";
+import { bindEditLayout, dividerOwner, editArrangement, editing as layoutEditing, editReport, placeEdit } from "./workbench/editLayout";
 import { handleLayoutKey } from "./workbench/extraMode";
-import { bindPanels, commitArrangement, controlsShowing, dividerDraft, handlePanelKey, layoutRequest, placeHandles } from "./workbench/panels";
+import { bindPanels, controlsShowing, dividerDraft, handlePanelKey, layoutRequest, placeHandles } from "./workbench/panels";
 import { onPresentationChange, presentation } from "./workbench/presentation";
 import { independentReport, relayIndependent, startIndependent } from "./workbench/independent";
 import type { IndependentInput } from "./workbench/independentModel";
@@ -1094,9 +1095,13 @@ function render() {
   dual = mode === "DoubleEngine" ? doubleEngineLayout(W, H, cols, rows) : null;
   side = mode === "FourSub" || mode === "Thinking" ? sideLayout(W, H, request) : null;
   const floating = mode === "FloatBoard";
-  // A panel arrangement (a divider drag's draft while one is held) replaces the in-frame layout
-  // wherever it applies and fits; otherwise the Java layout shows and the reason is reported.
-  const shownArrangement = dividerDraft() ?? v.settings.panel_arrangement;
+  // A panel arrangement (a divider drag's draft while one is held, the edit session's draft in
+  // 布局编辑模式) replaces the in-frame layout wherever it applies and fits; otherwise the Java
+  // layout shows and the reason is reported. An edit session the layout no longer allows ends
+  // first, and the workbench is laid out again without its edit bar.
+  const edit = editArrangement(v, W, H, request, mode);
+  if (edit.exited) return schedule();
+  const shownArrangement = dividerDraft() ?? edit.arrangement;
   const arranged = shownArrangement ? arrangedLayout(W, H, request, mode, shownArrangement) : null;
   arrangement = { applied: arranged?.panels ? shownArrangement : null, fallback: arranged?.fallback ?? null };
   const normal = side ?? (floating ? floatBoardLayout(W, H, request) : arranged?.panels ?? workbenchLayout(W, H, request, mode === "Normal"));
@@ -1133,10 +1138,9 @@ function render() {
     delete lastSig.board2;
     delete lastSig.raw;
   }
-  placeHandles(P.handles, P.arranged?.dividers ?? null, shownArrangement && P.arranged ? {
-    move: (upper, y) => moveDivider(W, H, request, mode, shownArrangement, upper, y),
-    release: commitArrangement,
-  } : null);
+  // 布局编辑模式 leaves only the arrangement's dividers: the Java zones would commit panel sizes.
+  placeHandles(layoutEditing() ? null : P.handles, P.arranged?.dividers ?? null, shownArrangement && P.arranged ? dividerOwner(W, H, request, mode, shownArrangement) : null);
+  placeEdit(P, stage.cards, W, H, request, mode, P.arranged ? shownArrangement : null);
 
   // AI 陪练's 实战后复盘 (applyTrainingModeVisualState): no candidates, winrate in the suggestions,
   // Kata形势, policy or heat map for the game; the committed display settings stay as they are.
@@ -1555,6 +1559,9 @@ function uiReport() {
       dividers: panels.arranged?.dividers ?? [],
       /** The workbench cards as painted. */
       cards: stageCards,
+      /** 布局编辑模式: whether it is on, its draft (null: the Java layout), the Java layout's
+       *  rectangles at this size, why it cannot start, and a held panel drag. */
+      edit: editReport(),
     },
     /** The control or row function search located last (its 2.4 s highlight), if still shown. */
     located: (() => {
@@ -1722,6 +1729,7 @@ async function boot() {
   bindProblemPanel();
   bindPointer();
   bindPanels(schedule);
+  bindEditLayout(schedule);
   bindCommentEditor($("commentText"));
   bindCaptureSurface(() => panels && { panels, width: $("main").clientWidth, height: $("main").clientHeight, background: backgroundUrl }, render);
   await Promise.all([
