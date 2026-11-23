@@ -1779,9 +1779,11 @@ prompt, and full input-method coverage on Windows and macOS.
 - Each hidden panel has a tag in the row; choosing it is the same as ticking the panel in 显示 >
   面板 (it is shown and remembered at once, and 取消 does not hide it again); the panel appears
   at its place in the arrangement (a tag chosen by keyboard hands the focus to that panel's grip).
-- Nothing is saved while editing. 完成 saves the arrangement (nothing when it did not change; 完成
-  right after entering, without an arrangement, leaves the Java layout), 取消 drops every change,
-  and 恢复 Java 布局 shows the Java layout at once and, with 完成, removes the arrangement.
+- Changes to the arrangement are not saved while editing; showing a hidden panel from its tag is
+  the one exception and is saved at once, as above. 完成 saves the arrangement (nothing when it did
+  not change; 完成 right after entering, without an arrangement, leaves the Java layout), 取消
+  drops every change to the arrangement, and 恢复 Java 布局 shows the Java layout at once and, with
+  完成, removes the arrangement.
 - Without an arrangement, editing starts from the Java layout's own placement: each panel's column,
   order and height as Java draws it at that size, a hidden panel where Java would put it when
   shown.
@@ -1797,9 +1799,15 @@ prompt, and full input-method coverage on Windows and macOS.
   or 放大胜率图 (经典 turns 放大小棋盘 on when it is entered, so the arrangement applies there once
   that is off again). 四方图, 思考, 双引擎 and 浮动棋盘 mode, the enlarged views and a portrait
   window show the Java layout and keep the arrangement for later; so does a window too small for
-  it (a shown panel would get less than its minimum height), until the window is large enough again.
+  it (a shown panel would get less than its minimum height), until the window is large enough again,
+  and a board moved so far to one side (`[` / `]` or its edge zone) that a column holding a shown
+  panel has no width left, until the board moves back.
 - While an arrangement applies, the line between two neighbouring panels of a column can also be
-  dragged outside edit mode; releasing it saves the two heights, `Esc` cancels.
+  dragged outside edit mode; releasing it saves the two heights, `Esc` cancels. A divider stops
+  where any panel of its column would get less than its minimum height, the others included when a
+  sub board at the column's width hands them its spare height, and where the sub board would grow
+  past the column's width; double-clicking it in edit mode shares the heights as evenly as these
+  limits allow.
 - Differences from LizzieYzy Next: the 编辑面板布局… item and the edit mode are new; with an
   arrangement the panels' columns and order follow it, each column has a divider between every
   two neighbouring panels instead of Java's comment-top and tree/list zones, and the comment no
@@ -1813,11 +1821,13 @@ prompt, and full input-method coverage on Windows and macOS.
 The arrangement (which side column each panel is in, the order and the height shares; without
 one, the Java layout) is stored with the panel sizes in the window state.
 
-- 自定义布局 1 / 2 keep the arrangement too. 确定 in a slot's 设置 dialog saves the arrangement in
-  effect at that moment with the rest of the snapshot, and applying the slot (`Alt+8` / `Alt+9`)
-  makes the slot's arrangement the current one, in the same save as the rest. A slot without an
-  arrangement (saved while the Java layout was shown, saved by a version without arrangements, or
-  imported from LizzieYzy Next) applies the Java layout. The menu items and the dialog are the
+- 自定义布局 1 / 2 keep the arrangement too. 确定 in a slot's 设置 dialog saves the committed
+  arrangement (the one last saved) with the rest of the snapshot, also while the window shows the
+  Java layout in its place (another layout mode, an enlarged view, a portrait window or one too
+  small for it). Applying the slot (`Alt+8` / `Alt+9`) makes the slot's arrangement the current
+  one, in the same save as the rest. A slot holds no arrangement only when none was committed when
+  it was saved (or it was saved by a version without arrangements, or imported from LizzieYzy
+  Next); applying it shows the Java layout. The menu items and the dialog are the
   same as before. A version without arrangements drops them from the slots the next time it
   saves the settings.
 - 面板 > 恢复默认面板尺寸 restores the default panel sizes and gives every panel of the arrangement

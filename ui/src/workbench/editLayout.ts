@@ -16,7 +16,7 @@ import { icon } from "../design/icons";
 import { os } from "../design/theme";
 import { dialogOpen, timedMessage } from "../dialogs";
 import { product, registerProduct } from "../i18n";
-import { arrangedLayout, moveDivider, type ArrangementFallback } from "./arrangement";
+import { arrangedLayout, equalizeDivider, moveDivider, type ArrangementFallback } from "./arrangement";
 import { CARD_INSET, cardLayout, inFrame, SUB_CLEAR, workbenchLayout, type LayoutRequest, type PanelId, type Panels, type Rect } from "./layout";
 import { commitArrangement, layoutRequest, placeHandles, type DividerOwner } from "./panels";
 import { presentation } from "./presentation";
@@ -525,17 +525,14 @@ export function dividerOwner(W: number, H: number, r: LayoutRequest, mode: Extra
   };
 }
 
-/** A divider's two panels share their heights evenly (double-click in edit mode). */
+/** A divider's two panels share their heights as evenly as they fit (double-click in edit mode). */
 function equalize(name: string): void {
   const f = frame;
   const a = f?.arrangement;
   if (!session || !f || !a) return;
   const divider = f.panels.arranged?.dividers.find((d) => d.name === name);
-  const raw = arrangedLayout(f.W, f.H, f.request, f.mode, a).panels;
-  if (!divider || !raw) return;
-  const top = slot(raw, divider.upper).y;
-  const lower = slot(raw, divider.lower);
-  const next = moveDivider(f.W, f.H, f.request, f.mode, a, divider.upper, (top + lower.y + lower.h) / 2);
+  if (!divider) return;
+  const next = equalizeDivider(f.W, f.H, f.request, f.mode, a, divider.upper);
   if (!same(next, a)) setDraft(next);
 }
 

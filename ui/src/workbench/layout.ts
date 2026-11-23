@@ -854,6 +854,16 @@ export function cardLayout(p: Panels, height: number): CardLayout {
     const card = cardOf.get(id);
     clipped.set(id, card ? intersect(r, card) : r);
   }
+  // Under an arrangement the statistics strip keeps its height wherever 胜率 is in its column: an
+  // inset at the card's top comes out of the graph below it.
+  const stat = clipped.get("stat");
+  const graph = clipped.get("graph");
+  if (p.arranged && stat && graph && stat.h < p.stat.h) {
+    const bottom = graph.y + graph.h;
+    const h = Math.min(p.stat.h, bottom - stat.y);
+    clipped.set("stat", { ...stat, h });
+    clipped.set("graph", { ...graph, y: stat.y + h, h: bottom - stat.y - h });
+  }
 
   const dividers: Rect[] = [];
   for (const a of ids)

@@ -116,6 +116,8 @@ fn saving_and_applying_a_slot_are_each_one_write_with_the_arrangement() {
     assert_eq!(shown(&mut wb), Some(other()));
     assert_eq!(std::fs::read(storage(dir).config_file).unwrap(), config);
     unblock_persist(dir, saved);
+    // The workbench's next write of the window state carries the arrangement it kept.
+    assert!(wb.nudge_board_position(-1).unwrap());
     assert_eq!(persisted(dir), Some(other()));
 }
 
