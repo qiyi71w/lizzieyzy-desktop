@@ -2264,7 +2264,8 @@ impl Reader<'_> {
         }
 
         // Numeric columns override letter columns; top-origin rows override bottom-origin
-        // rows (`BoardRenderer.drawCoordinates`); Fox includes I and counts from the top.
+        // rows (`BoardRenderer.drawGoban`, BoardRenderer.java:1038-1082); Fox includes I and
+        // counts from the top.
         self.display_flags(ui, handled, ImportTarget::Coordinates, "coordinateStyle", &[
             ("use-num-coords-from-top", "NumbersFromTop"),
             ("use-num-coords-from-bottom", if ui.get("use-fox-style-coords").and_then(as_bool) == Some(true) {

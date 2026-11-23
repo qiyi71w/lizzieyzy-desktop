@@ -312,7 +312,7 @@ pub enum Command {
     SwitchSecondaryEngine {
         index: u32,
     },
-    /// Secondary engine menu > "重启当前引擎" (`EngineManager.restartEngine2`).
+    /// Secondary engine menu > "重启当前引擎" (`EngineManager.reStartEngine2`).
     RestartSecondaryEngine,
     /// Secondary engine menu > "关闭当前引擎" (`EngineManager.killThisEngines2`).
     ShutdownSecondaryEngine,

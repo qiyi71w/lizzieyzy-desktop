@@ -30,6 +30,9 @@ use crate::web_board::{
 pub const WEB_TRIAL_BLOCKED: &str = "LizzieFrame.webTrialDesktopBlocked";
 /// `AnalysisSettings.reuseStatus.application_exclusive_mode`: a mode that needs the engine.
 const ENGINE_EXCLUSIVE: &str = "AnalysisSettings.reuseStatus.application_exclusive_mode";
+/// `AnalysisSettings.reuseStatus.existing_lease`: Java's notice when an engine switch or restart
+/// cannot take its lifecycle reservation (`EngineManager.showForegroundEngineLeaseInUse`).
+pub(super) const ENGINE_LEASED: &str = "AnalysisSettings.reuseStatus.existing_lease";
 
 #[derive(Default)]
 pub(super) struct WebBoardFlow {
@@ -205,6 +208,9 @@ impl Workbench {
     /// `desktopPlayingProbe`). An engine still starting is a switch or restart that has not
     /// completed: Java's lifecycle reservation refuses the 试下 until it has. That holds while GMA
     /// is armed as well, whose availability (`ReadBoardGma`) answers before the engine's start-up.
+    /// A secondary engine still starting holds it too: its restart or replacement reserves the
+    /// foreground engine until the board sync (`reStartEngine2`, EngineManager.java:4723-4742;
+    /// `reserveEngineLifecycle`, 14393-14432).
     /// A Fox session owns the board from the moment it listens, before it takes the engine; the
     /// desktop gate (`fox_gate`) refuses changes then, and so does this entry (Java admits the 试下
     /// there).
@@ -222,6 +228,7 @@ impl Workbench {
         // A GMA hand or its restore holds `readBoardGmaReservation` (Leelaz.java:15201-15205).
         !held
             && self.engines.foreground_complete()
+            && self.engines.secondary().is_none_or(|id| self.engines.complete(id))
             && !self.readboard.gma.reserved()
             && !self.fox_owns_board()
             && !self.fox_holds_engine()
@@ -354,8 +361,9 @@ impl Workbench {
     // -------------------------------------------------------------------- desktop
 
     /// What a desktop command does instead while a viewer's 试下 runs: edits are refused with
-    /// Java's hint (`showTrialBlockedHint`), browsing is held off, and modes that would take
-    /// the foreground engine are refused as application-exclusive. `None` lets it run.
+    /// Java's hint (`showTrialBlockedHint`), browsing is held off, modes that would take the
+    /// foreground engine are refused as application-exclusive, and restarting or replacing the
+    /// secondary engine as already in exclusive use (closing it runs). `None` lets it run.
     pub(super) fn web_trial_gate(&self, command: &Command) -> Option<CommandResult> {
         self.web_board.trial.as_ref()?;
         let refused = |key: &str| {
@@ -403,6 +411,11 @@ impl Workbench {
                 scope: EngineScope::Current | EngineScope::All,
             }
             | Command::SaveEngineSettings { .. } => refused(ENGINE_EXCLUSIVE),
+            // The secondary engine's restart and replacement need Java's lifecycle reservation as
+            // well (`reStartEngine2`, `switchEngine(index, false)`) and get its notice; the
+            // operations check again for requests that do not pass here
+            // (`secondary_lifecycle_held`). Closing it takes none (`killThisEngines2`).
+            Command::SwitchSecondaryEngine { .. } | Command::RestartSecondaryEngine => refused(ENGINE_LEASED),
             _ => None,
         }
     }

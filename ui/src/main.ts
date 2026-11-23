@@ -1124,7 +1124,7 @@ function render() {
   }
   placeHandles(P.handles);
 
-  // AI 陪练's 实战后复盘 (applyTrainingModeVisualState): no candidates, winrate in the suggestions,
+  // AI 陪练's 实战后复盘 (configureAnalysisVisuals): no candidates, winrate in the suggestions,
   // Kata形势, policy or heat map for the game; the committed display settings stay as they are.
   const training = humanSlDisplay(v);
   const base = boardScene(v, hoverAllowed(v) ? hoveredCandidate : null, hoveredVariation(v)?.preview ?? null);

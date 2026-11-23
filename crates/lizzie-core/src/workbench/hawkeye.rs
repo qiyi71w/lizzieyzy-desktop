@@ -1,6 +1,6 @@
 //! 超级鹰眼 (`MoveListFrame`): whether its window is open, its side boxes, navigation from its
 //! lists and charts, and the projection it draws, computed from the per-move evaluation
-//! ([`Workbench::evaluation_in`]) of the line it reads, only while it is open.
+//! ([`Workbench::evaluation_of`]) of the line it reads, only while it is open.
 
 use super::analysis::AnalysisStore;
 use super::Workbench;
