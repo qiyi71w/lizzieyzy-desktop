@@ -4,7 +4,54 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { ApiError, AppearanceCatalog, AppearanceSettings, Command, CommandResult, ConsoleLineView, FunctionMatch, Language, LogsStatus, SlotRef, ThemeImages, ThemeSettings, WorkbenchView } from "./generated";
 
+/** Called just before a request that can show a native modal dialog (a file or folder chooser)
+ *  goes to the Rust side, so what a modal dialog ends (布局编辑模式) ends before it shows. */
+const nativeDialogListeners: (() => void)[] = [];
+
+export function onNativeDialog(listener: () => void): void {
+  nativeDialogListeners.push(listener);
+}
+
+/** A native modal dialog is about to show. */
+export function nativeDialog(): void {
+  for (const listener of nativeDialogListeners) listener();
+}
+
+/** Whether the adapter answers `command` through a native chooser (src-tauri: every
+ *  `blocking_pick_*` / `blocking_save_file`): always, or when it names no path. 保存 chooses only
+ *  for a record without a file of its own; its caller tells (app.ts saveRecord). */
+function chooses(command: Command): boolean {
+  switch (command.type) {
+    case "ChooseAndOpenRecord":
+    case "ChooseAndSaveRecord":
+    case "ExportRecord":
+    case "ExportImage":
+    case "ExportTable":
+    case "ExportDiagnostics":
+    case "CloudImportQr":
+    case "ChooseQuickLinkProgram":
+    case "ChooseJavaFolder":
+      return true;
+    case "Batch":
+      return command.op.type === "Choose" || command.op.type === "AddFiles";
+    case "SshCredential":
+      return command.op.type === "ChooseKeyFile";
+    case "Contribution":
+      return command.op.type === "ChooseFile";
+    case "Tuning":
+      return command.op.type === "Scan" || command.op.type === "ScanIkatago" || (command.op.type === "ImportMeasured" && command.op.path === null);
+    case "Resource": {
+      const op = command.op;
+      if (op.type === "ChooseLocalEngine") return op.choice.executable === null || op.choice.config === null || op.choice.weight === null;
+      return (op.type === "ImportPackage" || op.type === "ImportWeight" || op.type === "ImportHumanSlModel") && op.path === null;
+    }
+    default:
+      return false;
+  }
+}
+
 export function dispatch(command: Command): Promise<CommandResult> {
+  if (chooses(command)) nativeDialog();
   return invoke<CommandResult>("dispatch_command", { command });
 }
 
@@ -53,6 +100,7 @@ export function engineConsole(since: number): Promise<ConsoleLineView[]> {
 /** 引擎对战 加载开局SGF: the adapter reads the files (an empty list opens the native multi-file SGF
  *  chooser) and replaces the match openings (Match ReplaceOpenings). */
 export function openMatchOpenings(paths: string[]): Promise<CommandResult> {
+  if (!paths.length) nativeDialog();
   return invoke<CommandResult>("open_match_openings", { paths });
 }
 
@@ -87,12 +135,14 @@ export function appearanceImages(settings: AppearanceSettings, theme: ThemeSetti
 
 /** The system chooser for one image file (JFileChooser FILES_ONLY); null when cancelled. */
 export function chooseAppearanceImage(): Promise<string | null> {
+  nativeDialog();
   return invoke<string | null>("appearance_choose_image");
 }
 
 /** 棋力评估 导入模型: the system chooser titled `title` with the "XGBoost strength model (*.json,
  *  *.zip)" filter (JFileChooser.showOpenDialog); null when cancelled. */
 export function chooseStrengthModel(title: string): Promise<string | null> {
+  nativeDialog();
   return invoke<string | null>("strength_choose_model", { title });
 }
 
