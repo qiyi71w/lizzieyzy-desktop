@@ -162,8 +162,22 @@ impl Workbench {
         self.set_panel_sizes(sizes)
     }
 
+    /// 恢复默认面板尺寸: the default sizes and, in the 排列, every panel's default weight with the
+    /// columns and order kept, as one `persist.json` write; a failed write keeps both.
     pub fn restore_default_panel_sizes(&mut self) -> Result<bool, ApiError> {
-        self.set_panel_sizes(PanelSizes::default())
+        let sizes = PanelSizes::default();
+        let arrangement = self.persisted.panel_arrangement.as_ref().map(PanelArrangement::with_default_weights);
+        if self.persisted.panel_sizes == sizes && self.persisted.panel_arrangement == arrangement {
+            return Ok(false);
+        }
+        let old_sizes = std::mem::replace(&mut self.persisted.panel_sizes, sizes);
+        let old_arrangement = std::mem::replace(&mut self.persisted.panel_arrangement, arrangement);
+        if let Err(error) = self.save_persisted() {
+            self.persisted.panel_sizes = old_sizes;
+            self.persisted.panel_arrangement = old_arrangement;
+            return Err(error);
+        }
+        Ok(true)
     }
 
     /// Commits the panel 排列 (`None`: the Java layout) as one `persist.json` write. An invalid
@@ -362,8 +376,8 @@ impl Workbench {
 
     /// SetCustomMode 确定 (SetCustomMode.java; Config.savePanelConfig, then saveCustomMode for a
     /// slot): the dialog's mode (published without the mode's entry defaults), panel flags and
-    /// board position, and for a 自定义布局 slot its snapshot, saved as one change. A failed write
-    /// keeps every committed value and projection.
+    /// board position, and for a 自定义布局 slot its snapshot with the committed 排列, saved as one
+    /// change. A failed write keeps every committed value and projection.
     pub fn commit_layout(&mut self, mode: ExtraMode, mut panels: PanelSettings, board_position_proportion: u8, save: Option<(u8, Option<WindowPlacement>)>) -> Result<bool, ApiError> {
         if board_position_proportion > 8 {
             return Err(ApiError::new(ErrorKind::InvalidArgument, "board position proportion must be 0..8"));
@@ -387,6 +401,7 @@ impl Workbench {
                 window,
                 independent_main: persisted.independent_main_board,
                 independent_sub: persisted.independent_sub_board,
+                panel_arrangement: persisted.panel_arrangement.clone(),
             });
         }
         if next == self.config && persisted == self.persisted {
@@ -426,6 +441,9 @@ impl Workbench {
         set_board_position(&mut persisted.panel_sizes, layout.board_position_proportion);
         if layout.panels.showing_independent_main { persisted.independent_main_board = layout.independent_main; }
         if layout.panels.showing_independent_sub { persisted.independent_sub_board = layout.independent_sub; }
+        // The slot's 排列 is installed like a committed one; a slot without a usable one (saved
+        // before slots kept it, or invalid) applies the Java layout.
+        persisted.panel_arrangement = layout.panel_arrangement.filter(PanelArrangement::is_valid);
         self.commit_layout_files(next, persisted)?;
         self.sync_engine();
         Ok(true)

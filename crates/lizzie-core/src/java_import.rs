@@ -3841,6 +3841,10 @@ impl Mapped {
             for value in &self.panel_sizes { value.set(&mut values); }
             p.panel_sizes = serde_json::from_value(values).unwrap_or(p.panel_sizes);
         }
+        // Java has no 排列: Java panel sizes come with its layout, which then shows.
+        if !self.panel_sizes.is_empty() {
+            p.panel_arrangement = None;
+        }
         if let Some(toolbar) = self.bottom_toolbar {
             p.bottom_toolbar = toolbar;
         }
@@ -3882,8 +3886,10 @@ impl Mapped {
                 out.push(ImportTarget::LastImageFolder);
             }
         }
+        // The Java panel sizes also take the place of the 排列.
         if let Ok(current) = serde_json::to_value(persisted.panel_sizes) {
-            if self.panel_sizes.iter().any(|v| v.current(&current).is_none_or(|c| c != v.value)) {
+            if self.panel_sizes.iter().any(|v| v.current(&current).is_none_or(|c| c != v.value))
+                || (!self.panel_sizes.is_empty() && persisted.panel_arrangement.is_some()) {
                 out.push(ImportTarget::PanelSizes);
             }
         }
@@ -4341,6 +4347,8 @@ fn custom_layout(value: &Value) -> Option<crate::settings::CustomLayout> {
         window,
         independent_main: o.get("independent-main-board-position").and_then(java_window),
         independent_sub: o.get("independent-sub-board-position").and_then(java_window),
+        // Java slots have no 排列: applying one shows the Java layout.
+        panel_arrangement: None,
     })
 }
 

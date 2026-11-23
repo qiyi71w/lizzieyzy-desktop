@@ -3093,7 +3093,13 @@ export type ShippedBoard = { theme: string, addresses: Array<string>, };
 
 export type ShippedStones = { theme: string, pairs: Array<[string, string]>, };
 
-export type CustomLayout = { panels: PanelSettings, board_position_proportion: number, window: WindowPlacement | null, independent_main: WindowPlacement | null, independent_sub: WindowPlacement | null, };
+export type CustomLayout = { panels: PanelSettings, board_position_proportion: number, window: WindowPlacement | null, independent_main: WindowPlacement | null, independent_sub: WindowPlacement | null, 
+/**
+ * The 排列 committed when the slot was saved; none (also in a slot saved before this field
+ * existed) applies the Java layout. This product's addition to Java's snapshot. An entry this
+ * version cannot use reads as none, as in `persist.json`.
+ */
+panel_arrangement: PanelArrangement | null, };
 
 export type IndependentBoard = "Main" | "Sub";
 

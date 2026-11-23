@@ -821,7 +821,8 @@ importing the matching LizzieYzy Next settings.
   `Enter` or `Space`. Closing the floating main board in 浮动双棋盘 restores 默认; closing the floating sub
   board brings back the in-frame sub board. 自定义布局 1 / 2 (`Alt+8` / `Alt+9`) save and apply
   Java's panel flags, board position, main-window bounds/maximization and floating-window
-  choices/bounds, independently of themes, toolbars and analysis settings. As in Java, applying
+  choices/bounds, and the panel arrangement (see [Panel arrangement](#panel-arrangement)),
+  independently of themes, toolbars and analysis settings. As in Java, applying
   a saved layout chooses 浮动棋盘 when its main board is floating, otherwise 普通布局; it does
   not restore a former 思考 / 四方图 / 双引擎 mode; a board position dragged by hand moves to the
   saved position. Their 设置 dialog and 面板 > 可视化面板设置 preview each change at once; 确定
@@ -1748,6 +1749,34 @@ acceptance-identity packages signed with a separate test key and a local release
 
 Not verified yet: Windows 10, macOS 15, Intel Macs, Ubuntu 26.04 GNOME, the Windows SmartScreen
 prompt, and full input-method coverage on Windows and macOS.
+
+### Panel arrangement
+
+#### Layout slots, default sizes, reset and Java import
+
+The arrangement (which side column each panel is in, the order and the height shares; without
+one, the Java layout) is stored with the panel sizes in the window state.
+
+- 自定义布局 1 / 2 keep the arrangement too. 确定 in a slot's 设置 dialog saves the arrangement in
+  effect at that moment with the rest of the snapshot, and applying the slot (`Alt+8` / `Alt+9`)
+  makes the slot's arrangement the current one, in the same save as the rest. A slot without an
+  arrangement (saved while the Java layout was shown, saved by a version without arrangements, or
+  imported from LizzieYzy Next) applies the Java layout. The menu items and the dialog are the
+  same as before. A version without arrangements drops them from the slots the next time it
+  saves the settings.
+- 面板 > 恢复默认面板尺寸 restores the default panel sizes and gives every panel of the arrangement
+  its default weight, keeping the columns and the order. The default weights are the panels'
+  heights in the Java layout of a 1500×900 window with the default sizes: 信息 93, 胜率 323,
+  评论 256, 小棋盘 365, 分支 191 and 选点列表 191; each column shares its height among its shown
+  panels by these weights.
+- 重置界面位置 clears the arrangement with the other interface positions, and the Java layout shows
+  at once.
+- A LizzieYzy Next settings import that brings Java panel sizes (the board position or the dragged
+  shares) clears the arrangement, so the imported Java layout shows; like other chosen settings, an
+  arrangement is replaced only after confirmation. An import without panel sizes leaves the
+  arrangement as it is.
+- Difference from Java: Java's layout slots have no arrangement; saving it in 自定义布局 1 / 2 is
+  an addition of this client.
 
 ## Layout
 

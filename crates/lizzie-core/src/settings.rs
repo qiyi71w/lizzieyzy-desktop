@@ -1056,6 +1056,11 @@ pub struct CustomLayout {
     pub window: Option<WindowPlacement>,
     pub independent_main: Option<WindowPlacement>,
     pub independent_sub: Option<WindowPlacement>,
+    /// The 排列 committed when the slot was saved; none (also in a slot saved before this field
+    /// existed) applies the Java layout. This product's addition to Java's snapshot. An entry this
+    /// version cannot use reads as none, as in `persist.json`.
+    #[serde(default, deserialize_with = "stored_arrangement")]
+    pub panel_arrangement: Option<PanelArrangement>,
 }
 
 /// Workbench presentation (`Config.java:1609-1613,1677-1683,1828,1939,1981`).
@@ -1287,6 +1292,22 @@ pub enum ArrangeablePanel {
 
 impl ArrangeablePanel {
     pub const ALL: [ArrangeablePanel; 6] = [Self::Captured, Self::Winrate, Self::Comment, Self::SubBoard, Self::VariationGraph, Self::CandidateList];
+
+    /// The weight 恢复默认面板尺寸 gives the panel: its height in CSS px in the Java layout of a
+    /// 1500×900 window (a 1500×749 workbench) with the default panel sizes and every panel
+    /// shown. 提子 is a board side / 8, 胜率 the statistics strip (side / 10) and graph (side / 3),
+    /// 评论 the rest of the left column above the status row, 变化图 and 选点列表 half each of the
+    /// right column above the sub board, and 小棋盘 its square, as wide as the right column.
+    const fn default_weight(self) -> f64 {
+        match self {
+            Self::Captured => 93.0,
+            Self::Winrate => 323.0,
+            Self::Comment => 256.0,
+            Self::SubBoard => 365.0,
+            Self::VariationGraph => 191.0,
+            Self::CandidateList => 191.0,
+        }
+    }
 }
 
 /// One panel of a 停靠栏 and its relative height among the column's shown panels.
@@ -1313,6 +1334,13 @@ impl PanelArrangement {
         placed().count() == ArrangeablePanel::ALL.len()
             && ArrangeablePanel::ALL.iter().all(|p| placed().any(|a| a.panel == *p))
             && placed().all(|a| a.weight.is_finite() && a.weight > 0.0)
+    }
+
+    /// Every panel at its [default weight](ArrangeablePanel::default_weight); the columns and
+    /// their order stay.
+    pub(crate) fn with_default_weights(&self) -> Self {
+        let reset = |column: &[ArrangedPanel]| column.iter().map(|a| ArrangedPanel { panel: a.panel, weight: a.panel.default_weight() }).collect();
+        Self { left: reset(&self.left), right: reset(&self.right) }
     }
 }
 
