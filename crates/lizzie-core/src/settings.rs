@@ -1273,6 +1273,56 @@ impl Default for PanelSizes {
     }
 }
 
+/// 可排列面板 (GLOSSARY.md): the panels an arrangement places beside the board. The statistics
+/// strip and the win-rate graph share one switch and move together as `Winrate`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum ArrangeablePanel {
+    Captured,
+    Winrate,
+    Comment,
+    SubBoard,
+    VariationGraph,
+    CandidateList,
+}
+
+impl ArrangeablePanel {
+    pub const ALL: [ArrangeablePanel; 6] = [Self::Captured, Self::Winrate, Self::Comment, Self::SubBoard, Self::VariationGraph, Self::CandidateList];
+}
+
+/// One panel of a 停靠栏 and its relative height among the column's shown panels.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, TS)]
+pub struct ArrangedPanel {
+    pub panel: ArrangeablePanel,
+    pub weight: f64,
+}
+
+/// 排列 (GLOSSARY.md): the left and right 停靠栏, each from top to bottom. Window presentation
+/// like [`PanelSizes`]; without one the workbench uses the Java layout.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+pub struct PanelArrangement {
+    pub left: Vec<ArrangedPanel>,
+    pub right: Vec<ArrangedPanel>,
+}
+
+impl PanelArrangement {
+    /// The one rule every write of an arrangement goes through: each arrangeable panel exactly
+    /// once over both columns (hidden ones keep their place too), every weight finite and above
+    /// zero; a column may be empty.
+    pub fn is_valid(&self) -> bool {
+        let placed = || self.left.iter().chain(&self.right);
+        placed().count() == ArrangeablePanel::ALL.len()
+            && ArrangeablePanel::ALL.iter().all(|p| placed().any(|a| a.panel == *p))
+            && placed().all(|a| a.weight.is_finite() && a.weight > 0.0)
+    }
+}
+
+/// `persist.json`'s arrangement: an entry this version cannot use (unknown panel, invalid
+/// arrangement) reads as none instead of discarding the rest of the file.
+fn stored_arrangement<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<PanelArrangement>, D::Error> {
+    let value = serde_json::Value::deserialize(d)?;
+    Ok(serde_json::from_value::<PanelArrangement>(value).ok().filter(PanelArrangement::is_valid))
+}
+
 /// `main-window-other[0]`: Java toolbar heights 0 and 26 (`Menu.java:4532-4551`). This product
 /// leaves out Java's 详细工具栏 (height 70); a saved `Detailed` reads as the shown toolbar, as Java
 /// itself reads 70 outside the Chinese interface (LizzieFrame.java:974).
@@ -2005,6 +2055,9 @@ pub struct Persisted {
     /// 超级鹰眼's last placement (primary window only, like Java).
     pub hawkeye: Option<HawkeyePlacement>,
     pub panel_sizes: PanelSizes,
+    /// The committed 排列; none (absent from the file) is the Java layout.
+    #[serde(skip_serializing_if = "Option::is_none", deserialize_with = "stored_arrangement")]
+    pub panel_arrangement: Option<PanelArrangement>,
     pub bottom_toolbar: BottomToolbar,
     /// Independent boards use physical outer-window bounds (Java's four-element arrays).
     pub independent_main_board: Option<WindowPlacement>,

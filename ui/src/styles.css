@@ -737,7 +737,8 @@ body {
   outline-offset: 0;
 }
 
-/* ---- seams between panes: transparent hot zones the pointer resizes with */
+/* ---- seams between panes: transparent hot zones the pointer resizes with (the Java zones, and a
+   panel arrangement's dividers over the hairlines between the panels of a card) */
 .panel-handle {
   z-index: 3;
   background: transparent;
@@ -748,6 +749,9 @@ body {
 }
 .panel-handle.seam {
   cursor: n-resize;
+}
+.panel-handle.divider {
+  cursor: ns-resize;
 }
 /* holding X: the key list over the workbench */
 #controls {

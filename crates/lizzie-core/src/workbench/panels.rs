@@ -1,7 +1,7 @@
 //! Fixed Java workbench presentation; no DOM, window handles or drag drafts live here.
 use super::Workbench;
 use crate::api::{ApiError, ErrorKind};
-use crate::settings::{BottomToolbar, CustomLayout, ExtraMode, IndependentBoard, PanelSettings, PanelSizes, WindowPlacement, WorkbenchPanel};
+use crate::settings::{BottomToolbar, CustomLayout, ExtraMode, IndependentBoard, PanelArrangement, PanelSettings, PanelSizes, WindowPlacement, WorkbenchPanel};
 
 impl PanelSettings {
     /// Config.java:2538-2546: 大胜率图 hides, but does not forget, the list preference.
@@ -164,6 +164,23 @@ impl Workbench {
 
     pub fn restore_default_panel_sizes(&mut self) -> Result<bool, ApiError> {
         self.set_panel_sizes(PanelSizes::default())
+    }
+
+    /// Commits the panel 排列 (`None`: the Java layout) as one `persist.json` write. An invalid
+    /// arrangement is refused; a failed write keeps the previous one, as for the sizes.
+    pub fn set_panel_arrangement(&mut self, arrangement: Option<PanelArrangement>) -> Result<bool, ApiError> {
+        if arrangement.as_ref().is_some_and(|a| !a.is_valid()) {
+            return Err(ApiError::new(ErrorKind::InvalidArgument, "panel arrangement"));
+        }
+        if self.persisted.panel_arrangement == arrangement {
+            return Ok(false);
+        }
+        let old = std::mem::replace(&mut self.persisted.panel_arrangement, arrangement);
+        if let Err(error) = self.save_persisted() {
+            self.persisted.panel_arrangement = old;
+            return Err(error);
+        }
+        Ok(true)
     }
 
     /// Menu.java:4532-4551: bottom visibility is remembered as window presentation

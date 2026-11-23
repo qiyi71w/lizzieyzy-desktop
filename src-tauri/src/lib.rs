@@ -1325,6 +1325,10 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let done = shared.workbench.lock().unwrap().restore_default_panel_sizes()?;
             Ok(changed(&app, &shared, done))
         }
+        Command::SetPanelArrangement { arrangement } => {
+            let done = shared.workbench.lock().unwrap().set_panel_arrangement(arrangement)?;
+            Ok(changed(&app, &shared, done))
+        }
         Command::SetBottomToolbar { mode } => {
             let done = shared.workbench.lock().unwrap().set_bottom_toolbar(mode)?;
             Ok(changed(&app, &shared, done))

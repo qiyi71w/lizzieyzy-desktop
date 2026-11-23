@@ -14,14 +14,15 @@ import { os } from "./design/theme";
 import { mountWindowBar, setWindowTitle } from "./chrome/windowBar";
 import { buildToolbar, renderToolbar, topToolbarReport } from "./chrome/toolbar";
 import { onUnavailable, onView, snapshot } from "./contract/client";
-import type { BoardOverlayView, FloatSceneView, HistoryPoint, NodeAnalysisView, Point, SubBoardMode, WorkbenchView } from "./contract/generated";
+import type { BoardOverlayView, FloatSceneView, HistoryPoint, NodeAnalysisView, PanelArrangement, Point, SubBoardMode, WorkbenchView } from "./contract/generated";
 import { dialogOpen, message } from "./dialogs";
 import { errorText } from "./errorText";
 import { format, product, setLanguage, t } from "./i18n";
 import { openJavaImport } from "./javaImport";
 import { boardGeom, cardLayout, doubleEngineLayout, floatBoardLayout, mainMarginRatio, selectRange, sideLayout, SUB_MARGIN_RATIO, workbenchLayout, type BoardGeom, type DualPanels, type PanelId, type Panels, type Rect, type SidePanels } from "./workbench/layout";
+import { arrangedLayout, moveDivider, type ArrangementFallback } from "./workbench/arrangement";
 import { handleLayoutKey } from "./workbench/extraMode";
-import { bindPanels, controlsShowing, handlePanelKey, layoutRequest, placeHandles } from "./workbench/panels";
+import { bindPanels, commitArrangement, controlsShowing, dividerDraft, handlePanelKey, layoutRequest, placeHandles } from "./workbench/panels";
 import { onPresentationChange, presentation } from "./workbench/presentation";
 import { independentReport, relayIndependent, startIndependent } from "./workbench/independent";
 import type { IndependentInput } from "./workbench/independentModel";
@@ -117,6 +118,10 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const PANEL_IDS: PanelId[] = ["captured", "stat", "graph", "comment", "status", "tree", "table", "sub"];
 
 let panels: Panels | null = null;
+/** The panel arrangement the workbench was last laid out with, or why it shows the Java layout
+ *  (null without an arrangement). */
+let arrangement: { applied: PanelArrangement | null; fallback: ArrangementFallback | null } = { applied: null, fallback: null };
+let stageCards: StageCards = { cards: [], dividers: [] };
 let treeHits = new Map<string, number>();
 let treeView: TreeViewport | null = null;
 /** The tree panel shows the whole tree without scroll bars (shouldShowSimpleVariation). */
@@ -1089,13 +1094,19 @@ function render() {
   dual = mode === "DoubleEngine" ? doubleEngineLayout(W, H, cols, rows) : null;
   side = mode === "FourSub" || mode === "Thinking" ? sideLayout(W, H, request) : null;
   const floating = mode === "FloatBoard";
-  const normal = side ?? (floating ? floatBoardLayout(W, H, request) : workbenchLayout(W, H, request, mode === "Normal"));
+  // A panel arrangement (a divider drag's draft while one is held) replaces the in-frame layout
+  // wherever it applies and fits; otherwise the Java layout shows and the reason is reported.
+  const shownArrangement = dividerDraft() ?? v.settings.panel_arrangement;
+  const arranged = shownArrangement ? arrangedLayout(W, H, request, mode, shownArrangement) : null;
+  arrangement = { applied: arranged?.panels ? shownArrangement : null, fallback: arranged?.fallback ?? null };
+  const normal = side ?? (floating ? floatBoardLayout(W, H, request) : arranged?.panels ?? workbenchLayout(W, H, request, mode === "Normal"));
   // The cards (DESIGN.md 工作台卡片): every panel rectangle below is clipped to its card. 双引擎模式
   // has no side panels and no cards.
   const carded = dual ? null : cardLayout(normal, H);
   panels = carded ? carded.panels : { ...normal, board: dual!.left, glass: [], handles: null };
   const P = panels;
   const stage: StageCards = { cards: carded?.cards ?? [], dividers: carded?.dividers ?? [] };
+  stageCards = stage;
   // A committed appearance repaints every themed panel and the wallpaper (Config.readThemeVaule);
   // so does a change of the colour mode or of the stage.
   const size = `${W}x${H}:${window.devicePixelRatio}:${appearanceRevision()}:${stageRevision()}`;
@@ -1122,7 +1133,10 @@ function render() {
     delete lastSig.board2;
     delete lastSig.raw;
   }
-  placeHandles(P.handles);
+  placeHandles(P.handles, P.arranged?.dividers ?? null, shownArrangement && P.arranged ? {
+    move: (upper, y) => moveDivider(W, H, request, mode, shownArrangement, upper, y),
+    release: commitArrangement,
+  } : null);
 
   // AI 陪练's 实战后复盘 (applyTrainingModeVisualState): no candidates, winrate in the suggestions,
   // Kata形势, policy or heat map for the game; the committed display settings stay as they are.
@@ -1534,6 +1548,13 @@ function uiReport() {
       controls: controlsShowing(),
       topToolbar: $("toolbar").offsetHeight,
       bottomToolbar: $("bottombar").offsetHeight,
+      /** The panel arrangement in effect, else null with why it does not apply (null fallback:
+       *  there is no arrangement). */
+      arrangement,
+      /** The arrangement's in-column dividers (panel coordinates; `zone` is the pointer's area). */
+      dividers: panels.arranged?.dividers ?? [],
+      /** The workbench cards as painted. */
+      cards: stageCards,
     },
     /** The control or row function search located last (its 2.4 s highlight), if still shown. */
     located: (() => {

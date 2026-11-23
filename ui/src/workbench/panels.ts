@@ -1,16 +1,18 @@
 // 界面 > 面板 / 工具栏 and their Java shortcuts (Menu.java:1162-1435, 4407-4591; Input.java:599-
-// 646, 708-716, 767-775, 844-850), the in-frame separators (InFrameLeftoverDragHandles), the X
-// controls overlay (LizzieFrame.drawControls / stopShowingControl) and the window's 总在最前.
-// The core owns the committed flags and sizes (TogglePanel, SetPanelSettings, SetPanelSizes,
-// NudgeBoardPosition, RestoreDefaultPanelSizes, SetBottomToolbar); a separator drag is a UI draft
-// until the pointer is released.
+// 646, 708-716, 767-775, 844-850), the in-frame separators (InFrameLeftoverDragHandles) and a
+// panel arrangement's dividers, the X controls overlay (LizzieFrame.drawControls /
+// stopShowingControl) and the window's 总在最前. The core owns the committed flags, sizes and
+// arrangement (TogglePanel, SetPanelSettings, SetPanelSizes, NudgeBoardPosition,
+// RestoreDefaultPanelSizes, SetPanelArrangement, SetBottomToolbar); a separator drag is a UI
+// draft until the pointer is released.
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { registerViewHandler, run, state } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
-import type { BottomToolbar, PanelSettings, PanelSizes, WorkbenchPanel, WorkbenchView } from "../contract/generated";
+import type { ArrangeablePanel, BottomToolbar, PanelArrangement, PanelSettings, PanelSizes, WorkbenchPanel, WorkbenchView } from "../contract/generated";
 import { commentEditing } from "../editing/comment";
 import { openAnalysisSettings } from "../engine/settings";
 import { t } from "../i18n";
+import type { ArrangementDivider } from "./arrangement";
 import type { Handles, LayoutRequest, Rect } from "./layout";
 import { GRAPH_FONT, prepare } from "./paint";
 import { listShown, presentation, statusShown } from "./presentation";
@@ -338,12 +340,26 @@ window.addEventListener("blur", hideControls);
 
 // ------------------------------------------------------------------ separators
 
+// The four Java zones (InFrameLeftoverDragHandles) and, while a panel arrangement applies, the
+// dividers between neighbouring panels of a column (arrangement.ts) share one drag: a press
+// captures the pointer, moving changes only a UI draft, releasing hands the draft over once, and
+// Escape, a lost pointer or leaving the window cancel it.
+
 type Seam = "left" | "right" | "commentTop" | "variationList";
 const SEAMS: Seam[] = ["left", "right", "commentTop", "variationList"];
-const handleEls = new Map<Seam, HTMLElement>();
-/** The press: its seam, the geometry it was made on (the zones stay put while dragging, as
- *  update() returns early) and the committed sizes the draft starts from. */
-let drag: { seam: Seam; at: Handles; base: PanelSizes; grab: number; pointer: number; el: HTMLElement } | null = null;
+/** The zones' elements by `data-name`. */
+const handleEls = new Map<string, HTMLElement>();
+
+interface Drag {
+  el: HTMLElement;
+  pointer: number;
+  divider: boolean;
+  /** Shows the draft for the pointer (workbench coordinates). */
+  move(p: { x: number; y: number }): void;
+  release(): Promise<void>;
+  cancel(): void;
+}
+let drag: Drag | null = null;
 
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
 
@@ -352,73 +368,37 @@ function pointerIn(e: PointerEvent): { x: number; y: number } {
   return { x: e.clientX - r.left, y: e.clientY - r.top };
 }
 
-/** mouseDragged: applyLeftoverShare / applyCommentHeightShare / applyVariationGraphShare
- *  (LizzieFrame.java:7969-7998), shown at once and not yet saved. */
-function dragTo(e: PointerEvent): void {
-  if (!drag) return;
-  const { seam, at, base, grab } = drag;
-  const p = pointerIn(e);
-  if (seam === "left" || seam === "right") {
-    const nextBoardX = seam === "left" ? p.x - grab : p.x - grab - at.boardWidth;
-    const share = clamp01(nextBoardX / at.leftoverWidth);
-    draft = { ...base, leftoverLeftShare: share, boardPositionProportion: Math.max(0, Math.min(8, Math.round(share * 8))) };
-  } else {
-    const seamY = p.y - grab;
-    if (seam === "commentTop") draft = { ...base, commentHeightShare: clamp01((at.commentSplitBottom - seamY) / at.commentSplitH) };
-    else draft = { ...base, variationGraphShare: clamp01((seamY - at.variationTop) / at.variationContainerH) };
-  }
-  repaint();
-}
-
-/** mouseReleased commits the drag's sizes (commitLeftoverShare and its siblings); a cancelled
- *  drag (Escape, a lost pointer, leaving the window) keeps the committed ones. A saved drag stays
- *  drawn until the published view carries it (see the view handler below). */
 async function finishDrag(commit: boolean): Promise<void> {
   if (!drag) return;
-  const { el, pointer } = drag;
+  const d = drag;
   drag = null;
-  if (el.hasPointerCapture(pointer)) el.releasePointerCapture(pointer);
-  const sizes = draft;
-  if (commit && sizes) {
-    const result = await run({ type: "SetPanelSizes", sizes });
-    if (result && result.type !== "Refused" && draft === sizes && JSON.stringify(state.view?.settings.panel_sizes) !== JSON.stringify(sizes)) return;
-  }
-  if (!drag) draft = null;
+  if (d.el.hasPointerCapture(d.pointer)) d.el.releasePointerCapture(d.pointer);
+  if (commit) await d.release();
+  else d.cancel();
   repaint();
 }
-
-registerViewHandler((v) => {
-  if (!drag && draft && JSON.stringify(v.settings.panel_sizes) === JSON.stringify(draft)) draft = null;
-});
 
 function cancelDrag(): void {
   void finishDrag(false);
 }
 
-function createHandle(seam: Seam): HTMLElement {
+/** A zone element; `press` starts its drag or returns null to ignore the press. */
+function createHandle(name: string, kind: "edge" | "seam" | "divider", press: (e: PointerEvent) => Omit<Drag, "el" | "pointer"> | null): HTMLElement {
   const el = document.createElement("div");
-  el.className = `panel-handle ${seam === "left" || seam === "right" ? "edge" : "seam"}`;
-  el.dataset.name = `panel-handle-${seam}`;
+  el.className = `panel-handle ${kind}`;
+  el.dataset.name = name;
   el.addEventListener("pointerdown", (e) => {
-    const at = lastHandles;
-    if (e.button !== 0 || !at || drag) return;
-    const p = pointerIn(e);
-    let grab: number;
-    if (seam === "left" || seam === "right") {
-      if (at.leftoverWidth <= 0) return;
-      grab = seam === "left" ? p.x - at.boardX : p.x - (at.boardX + at.boardWidth);
-    } else {
-      if (seam === "commentTop" ? at.commentSplitH <= 0 : at.variationContainerH <= 0) return;
-      grab = p.y - (seam === "commentTop" ? at.commentSeamY : at.variationSeamY);
-    }
-    const v = state.view;
-    if (!v) return;
+    if (e.button !== 0 || drag || !state.view) return;
+    const d = press(e);
+    if (!d) return;
     e.preventDefault();
     el.setPointerCapture(e.pointerId);
-    drag = { seam, at, base: { ...v.settings.panel_sizes }, grab, pointer: e.pointerId, el };
+    drag = { ...d, el, pointer: e.pointerId };
   });
   el.addEventListener("pointermove", (e) => {
-    if (drag?.el === el && drag.pointer === e.pointerId) dragTo(e);
+    if (drag?.el !== el || drag.pointer !== e.pointerId) return;
+    drag.move(pointerIn(e));
+    repaint();
   });
   el.addEventListener("pointerup", (e) => {
     if (drag?.el === el && drag.pointer === e.pointerId) void finishDrag(true);
@@ -439,25 +419,145 @@ document.addEventListener("keydown", (e) => {
 }, true);
 window.addEventListener("blur", cancelDrag);
 
+/** Puts the zone `name` at `r`, creating it on first use; hides it when `r` is null. */
+function placeZone(name: string, r: Rect | null, create: () => HTMLElement): void {
+  let el = handleEls.get(name);
+  if (!el) {
+    if (!r) return;
+    el = create();
+    handleEls.set(name, el);
+    $("main").append(el);
+  }
+  el.style.display = r ? "" : "none";
+  if (r) Object.assign(el.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px` });
+}
+
+// ---- the Java zones
+
+/** The geometry the zones were placed for; a press keeps it (the zones stay put while dragging,
+ *  as update() returns early). */
 let lastHandles: Handles | null = null;
 
-/** Places the drag zones for the layout just drawn; none outside the locked layout. */
-export function placeHandles(h: Handles | null): void {
-  if (drag) return;
-  lastHandles = h;
-  const main = $("main");
-  for (const seam of SEAMS) {
-    let el = handleEls.get(seam);
-    const r: Rect | null = h ? h[seam] : null;
-    if (!el) {
-      if (!r) continue;
-      el = createHandle(seam);
-      handleEls.set(seam, el);
-      main.append(el);
-    }
-    el.style.display = r ? "" : "none";
-    if (r) Object.assign(el.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px` });
+/** mouseDragged: applyLeftoverShare / applyCommentHeightShare / applyVariationGraphShare
+ *  (LizzieFrame.java:7969-7998), shown at once and not yet saved; mouseReleased commits the
+ *  drag's sizes (commitLeftoverShare and its siblings). A saved drag stays drawn until the
+ *  published view carries it (see the view handler below). */
+function pressSeam(seam: Seam, e: PointerEvent): Omit<Drag, "el" | "pointer"> | null {
+  const at = lastHandles;
+  if (!at) return null;
+  const p = pointerIn(e);
+  let grab: number;
+  if (seam === "left" || seam === "right") {
+    if (at.leftoverWidth <= 0) return null;
+    grab = seam === "left" ? p.x - at.boardX : p.x - (at.boardX + at.boardWidth);
+  } else {
+    if (seam === "commentTop" ? at.commentSplitH <= 0 : at.variationContainerH <= 0) return null;
+    grab = p.y - (seam === "commentTop" ? at.commentSeamY : at.variationSeamY);
   }
+  const base = { ...state.view!.settings.panel_sizes };
+  return {
+    divider: false,
+    move(p) {
+      if (seam === "left" || seam === "right") {
+        const nextBoardX = seam === "left" ? p.x - grab : p.x - grab - at.boardWidth;
+        const share = clamp01(nextBoardX / at.leftoverWidth);
+        draft = { ...base, leftoverLeftShare: share, boardPositionProportion: Math.max(0, Math.min(8, Math.round(share * 8))) };
+      } else {
+        const seamY = p.y - grab;
+        if (seam === "commentTop") draft = { ...base, commentHeightShare: clamp01((at.commentSplitBottom - seamY) / at.commentSplitH) };
+        else draft = { ...base, variationGraphShare: clamp01((seamY - at.variationTop) / at.variationContainerH) };
+      }
+    },
+    async release() {
+      const sizes = draft;
+      if (sizes) {
+        const result = await run({ type: "SetPanelSizes", sizes });
+        if (result && result.type !== "Refused" && draft === sizes && JSON.stringify(state.view?.settings.panel_sizes) !== JSON.stringify(sizes)) return;
+      }
+      if (!drag) draft = null;
+    },
+    cancel() {
+      draft = null;
+    },
+  };
+}
+
+registerViewHandler((v) => {
+  if (!drag && draft && JSON.stringify(v.settings.panel_sizes) === JSON.stringify(draft)) draft = null;
+});
+
+// ---- the arrangement's dividers
+
+/** Who a divider drag works for: the arrangement a divider moved to `y` gives (from the one
+ *  drawn, at the size drawn), and what releasing does with it, resolving true when it was
+ *  committed so the draft stays drawn until a published view carries it. Normal use commits
+ *  (`commitArrangement`); an edit session keeps the result in its own draft. */
+export interface DividerOwner {
+  move(upper: ArrangeablePanel, y: number): PanelArrangement;
+  release(next: PanelArrangement): Promise<boolean>;
+}
+
+/** A divider drag's arrangement while the pointer is held (or until the view carries it). */
+let arrangementDraft: PanelArrangement | null = null;
+
+export function dividerDraft(): PanelArrangement | null {
+  return arrangementDraft;
+}
+
+const sameArrangement = (a: PanelArrangement | null | undefined, b: PanelArrangement | null) => JSON.stringify(a ?? null) === JSON.stringify(b);
+
+/** Releasing a divider outside an edit session: one SetPanelArrangement. */
+export async function commitArrangement(next: PanelArrangement): Promise<boolean> {
+  const result = await run({ type: "SetPanelArrangement", arrangement: next });
+  return !!result && result.type !== "Refused";
+}
+
+let lastDividers: { dividers: ArrangementDivider[]; owner: DividerOwner } | null = null;
+
+function pressDivider(name: string, e: PointerEvent): Omit<Drag, "el" | "pointer"> | null {
+  const placed = lastDividers;
+  const divider = placed?.dividers.find((d) => d.name === name);
+  if (!placed || !divider) return null;
+  const { owner } = placed;
+  const grab = pointerIn(e).y - divider.y;
+  return {
+    divider: true,
+    move(p) {
+      arrangementDraft = owner.move(divider.upper, p.y - grab);
+    },
+    async release() {
+      const next = arrangementDraft;
+      if (next && (await owner.release(next)) && arrangementDraft === next && !sameArrangement(state.view?.settings.panel_arrangement, next)) return;
+      if (!drag) arrangementDraft = null;
+    },
+    cancel() {
+      arrangementDraft = null;
+    },
+  };
+}
+
+registerViewHandler((v) => {
+  if (!drag && arrangementDraft && sameArrangement(v.settings.panel_arrangement, arrangementDraft)) arrangementDraft = null;
+});
+
+/** Places the zones for the layout just drawn: the Java zones `h` (none outside the locked
+ *  layout) and, while an arrangement applies, its `dividers` worked by `owner`. While a drag is
+ *  held the zones stay put; a divider drag ends uncommitted once the arrangement no longer
+ *  applies (another mode, or a window it does not fit). */
+export function placeHandles(h: Handles | null, dividers: ArrangementDivider[] | null, owner: DividerOwner | null): void {
+  if (drag) {
+    if (drag.divider && !(dividers && owner)) cancelDrag();
+    return;
+  }
+  lastHandles = h;
+  lastDividers = dividers && owner ? { dividers, owner } : null;
+  for (const seam of SEAMS) {
+    const name = `panel-handle-${seam}`;
+    placeZone(name, h ? h[seam] : null, () => createHandle(name, seam === "left" || seam === "right" ? "edge" : "seam", (e) => pressSeam(seam, e)));
+  }
+  const current = new Set(lastDividers?.dividers.map((d) => d.name));
+  for (const name of handleEls.keys()) if (name.startsWith("panel-divider-") && !current.has(name)) placeZone(name, null, () => handleEls.get(name)!);
+  for (const d of lastDividers?.dividers ?? []) placeZone(d.name, d.zone, () => createHandle(d.name, "divider", (e) => pressDivider(d.name, e)));
 }
 
 // ------------------------------------------------------------------ focus

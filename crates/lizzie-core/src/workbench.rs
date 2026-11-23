@@ -1303,6 +1303,7 @@ impl Workbench {
                 panels: self.config.panels.clone(),
                 top_toolbar: self.config.top_toolbar,
                 panel_sizes: self.persisted.panel_sizes,
+                panel_arrangement: self.persisted.panel_arrangement.clone(),
                 bottom_toolbar: self.persisted.bottom_toolbar,
                 bottom_buttons: self.config.bottom_buttons,
                 comment_panel_auto_hidden: self.config.ui.extra_mode.hides_comment(),
