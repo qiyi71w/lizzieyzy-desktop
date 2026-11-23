@@ -574,13 +574,16 @@ export function javaPreview(java: Panels, drawn: Panels, arranged: Panels): Pane
 }
 
 /** Who a divider drag of the arrangement `a` laid out at this size works for: in edit mode the
- *  release becomes the draft, and a pointer back at the divider's own height (moved only sideways,
- *  or away and back) changes nothing, so a Java preview stays as it is; otherwise the release is
- *  committed (one SetPanelArrangement). */
+ *  release becomes the draft, and a move that leaves the weights as they were (sideways, back to
+ *  where it began, or against a limit the divider already stands at) is no change, so a Java
+ *  preview stays as it is; otherwise the release is committed (one SetPanelArrangement). */
 export function dividerOwner(W: number, H: number, r: LayoutRequest, mode: ExtraMode, a: PanelArrangement): DividerOwner {
   if (!session) return { move: (upper, y) => moveDivider(W, H, r, mode, a, upper, y), release: commitArrangement };
   return {
-    move: (upper, y, from) => (Math.abs(y - from) < 0.5 ? null : moveDivider(W, H, r, mode, a, upper, y)),
+    move: (upper, y) => {
+      const next = moveDivider(W, H, r, mode, a, upper, y);
+      return same(next, a) ? null : next;
+    },
     release: async (next) => {
       setDraft(next);
       return false;
