@@ -3,20 +3,24 @@
 // meanwhile. Dragging a grip moves the panel to any place in either 停靠栏, dragging a divider
 // changes two heights and double-clicking it shares them evenly; all of it changes only this
 // session's draft. 完成 commits the draft with one SetPanelArrangement (none when it equals the
-// committed arrangement), 取消 drops it, 恢复 Java 布局 makes it "no arrangement". A layout mode or
-// an enlarged view taking over, a modal dialog, or a window too small for the draft ends the
-// session unsaved, with a timed notice. Geometry and fit are arrangement.ts's (arrangedLayout),
-// at the workbench height the edit bar leaves; the session is a UI draft and never reaches the core.
+// arrangement the session began with), 取消 drops it, 恢复 Java 布局 makes it "no arrangement".
+// Another layout mode, an enlarged view or another committed arrangement taking over, a modal
+// dialog (the page's or a native chooser), or a window too small for the draft ends the session
+// unsaved, with a timed notice, and lets go of a held drag. Geometry and fit are arrangement.ts's
+// (arrangedLayout), at the workbench height the edit bar leaves; until the first change without a
+// committed arrangement the Java layout itself shows. The session is a UI draft and never reaches
+// the core.
 // By keyboard: the first grip takes the focus, Tab goes round the grips and the bar, Alt+arrows on a
 // grip move its panel (a live region says where to, or why not), Enter there is 完成, Esc is 取消.
 import { registerViewHandler, run, state } from "../app";
 import { COMMANDS } from "../commands";
-import type { ArrangeablePanel, ArrangedPanel, ExtraMode, PanelArrangement } from "../contract/generated";
+import { onNativeDialog } from "../contract/client";
+import type { ArrangeablePanel, ArrangedPanel, ExtraMode, PanelArrangement, WorkbenchView } from "../contract/generated";
 import { icon } from "../design/icons";
 import { os } from "../design/theme";
 import { dialogOpen, timedMessage } from "../dialogs";
 import { product, registerProduct } from "../i18n";
-import { arrangedLayout, equalizeDivider, moveDivider, type ArrangementFallback } from "./arrangement";
+import { arrangedLayout, equalizeDivider, moveDivider, type ArrangementDivider, type ArrangementFallback } from "./arrangement";
 import { CARD_INSET, cardLayout, inFrame, SUB_CLEAR, workbenchLayout, type LayoutRequest, type PanelId, type Panels, type Rect } from "./layout";
 import { commitArrangement, layoutRequest, placeHandles, type DividerOwner } from "./panels";
 import { presentation } from "./presentation";
@@ -55,6 +59,7 @@ registerProduct({
     editExitEnlarged: "已打开放大小棋盘或放大胜率图，面板布局的改动没有保存。",
     editExitDialog: "打开对话框时结束了面板布局编辑，改动没有保存。",
     editExitFit: "窗口放不下面板布局了，面板布局的改动没有保存。",
+    editExitChanged: "面板布局已被其他操作更改，这次编辑的改动没有保存。",
   },
   ZhTw: {
     editLayout: "編輯面板佈局",
@@ -88,6 +93,7 @@ registerProduct({
     editExitEnlarged: "已開啟放大小棋盤或放大勝率圖，面板佈局的變更沒有儲存。",
     editExitDialog: "開啟對話框時結束了面板佈局編輯，變更沒有儲存。",
     editExitFit: "視窗放不下面板佈局了，面板佈局的變更沒有儲存。",
+    editExitChanged: "面板佈局已被其他操作變更，這次編輯的變更沒有儲存。",
   },
   EnUs: {
     editLayout: "Edit panel layout",
@@ -121,6 +127,7 @@ registerProduct({
     editExitEnlarged: "Large sub board or Large winRate graph was turned on, so the panel layout changes were not saved.",
     editExitDialog: "A dialog opened, so panel layout editing ended without saving the changes.",
     editExitFit: "The window no longer fits the panel layout, so the panel layout changes were not saved.",
+    editExitChanged: "Another action changed the panel layout, so the changes from this edit were not saved.",
   },
   JaJp: {
     editLayout: "パネルのレイアウトを編集",
@@ -154,6 +161,7 @@ registerProduct({
     editExitEnlarged: "大きいサブ碁盤または大きい勝率グラフがオンになったため、パネルのレイアウトの変更は保存されませんでした。",
     editExitDialog: "ダイアログが開いたため、パネルのレイアウトの編集を終了しました。変更は保存されていません。",
     editExitFit: "ウィンドウにパネルのレイアウトが収まらなくなったため、変更は保存されませんでした。",
+    editExitChanged: "別の操作でパネルのレイアウトが変わったため、この編集の変更は保存されませんでした。",
   },
   KoKr: {
     editLayout: "패널 레이아웃 편집",
@@ -187,6 +195,7 @@ registerProduct({
     editExitEnlarged: "보조바둑판 크게 또는 승률그래프 크게가 켜져 패널 레이아웃 변경 사항을 저장하지 않았습니다.",
     editExitDialog: "대화 상자가 열려 패널 레이아웃 편집을 끝냈습니다. 변경 사항은 저장하지 않았습니다.",
     editExitFit: "창에 패널 레이아웃이 더 이상 들어가지 않아 변경 사항을 저장하지 않았습니다.",
+    editExitChanged: "다른 작업으로 패널 레이아웃이 바뀌어 이번 편집의 변경 사항을 저장하지 않았습니다.",
   },
   ThTh: {
     editLayout: "แก้ไขเค้าโครงแผง",
@@ -220,6 +229,7 @@ registerProduct({
     editExitEnlarged: "เปิดบอร์ดย่อยขนาดใหญ่หรือกราฟ winRate ขนาดใหญ่แล้ว การเปลี่ยนแปลงเค้าโครงแผงจึงไม่ได้บันทึก",
     editExitDialog: "มีกล่องโต้ตอบเปิดขึ้น จึงจบการแก้ไขเค้าโครงแผงโดยไม่บันทึกการเปลี่ยนแปลง",
     editExitFit: "หน้าต่างไม่พอสำหรับเค้าโครงแผงแล้ว การเปลี่ยนแปลงเค้าโครงแผงจึงไม่ได้บันทึก",
+    editExitChanged: "การทำงานอื่นเปลี่ยนเค้าโครงแผงไปแล้ว การเปลี่ยนแปลงจากการแก้ไขครั้งนี้จึงไม่ได้บันทึก",
   },
 });
 
@@ -266,8 +276,11 @@ const UNAVAILABLE: Record<ArrangementFallback, string> = {
   fit: "editUnavailableFit",
 };
 
-type ExitReason = "mode" | "enlarged" | "dialog" | "fit";
-const EXIT: Record<ExitReason, string> = { mode: "editExitMode", enlarged: "editExitEnlarged", dialog: "editExitDialog", fit: "editExitFit" };
+/** Why a session ended by itself: its layout mode changed (or no longer arranges panels), an
+ *  enlarged view took over, the committed arrangement changed outside it (a 自定义布局 slot,
+ *  restoring the panel sizes, an import), a modal dialog opened, or the window no longer fits. */
+type ExitReason = "mode" | "enlarged" | "changed" | "dialog" | "fit";
+const EXIT: Record<ExitReason, string> = { mode: "editExitMode", enlarged: "editExitEnlarged", changed: "editExitChanged", dialog: "editExitDialog", fit: "editExitFit" };
 /** How long the notice of an automatic exit shows. */
 const EXIT_NOTICE_SECONDS = 5;
 
@@ -332,16 +345,30 @@ export function initialArrangement(width: number, height: number, r: LayoutReque
 interface Session {
   /** The committed arrangement when the session began. */
   base: PanelArrangement | null;
+  /** The layout mode the session edits. */
+  mode: ExtraMode;
   /** The arrangement edited; null shows the Java layout (恢复 Java 布局). */
   draft: PanelArrangement | null;
-  /** Nothing changed yet. Without a committed arrangement the draft is then the Java layout's
-   *  arrangement at the current size (initialArrangement), so it follows a resize or a panel
-   *  shown from the edit bar, and 完成 commits nothing. */
+  /** Nothing changed yet. Without a committed arrangement the workbench then shows the Java layout
+   *  itself, and the draft is the arrangement it gives at the current size (initialArrangement),
+   *  so it follows a resize or a panel shown from the edit bar, and 完成 commits nothing. */
   pristine: boolean;
 }
 let session: Session | null = null;
 /** 完成's arrangement, laid out until a published view carries it. */
 let sent: { value: PanelArrangement | null } | null = null;
+
+/** The committed arrangement: 完成's until a published view carries it. */
+function committedArrangement(v: WorkbenchView): PanelArrangement | null {
+  return sent ? sent.value : v.settings.panel_arrangement;
+}
+
+/** Why the session `s` no longer edits what is laid out: another layout mode, or a committed
+ *  arrangement changed by something other than this session (only 完成 commits its draft). */
+function superseded(s: Session, v: WorkbenchView): ExitReason | null {
+  if (presentation(v).mode !== s.mode) return "mode";
+  return same(committedArrangement(v), s.base) ? null : "changed";
+}
 
 let repaint: () => void = () => {};
 /** The grip the keyboard goes to once the overlay is placed next: the first one on entering, a
@@ -381,8 +408,8 @@ export function editUnavailable(): ArrangementFallback | null {
   if (!v || !main || session) return null;
   const r = layoutRequest(v);
   const W = main.clientWidth;
-  const H = main.clientHeight - barHeight(r);
-  const committed = sent ? sent.value : v.settings.panel_arrangement;
+  const H = main.clientHeight - barHeight();
+  const committed = committedArrangement(v);
   const mode = presentation(v).mode;
   return arrangedLayout(W, H, r, mode, committed ?? initialArrangement(W, H, r, mode)).fallback;
 }
@@ -391,33 +418,40 @@ export function editUnavailable(): ArrangementFallback | null {
 export function enterEdit(): void {
   const v = state.view;
   if (!v || session || editUnavailable()) return;
-  const committed = sent ? sent.value : v.settings.panel_arrangement;
-  session = { base: committed, draft: committed, pristine: true };
+  const committed = committedArrangement(v);
+  session = { base: committed, mode: presentation(v).mode, draft: committed, pristine: true };
   focusNext = "first";
-  syncTags(layoutRequest(v));
+  syncTags();
   editBar().hidden = false;
   repaint();
 }
 
+/** Ends the session, its held panel or divider drag included, without committing anything. */
 function end(): void {
   session = null;
   focusNext = null;
   if (live) live.textContent = "";
   frame = null;
   cancelPanelDrag();
+  // A held divider drag (panels.ts) ends uncommitted once no dividers are placed; the next layout
+  // places the zones again.
+  placeHandles(null, null, null);
   editBar().hidden = true;
   hideOverlay();
   repaint();
 }
 
-/** 完成: commits the draft with one SetPanelArrangement, none when it equals the committed one. */
+/** 完成: commits the draft with one SetPanelArrangement, none when it equals the arrangement the
+ *  session began with. A session another layout mode or arrangement took over ends unsaved. */
 export async function finishEdit(): Promise<void> {
   const s = session;
-  if (!s) return;
+  const v = state.view;
+  if (!s || !v) return;
+  const why = superseded(s, v);
+  if (why) return exitEdit(why);
   const next = s.draft;
-  const committed = state.view?.settings.panel_arrangement ?? null;
   end();
-  if (same(next, committed)) return;
+  if (same(next, s.base)) return;
   sent = { value: next };
   const result = await run({ type: "SetPanelArrangement", arrangement: next });
   if (!result || result.type === "Refused") sent = null;
@@ -490,25 +524,43 @@ export function movePanel(panel: ArrangeablePanel, side: Side, k: number): boole
 
 /** The arrangement the workbench lays out: in edit mode the draft (the Java layout's arrangement
  *  while nothing changed without a committed one; null for the Java layout), else the committed one
- *  or 完成's until the view carries it. Ends the session first when its layout mode or an enlarged
- *  view takes over or the draft no longer fits; `exited` then asks for another layout. A size
- *  change in edit mode cancels a held drag. */
-export function editArrangement(v: { settings: { panel_arrangement: PanelArrangement | null } }, W: number, H: number, r: LayoutRequest, mode: ExtraMode): { arrangement: PanelArrangement | null; exited: boolean } {
-  const committed = sent ? sent.value : v.settings.panel_arrangement;
+ *  or 完成's until the view carries it. `java`: the workbench shows the Java layout itself with
+ *  that arrangement's dividers (javaPreview), as nothing changed yet without a committed one.
+ *  Ends the session first when another layout mode, an enlarged view or another committed
+ *  arrangement takes over or the draft no longer fits; `exited` then asks for another layout. A
+ *  size change in edit mode cancels a held drag. */
+export function editArrangement(v: WorkbenchView, W: number, H: number, r: LayoutRequest, mode: ExtraMode): { arrangement: PanelArrangement | null; java: boolean; exited: boolean } {
+  const committed = committedArrangement(v);
   const s = session;
-  if (!s) return { arrangement: committed, exited: false };
-  const draft = s.pristine && !s.base ? initialArrangement(W, H, r, mode) : s.draft;
+  if (!s) return { arrangement: committed, java: false, exited: false };
+  const java = s.pristine && !s.base;
+  const draft = java ? initialArrangement(W, H, r, mode) : s.draft;
   const fallback = arrangedLayout(W, H, r, mode, draft ?? initialArrangement(W, H, r, mode)).fallback;
-  const reason: ExitReason | null = fallback === "mode" || fallback === "enlarged" ? fallback : fallback === "portrait" || (fallback === "fit" && draft) ? "fit" : null;
+  const reason: ExitReason | null = superseded(s, v)
+    ?? (fallback === "mode" || fallback === "enlarged" ? fallback : fallback === "portrait" || (fallback === "fit" && draft) ? "fit" : null);
   if (reason) {
     exitEdit(reason);
-    return { arrangement: committed, exited: true };
+    return { arrangement: committed, java: false, exited: true };
   }
   if (frame && (frame.W !== W || frame.H !== H)) {
     cancelPanelDrag();
     placeHandles(null, null, null);
   }
-  return { arrangement: draft, exited: false };
+  return { arrangement: draft, java, exited: false };
+}
+
+/** The Java layout `java` drawn as `drawn` (in its cards) while edit mode has changed nothing
+ *  without a committed arrangement: every panel where Java has it, a hidden 信息面板 or 胜率图
+ *  keeping its room, with the dividers of the arrangement it gives (laid out as `arranged`) on the
+ *  Java panels' edges. The first drag of one lays the arrangement out. */
+export function javaPreview(java: Panels, drawn: Panels, arranged: Panels): Panels {
+  const dividers = (arranged.arranged?.dividers ?? []).map((d): ArrangementDivider => {
+    // Below a panel the sub board's section starts where that panel ends (its square may sit lower).
+    const above = slot(java, d.upper);
+    const y = d.lower === "SubBoard" ? above.y + above.h : slot(java, d.lower).y;
+    return { ...d, y, zone: { ...d.zone, y: y - d.zone.h / 2 } };
+  });
+  return { ...drawn, arranged: { dividers } };
 }
 
 /** Who a divider drag of the arrangement `a` laid out at this size works for: in edit mode the
@@ -539,8 +591,10 @@ function equalize(name: string): void {
 // ------------------------------------------------------------------ the edit bar
 
 let bar: HTMLElement | null = null;
+/** The hidden panels' tags: one capsule, or one per line where they do not fit on one (fitTags). */
 let tags: HTMLElement | null = null;
 let tagsFor = "";
+let tagsFit = "";
 
 function pill(name: string, text: string, run: () => void): HTMLButtonElement {
   const b = document.createElement("button");
@@ -576,8 +630,8 @@ function editBar(): HTMLElement {
   hint.className = "edit-bar-hint";
   hint.dataset.name = "edit-bar-hint";
   hint.textContent = product("editHint");
-  tags = capsule();
-  tags.classList.add("edit-bar-tags");
+  tags = document.createElement("span");
+  tags.className = "edit-bar-tags";
   const actions = document.createElement("span");
   actions.className = "edit-bar-actions";
   actions.append(
@@ -608,15 +662,21 @@ function editBar(): HTMLElement {
   return bar;
 }
 
-/** One tag per hidden panel: choosing it is choosing the panel in 显示 > 面板. */
-function syncTags(r: LayoutRequest): void {
+/** One tag per panel the user has hidden (its saved 显示 > 面板 flag off; one an AI 陪练 game hides
+ *  for the game has none): choosing it is choosing the panel in 显示 > 面板, which shows it. */
+function syncTags(): void {
   editBar();
-  const hidden = PANELS.filter((p) => !r[FLAG[p]]);
+  const saved = state.view?.settings.panels;
+  if (!saved) return;
+  const hidden = PANELS.filter((p) => !saved[FLAG[p]]);
   const key = hidden.join(",");
   if (key === tagsFor) return;
   tagsFor = key;
-  tags!.replaceChildren(...hidden.map((panel) => {
+  tagsFit = "";
+  tags!.replaceChildren(capsule(...hidden.map((panel) => {
     const b = pill(`edit-bar-show-${panel}`, "", () => {
+      // Only ever shows it: a tag left from a view the panel was shown in does nothing.
+      if (state.view?.settings.panels[FLAG[panel]] !== false) return;
       if (document.activeElement === b) focusNext = panel;
       COMMANDS[MENU[panel]]?.run();
     });
@@ -626,18 +686,55 @@ function syncTags(r: LayoutRequest): void {
     b.setAttribute("aria-label", product("editShowPanel", panelName(panel)));
     b.title = b.getAttribute("aria-label")!;
     return b;
-  }));
+  })));
   tags!.hidden = hidden.length === 0;
+}
+
+/** Puts the tags in one capsule while they fit on a line of the bar, else in one capsule per line,
+ *  filled in order (DESIGN.md 编辑栏), so every tag shows whole at any width and font size; a tag
+ *  wider than the bar by itself wraps its name. The keyboard stays on a tag it was on. */
+function fitTags(): void {
+  const b = editBar();
+  const t = tags!;
+  const buttons = [...t.querySelectorAll<HTMLButtonElement>("button")];
+  if (!buttons.length) return;
+  const style = getComputedStyle(b);
+  const room = b.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+  const key = `${tagsFor}:${room}:${style.font}`;
+  if (key === tagsFit) return;
+  tagsFit = key;
+  // Each tag's one-line width, as a tag sharing a line would show it.
+  t.classList.add("measuring");
+  const widths = buttons.map((button) => button.getBoundingClientRect().width);
+  t.classList.remove("measuring");
+  // Segments overlap by their 1px dividing line (.tb-cap > .tb-pill + *).
+  const lines: HTMLButtonElement[][] = [];
+  let used = Infinity;
+  for (const [k, button] of buttons.entries()) {
+    const w = widths[k] - 1;
+    if (used + w > room + 1) {
+      lines.push([]);
+      used = 1;
+    }
+    lines[lines.length - 1].push(button);
+    used += w;
+  }
+  const now = [...t.children].map((cap) => cap.childElementCount).join(",");
+  if (lines.map((line) => line.length).join(",") === now) return;
+  const focused = document.activeElement;
+  t.replaceChildren(...lines.map((line) => capsule(...line)));
+  if (focused instanceof HTMLButtonElement && buttons.includes(focused)) focused.focus({ preventScroll: true });
 }
 
 /** The edit bar's height at the window's width while it is hidden (the room edit mode would take
  *  from the workbench); 0 while it shows, being already outside the workbench. */
-function barHeight(r: LayoutRequest): number {
+function barHeight(): number {
   const b = editBar();
   if (!b.hidden) return 0;
-  syncTags(r);
+  syncTags();
   b.classList.add("measuring");
   b.hidden = false;
+  fitTags();
   const h = b.offsetHeight;
   b.hidden = true;
   b.classList.remove("measuring");
@@ -762,7 +859,8 @@ export function placeEdit(P: Panels, cards: Rect[], W: number, H: number, r: Lay
   };
   if (panelDrag && frame && JSON.stringify([frame.W, frame.H, frame.arrangement, frame.request]) !== JSON.stringify([W, H, arrangement, r])) cancelPanelDrag();
   frame = next;
-  syncTags(r);
+  syncTags();
+  fitTags();
   show(editLayer(), true);
   const shown = shownPanels(P, cards);
   const visible = new Set(shown.map((s) => s.panel));
@@ -846,12 +944,12 @@ function pressGrip(panel: ArrangeablePanel, b: HTMLButtonElement, e: PointerEven
   b.classList.add("held");
 }
 
-/** Where dropping at `p` puts the panel: the column under the pointer, before the first shown
- *  panel whose middle is below it; null over the board, where it already is, or where it would
- *  not fit. */
+/** Where dropping at `p` puts the panel: the 停靠栏 whose region holds the pointer, before the
+ *  first shown panel whose middle is below it; null anywhere else (the board, the edit bar, the
+ *  toolbars, outside the window), where it already is, or where it would not fit. */
 function targetAt(f: Frame, panel: ArrangeablePanel, p: { x: number; y: number }): Target | null {
-  const board = f.panels.board;
-  const side: Side | null = p.x < board.x ? "left" : p.x >= board.x + board.w ? "right" : null;
+  const inside = (c: Rect) => p.x >= c.x && p.x < c.x + c.w && p.y >= c.y && p.y < c.y + c.h;
+  const side = (["left", "right"] as const).find((s) => inside(f.columns[s]));
   if (!side) return null;
   const others = shownPanels(f.panels, f.cards).filter((s) => s.side === side && s.panel !== panel);
   const k = others.filter((s) => s.rect.y + s.rect.h / 2 < p.y).length;
@@ -1002,14 +1100,16 @@ Object.assign(COMMANDS, {
   },
 });
 
-/** Connects edit mode to the workbench: `schedule` lays it out again. A modal dialog (function
- *  search included) ends the session. */
+/** Connects edit mode to the workbench: `schedule` lays it out again. A modal dialog ends the
+ *  session before it shows: one of the page's (function search included), or a native chooser
+ *  (client.ts onNativeDialog). The window merely losing the focus does not. */
 export function bindEditLayout(schedule: () => void): void {
   repaint = schedule;
   const host = $("dialog");
   new MutationObserver(() => {
     if (session && dialogOpen()) exitEdit("dialog");
   }).observe(host, { childList: true, attributes: true, attributeFilter: ["hidden"] });
+  onNativeDialog(() => exitEdit("dialog"));
   $("main").addEventListener("dblclick", (e) => {
     const name = (e.target as HTMLElement).closest<HTMLElement>(".panel-handle.divider")?.dataset.name;
     if (session && name) equalize(name);
@@ -1022,6 +1122,8 @@ export function editReport() {
   return {
     active: session !== null,
     pristine: session?.pristine ?? null,
+    /** The layout mode the session edits. */
+    mode: session?.mode ?? null,
     /** The arrangement laid out (null: the Java layout). */
     draft: session ? frame?.arrangement ?? null : null,
     java: session ? frame?.java ?? null : null,

@@ -31,6 +31,22 @@
   min-width: 0;
   color: var(--ds-text-2);
 }
+/* The hidden panels' tags: one capsule while they fit on a line, else one capsule per line
+   (editLayout.ts fitTags), so each tag shows whole; a tags line is never wider than the bar, and a
+   tag wider than the bar by itself wraps its name inside a taller capsule. */
+.edit-bar-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+.edit-bar-tags .tb-cap {
+  height: auto;
+  min-height: var(--ds-cap-h);
+  max-width: 100%;
+  white-space: normal;
+}
 .edit-bar-tags[hidden] {
   display: none;
 }
@@ -65,10 +81,24 @@
   background-color: var(--ds-pressed);
 }
 .edit-bar-tags button.tb-pill {
+  flex: 0 1 auto;
+  min-width: 0;
   gap: 5px;
-  padding-left: 9px;
+  padding: 3px 11px 3px 9px;
+  white-space: normal;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+.edit-bar-tags button.tb-pill > span {
+  min-width: 0;
+}
+/* fitTags reads each tag's one-line width. */
+.edit-bar-tags.measuring button.tb-pill {
+  flex: none;
+  white-space: nowrap;
 }
 .edit-bar-tags .icon {
+  flex: none;
   width: 14px;
   height: 14px;
   color: var(--ds-text-2);
