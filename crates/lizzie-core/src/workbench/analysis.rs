@@ -835,6 +835,16 @@ impl Workbench {
         }
     }
 
+    /// What keeps the secondary engine from being restarted or replaced, also when the request
+    /// does not come through `game_gate` (tuning) or was admitted just before a 试下 began. Java
+    /// takes a lifecycle reservation for each (`reStartEngine2`, EngineManager.java:4718-4752;
+    /// `switchEngine(index, false)`, 11416-11474; a thread-policy reload, Leelaz.java:24215 and
+    /// 2134-2137), which a Web 试下 refuses (Leelaz.java:15190-15198). Closing it takes none.
+    /// Returns the refusal's message key.
+    pub(super) fn secondary_lifecycle_held(&self) -> Option<&'static str> {
+        self.web_trial_active().then_some(super::web_board::ENGINE_LEASED)
+    }
+
     fn switch_engine_inner(&mut self, index: u32, remember_selection: bool) -> Result<bool, ApiError> {
         let Some(profile) = self.config.engine.engines.get(index as usize).cloned() else {
             return Err(ApiError::new(ErrorKind::InvalidArgument, format!("no engine {index}")));
@@ -992,6 +1002,7 @@ impl Workbench {
             self.engine_notice = Some(EngineNotice::SameEngine);
             return Ok(true);
         }
+        if let Some(key) = self.secondary_lifecycle_held() { return Err(ApiError::new(ErrorKind::Unavailable, key)); }
         self.seat_secondary(index);
         self.sync_engine();
         Ok(true)
@@ -1042,6 +1053,7 @@ impl Workbench {
         let Some(id) = self.secondary_profile() else {
             return Ok(false);
         };
+        if let Some(key) = self.secondary_lifecycle_held() { return Err(ApiError::new(ErrorKind::Unavailable, key)); }
         self.engines.terminate(secondary);
         self.secondary_fallback = None;
         if let Some(index) = self.config.engine.index_of(&id) {

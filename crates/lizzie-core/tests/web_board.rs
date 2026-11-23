@@ -13,7 +13,7 @@ use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
 use lizzie_core::formats::sgf;
 use lizzie_core::java_import::{self, JavaSource};
 use lizzie_core::record::{NodeKind, Point, RecordFormat, ROOT};
-use lizzie_core::settings::{AutoAnalysisSettings, Storage};
+use lizzie_core::settings::{AutoAnalysisSettings, ExtraMode, Storage};
 use lizzie_core::web_board::{parse_client_message, ClientMessage, TRIAL_IDLE};
 use lizzie_core::workbench::{OpenOrigin, Workbench};
 
@@ -120,6 +120,32 @@ fn sharing(dir: &std::path::Path, text: &str) -> (Workbench, World, InstanceId) 
     serve(&mut wb, &world, id);
     wb.web_board_started(SESSION, "http://192.168.1.5:9998".into());
     (wb, world, id)
+}
+
+/// [`sharing`] in 双引擎模式: engines a (foreground), b (the secondary engine) and c configured,
+/// both running engines ready. Returns the secondary engine's process.
+fn sharing_with_two_engines(dir: &std::path::Path, text: &str) -> (Workbench, World, InstanceId) {
+    let world = World::default();
+    let mut wb = workbench(dir, &world);
+    open(&mut wb, text);
+    let engines = ["a", "b", "c"]
+        .map(|name| EngineProfile {
+            name: name.into(),
+            command: format!("/opt/{name} gtp"),
+            ..EngineProfile::default()
+        })
+        .to_vec();
+    wb.save_engine_settings(engines, EngineStartup::Default).unwrap();
+    wb.start_engines();
+    let foreground = world.latest();
+    serve(&mut wb, &world, foreground);
+    assert!(wb.set_extra_mode(ExtraMode::DoubleEngine).unwrap());
+    assert!(wb.switch_secondary_engine(1).unwrap());
+    let secondary = world.latest();
+    serve(&mut wb, &world, secondary);
+    serve(&mut wb, &world, foreground);
+    wb.web_board_started(SESSION, "http://192.168.1.5:9998".into());
+    (wb, world, secondary)
 }
 
 fn msg(wb: &mut Workbench, text: &str, now: Instant) -> Option<String> {
@@ -433,6 +459,37 @@ fn during_a_trial_the_console_komi_and_the_foreground_engine_lifecycle_are_refus
         }),
         None
     );
+}
+
+/// Java's lifecycle reservation is refused while a 试下 runs, so in 双引擎模式 the secondary engine
+/// is neither restarted nor replaced (`reStartEngine2`, `switchEngine(index, false)` →
+/// `showForegroundEngineLeaseInUse`); closing it takes no reservation (`killThisEngines2`).
+#[test]
+fn during_a_trial_the_secondary_engine_is_not_restarted_or_replaced_but_can_be_closed() {
+    const LEASED: &str = "AnalysisSettings.reuseStatus.existing_lease";
+    let dir = tempfile::tempdir().unwrap();
+    let (mut wb, world, secondary) = sharing_with_two_engines(dir.path(), "(;SZ[9];B[ee];W[cc])");
+    assert_eq!(enter(&mut wb, "a", Instant::now()), None);
+    for command in [Command::RestartSecondaryEngine, Command::SwitchSecondaryEngine { index: 2 }] {
+        assert_eq!(
+            wb.game_gate(&command),
+            Some(CommandResult::Refused {
+                message_key: LEASED.into()
+            }),
+            "{command:?}"
+        );
+    }
+    // The operations refuse as well: a command admitted just before the 试下 began, and an engine
+    // reload that does not come through the command gate.
+    assert_eq!(wb.restart_secondary_engine().unwrap_err().message, LEASED);
+    assert_eq!(wb.switch_secondary_engine(2).unwrap_err().message, LEASED);
+    assert_eq!(world.latest(), secondary, "no engine was started");
+    assert_eq!(wb.view(true).engine.secondary.map(|s| (s.index, s.ready)), Some((1, true)));
+
+    assert_eq!(wb.game_gate(&Command::ShutdownSecondaryEngine), None);
+    assert!(wb.shutdown_secondary_engine());
+    assert_eq!(wb.view(true).engine.secondary, None);
+    assert!(trial_active(&mut wb));
 }
 
 /// The detailed toolbar's 引擎对战 (the saved match settings) is refused like the dialog's start,

@@ -1363,7 +1363,8 @@ importing the matching LizzieYzy Next settings.
   console, switching, restarting or closing the foreground engine (also through 远程算力 or
   applying a settings import), saving the engine list and modes that take the engine (人机对弈,
   AI 陪练, 引擎对战, flash/automatic/whole-game analysis, batch, tracking, benchmark, 跑谱贡献,
-  GMA) are refused; an engine that ends meanwhile is not restarted automatically. It ends at the
+  GMA) are refused; in 双引擎模式 restarting or replacing the secondary engine is refused too,
+  closing it is not; an engine that ends meanwhile is not restarted automatically. It ends at the
   viewer's 退出试下, after five idle minutes, by
   强制结束试下, when the share stops or when another record opens; browsing then returns to where
   it started. 自动落子 does not play while a 试下 runs, as desktop moves are refused; it plays

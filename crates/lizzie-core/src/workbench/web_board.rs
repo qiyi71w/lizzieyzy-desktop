@@ -30,6 +30,9 @@ use crate::web_board::{
 pub const WEB_TRIAL_BLOCKED: &str = "LizzieFrame.webTrialDesktopBlocked";
 /// `AnalysisSettings.reuseStatus.application_exclusive_mode`: a mode that needs the engine.
 const ENGINE_EXCLUSIVE: &str = "AnalysisSettings.reuseStatus.application_exclusive_mode";
+/// `AnalysisSettings.reuseStatus.existing_lease`: Java's notice when an engine switch or restart
+/// cannot take its lifecycle reservation (`EngineManager.showForegroundEngineLeaseInUse`).
+pub(super) const ENGINE_LEASED: &str = "AnalysisSettings.reuseStatus.existing_lease";
 
 #[derive(Default)]
 pub(super) struct WebBoardFlow {
@@ -354,8 +357,9 @@ impl Workbench {
     // -------------------------------------------------------------------- desktop
 
     /// What a desktop command does instead while a viewer's 试下 runs: edits are refused with
-    /// Java's hint (`showTrialBlockedHint`), browsing is held off, and modes that would take
-    /// the foreground engine are refused as application-exclusive. `None` lets it run.
+    /// Java's hint (`showTrialBlockedHint`), browsing is held off, modes that would take the
+    /// foreground engine are refused as application-exclusive, and restarting or replacing the
+    /// secondary engine as already in exclusive use (closing it runs). `None` lets it run.
     pub(super) fn web_trial_gate(&self, command: &Command) -> Option<CommandResult> {
         self.web_board.trial.as_ref()?;
         let refused = |key: &str| {
@@ -403,6 +407,11 @@ impl Workbench {
                 scope: EngineScope::Current | EngineScope::All,
             }
             | Command::SaveEngineSettings { .. } => refused(ENGINE_EXCLUSIVE),
+            // The secondary engine's restart and replacement need Java's lifecycle reservation as
+            // well (`reStartEngine2`, `switchEngine(index, false)`) and get its notice; the
+            // operations check again for requests that do not pass here
+            // (`secondary_lifecycle_held`). Closing it takes none (`killThisEngines2`).
+            Command::SwitchSecondaryEngine { .. } | Command::RestartSecondaryEngine => refused(ENGINE_LEASED),
             _ => None,
         }
     }
