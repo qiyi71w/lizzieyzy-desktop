@@ -611,7 +611,7 @@ body {
 #table tbody tr:last-child td {
   border-bottom: 0;
 }
-/* 序号 is as wide as its labels (table.ts rankColumnWidth): no right padding, the next column's
+/* 序号 is as wide as its labels (suggestionsFrame.ts rankWidths): no right padding, the next column's
    right-aligned figures leave the gap. */
 #table th:first-child,
 #table td:first-child {

@@ -39,7 +39,7 @@ export function humanSlGameActive(v: WorkbenchView | null = state.view): boolean
   return !!s && s.phase !== "Preparing";
 }
 
-/** The training mode's analysis override (HumanSlGameController.applyTrainingModeVisualState)
+/** The training mode's analysis override (HumanSlGameController.configureAnalysisVisuals)
  *  while a game is on; the committed display settings stay as they are. */
 export function humanSlDisplay(v: WorkbenchView | null = state.view): HumanSlAnalysisDisplay | null {
   return humanSlGameActive(v) ? humanSlSession(v)!.analysis_display : null;

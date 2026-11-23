@@ -1033,7 +1033,7 @@ impl Workbench {
         self.engines.set_secondary(Some(instance), keep);
     }
 
-    /// Secondary engine menu > "重启当前引擎" (`restartEngine2`): a new process of the same
+    /// Secondary engine menu > "重启当前引擎" (`reStartEngine2`): a new process of the same
     /// engine, synced to the current position.
     pub fn restart_secondary_engine(&mut self) -> Result<bool, ApiError> {
         let Some(secondary) = self.engines.secondary() else {
