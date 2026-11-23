@@ -626,7 +626,7 @@ importing the matching LizzieYzy Next settings.
   shown, the sub board until it is left again), 总在最前 (`Ctrl+Z`) keeps the main window on top.
   On macOS `Command` also works for `Ctrl+W` / `Ctrl+F`; `Ctrl+Z` takes the Control key only, as in
   Java. The panels sit where Java's fixed in-frame layout puts them for
-  each combination, until a panel arrangement says otherwise (界面 > 面板 > 编辑面板布局…, see
+  each combination, until a panel arrangement says otherwise (显示 > 面板 > 编辑面板布局…, see
   [Panel arrangement](#panel-arrangement)). Dragging the board's left or right edge moves the board, dragging the
   comment's top edge changes its height (at least 68 px) and dragging the line between the
   variation tree and the list shares that column (the list keeps at least 36 px); a drag is
@@ -1767,9 +1767,18 @@ prompt, and full input-method coverage on Windows and macOS.
   dropping there leaves the panel where it was. `Esc` during a drag cancels that drag only.
   Dragging the line between two panels of a column changes their heights (down to each panel's
   minimum); double-clicking it shares their heights evenly.
+- By keyboard: entering edit mode puts the focus on the first grip (the top panel of the left
+  column). `Tab` / `Shift+Tab` go round the grips (the left column top to bottom, then the right
+  one) and the row's tags and buttons. On a grip, `Alt+↑` / `Alt+↓` move its panel one place up or
+  down in its column, and `Alt+←` / `Alt+→` move it into the left or right column at the same
+  place where there is one (else at its end); the focus stays on the grip and a screen reader
+  hears the panel's new column and place. A move that would not fit the window is not made, and a
+  screen reader hears why. `Enter` on a grip is 完成 and `Esc` (outside a pointer drag) is 取消;
+  the row's buttons keep their own `Enter` and `Space`. On macOS `Alt` is `Option`. Heights are
+  changed with the pointer only. Outside edit mode `Alt` + arrows browse the record as before.
 - Each hidden panel has a tag in the row; choosing it is the same as ticking the panel in 显示 >
   面板 (it is shown and remembered at once, and 取消 does not hide it again); the panel appears
-  at its place in the arrangement.
+  at its place in the arrangement (a tag chosen by keyboard hands the focus to that panel's grip).
 - Nothing is saved while editing. 完成 saves the arrangement (nothing when it did not change; 完成
   right after entering, without an arrangement, leaves the Java layout), 取消 drops every change,
   and 恢复 Java 布局 shows the Java layout at once and, with 完成, removes the arrangement.

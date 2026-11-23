@@ -34,6 +34,15 @@
 .edit-bar-tags[hidden] {
   display: none;
 }
+/* Where a keyboard move put a panel, or why it did not move: for screen readers, not drawn. */
+.edit-bar-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .edit-bar-actions {
   display: flex;
   flex-wrap: wrap;
@@ -120,6 +129,11 @@
 #main > .panel-grip.held {
   background-image: linear-gradient(var(--ds-pressed), var(--ds-pressed));
   cursor: grabbing;
+}
+/* The keyboard on a grip: an accent-ink edge inside the usual focus ring, as a field's focus, so it
+   reads over the panel's content (lines, text) in either theme. */
+#main > .panel-grip:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--ds-accent-text), var(--ds-shadow-cap);
 }
 .panel-grip .icon,
 .panel-ghost .icon {

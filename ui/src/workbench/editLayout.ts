@@ -1,4 +1,4 @@
-// 布局编辑模式 (GLOSSARY.md), the pointer part: 显示 > 面板 > 编辑面板布局… opens an edit bar above
+// 布局编辑模式 (GLOSSARY.md): 显示 > 面板 > 编辑面板布局… opens an edit bar above
 // the workbench and puts a named grip on every shown panel; the panels' content takes no pointer
 // meanwhile. Dragging a grip moves the panel to any place in either 停靠栏, dragging a divider
 // changes two heights and double-clicking it shares them evenly; all of it changes only this
@@ -7,10 +7,13 @@
 // an enlarged view taking over, a modal dialog, or a window too small for the draft ends the
 // session unsaved, with a timed notice. Geometry and fit are arrangement.ts's (arrangedLayout),
 // at the workbench height the edit bar leaves; the session is a UI draft and never reaches the core.
+// By keyboard: the first grip takes the focus, Tab goes round the grips and the bar, Alt+arrows on a
+// grip move its panel (a live region says where to, or why not), Enter there is 完成, Esc is 取消.
 import { registerViewHandler, run, state } from "../app";
 import { COMMANDS } from "../commands";
 import type { ArrangeablePanel, ArrangedPanel, ExtraMode, PanelArrangement } from "../contract/generated";
 import { icon } from "../design/icons";
+import { os } from "../design/theme";
 import { dialogOpen, timedMessage } from "../dialogs";
 import { product, registerProduct } from "../i18n";
 import { arrangedLayout, moveDivider, type ArrangementFallback } from "./arrangement";
@@ -27,6 +30,17 @@ registerProduct({
     editDone: "完成",
     editShowPanel: "显示{0}",
     editGripRole: "可移动的面板",
+    editGripHelp: "用 Alt+上下方向键在这一栏里移动这个面板，用 Alt+左右方向键把它移到另一栏。按 Enter 完成，按 Esc 取消。",
+    editGripHelpMac: "用 Option+上下方向键在这一栏里移动这个面板，用 Option+左右方向键把它移到另一栏。按 Enter 完成，按 Esc 取消。",
+    editMovedLeft: "{0}现在在左栏第 {1} 个，共 {2} 个。",
+    editMovedRight: "{0}现在在右栏第 {1} 个，共 {2} 个。",
+    editAtTop: "{0}已经在这一栏最上面。",
+    editAtBottom: "{0}已经在这一栏最下面。",
+    editAlreadyLeft: "{0}已经在左栏。",
+    editAlreadyRight: "{0}已经在右栏。",
+    editNoFitLeft: "左栏放不下{0}，面板没有移动。放大窗口后再试。",
+    editNoFitRight: "右栏放不下{0}，面板没有移动。放大窗口后再试。",
+    editNoFitHere: "{0}放到这个位置后放不下，面板没有移动。放大窗口后再试。",
     "panel.Captured": "信息面板",
     "panel.Winrate": "胜率图",
     "panel.Comment": "评论/问题手面板",
@@ -49,6 +63,17 @@ registerProduct({
     editDone: "完成",
     editShowPanel: "顯示{0}",
     editGripRole: "可移動的面板",
+    editGripHelp: "用 Alt+上下方向鍵在這一欄裡移動這個面板，用 Alt+左右方向鍵把它移到另一欄。按 Enter 完成，按 Esc 取消。",
+    editGripHelpMac: "用 Option+上下方向鍵在這一欄裡移動這個面板，用 Option+左右方向鍵把它移到另一欄。按 Enter 完成，按 Esc 取消。",
+    editMovedLeft: "{0}現在在左欄第 {1} 個，共 {2} 個。",
+    editMovedRight: "{0}現在在右欄第 {1} 個，共 {2} 個。",
+    editAtTop: "{0}已經在這一欄最上面。",
+    editAtBottom: "{0}已經在這一欄最下面。",
+    editAlreadyLeft: "{0}已經在左欄。",
+    editAlreadyRight: "{0}已經在右欄。",
+    editNoFitLeft: "左欄放不下{0}，面板沒有移動。放大視窗後再試。",
+    editNoFitRight: "右欄放不下{0}，面板沒有移動。放大視窗後再試。",
+    editNoFitHere: "{0}放到這個位置後放不下，面板沒有移動。放大視窗後再試。",
     "panel.Captured": "資訊面板",
     "panel.Winrate": "勝率圖",
     "panel.Comment": "評論/問題手面板",
@@ -71,6 +96,17 @@ registerProduct({
     editDone: "Done",
     editShowPanel: "Show {0}",
     editGripRole: "movable panel",
+    editGripHelp: "Press Alt+Up or Alt+Down to move this panel within its column, and Alt+Left or Alt+Right to move it to the other column. Press Enter to finish, or Esc to cancel.",
+    editGripHelpMac: "Press Option+Up or Option+Down to move this panel within its column, and Option+Left or Option+Right to move it to the other column. Press Enter to finish, or Esc to cancel.",
+    editMovedLeft: "{0} is now number {1} of {2} in the left column.",
+    editMovedRight: "{0} is now number {1} of {2} in the right column.",
+    editAtTop: "{0} is already at the top of its column.",
+    editAtBottom: "{0} is already at the bottom of its column.",
+    editAlreadyLeft: "{0} is already in the left column.",
+    editAlreadyRight: "{0} is already in the right column.",
+    editNoFitLeft: "The left column has no room for {0} at this window size, so the panel did not move. Make the window larger and try again.",
+    editNoFitRight: "The right column has no room for {0} at this window size, so the panel did not move. Make the window larger and try again.",
+    editNoFitHere: "{0} does not fit in that position at this window size, so the panel did not move. Make the window larger and try again.",
     "panel.Captured": "Information panel",
     "panel.Winrate": "WinRate graph",
     "panel.Comment": "Comment/blunder panel",
@@ -93,6 +129,17 @@ registerProduct({
     editDone: "完了",
     editShowPanel: "{0}を表示",
     editGripRole: "移動できるパネル",
+    editGripHelp: "Alt+上下の矢印キーでこのパネルを列の中で移動し、Alt+左右の矢印キーでもう一方の列へ移動します。Enter で完了、Esc でキャンセルします。",
+    editGripHelpMac: "Option+上下の矢印キーでこのパネルを列の中で移動し、Option+左右の矢印キーでもう一方の列へ移動します。Enter で完了、Esc でキャンセルします。",
+    editMovedLeft: "{0}は左の列の {1} 番目になりました（全 {2} 個）。",
+    editMovedRight: "{0}は右の列の {1} 番目になりました（全 {2} 個）。",
+    editAtTop: "{0}はすでに列のいちばん上にあります。",
+    editAtBottom: "{0}はすでに列のいちばん下にあります。",
+    editAlreadyLeft: "{0}はすでに左の列にあります。",
+    editAlreadyRight: "{0}はすでに右の列にあります。",
+    editNoFitLeft: "左の列に{0}を入れる余裕がないため、パネルは移動しませんでした。ウィンドウを大きくしてからもう一度お試しください。",
+    editNoFitRight: "右の列に{0}を入れる余裕がないため、パネルは移動しませんでした。ウィンドウを大きくしてからもう一度お試しください。",
+    editNoFitHere: "{0}はその位置に収まらないため、パネルは移動しませんでした。ウィンドウを大きくしてからもう一度お試しください。",
     "panel.Captured": "情報パネル",
     "panel.Winrate": "勝率グラフ",
     "panel.Comment": "コメント/問題手パネル",
@@ -115,6 +162,17 @@ registerProduct({
     editDone: "완료",
     editShowPanel: "{0} 표시",
     editGripRole: "이동할 수 있는 패널",
+    editGripHelp: "Alt+위/아래 화살표로 이 패널을 같은 열 안에서 옮기고, Alt+왼쪽/오른쪽 화살표로 다른 열로 옮깁니다. Enter를 누르면 완료하고 Esc를 누르면 취소합니다.",
+    editGripHelpMac: "Option+위/아래 화살표로 이 패널을 같은 열 안에서 옮기고, Option+왼쪽/오른쪽 화살표로 다른 열로 옮깁니다. Enter를 누르면 완료하고 Esc를 누르면 취소합니다.",
+    editMovedLeft: "{0} 위치는 이제 왼쪽 열의 {2}개 중 {1}번째입니다.",
+    editMovedRight: "{0} 위치는 이제 오른쪽 열의 {2}개 중 {1}번째입니다.",
+    editAtTop: "{0} 위치가 이미 이 열의 맨 위입니다.",
+    editAtBottom: "{0} 위치가 이미 이 열의 맨 아래입니다.",
+    editAlreadyLeft: "{0} 위치가 이미 왼쪽 열입니다.",
+    editAlreadyRight: "{0} 위치가 이미 오른쪽 열입니다.",
+    editNoFitLeft: "왼쪽 열에 공간이 부족해 {0}을(를) 옮기지 않았습니다. 창을 키운 뒤 다시 시도하세요.",
+    editNoFitRight: "오른쪽 열에 공간이 부족해 {0}을(를) 옮기지 않았습니다. 창을 키운 뒤 다시 시도하세요.",
+    editNoFitHere: "그 위치에는 {0}이(가) 들어가지 않아 옮기지 않았습니다. 창을 키운 뒤 다시 시도하세요.",
     "panel.Captured": "정보 영역",
     "panel.Winrate": "승률 그래프",
     "panel.Comment": "주석/문제수 패널",
@@ -137,6 +195,17 @@ registerProduct({
     editDone: "เสร็จสิ้น",
     editShowPanel: "แสดง{0}",
     editGripRole: "แผงที่ย้ายได้",
+    editGripHelp: "กด Alt+ลูกศรขึ้นหรือลงเพื่อย้ายแผงนี้ภายในคอลัมน์ กด Alt+ลูกศรซ้ายหรือขวาเพื่อย้ายไปอีกคอลัมน์ กด Enter เพื่อเสร็จสิ้น หรือกด Esc เพื่อยกเลิก",
+    editGripHelpMac: "กด Option+ลูกศรขึ้นหรือลงเพื่อย้ายแผงนี้ภายในคอลัมน์ กด Option+ลูกศรซ้ายหรือขวาเพื่อย้ายไปอีกคอลัมน์ กด Enter เพื่อเสร็จสิ้น หรือกด Esc เพื่อยกเลิก",
+    editMovedLeft: "ตอนนี้{0}อยู่ลำดับที่ {1} จาก {2} ในคอลัมน์ซ้าย",
+    editMovedRight: "ตอนนี้{0}อยู่ลำดับที่ {1} จาก {2} ในคอลัมน์ขวา",
+    editAtTop: "{0}อยู่บนสุดของคอลัมน์นี้แล้ว",
+    editAtBottom: "{0}อยู่ล่างสุดของคอลัมน์นี้แล้ว",
+    editAlreadyLeft: "{0}อยู่ในคอลัมน์ซ้ายแล้ว",
+    editAlreadyRight: "{0}อยู่ในคอลัมน์ขวาแล้ว",
+    editNoFitLeft: "คอลัมน์ซ้ายไม่มีที่พอสำหรับ{0} จึงไม่ได้ย้ายแผง ขยายหน้าต่างแล้วลองอีกครั้ง",
+    editNoFitRight: "คอลัมน์ขวาไม่มีที่พอสำหรับ{0} จึงไม่ได้ย้ายแผง ขยายหน้าต่างแล้วลองอีกครั้ง",
+    editNoFitHere: "{0}ไม่พอดีกับตำแหน่งนั้น จึงไม่ได้ย้ายแผง ขยายหน้าต่างแล้วลองอีกครั้ง",
     "panel.Captured": "แผงข้อมูล",
     "panel.Winrate": "กราฟ WinRate",
     "panel.Comment": "แผงความคิดเห็น/ข้อผิดพลาด",
@@ -275,6 +344,9 @@ let session: Session | null = null;
 let sent: { value: PanelArrangement | null } | null = null;
 
 let repaint: () => void = () => {};
+/** The grip the keyboard goes to once the overlay is placed next: the first one on entering, a
+ *  panel's own once the edit bar's tag chosen by keyboard has shown it. */
+let focusNext: ArrangeablePanel | "first" | null = null;
 
 registerViewHandler((v) => {
   if (sent && same(v.settings.panel_arrangement, sent.value)) sent = null;
@@ -321,6 +393,7 @@ export function enterEdit(): void {
   if (!v || session || editUnavailable()) return;
   const committed = sent ? sent.value : v.settings.panel_arrangement;
   session = { base: committed, draft: committed, pristine: true };
+  focusNext = "first";
   syncTags(layoutRequest(v));
   editBar().hidden = false;
   repaint();
@@ -328,6 +401,8 @@ export function enterEdit(): void {
 
 function end(): void {
   session = null;
+  focusNext = null;
+  if (live) live.textContent = "";
   frame = null;
   cancelPanelDrag();
   editBar().hidden = true;
@@ -512,7 +587,18 @@ function editBar(): HTMLElement {
     capsule(pill("edit-bar-restore-java", product("editRestoreJava"), restoreJavaLayout)),
     capsule(pill("edit-bar-cancel", product("cancel"), cancelEdit), pill("edit-bar-done", product("editDone"), () => void finishEdit())),
   );
-  bar.append(hint, tags, actions);
+  // The grips' description, and the live region that says where a keyboard move put a panel or
+  // why it did not move.
+  const help = document.createElement("span");
+  help.id = GRIP_HELP_ID;
+  help.hidden = true;
+  help.textContent = product(os === "mac" ? "editGripHelpMac" : "editGripHelp");
+  live = document.createElement("div");
+  live.className = "edit-bar-live";
+  live.dataset.name = "edit-bar-live";
+  live.setAttribute("role", "status");
+  live.setAttribute("aria-live", "polite");
+  bar.append(hint, tags, actions, help, live);
   // Its buttons keep their own Enter and Space, ahead of the workbench's shortcuts.
   bar.addEventListener("keydown", (e) => {
     const el = e.target as HTMLElement;
@@ -533,7 +619,10 @@ function syncTags(r: LayoutRequest): void {
   if (key === tagsFor) return;
   tagsFor = key;
   tags!.replaceChildren(...hidden.map((panel) => {
-    const b = pill(`edit-bar-show-${panel}`, "", () => COMMANDS[MENU[panel]]?.run());
+    const b = pill(`edit-bar-show-${panel}`, "", () => {
+      if (document.activeElement === b) focusNext = panel;
+      COMMANDS[MENU[panel]]?.run();
+    });
     const name = document.createElement("span");
     name.textContent = panelName(panel);
     b.append(icon("plus"), name);
@@ -608,6 +697,7 @@ function grip(panel: ArrangeablePanel): HTMLButtonElement {
   b.className = "panel-grip";
   b.dataset.name = `panel-grip-${panel}`;
   b.setAttribute("aria-roledescription", product("editGripRole"));
+  b.setAttribute("aria-describedby", GRIP_HELP_ID);
   const name = document.createElement("span");
   name.textContent = panelName(panel);
   b.append(icon("move"), name);
@@ -684,6 +774,7 @@ export function placeEdit(P: Panels, cards: Rect[], W: number, H: number, r: Lay
     show(outlines.get(panel), false);
     show(grips.get(panel), false);
   }
+  const focused = document.activeElement;
   let previous: Element | null = null;
   // A grip taller than its panel (a narrow column, a large interface font) pushes the next one in
   // its column down rather than covering it.
@@ -702,6 +793,13 @@ export function placeEdit(P: Panels, cards: Rect[], W: number, H: number, r: Lay
     // Tab follows the grips left column first, each top to bottom; a held grip keeps its place.
     if (!panelDrag && previous && previous.nextElementSibling !== b) previous.after(b);
     previous = b;
+  }
+  // The keyboard stays on a grip moved in the DOM (a keyboard move takes it out and back in).
+  const keep = focusNext === "first" ? shown[0]?.panel : focusNext ?? [...grips].find(([, g]) => g === focused)?.[0];
+  if (keep && visible.has(keep)) {
+    focusNext = null;
+    const g = grips.get(keep)!;
+    if (document.activeElement !== g) g.focus({ preventScroll: true });
   }
   for (const side of ["left", "right"] as const) {
     const empty = !shown.some((s) => s.side === side);
@@ -817,6 +915,84 @@ document.addEventListener("keydown", (e) => {
 }, true);
 window.addEventListener("blur", cancelPanelDrag);
 
+// ------------------------------------------------------------------ the keyboard
+
+const GRIP_HELP_ID = "edit-grip-help";
+let live: HTMLElement | null = null;
+
+/** Says `text` in the edit bar's live region; the same sentence twice in a row is said again. */
+function announce(text: string): void {
+  if (live) live.textContent = live.textContent === text ? `${text}\u00a0` : text;
+}
+
+type Step = "up" | "down" | Side;
+const STEPS: Record<string, Step> = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right" };
+
+/** Alt+arrow on a grip: the panel one place up or down in its 停靠栏, or into the other one at the
+ *  same place where there is one (else at its end); then the live region says where it is now, or
+ *  why it did not move. */
+function moveByKey(panel: ArrangeablePanel, step: Step): void {
+  const f = frame;
+  if (!f) return;
+  const a = editBase(f);
+  const isShown = (e: ArrangedPanel) => f.request[FLAG[e.panel]];
+  const side: Side = a.left.some((e) => e.panel === panel) ? "left" : "right";
+  const column = a[side].filter(isShown);
+  const i = column.findIndex((e) => e.panel === panel);
+  const name = panelName(panel);
+  if (i < 0) return;
+  let to: Side = side;
+  let k: number;
+  if (step === "up") {
+    if (i === 0) return announce(product("editAtTop", name));
+    k = i - 1;
+  } else if (step === "down") {
+    if (i === column.length - 1) return announce(product("editAtBottom", name));
+    k = i + 1;
+  } else {
+    if (step === side) return announce(product(side === "left" ? "editAlreadyLeft" : "editAlreadyRight", name));
+    to = step;
+    k = Math.min(i, a[to].filter(isShown).length);
+  }
+  if (!movePanel(panel, to, k)) return announce(product(to === side ? "editNoFitHere" : to === "left" ? "editNoFitLeft" : "editNoFitRight", name));
+  const now = session!.draft![to].filter(isShown);
+  announce(product(to === "left" ? "editMovedLeft" : "editMovedRight", name, now.findIndex((e) => e.panel === panel) + 1, now.length));
+}
+
+/** Edit mode's keys, ahead of the workbench's (main.ts), so Alt+arrows on a grip do not also
+ *  browse the record: on a grip Alt+arrows move its panel and Enter is 完成; Esc outside a pointer
+ *  drag is 取消 (one in a drag cancels the drag only, above); Tab and Shift+Tab go round the grips
+ *  and the edit bar's controls, whose buttons keep their own Enter and Space (editBar). Whether
+ *  the key was taken. */
+export function handleEditLayoutKey(e: KeyboardEvent): boolean {
+  if (!session || panelDrag || e.ctrlKey || e.metaKey) return false;
+  if (e.key === "Escape") {
+    cancelEdit();
+    return true;
+  }
+  const target = e.target as HTMLElement;
+  // Shift+Tab can arrive as another key (X11's ISO_Left_Tab); its code is still Tab.
+  if (e.key === "Tab" || e.code === "Tab") {
+    // The stops: the shown grips (left column first, each top to bottom), then the bar's controls.
+    const all = [...$("main").querySelectorAll<HTMLElement>(":scope > .panel-grip"), ...editBar().querySelectorAll<HTMLElement>("button")]
+      .filter((el) => el.getClientRects().length > 0);
+    const at = all.indexOf(target);
+    if (e.altKey || at < 0) return false;
+    all[(at + (e.shiftKey ? all.length - 1 : 1)) % all.length].focus();
+    return true;
+  }
+  const panel = [...grips].find(([, g]) => g === target)?.[0];
+  if (!panel || e.shiftKey) return false;
+  if (e.key === "Enter" && !e.altKey) {
+    void finishEdit();
+    return true;
+  }
+  const step = e.altKey ? STEPS[e.key] : undefined;
+  if (!step) return false;
+  moveByKey(panel, step);
+  return true;
+}
+
 // ------------------------------------------------------------------ wiring
 
 Object.assign(COMMANDS, {
@@ -862,5 +1038,17 @@ export function editReport() {
         .filter((el) => el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1 || el.getBoundingClientRect().right > window.innerWidth)
         .map((el) => el.dataset.name),
     } : null,
+    /** The control with the keyboard focus (its data-name, accessible name and description), and
+     *  the live region's sentence. */
+    focus: session ? (() => {
+      const el = document.activeElement as HTMLElement | null;
+      const described = el?.getAttribute("aria-describedby");
+      return el && {
+        name: el.dataset.name ?? null,
+        label: el.getAttribute("aria-label") ?? el.textContent?.trim() ?? "",
+        description: described ? document.getElementById(described)?.textContent ?? null : null,
+      };
+    })() : null,
+    live: session ? live?.textContent?.trim() || null : null,
   };
 }

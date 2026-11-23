@@ -21,7 +21,7 @@ import { format, product, setLanguage, t } from "./i18n";
 import { openJavaImport } from "./javaImport";
 import { boardGeom, cardLayout, doubleEngineLayout, floatBoardLayout, mainMarginRatio, selectRange, sideLayout, SUB_MARGIN_RATIO, workbenchLayout, type BoardGeom, type DualPanels, type PanelId, type Panels, type Rect, type SidePanels } from "./workbench/layout";
 import { arrangedLayout, type ArrangementFallback } from "./workbench/arrangement";
-import { bindEditLayout, dividerOwner, editArrangement, editing as layoutEditing, editReport, placeEdit } from "./workbench/editLayout";
+import { bindEditLayout, dividerOwner, editArrangement, editing as layoutEditing, editReport, handleEditLayoutKey, placeEdit } from "./workbench/editLayout";
 import { handleLayoutKey } from "./workbench/extraMode";
 import { bindPanels, controlsShowing, dividerDraft, handlePanelKey, layoutRequest, placeHandles } from "./workbench/panels";
 import { onPresentationChange, presentation } from "./workbench/presentation";
@@ -520,7 +520,8 @@ document.addEventListener("keydown", (e) => {
   }
   // The 存档与读档 controls keep their keys, like the Swing components holding the focus there.
   if (e.target instanceof Element && e.target.closest("#recovery")) return;
-  if (handleLayoutKey(e) || handlePanelKey(e) || handleReadBoardKey(e) || handleEngineKey(e) || handleEditKey(e) || handleMatchKey(e) || handleTsumegoKey(e) || handleGameKey(e) || handleDisplayKey(e) || handleInfoKey(e) || handleTableKey(e) || handleHawkeyeKey(e) || handleBatchKey(e) || handleOnlineKey(e)) {
+  // 布局编辑模式 takes its keys first: Alt+arrows on a grip move the panel and browse nothing.
+  if (handleEditLayoutKey(e) || handleLayoutKey(e) || handlePanelKey(e) || handleReadBoardKey(e) || handleEngineKey(e) || handleEditKey(e) || handleMatchKey(e) || handleTsumegoKey(e) || handleGameKey(e) || handleDisplayKey(e) || handleInfoKey(e) || handleTableKey(e) || handleHawkeyeKey(e) || handleBatchKey(e) || handleOnlineKey(e)) {
     e.preventDefault();
     return;
   }
