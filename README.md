@@ -41,7 +41,8 @@ importing the matching LizzieYzy Next settings.
   In 双引擎模式 `Ctrl+Down`, `Ctrl+Shift+Down` and the panel's `>`/`>>` grow the main board's
   variation only (the right board's when only it shows one), and the wheel over the floating
   main board steps the main board's variation only (without one it browses); the other entries
-  step both boards.
+  step both boards, the right board keeping its whole variation at the first step back from it
+  and showing one move less from the next one.
   A variation that auto-replays (自动回放变化图) is stepped from the length it shows, and the
   replay goes on from the new length. During an `R` replay (回放变化图) these keys and the wheel
   step from the length the replay shows and end the replay, as in Java.
