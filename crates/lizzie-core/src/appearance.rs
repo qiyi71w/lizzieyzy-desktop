@@ -29,13 +29,17 @@ pub struct AppearanceSettings {
     pub frame_font_size: i32,
     /// Config.java:1809; no Java UI changes it. Legacy level 0 uses the theme's background blur.
     pub glass_effect_level: i32,
+    /// 立体棋子, this product's own (no Java key), for every theme: stones cast a contact shadow
+    /// and a soft one, and a stone picture with others beside it ([`ThemeImages::black_variants`])
+    /// shows one of them per point. Off draws the stones as Java does.
+    pub enhanced_stones: bool,
 }
 impl Default for AppearanceSettings {
     fn default() -> Self {
         // Config.java:1608,1871,2924; Menu.java:604-629.
         Self { theme: "default".into(), board_style: BoardStyle::Japanese, mode: AppearanceMode::Light,
             custom_board_image: String::new(), custom_background_image: String::new(), frame_font_size: 12,
-            glass_effect_level: 1 }
+            glass_effect_level: 1, enhanced_stones: true }
     }
 }
 
@@ -111,6 +115,11 @@ pub const BUNDLED: &[(&str, &str)] = &[
     ("Megapack",include_str!("../../../ui/public/themes/Megapack/theme.txt")),
     ("Custom",include_str!("../../../ui/public/themes/Custom/theme.txt")),
     ("Fast",include_str!("../../../ui/public/themes/Fast/theme.txt")),
+    // This product's own, made by tools/textured_themes.py: textured boards and lit stones, each
+    // stone with other pictures beside it.
+    ("kaya",include_str!("../../../ui/public/themes/kaya/theme.txt")),
+    ("walnut",include_str!("../../../ui/public/themes/walnut/theme.txt")),
+    ("yunzi",include_str!("../../../ui/public/themes/yunzi/theme.txt")),
     // Java's own 默认 values (Theme.java getters, Config.createDefaultConfig) with the jar's images.
     ("java-classic",include_str!("../../../ui/public/themes/java-classic/theme.txt")),
     // The same values: Java's Morandi palette (经典配色 off) changes the interface, not the theme.
@@ -471,15 +480,19 @@ pub fn tiff_as_png(bytes: &[u8]) -> Option<std::io::Result<Vec<u8>>> {
 }
 /// `appearance_images`: loadable URLs of the four theme images; `custom_board` /
 /// `custom_background` are Theme.isUsingCustomBoardImage / isUsingCustomBackgroundImage
-/// (Theme.java:210-217), the configured override decoded.
+/// (Theme.java:210-217), the configured override decoded. `black_variants` / `white_variants` are
+/// the other pictures of each stone ([`stone_variant`]), in order; the program's own default
+/// stones have none.
 #[derive(Serialize, TS)]
 #[serde(rename_all="camelCase")]
 pub struct ThemeImages {
     pub board:String, pub background:String, pub black:String, pub white:String,
     pub custom_board:bool, pub custom_background:bool,
+    pub black_variants:Vec<String>, pub white_variants:Vec<String>,
 }
-/// The image files shipped with each bundled theme (byte-identical to Java's `theme/` folders)
-/// and their SHA-256, so an untouched Java copy of a bundled theme is recognised.
+/// The image files shipped with each bundled theme (byte-identical to Java's `theme/` folders, or
+/// made by tools/textured_themes.py) and their SHA-256, so an untouched Java copy of a bundled
+/// theme is recognised.
 const BUNDLED_IMAGES: &[(&str, &str, &str)] = &[
     ("sabaki","background.png","273bce866dbb5cddfc88420783bcf1ce53126c4ecca064946aedf19c5170c3e2"),
     ("sabaki","black.png","8501003b04b61792cb88419720a3a3185e0f354fe96078c2ba619b4cae503f2c"),
@@ -501,6 +514,45 @@ const BUNDLED_IMAGES: &[(&str, &str, &str)] = &[
     ("Fast","black0.png","d716a6ecc27529ed388b72199e85a66f257f6431cc2fb28b1f35aa4b7658ad7b"),
     ("Fast","board.jpg","b293b4faf13727f2717aa5594ebc4be9cf2512fde9eb374714de24cef6e1addc"),
     ("Fast","white0.png","e2a25f80f301a8b0b9588ca8cda0248b33bc40e6b3b5e9d960ab90648cd884e1"),
+    ("kaya","black0.png","ad5318cb641c3d252f04cc623d6397505f7f888c790d1bbf6d236d65a1ed656b"),
+    ("kaya","black1.png","63afce99985202457195a7bb3eec6c6f1a3304ab0ad3e6bac549e7e111e1eedb"),
+    ("kaya","black2.png","25d401a7cc7fff5a656e45c451aceb80caa2157a9eff1c28518cb405c21a6ca3"),
+    ("kaya","black3.png","7b54d28870f9a66fac6e37442643ef8d0d0d3ddbbd395b1aa66ba5f7b0e5828f"),
+    ("kaya","board.jpg","278c41caf07cb6fd1854cbe7badc8bc565534910e8bdb552c5bb0b2b63c118de"),
+    ("kaya","white0.png","8af15fd83f93266952d0ad69a6852d4e4119de05cab17d43fabee1ebc4c1f101"),
+    ("kaya","white1.png","7951d2e8e709547ed38af8eb54b551b83e94087fd92109227937e0a3f90f8128"),
+    ("kaya","white2.png","add1799c69c9f3007664f4c7dd8d08dc31488ceebafc3b0856fdc204b05fe8a4"),
+    ("kaya","white3.png","f317e5e2415b7d5233f53f3867d4d4d35e0dfae3dc3a23b0abb23664032ab9b7"),
+    ("kaya","white4.png","896f2ac30c1b6e8a63262205a60f2e6320e0650c0153f32e53e5de8d222ee761"),
+    ("kaya","white5.png","32dee641573261dcc4127c6f7282c9428d0699039a60896fa4e5688e04426139"),
+    ("kaya","white6.png","df7aef92c40dec9bc98a4302c67f4cabbe6e7a541b6f9e58d7f3dc35cd30cf79"),
+    ("kaya","white7.png","6984c2b0e6dd4658071867e4d90a8c40c7e6e99d7b07892cab5c6158c1315b80"),
+    ("walnut","black0.png","6116878be7bc744d6eed3aed058ffc3d508ea6685d0af79a680d8a96650bc77a"),
+    ("walnut","black1.png","182c2b7aba2e78d371a5322f4b49137ea4ae34eb17ffebd8e60bb9c48a2b0e0d"),
+    ("walnut","black2.png","7bf80ba4a84083e7f99127c8a1864c23a36f601183cb598732ab901e8eb6251b"),
+    ("walnut","black3.png","454c537b0031cf827c6ce8a56b01c3be7085474121fad96e85c8403c828189e8"),
+    ("walnut","board.jpg","92958b909c156b7e83dcfc73a8b5e014d9348ff4d53943806724eb26dcf3789f"),
+    ("walnut","white0.png","6d0de58b14f44eb186aac6a96eb0c403e6682e2c217faafaf634bd977acd697b"),
+    ("walnut","white1.png","0d7d30a7b1c98bbc86f817911011a366df49208d66291e6a21a58e6fd1657bef"),
+    ("walnut","white2.png","fd257892ee2e4f3654d3db8fcab913ae661d50818a0ef804fe3ff56a71d59112"),
+    ("walnut","white3.png","702347b8c782bf2400abdd27a7d089bb9734f126390fb99d757f11d4cc6653e4"),
+    ("walnut","white4.png","7697d60ad56270389e35f72e14167c72b5db96360f99848e483fc7589c334225"),
+    ("walnut","white5.png","989c1bcaa9689bef34f25cf5aaea3f78418249be0bda101624c9886883b389db"),
+    ("walnut","white6.png","d8c43f42d7390e68a7cac3877ce7f60040fe398356331df203cca697bf6426e6"),
+    ("walnut","white7.png","6abd91c771ffdb6ecb776dbb881a8710ff073c136bc63630ff3c7c33fa1b23e1"),
+    ("yunzi","black0.png","134030575a79d4c28ddbc25bcad1dc0178ebf95386ece0db2e56dce705d75a6c"),
+    ("yunzi","black1.png","151f92651d7e09a8f278038ceecad48cb56219a9746f0bb5f50815287ede43d5"),
+    ("yunzi","black2.png","277c254a69e50f6a9e5bd5456a4b3533bfbdafc282dd566de5199152f190879d"),
+    ("yunzi","black3.png","b71f3ab49472a2a894e02e8f84eb72e4dd090d4a02ceff2c4d05e9a3fea72298"),
+    ("yunzi","board.jpg","b8af693bf16ed43eb3f93a5a32a422be1aceaff2a9032e9aba84692f8a0e58f9"),
+    ("yunzi","white0.png","aacb47ef465303df0a72f535bf8c75cb5eb0716a638d2b9394cb0186f7fa6b97"),
+    ("yunzi","white1.png","79a6bead514daaba8396f4e0959171fbd026c08deedd2de327ddab39da04205b"),
+    ("yunzi","white2.png","80f85387c072d4fd9c3753a8d42f5bde344c41c7e38ff9715cbb469ae6608024"),
+    ("yunzi","white3.png","e7c9f1328ed213a26ddd0862b2ba0414062d29f28f6c8f585c59772f454a2784"),
+    ("yunzi","white4.png","53b07122f389b96d0433d4a835be4f79632a7fc75032075995f62e00fed00415"),
+    ("yunzi","white5.png","09659c2ae7ffa9341e616bc2a0feb5c911a7ca229a3d9595f57b380205da8662"),
+    ("yunzi","white6.png","5cf88a1ee7324ad2faae081eab59c3cd5fafb63f5de2b86094d0f99346000573"),
+    ("yunzi","white7.png","55e78403e7a18de00b0e33d79c585ca656aae42938fbc0cc00c3895f7acb9ea2"),
 ];
 fn bundled_image_exists(theme:&str, image:&str) -> bool {
     BUNDLED_IMAGES.iter().any(|(t,f,_)| *t == theme && *f == image)
@@ -514,31 +566,50 @@ pub fn shipped_image(value:&str) -> bool {
     if let Some(file) = value.strip_prefix("/assets/") { return DEFAULT_IMAGES.contains(&file); }
     value.strip_prefix("/themes/").and_then(|rest| rest.split_once('/')).is_some_and(|(theme,file)| bundled_image_exists(theme,file))
 }
+/// The most pictures one stone has: its own and the others beside it.
+const MAX_STONE_PICTURES: u32 = 16;
+/// The `n`th other picture of the stone `value` names: a file `<stem>0.<ext>` (the stem not
+/// itself ending in a digit) has `<stem>1.<ext>`, `<stem>2.<ext>` ... beside it. `None` for a
+/// value of another form (a `data:` URL, a file not numbered 0).
+fn stone_variant(value:&str, n:u32) -> Option<String> {
+    if value.starts_with("data:") { return None; }
+    let name_at = value.rfind(['/','\\']).map_or(0, |i| i + 1);
+    let dot = value.rfind('.').filter(|&d| d > name_at)?;
+    let stem = value[name_at..dot].strip_suffix('0')?;
+    if stem.is_empty() || stem.ends_with(|c: char| c.is_ascii_digit()) { return None; }
+    Some(format!("{}{stem}{n}{}", &value[..name_at], &value[dot..]))
+}
 pub fn images(storage:&Storage, appearance:&AppearanceSettings, theme:&ThemeSettings) -> ThemeImages {
-    let resolve = |custom:&str, value:&str, fallback:&str| {
+    let read = |custom:&str, value:&str| {
         for (index,candidate) in [custom,value].into_iter().enumerate() {
             if candidate.is_empty() { continue; }
             let is_custom=index==0;
-            if candidate.starts_with("data:image/") || shipped_image(candidate) { return (candidate.to_string(),is_custom); }
+            if candidate.starts_with("data:image/") || shipped_image(candidate) { return Some((candidate.to_string(),is_custom)); }
             let path = Path::new(candidate);
-            if path.is_absolute() { if let Ok(data) = image_data(path) { return (data,is_custom); } }
+            if path.is_absolute() { if let Ok(data) = image_data(path) { return Some((data,is_custom)); } }
             else if valid_name(&appearance.theme) {
                 // The custom overrides and the 默认 theme's own paths are relative to the themes
                 // folder (Theme.java:502,523: Theme.pathPrefix), a named theme's to its folder.
                 let root=if is_custom || appearance.theme == "default" { themes_dir(storage) } else { themes_dir(storage).join(&appearance.theme) };
-                if let Ok(data) = image_data(&root.join(path)) { return (data,is_custom); }
+                if let Ok(data) = image_data(&root.join(path)) { return Some((data,is_custom)); }
                 if !is_custom && bundled_image_exists(&appearance.theme,candidate) {
-                    return (format!("/themes/{}/{}",appearance.theme,candidate.replace('\\',"/")),false);
+                    return Some((format!("/themes/{}/{}",appearance.theme,candidate.replace('\\',"/")),false));
                 }
             }
         }
-        (fallback.to_string(),false)
+        None
+    };
+    let resolve = |custom:&str, value:&str, fallback:&str| read(custom,value).unwrap_or_else(|| (fallback.to_string(),false));
+    // A stone and its other pictures, read like it, up to the first that does not read.
+    let stone = |value:&str, fallback:&str| -> (String,Vec<String>) {
+        let Some((url,_)) = read("",value) else { return (fallback.to_string(),Vec::new()) };
+        (url, (1..MAX_STONE_PICTURES).map_while(|n| read("",&stone_variant(value,n)?)).map(|(url,_)| url).collect())
     };
     let (board,custom_board)=resolve(&appearance.custom_board_image,&theme.board_image,"/assets/board.png");
     let (background,custom_background)=resolve(&appearance.custom_background_image,&theme.background_image,"/assets/background.jpg");
-    ThemeImages {board,background,custom_board,custom_background,
-        black:resolve("",&theme.black_stone_image,"/assets/black0.png").0,
-        white:resolve("",&theme.white_stone_image,"/assets/white0.png").0}
+    let (black,black_variants)=stone(&theme.black_stone_image,"/assets/black0.png");
+    let (white,white_variants)=stone(&theme.white_stone_image,"/assets/white0.png");
+    ThemeImages {board,background,custom_board,custom_background,black,white,black_variants,white_variants}
 }
 
 

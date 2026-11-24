@@ -17,6 +17,7 @@ import { registerSettingTargets } from "../engine/settingsTargets";
 import { isChinese, product, registerProduct, t } from "../i18n";
 import { cssColor, DEFAULT_BLUNDER_COLORS, DEFAULT_BLUNDER_THRESHOLDS, DEFAULT_THEME, JAVA_CLASSIC_THEME, JAVA_SOFT_THEME, LIZZIE_DEFAULT_FONT, opaque, SYSTEM_DEFAULT_FONT, themeSkin } from "./model";
 import type { LoadedImages } from "./state";
+import { softStoneShadow } from "./stones";
 import { icon } from "../design/icons";
 import type { InterfaceColors } from "../design/palette";
 import { stepper } from "../design/stepper";
@@ -108,18 +109,34 @@ registerProduct({
   ThTh: { themeManageSub: "{0} การสร้างใหม่และการลบมีผลทันที และจะทิ้งการเปลี่ยนแปลงที่ยังไม่บันทึกในหน้าอื่น", themeDeleteDiscards: "การลบมีผลทันที และจะทิ้งการเปลี่ยนแปลงที่ยังไม่บันทึกในหน้าตั้งค่าอื่น" },
 });
 
-/** The bundled Java themes' names in the theme list; they are stored as JAVA_CLASSIC_THEME and
- *  JAVA_SOFT_THEME. */
-const JAVA_THEME_NAMES = {
-  ZhCn: { themeJavaClassic: "Java 经典", themeJavaSoft: "Java 柔和" },
-  ZhTw: { themeJavaClassic: "Java 經典", themeJavaSoft: "Java 柔和" },
-  EnUs: { themeJavaClassic: "Java Classic", themeJavaSoft: "Java Soft" },
-  JaJp: { themeJavaClassic: "Java クラシック", themeJavaSoft: "Java ソフト" },
-  KoKr: { themeJavaClassic: "Java 클래식", themeJavaSoft: "Java 소프트" },
-  ThTh: { themeJavaClassic: "Java คลาสสิก", themeJavaSoft: "Java ซอฟต์" },
+/** The names of the bundled themes the list translates: the Java ones, stored as JAVA_CLASSIC_THEME
+ *  and JAVA_SOFT_THEME, and this product's textured ones (tools/textured_themes.py). */
+const BUNDLED_THEME_NAMES = {
+  ZhCn: { themeJavaClassic: "Java 经典", themeJavaSoft: "Java 柔和", themeKaya: "日式榧木", themeWalnut: "胡桃木", themeYunzi: "云子" },
+  ZhTw: { themeJavaClassic: "Java 經典", themeJavaSoft: "Java 柔和", themeKaya: "日式榧木", themeWalnut: "胡桃木", themeYunzi: "雲子" },
+  EnUs: { themeJavaClassic: "Java Classic", themeJavaSoft: "Java Soft", themeKaya: "Kaya", themeWalnut: "Walnut", themeYunzi: "Yunzi" },
+  JaJp: { themeJavaClassic: "Java クラシック", themeJavaSoft: "Java ソフト", themeKaya: "榧", themeWalnut: "ウォールナット", themeYunzi: "雲子" },
+  KoKr: { themeJavaClassic: "Java 클래식", themeJavaSoft: "Java 소프트", themeKaya: "비자나무", themeWalnut: "호두나무", themeYunzi: "운자" },
+  ThTh: { themeJavaClassic: "Java คลาสสิก", themeJavaSoft: "Java ซอฟต์", themeKaya: "ไม้คายะ", themeWalnut: "ไม้วอลนัต", themeYunzi: "หมากหยุนจื่อ" },
 };
-registerProduct(JAVA_THEME_NAMES);
-const JAVA_THEME_KEYS: Record<string, string> = { [JAVA_CLASSIC_THEME]: "themeJavaClassic", [JAVA_SOFT_THEME]: "themeJavaSoft" };
+registerProduct(BUNDLED_THEME_NAMES);
+const BUNDLED_THEME_KEYS: Record<string, string> = {
+  [JAVA_CLASSIC_THEME]: "themeJavaClassic",
+  [JAVA_SOFT_THEME]: "themeJavaSoft",
+  kaya: "themeKaya",
+  walnut: "themeWalnut",
+  yunzi: "themeYunzi",
+};
+
+/** 立体棋子 (AppearanceSettings.enhancedStones): the row in 图片与材质. */
+registerProduct({
+  ZhCn: { themeDepth: "立体棋子", themeDepthSub: "对所有主题生效：阴影改为贴盘的接触阴影加柔和投影，主题带多张棋子图时各点纹路不同。关闭后按 Java 版画法" },
+  ZhTw: { themeDepth: "立體棋子", themeDepthSub: "對所有主題生效：陰影改為貼盤的接觸陰影加柔和投影，主題帶多張棋子圖時各點紋路不同。關閉後按 Java 版畫法" },
+  EnUs: { themeDepth: "3D stones", themeDepthSub: "For every theme: stones get a contact shadow and a soft cast shadow, and themes with several stone images vary them from point to point. Off draws stones as the Java version does" },
+  JaJp: { themeDepth: "立体的な碁石", themeDepthSub: "すべてのテーマに適用：影を盤に接する影と柔らかな落ち影にし、碁石の画像が複数あるテーマでは点ごとに模様が変わります。オフにすると Java 版と同じ描き方です" },
+  KoKr: { themeDepth: "입체 바둑돌", themeDepthSub: "모든 테마에 적용: 그림자를 판에 닿는 그림자와 부드러운 그림자로 그리고, 바둑돌 이미지가 여러 장인 테마는 자리마다 무늬가 달라집니다. 끄면 Java 판과 같게 그립니다" },
+  ThTh: { themeDepth: "หมากสามมิติ", themeDepthSub: "ใช้กับทุกธีม: เงาเป็นเงาสัมผัสกระดานและเงาตกกระทบแบบนุ่ม และธีมที่มีภาพหมากหลายภาพจะแสดงลายต่างกันในแต่ละจุด ปิดแล้วจะวาดแบบเวอร์ชัน Java" },
+});
 
 /** 界面颜色: the card, its four rows and each row's reset. */
 registerProduct({
@@ -262,10 +279,11 @@ registerProduct({
   },
 });
 
-/** A theme as the list names it: 默认 and the Java themes translated, every other theme as stored. */
+/** A theme as the list names it: 默认 and the bundled themes above translated, every other theme as
+ *  stored. */
 function themeName(name: string): string {
   if (name === DEFAULT_THEME) return t("LizzieConfig.title.defaultTheme");
-  const key = JAVA_THEME_KEYS[name];
+  const key = BUNDLED_THEME_KEYS[name];
   return key ? product(key) : name;
 }
 
@@ -617,8 +635,9 @@ const PREVIEW_H = 180;
 
 /** pnlBoardPreview.paintComponent (ConfigDialog2.java:4980-5196) for the draft: the background and
  *  the board from (30, 30), both tiled from the origin or in their pure colours, 19 lines every 30 px
- *  from (60, 60), a black stone at (120, 150) and a white one at (90, 120) with radius 14. */
-function paintPreview(canvas: HTMLCanvasElement, v: ThemeSettings, images: LoadedImages): void {
+ *  from (60, 60), a black stone at (120, 150) and a white one at (90, 120) with radius 14. With
+ *  立体棋子 (`enhanced`) the shadows are the board's soft ones, both under the stones. */
+function paintPreview(canvas: HTMLCanvasElement, v: ThemeSettings, images: LoadedImages, enhanced: boolean): void {
   const dpr = window.devicePixelRatio || 1;
   canvas.width = PREVIEW_W * dpr;
   canvas.height = PREVIEW_H * dpr;
@@ -660,8 +679,10 @@ function paintPreview(canvas: HTMLCanvasElement, v: ThemeSettings, images: Loade
     g.ellipse(cx + 0.5, cy + 0.5, rr + 0.5, rr + 0.5, 0, 0, Math.PI * 2);
     g.fill();
   };
+  const stones = [[x + square * 2, y + square * 3], [x + square, y + square * 2]];
+  if (enhanced && v.showStoneShadow) for (const [sx, sy] of stones) softStoneShadow(g, sx + 0.5, sy + 0.5, radius, v.shadowSize);
   const stone = (sx: number, sy: number, black: boolean, img: HTMLImageElement | undefined) => {
-    if (v.showStoneShadow) {
+    if (v.showStoneShadow && !enhanced) {
       const top = g.createRadialGradient(sx, sy, 0, sx, sy, radius + shadow);
       top.addColorStop(0.3, "rgba(50,50,50,0.588)");
       top.addColorStop(1, "rgba(0,0,0,0)");
@@ -686,8 +707,8 @@ function paintPreview(canvas: HTMLCanvasElement, v: ThemeSettings, images: Loade
       }
     } else g.drawImage(img, sx - radius, sy - radius, size, size);
   };
-  stone(x + square * 2, y + square * 3, true, images.black);
-  stone(x + square, y + square * 2, false, images.white);
+  stone(stones[0][0], stones[0][1], true, images.black);
+  stone(stones[1][0], stones[1][1], false, images.white);
 }
 
 /** The draft's preview images. An image the theme names that does not read is left out, so the
@@ -833,6 +854,10 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   row(assets, "config.theme.black-stone-image", t("ConfigDialog2.modern.theme.blackStoneImage"), product("themeStonePathSub"), blackPath.root);
   const whitePath = pathControl("settings.theme.whiteStoneImage", () => syncPictures());
   row(assets, "config.theme.white-stone-image", t("ConfigDialog2.modern.theme.whiteStoneImage"), product("themeStonePathSub"), whitePath.root);
+  // 立体棋子 is the appearance's, not the theme's: it stays when another theme is chosen.
+  const depth = check("settings.appearance.enhancedStones", product("themeDepth"));
+  depth.checked = view.settings.appearance.enhancedStones;
+  row(assets, null, product("themeDepth"), product("themeDepthSub"), depth);
   const backgroundFilter = digits("settings.theme.backgroundFilter");
   row(assets, "config.theme.background-blur", t("ConfigDialog2.modern.theme.blur"), t("ConfigDialog2.modern.theme.blurSub"), backgroundFilter);
   /** The pure toggles' listeners (4934-4976): the paths follow them, the 默认 theme's too (Java
@@ -1203,7 +1228,7 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
         : { ...view.settings.appearance, theme: selected };
       const key = JSON.stringify([settings, draft.backgroundImage, draft.boardImage, draft.blackStoneImage, draft.whiteStoneImage]);
       if (key === previewKey) {
-        paintPreview(preview, draft, previewImages);
+        paintPreview(preview, draft, previewImages, depth.checked);
         return;
       }
       // The first images load at once; until new ones arrive the preview keeps its last paint.
@@ -1215,7 +1240,7 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
         const loaded = await loadPreviewImages(settings, draft);
         if (mine !== previewGeneration || (!preview.isConnected && !host.isConnected)) return;
         previewImages = loaded;
-        paintPreview(preview, collect(), previewImages);
+        paintPreview(preview, collect(), previewImages, depth.checked);
         otherPictures();
       }, delay);
     });
@@ -1267,9 +1292,9 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   add.onclick = async () => {
     const name = await themeNameDialog();
     if (name === null) return;
-    // Java compares the list's names; the Java themes are also taken under their stored names and
-    // in every language, and stay taken after they are deleted.
-    const names = [t("LizzieConfig.title.defaultTheme"), JAVA_CLASSIC_THEME, JAVA_SOFT_THEME, ...Object.values(JAVA_THEME_NAMES).flatMap((n) => [n.themeJavaClassic, n.themeJavaSoft]), ...(catalog?.themes.map((e) => e.name) ?? [])];
+    // Java compares the list's names; the bundled themes are also taken under their stored names
+    // and in every language, and stay taken after they are deleted.
+    const names = [t("LizzieConfig.title.defaultTheme"), ...Object.keys(BUNDLED_THEME_KEYS), ...Object.values(BUNDLED_THEME_NAMES).flatMap((n) => Object.values(n)), ...(catalog?.themes.map((e) => e.name) ?? [])];
     if (names.some((n) => n.toLowerCase() === name.toLowerCase())) {
       await message(t("Message.title"), t("ConfigDialog2.duplicateThemeName"));
       return;
@@ -1305,8 +1330,9 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
         if (!result || result.type === "Refused") return false;
       }
       const values = collect();
-      const settings = { ...view.settings.appearance, ...state.view?.settings.appearance, theme: selected };
-      if (selected === committed.name && JSON.stringify(values) === JSON.stringify(committed.values)) return true;
+      const settings = { ...view.settings.appearance, ...state.view?.settings.appearance, theme: selected, enhancedStones: depth.checked };
+      const unchanged = selected === committed.name && depth.checked === (state.view?.settings.appearance ?? view.settings.appearance).enhancedStones;
+      if (unchanged && JSON.stringify(values) === JSON.stringify(committed.values)) return true;
       const result = await run({ type: "SetAppearanceSettings", settings, theme: values });
       return !!result && result.type !== "Refused";
     },

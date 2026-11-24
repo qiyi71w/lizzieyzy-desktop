@@ -13,6 +13,9 @@ export interface LoadedImages {
   background?: HTMLImageElement;
   black?: HTMLImageElement;
   white?: HTMLImageElement;
+  /** The stones' other pictures (ThemeImages.blackVariants / whiteVariants) that decoded. */
+  blackVariants?: HTMLImageElement[];
+  whiteVariants?: HTMLImageElement[];
   /** Theme.defaultBoard: the theme's own board without custom-board-image (SubBoardRenderer.java:1338-1341). */
   themeBoard?: HTMLImageElement;
 }
@@ -26,7 +29,7 @@ export interface ActiveAppearance {
 }
 
 /** The bundled default images (Theme.java:146-204 fallbacks). */
-const DEFAULT_URLS: ThemeImages = { board: "/assets/board.png", background: "/assets/background.jpg", black: "/assets/black0.png", white: "/assets/white0.png", customBoard: false, customBackground: false };
+const DEFAULT_URLS: ThemeImages = { board: "/assets/board.png", background: "/assets/background.jpg", black: "/assets/black0.png", white: "/assets/white0.png", customBoard: false, customBackground: false, blackVariants: [], whiteVariants: [] };
 
 let current: ActiveAppearance | null = null;
 let revision = 0;
@@ -60,7 +63,13 @@ async function loadThemeImages(settings: AppearanceSettings, theme: ThemeSetting
   const urls = await appearanceImages(settings, theme).catch(() => DEFAULT_URLS);
   const themeUrls = settings.customBoardImage ? await appearanceImages({ ...settings, customBoardImage: "" }, theme).catch(() => urls) : urls;
   const [board, background, black, white, themeBoard] = await Promise.all([urls.board, urls.background, urls.black, urls.white, themeUrls.board].map(loadImage));
-  return { images: { board, background, black, white, themeBoard }, customBoard: !!board && urls.customBoard };
+  const [blackVariants, whiteVariants] = await Promise.all([urls.blackVariants, urls.whiteVariants].map(loadVariants));
+  return { images: { board, background, black, white, blackVariants, whiteVariants, themeBoard }, customBoard: !!board && urls.customBoard };
+}
+
+/** The pictures among `urls` that decode, in order. */
+async function loadVariants(urls: readonly string[]): Promise<HTMLImageElement[]> {
+  return (await Promise.all(urls.map(loadImage))).filter((img) => img !== undefined);
 }
 
 /** The colour mode, the skin (the Java themes take Java's colours) and the theme's 界面颜色, and
