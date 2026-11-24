@@ -50,7 +50,7 @@ import "./editing/commands";
 import "./analysis/graphCommands";
 import { graphDestination, graphTarget, paintGraph, type GraphHits, type GraphReport } from "./analysis/graph";
 import { matchPlaying, sideName } from "./match/state";
-import { bindTables, boardPointerMoved, boardWheel, clearTableSelection, mainTableSignature, pageStep, redo, renderMainTable, resetTables, stepVariationOrMove, tableBranchLength, tablesReport, undo } from "./analysis/table";
+import { bindTables, boardPointerMoved, clearTableSelection, mainTableSignature, pageStep, redo, renderMainTable, resetTables, stepVariationOrMove, tableBranchLength, tablesReport, undo } from "./analysis/table";
 import { frameReport, framesReport, handleTableKey, relayFrame, startFrame } from "./analysis/tableCommands";
 import { handleHawkeyeKey, hawkeyeReport, relayHawkeye, startHawkeye } from "./hawkeye/commands";
 import { commentaryReport, relayCommentary, renderCommentPanel, startCommentary } from "./commentary/commands";
@@ -600,15 +600,16 @@ function bindPointer() {
       if (point) scorePoint(point);
     }, true);
   }
-  // Input.mouseWheelMoved: one move per notch over the workbench. Scroll panes take their own
-  // wheel: the comment, the candidate list and the variation tree while it is a JScrollPane
-  // (scrolled below); the whole-tree view has no scroll pane and the workbench takes it.
+  // Input.mouseWheelMoved: per notch over the workbench, one step of the shown variation, else one
+  // move. Scroll panes take their own wheel: the comment, the candidate list and the variation
+  // tree while it is a JScrollPane (scrolled below); the whole-tree view has no scroll pane and
+  // the workbench takes it.
   main.addEventListener(
     "wheel",
     (ev) => {
       if ((ev.target as HTMLElement).closest(`#comment, #table, ${treeFitShown ? "" : "#tree, "}#sub, .quad, #recovery`)) return;
       ev.preventDefault();
-      if (ev.deltaY !== 0 && !boardWheel(ev.deltaY > 0)) navigate(ev.deltaY > 0 ? { op: "Forward", count: 1 } : { op: "Back", count: 1 });
+      if (ev.deltaY !== 0) stepVariationOrMove(ev.deltaY > 0);
     },
     { passive: false },
   );
@@ -1418,7 +1419,7 @@ function independentInput(input: IndependentInput): void {
       if (!v.score) releaseBoard(input.point, input.button);
       break;
     case "wheel":
-      if (!boardWheel(input.down)) navigate(input.down ? { op: "Forward", count: 1 } : { op: "Back", count: 1 });
+      stepVariationOrMove(input.down);
       break;
   }
 }

@@ -403,16 +403,10 @@ function wheel(table: Table, down: boolean): boolean {
   return true;
 }
 
-/** The workbench wheel (Input.mouseWheelMoved, Input.java:873-893): with a main-table row
- *  clicked and a variation shown (hasSelectedVariation) it steps the variation instead of
- *  browsing. Returns whether it did. */
-export function boardWheel(down: boolean): boolean {
-  const shown = host?.variations();
-  return selection.main.click !== -1 && !!(shown?.left || shown?.right) && wheel("main", down);
-}
-
-/** Up / Down (Input.java:374-429): with a variation shown on either board one step of it
- *  (doBranch), else one move of the record (navigateHistoryNoRefresh). */
+/** Up / Down and the workbench wheel (Input.java:374-429, 863-893; IndependentMainBoard
+ *  .processMouseWheelMoved): with a variation shown on either board (hasSelectedVariation: a
+ *  clicked row's or the hovered candidate's) one step of it (doBranch), else one move of the
+ *  record (navigateHistoryNoRefresh). */
 export function stepVariationOrMove(down: boolean): void {
   const { left, right } = shownVariations();
   if (left || right) doBranch(left, right, down);

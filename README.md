@@ -30,12 +30,13 @@ importing the matching LizzieYzy Next settings.
   another record opens or the maximum width is confirmed again. All three settings are saved and
   imported from LizzieYzy Next.
 - While a candidate's variation shows on the board (a clicked candidate-list row, or the
-  candidate under the pointer), the browsing keys step the variation instead of the record, as in
-  Java: `Up`/`Down` and `PageUp`/`PageDown` show one move less/more; `Ctrl+Down` shows 10 more
-  moves and `Ctrl+Shift+Down` as many more as the next comment is away; `Ctrl+Up` and
-  `Ctrl+Shift+Up` show one move less. The board menu's 回退一手 and the control panel's buttons
-  do the same (`>`/`>>` one/five more moves, `<`/`<<` one less). The record stays on its move;
-  without a shown variation these entries browse as usual. The bottom bar buttons always browse.
+  candidate under the pointer), the browsing keys and the mouse wheel step the variation instead
+  of the record, as in Java: the wheel, `Up`/`Down` and `PageUp`/`PageDown` show one move
+  less/more; `Ctrl+Down` shows 10 more moves and `Ctrl+Shift+Down` as many more as the next
+  comment is away; `Ctrl+Up` and `Ctrl+Shift+Up` show one move less. The board menu's 回退一手
+  and the control panel's buttons do the same (`>`/`>>` one/five more moves, `<`/`<<` one
+  less). The record stays on its move; without a shown variation these entries browse as usual.
+  The bottom bar buttons always browse.
   In 双引擎模式 `Ctrl+Down`, `Ctrl+Shift+Down` and the panel's `>`/`>>` grow the main board's
   variation only (the right board's when only it shows one); the other entries step both boards.
   A variation that auto-replays (自动回放变化图) is stepped from the length it shows, and the
