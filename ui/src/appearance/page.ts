@@ -723,10 +723,11 @@ function paintPreview(canvas: HTMLCanvasElement, v: ThemeSettings, images: Loade
  *  the core answers the default image only when neither the custom override nor the theme's own
  *  file reads. An empty path, or the default image's own address, is the default image, as on the
  *  board, and where the workbench shows the program's own wallpaper for that default background
- *  (any theme but the Java ones) the preview shows it too. */
-async function loadPreviewImages(settings: AppearanceSettings, draft: ThemeSettings): Promise<LoadedImages> {
+ *  (any theme but the Java ones) the preview shows it too. `variants` (立体棋子's other stone
+ *  pictures) settles separately, so the preview need not wait for pictures it may not show. */
+async function loadPreviewImages(settings: AppearanceSettings, draft: ThemeSettings): Promise<{ images: LoadedImages; variants: Promise<Pick<LoadedImages, "blackVariants" | "whiteVariants">> }> {
   const urls = await appearanceImages(settings, draft).catch(() => null);
-  if (!urls) return {};
+  if (!urls) return { images: {}, variants: Promise.resolve({}) };
   const unread = (url: string, path: string, fallback: string) => path !== "" && path !== fallback && url === fallback;
   const decoded = (url: string, path: string, fallback: string): Promise<HTMLImageElement | undefined> => {
     if (unread(url, path, fallback)) return Promise.resolve(undefined);
@@ -734,16 +735,16 @@ async function loadPreviewImages(settings: AppearanceSettings, draft: ThemeSetti
     img.src = url;
     return img.decode().then(() => img, () => undefined);
   };
+  const variants = Promise.all([loadVariants(urls.blackVariants), loadVariants(urls.whiteVariants)])
+    .then(([blackVariants, whiteVariants]) => ({ blackVariants, whiteVariants }));
   const linen = !unread(urls.background, draft.backgroundImage, DEFAULT_PATHS.background) && programStage(themeSkin(settings.theme) !== "modern", false, urls.background);
-  const [background, board, black, white, blackVariants, whiteVariants] = await Promise.all([
+  const [background, board, black, white] = await Promise.all([
     linen ? stageReady.then(stageWallpaper) : decoded(urls.background, draft.backgroundImage, DEFAULT_PATHS.background),
     decoded(urls.board, draft.boardImage, DEFAULT_PATHS.board),
     decoded(urls.black, draft.blackStoneImage, DEFAULT_PATHS.black),
     decoded(urls.white, draft.whiteStoneImage, DEFAULT_PATHS.white),
-    loadVariants(urls.blackVariants),
-    loadVariants(urls.whiteVariants),
   ]);
-  return { background, board, black, white, blackVariants, whiteVariants };
+  return { images: { background, board, black, white }, variants };
 }
 
 // ------------------------------------------------------------------ page
@@ -1246,11 +1247,17 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
       const mine = ++previewGeneration;
       window.clearTimeout(previewTimer);
       previewTimer = window.setTimeout(async () => {
-        const loaded = await loadPreviewImages(settings, draft);
-        if (mine !== previewGeneration || (!preview.isConnected && !host.isConnected)) return;
-        previewImages = loaded;
+        const { images, variants } = await loadPreviewImages(settings, draft);
+        const stale = () => mine !== previewGeneration || (!preview.isConnected && !host.isConnected);
+        if (stale()) return;
+        previewImages = images;
         paintPreview(preview, collect(), previewImages, depth.checked);
         otherPictures();
+        // 立体棋子's other stone pictures follow; until then each stone shows its first picture.
+        const more = await variants;
+        if (stale() || !(more.blackVariants?.length || more.whiteVariants?.length)) return;
+        previewImages = { ...previewImages, ...more };
+        paintPreview(preview, collect(), previewImages, depth.checked);
       }, delay);
     });
   }
