@@ -739,7 +739,8 @@ importing the matching LizzieYzy Next settings.
   by itself on first start.
 - Appearance (Java defaults; saved and taken over by the LizzieYzy Next import):
   - 设置 > 主题 opens 综合设置 > 主题外观: the theme (默认 plus the bundled Java 经典, Java 柔和,
-    sabaki, yasnaya, Megapack, Custom and Fast, and the user's own), a preview of the edited background, board and
+    sabaki, yasnaya, Megapack, Custom and Fast, this program's 日式榧木, 胡桃木 and 云子 (below),
+    and the user's own), a preview of the edited background, board and
     stones, line widths, the stone shadow (its size a percentage of the stone radius), the three fonts (计算量及其他字体, UI 字体, 胜率目数字体;
     Lizzie默认, 系统默认 or a system font), the board and the stones (below), pure-colour
     background / board / stones and the image files of every theme, 默认 included (Java fixes the
@@ -754,7 +755,7 @@ importing the matching LizzieYzy Next settings.
     reopens it, and 添加 (a new theme) and 删除 take effect at once and reopen the dialog,
     dropping unsaved edits on the other pages; the 当前主题 row and 删除's confirmation say so
     first, and 删除 is in red. A new theme's name must differ from every listed theme, including
-    默认, Java 经典 and Java 柔和 in any interface language. Saving a named theme writes the page's values
+    默认 and the bundled themes (Java 经典, Java 柔和, 日式榧木, 胡桃木, 云子) in any interface language. Saving a named theme writes the page's values
     over that theme's `theme.txt` and keeps the keys the page does not edit, as Java does.
     Bundled themes are read-only: deleting one hides it, and edits are kept as the user's copy.
     The live preview shows the background the workbench would draw (the linen wallpaper for the
@@ -771,8 +772,25 @@ importing the matching LizzieYzy Next settings.
     the move-rank marks on the board, the candidate list's loss levels and the region selection.
     Like Java's Morandi palette it keeps Java 经典's teal accent, its status colours (the danger
     red included) and its dark workbench with the win-rate graph and variation tree.
+  - 日式榧木 (`kaya`), 胡桃木 (`walnut`) and 云子 (`yunzi`) are bundled themes of this program,
+    not Java's: a pale straight-grained board with matte slate black stones and clam-shell white
+    stones; a mid-brown walnut board with matte stones; a bamboo board with yunzi stones (a green
+    rim on the black, a warm white). Their boards are Poly Haven veneer textures (CC0) and their
+    stones are drawn by `tools/textured_themes.py`, which regenerates the folders. Each stone has
+    several pictures (`black0.png` to `black3.png`, `white0.png` to `white7.png`), which 立体棋子
+    spreads over the board. Their other values are Java 经典's, so they keep the program's own
+    interface colours.
+  - 立体棋子 on 主题外观 (not in Java; on by default) applies to every theme and is not stored with
+    one. With the stone shadow on, each stone casts a dark contact shadow and a soft shadow to the
+    lower right instead of Java's shadow; all shadows go under all stones, and the shadow size
+    scales both. A stone picture named `<name>0.<ext>` with `<name>1.<ext>`, `<name>2.<ext>` ... beside
+    it (in a theme folder, or a bundled theme's) has those as other pictures, read up to the
+    first missing one and at most 16 in all; each point keeps the same picture as moves are
+    played. A theme with one picture per stone only changes its shadow. Off, stones and shadows
+    are drawn as in Java. The preview on the page follows the switch; the small board, which
+    draws plain stones as in Java, does not change.
   - 棋盘 and 棋子 on 主题外观 are chosen from thumbnails: every board and stone set the program
-    ships (默认, sabaki, yasnaya, Megapack, Custom and Fast; a picture two bundled themes share
+    ships (默认, sabaki, yasnaya, Megapack, Custom, Fast, 日式榧木, 胡桃木 and 云子; a picture two bundled themes share
     shows once), 纯色, and 其他图片…, which opens the file chooser; the paths stay editable for
     typing one. A choice belongs to the theme being edited. A shipped picture is saved by its
     address (`/themes/<theme>/<file>`, `/assets/board.png`), or by its file name in its own

@@ -1,0 +1,153 @@
+{
+  "use-pure-board": false,
+  "use-pure-background": false,
+  "use-pure-stone": false,
+  "pure-board-color": [
+    217,
+    152,
+    77
+  ],
+  "pure-background-color": [
+    128,
+    128,
+    128
+  ],
+  "show-stone-shadow": true,
+  "shadow-size": 85,
+  "stone-indicator-type": 1,
+  "winrate-stroke-width": 1.7,
+  "score-lead-stroke-width": 1.0,
+  "minimum-blunder-bar-width": 1,
+  "comment-font-size": 0,
+  "background-filter": 20,
+  "winrate-line-color": [
+    100,
+    180,
+    255
+  ],
+  "winrate-miss-line-color": [
+    0,
+    0,
+    178
+  ],
+  "scoremean-line-color": [
+    255,
+    0,
+    255
+  ],
+  "blunder-bar-color": [
+    255,
+    204,
+    255,
+    170
+  ],
+  "best-move-color": [
+    0,
+    255,
+    255
+  ],
+  "comment-background-color": [
+    0,
+    0,
+    0,
+    200
+  ],
+  "comment-font-color": [
+    255,
+    255,
+    255
+  ],
+  "comment-node-color": [
+    0,
+    0,
+    255
+  ],
+  "show-comment-node-color": true,
+  "use-scorediff-in-variation-tree": true,
+  "scorediff-in-variation-tree-factor": 0.5,
+  "font-name": "Lizzie Default",
+  "ui-font-name": "Lizzie Default",
+  "winrate-font-name": "Lizzie Default",
+  "board-image": "board.jpg",
+  "background-image": "",
+  "black-stone-image": "black0.png",
+  "white-stone-image": "white0.png",
+  "blunder-winrate-thresholds": [
+    -24,
+    -12,
+    -6,
+    -3,
+    -1,
+    3,
+    100
+  ],
+  "blunder-node-colors": [
+    [
+      155,
+      25,
+      150
+    ],
+    [
+      208,
+      16,
+      19
+    ],
+    [
+      200,
+      140,
+      50
+    ],
+    [
+      180,
+      180,
+      0
+    ],
+    [
+      140,
+      202,
+      34
+    ],
+    [
+      0,
+      220,
+      0
+    ],
+    [
+      0,
+      210,
+      210
+    ]
+  ],
+  "glass-panel-overlay-color": [
+    24,
+    24,
+    26,
+    102
+  ],
+  "glass-panel-border-color": [
+    255,
+    255,
+    255,
+    26
+  ],
+  "glass-panel-highlight-color": [
+    255,
+    255,
+    255,
+    77
+  ],
+  "glass-panel-shadow-color": [
+    0,
+    0,
+    0,
+    64
+  ],
+  "glass-accent-color": [
+    96,
+    165,
+    250
+  ],
+  "glass-blur-radius": 10,
+  "liquid-blur-radius": 15,
+  "glass-corner-radius": 12
+}
