@@ -630,7 +630,9 @@ importing the matching LizzieYzy Next settings.
   [Panel arrangement](#panel-arrangement)). Dragging the board's left or right edge moves the board, dragging the
   comment's top edge changes its height (at least 68 px) and dragging the line between the
   variation tree and the list shares that column (the list keeps at least 36 px); a drag is
-  saved when the button is released and `Esc` cancels it. `[` / `]` (界面 > 主棋盘位置) move the
+  saved when the button is released and `Esc` cancels it. The line between any other two
+  neighbouring panels of a column can be dragged too; doing so saves a panel arrangement (see
+  [Panel arrangement](#panel-arrangement)). `[` / `]` (界面 > 主棋盘位置) move the
   board one eighth of the free width; 面板 > 恢复默认面板尺寸 restores the default sizes. In a small
   window or at a large interface font the list keeps each column wide enough for its header and
   figures and scrolls sideways, and the win-rate graph scales a readout down to fit its plot
@@ -1808,11 +1810,22 @@ prompt, and full input-method coverage on Windows and macOS.
   sub board at the column's width hands them its spare height, and where the sub board would grow
   past the column's width; double-clicking it in edit mode shares the heights as evenly as these
   limits allow.
+- Without an arrangement, where edit mode could start, the Java layout has a divider between
+  every two neighbouring panels of a column that Java's zones leave fixed, for example 信息面板 /
+  胜率图, 胜率图 / 小棋盘 with the comment hidden, and the variation tree or the list / 小棋盘 with
+  it shown; in 精简 mode, which has no Java zones, between every two neighbouring panels. Java's
+  four zones stay and work as before. Pressing or moving sideways changes nothing; once a drag
+  really changes a height the workbench switches to the arrangement the Java layout gives (with
+  the room Java leaves around a hidden panel given to the others, so other panels may move), and
+  releasing saves it, with a notice for 8 seconds on how to return. `Esc`, losing the pointer,
+  leaving the window or a release with no change saves nothing. To return to the Java layout:
+  显示 > 面板 > 编辑面板布局…, 恢复 Java 布局, then 完成.
 - Differences from LizzieYzy Next: the 编辑面板布局… item and the edit mode are new; with an
   arrangement the panels' columns and order follow it, each column has a divider between every
   two neighbouring panels instead of Java's comment-top and tree/list zones, and the comment no
-  longer trades places with the sub board; the window's menus explain a disabled 编辑面板布局…
-  in its tooltip (Java's menus have no such reasons).
+  longer trades places with the sub board; without one, the Java layout's other neighbouring
+  panels have dividers too, and dragging one saves an arrangement; the window's menus explain a
+  disabled 编辑面板布局… in its tooltip (Java's menus have no such reasons).
 - Known limitation: an older LizzieYzy Tauri without panel arrangements drops the arrangement the
   next time it writes its window state, so after a downgrade the Java layout returns.
 

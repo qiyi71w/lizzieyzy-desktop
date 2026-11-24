@@ -13,13 +13,14 @@
 // By keyboard: the first grip takes the focus, Tab goes round the grips and the bar, Alt+arrows on a
 // grip move its panel (a live region says where to, or why not), Enter there is 完成, Esc is 取消.
 import { registerViewHandler, run, state } from "../app";
+import { appearanceRevision, frameMetrics } from "../appearance/state";
 import { COMMANDS } from "../commands";
 import { onNativeDialog } from "../contract/client";
 import type { ArrangeablePanel, ArrangedPanel, ExtraMode, PanelArrangement, WorkbenchPanel, WorkbenchView } from "../contract/generated";
 import { icon } from "../design/icons";
 import { os } from "../design/theme";
 import { dialogOpen, timedMessage } from "../dialogs";
-import { product, registerProduct } from "../i18n";
+import { language, product, registerProduct } from "../i18n";
 import { arrangedLayout, equalizeDivider, moveDivider, type ArrangementDivider, type ArrangementFallback } from "./arrangement";
 import { CARD_INSET, cardLayout, inFrame, SUB_CLEAR, workbenchLayout, type LayoutRequest, type PanelId, type Panels, type Rect } from "./layout";
 import { commitArrangement, layoutRequest, placeHandles, type DividerOwner } from "./panels";
@@ -60,6 +61,7 @@ registerProduct({
     editExitDialog: "打开对话框时结束了面板布局编辑，改动没有保存。",
     editExitFit: "窗口放不下面板布局了，面板布局的改动没有保存。",
     editExitChanged: "面板布局已被其他操作更改，这次编辑的改动没有保存。",
+    arrangedFromJava: "已保存面板布局。要恢复 Java 布局，打开 显示 > 面板 > 编辑面板布局…，选「恢复 Java 布局」，再按「完成」。",
   },
   ZhTw: {
     editLayout: "編輯面板佈局",
@@ -94,6 +96,7 @@ registerProduct({
     editExitDialog: "開啟對話框時結束了面板佈局編輯，變更沒有儲存。",
     editExitFit: "視窗放不下面板佈局了，面板佈局的變更沒有儲存。",
     editExitChanged: "面板佈局已被其他操作變更，這次編輯的變更沒有儲存。",
+    arrangedFromJava: "已儲存面板佈局。要恢復 Java 佈局，開啟 顯示 > 面板 > 編輯面板佈局…，選「恢復 Java 佈局」，再按「完成」。",
   },
   EnUs: {
     editLayout: "Edit panel layout",
@@ -128,6 +131,7 @@ registerProduct({
     editExitDialog: "A dialog opened, so panel layout editing ended without saving the changes.",
     editExitFit: "The window no longer fits the panel layout, so the panel layout changes were not saved.",
     editExitChanged: "Another action changed the panel layout, so the changes from this edit were not saved.",
+    arrangedFromJava: "The panel layout is saved. To go back to the Java layout, open View > Panel > Edit panel layout…, choose Restore Java layout, then Done.",
   },
   JaJp: {
     editLayout: "パネルのレイアウトを編集",
@@ -162,6 +166,7 @@ registerProduct({
     editExitDialog: "ダイアログが開いたため、パネルのレイアウトの編集を終了しました。変更は保存されていません。",
     editExitFit: "ウィンドウにパネルのレイアウトが収まらなくなったため、変更は保存されませんでした。",
     editExitChanged: "別の操作でパネルのレイアウトが変わったため、この編集の変更は保存されませんでした。",
+    arrangedFromJava: "パネルのレイアウトを保存しました。Java のレイアウトに戻すには、表示 > パネル > パネルのレイアウトを編集… を開き、「Java のレイアウトに戻す」を選んでから「完了」を押してください。",
   },
   KoKr: {
     editLayout: "패널 레이아웃 편집",
@@ -196,6 +201,7 @@ registerProduct({
     editExitDialog: "대화 상자가 열려 패널 레이아웃 편집을 끝냈습니다. 변경 사항은 저장하지 않았습니다.",
     editExitFit: "창에 패널 레이아웃이 더 이상 들어가지 않아 변경 사항을 저장하지 않았습니다.",
     editExitChanged: "다른 작업으로 패널 레이아웃이 바뀌어 이번 편집의 변경 사항을 저장하지 않았습니다.",
+    arrangedFromJava: "패널 레이아웃을 저장했습니다. Java 레이아웃으로 되돌리려면 보기 > 패널 > 패널 레이아웃 편집…을 열고 'Java 레이아웃으로 복원'을 선택한 뒤 '완료'를 누르세요.",
   },
   ThTh: {
     editLayout: "แก้ไขเค้าโครงแผง",
@@ -230,6 +236,7 @@ registerProduct({
     editExitDialog: "มีกล่องโต้ตอบเปิดขึ้น จึงจบการแก้ไขเค้าโครงแผงโดยไม่บันทึกการเปลี่ยนแปลง",
     editExitFit: "หน้าต่างไม่พอสำหรับเค้าโครงแผงแล้ว การเปลี่ยนแปลงเค้าโครงแผงจึงไม่ได้บันทึก",
     editExitChanged: "การทำงานอื่นเปลี่ยนเค้าโครงแผงไปแล้ว การเปลี่ยนแปลงจากการแก้ไขครั้งนี้จึงไม่ได้บันทึก",
+    arrangedFromJava: "บันทึกเค้าโครงแผงแล้ว หากต้องการกลับไปใช้เค้าโครง Java ให้เปิด ดู > แผง > แก้ไขเค้าโครงแผง… เลือก \"คืนค่าเค้าโครง Java\" แล้วกด \"เสร็จสิ้น\"",
   },
 });
 
@@ -283,6 +290,9 @@ type ExitReason = "mode" | "enlarged" | "changed" | "dialog" | "fit";
 const EXIT: Record<ExitReason, string> = { mode: "editExitMode", enlarged: "editExitEnlarged", changed: "editExitChanged", dialog: "editExitDialog", fit: "editExitFit" };
 /** How long the notice of an automatic exit shows. */
 const EXIT_NOTICE_SECONDS = 5;
+/** How long the notice shows after a divider drag in the Java layout saved a panel layout: its
+ *  sentence carries a three-step way back. */
+const ARRANGED_NOTICE_SECONDS = 8;
 
 export function panelName(panel: ArrangeablePanel): string {
   return product(`panel.${panel}`);
@@ -409,18 +419,28 @@ interface Frame {
 }
 let frame: Frame | null = null;
 
+/** What editUnavailable answered last, and for which inputs: measuring the hidden edit bar forces
+ *  a layout, and the workbench asks on every frame without an arrangement. */
+let unavailableFor: { key: string; value: ArrangementFallback | null } | null = null;
+
 /** Why edit mode cannot start now (null when it can): the arrangement, or the one the Java layout
- *  gives, does not apply or does not fit the workbench the edit bar would leave. */
+ *  gives, does not apply or does not fit the workbench the edit bar would leave. Remembered for
+ *  the same window size, layout request, mode, committed arrangement and what sets the edit bar's
+ *  height (the hidden panels' tags, the language, the font size and the appearance). */
 export function editUnavailable(): ArrangementFallback | null {
   const v = state.view;
   const main = document.getElementById("main");
   if (!v || !main || session) return null;
   const r = layoutRequest(v);
   const W = main.clientWidth;
-  const H = main.clientHeight - barHeight();
   const committed = committedArrangement(v);
   const mode = presentation(v).mode;
-  return arrangedLayout(W, H, r, mode, committed ?? initialArrangement(W, H, r, mode)).fallback;
+  const key = JSON.stringify([W, main.clientHeight, r, mode, committed, v.settings.panels, language(), frameMetrics().frameFontSize, appearanceRevision()]);
+  if (unavailableFor?.key === key) return unavailableFor.value;
+  const H = main.clientHeight - barHeight();
+  const value = arrangedLayout(W, H, r, mode, committed ?? initialArrangement(W, H, r, mode)).fallback;
+  unavailableFor = { key, value };
+  return value;
 }
 
 /** 显示 > 面板 > 编辑面板布局…: opens the session with the committed arrangement as its draft. */
@@ -559,37 +579,75 @@ export function editArrangement(v: WorkbenchView, W: number, H: number, r: Layou
   return { arrangement: draft, java, exited: false };
 }
 
+/** The dividers of the arrangement the Java layout gives (laid out as `arranged`) on the Java
+ *  layout `java`: each at its lower panel's top there, which is the hairline between the two
+ *  panels, or where Java leaves room between them (a hidden 信息面板 or 胜率图, a sub board
+ *  narrower than its section) the lower panel's Java top. */
+function javaEdges(java: Panels, arranged: Panels): ArrangementDivider[] {
+  return (arranged.arranged?.dividers ?? []).map((d) => {
+    const y = slot(java, d.lower).y;
+    return { ...d, y, zone: { ...d.zone, y: y - d.zone.h / 2 } };
+  });
+}
+
 /** The Java layout `java` drawn as `drawn` (in its cards) while edit mode has changed nothing
  *  without a committed arrangement: every panel where Java has it, a hidden 信息面板 or 胜率图
  *  keeping its room, with the dividers of the arrangement it gives (laid out as `arranged`) on the
  *  Java panels' edges. The first drag of one lays the arrangement out. */
 export function javaPreview(java: Panels, drawn: Panels, arranged: Panels): Panels {
-  const dividers = (arranged.arranged?.dividers ?? []).map((d): ArrangementDivider => {
-    // Below a panel the sub board's section starts where that panel ends (its square may sit lower).
-    const above = slot(java, d.upper);
-    const y = d.lower === "SubBoard" ? above.y + above.h : slot(java, d.lower).y;
-    return { ...d, y, zone: { ...d.zone, y: y - d.zone.h / 2 } };
-  });
-  return { ...drawn, arranged: { dividers } };
+  return { ...drawn, arranged: { dividers: javaEdges(java, arranged) } };
+}
+
+/** A divider drag's move from the arrangement `a` laid out at this size while the Java layout may
+ *  still show: no change (null) while the pointer is at the height it pressed the divider at
+ *  (moved sideways, or away and back: the divider is drawn at the Java edge, not where `a` has
+ *  it) or while the move leaves the weights as they were (against a limit the divider already
+ *  stands at), so the layout shown stays as it is. */
+function previewMove(W: number, H: number, r: LayoutRequest, mode: ExtraMode, a: PanelArrangement): DividerOwner["move"] {
+  return (upper, y, from) => {
+    if (Math.abs(y - from) < 0.5) return null;
+    const next = moveDivider(W, H, r, mode, a, upper, y);
+    return same(next, a) ? null : next;
+  };
 }
 
 /** Who a divider drag of the arrangement `a` laid out at this size works for: in edit mode the
- *  release becomes the draft, and a move is no change while the pointer is at the height it
- *  pressed the divider at (moved sideways, or away and back: a Java preview draws the divider at
- *  the Java edge, not where `a` has it) or while the move leaves the weights as they were (against
- *  a limit the divider already stands at), so a Java preview stays as it is; otherwise the release
- *  is committed (one SetPanelArrangement). */
+ *  release becomes the draft and a move is previewMove's; otherwise the release is committed (one
+ *  SetPanelArrangement). */
 export function dividerOwner(W: number, H: number, r: LayoutRequest, mode: ExtraMode, a: PanelArrangement): DividerOwner {
   if (!session) return { move: (upper, y) => moveDivider(W, H, r, mode, a, upper, y), release: commitArrangement };
   return {
-    move: (upper, y, from) => {
-      if (Math.abs(y - from) < 0.5) return null;
-      const next = moveDivider(W, H, r, mode, a, upper, y);
-      return same(next, a) ? null : next;
-    },
+    move: previewMove(W, H, r, mode, a),
     release: async (next) => {
       setDraft(next);
       return false;
+    },
+  };
+}
+
+/** Java 布局下补齐的分隔线: outside edit mode, without a committed arrangement and while edit mode
+ *  could start, the dividers of the arrangement the Java layout `java` gives at this size, but for
+ *  the edges a Java zone works (above the comment, between the variation tree and the list), on
+ *  the Java edges as in javaPreview; null when there is none. Their drag starts from that
+ *  arrangement and changes nothing until a height does (previewMove); a changed release commits
+ *  it (one SetPanelArrangement) and the notice says how to get the Java layout back. */
+export function javaLayoutDividers(v: WorkbenchView, W: number, H: number, r: LayoutRequest, mode: ExtraMode, java: Panels): { dividers: ArrangementDivider[]; owner: DividerOwner } | null {
+  if (session || committedArrangement(v) || editUnavailable() !== null) return null;
+  const a = initialArrangement(W, H, r, mode);
+  const laid = arrangedLayout(W, H, r, mode, a).panels;
+  if (!laid) return null;
+  const zones = java.handles;
+  const dividers = javaEdges(java, laid).filter((d) => !(zones?.commentTop && d.lower === "Comment") && !(zones?.variationList && d.upper === "VariationGraph" && d.lower === "CandidateList"));
+  if (!dividers.length) return null;
+  return {
+    dividers,
+    owner: {
+      move: previewMove(W, H, r, mode, a),
+      release: async (next) => {
+        const committed = await commitArrangement(next);
+        if (committed) timedMessage(product("arrangedFromJava"), ARRANGED_NOTICE_SECONDS);
+        return committed;
+      },
     },
   };
 }

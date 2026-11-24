@@ -21,7 +21,7 @@ import { format, product, setLanguage, t } from "./i18n";
 import { openJavaImport } from "./javaImport";
 import { boardGeom, cardLayout, doubleEngineLayout, floatBoardLayout, mainMarginRatio, selectRange, sideLayout, SUB_MARGIN_RATIO, workbenchLayout, type BoardGeom, type DualPanels, type PanelId, type Panels, type Rect, type SidePanels } from "./workbench/layout";
 import { arrangedLayout, type ArrangementFallback } from "./workbench/arrangement";
-import { bindEditLayout, dividerOwner, editArrangement, editing as layoutEditing, editReport, editUnavailable, handleEditLayoutKey, javaPreview, placeEdit } from "./workbench/editLayout";
+import { bindEditLayout, dividerOwner, editArrangement, editing as layoutEditing, editReport, editUnavailable, handleEditLayoutKey, javaLayoutDividers, javaPreview, placeEdit } from "./workbench/editLayout";
 import { handleLayoutKey } from "./workbench/extraMode";
 import { bindPanels, controlsShowing, dividerDraft, dragHeld, handlePanelKey, layoutRequest, placeHandles } from "./workbench/panels";
 import { onPresentationChange, presentation } from "./workbench/presentation";
@@ -1174,7 +1174,9 @@ function render() {
   // The cards (DESIGN.md 工作台卡片): every panel rectangle below is clipped to its card. 双引擎模式
   // has no side panels and no cards.
   const carded = dual ? null : cardLayout(normal, H);
-  panels = carded ? (preview ? javaPreview(normal, carded.panels, preview) : carded.panels) : { ...normal, board: dual!.left, glass: [], handles: null };
+  // Without an arrangement the Java layout gets its extra dividers where edit mode could start.
+  const extra = carded && !shownArrangement && !layoutEditing() && (mode === "Normal" || mode === "Min") ? javaLayoutDividers(v, W, H, request, mode, normal) : null;
+  panels = carded ? (preview ? javaPreview(normal, carded.panels, preview) : extra ? { ...carded.panels, arranged: { dividers: extra.dividers } } : carded.panels) : { ...normal, board: dual!.left, glass: [], handles: null };
   const P = panels;
   const stage: StageCards = { cards: carded?.cards ?? [], dividers: carded?.dividers ?? [] };
   stageCards = stage;
@@ -1209,7 +1211,8 @@ function render() {
     delete lastSig.raw;
   }
   // 布局编辑模式 leaves only the arrangement's dividers: the Java zones would commit panel sizes.
-  placeHandles(layoutEditing() ? null : P.handles, P.arranged?.dividers ?? null, shownArrangement && P.arranged ? dividerOwner(W, H, request, mode, shownArrangement) : null);
+  // The Java layout's extra dividers sit beside its zones.
+  placeHandles(layoutEditing() ? null : P.handles, P.arranged?.dividers ?? null, shownArrangement && P.arranged ? dividerOwner(W, H, request, mode, shownArrangement) : extra?.owner ?? null);
   placeEdit(P, stage.cards, W, H, request, mode, P.arranged ? shownArrangement : null);
   // The system menu bar (macOS) holds whether 编辑面板布局… can start (its disabled reason); a resize
   // or a layout change alone publishes no view and takes no input, so the bar is brought up to date

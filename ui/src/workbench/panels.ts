@@ -341,9 +341,10 @@ window.addEventListener("blur", hideControls);
 // ------------------------------------------------------------------ separators
 
 // The four Java zones (InFrameLeftoverDragHandles) and, while a panel arrangement applies, the
-// dividers between neighbouring panels of a column (arrangement.ts) share one drag: a press
-// captures the pointer, moving changes only a UI draft, releasing hands the draft over once, and
-// Escape, a lost pointer or leaving the window cancel it.
+// dividers between neighbouring panels of a column (arrangement.ts), or without one the Java
+// layout's extra dividers (editLayout.ts javaLayoutDividers), share one drag: a press captures the
+// pointer, moving changes only a UI draft, releasing hands the draft over once, and Escape, a lost
+// pointer or leaving the window cancel it.
 
 type Seam = "left" | "right" | "commentTop" | "variationList";
 const SEAMS: Seam[] = ["left", "right", "commentTop", "variationList"];
@@ -547,9 +548,9 @@ registerViewHandler((v) => {
 });
 
 /** Places the zones for the layout just drawn: the Java zones `h` (none outside the locked
- *  layout) and, while an arrangement applies, its `dividers` worked by `owner`. While a drag is
- *  held the zones stay put; a divider drag ends uncommitted once the arrangement no longer
- *  applies (another mode, or a window it does not fit). */
+ *  layout) and, while an arrangement applies or the Java layout has extra dividers, the `dividers`
+ *  worked by `owner`. While a drag is held the zones stay put; a divider drag ends uncommitted
+ *  once no dividers are placed (another mode, or a window the arrangement does not fit). */
 export function placeHandles(h: Handles | null, dividers: ArrangementDivider[] | null, owner: DividerOwner | null): void {
   if (drag) {
     if (drag.divider && !(dividers && owner)) cancelDrag();
