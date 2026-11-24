@@ -43,6 +43,9 @@ importing the matching LizzieYzy Next settings.
   main board steps the main board's variation only (without one it browses); the other entries
   step both boards, the right board keeping its whole variation at the first step back from it
   and showing one move less from the next one.
+  When only the right board shows one, `PageDown` grows it by 10 moves (from its whole variation
+  to its first two moves) and `PageUp` steps it back like the other entries, as Java's redo /
+  undo of 10 do.
   A variation that auto-replays (自动回放变化图) is stepped from the length it shows, and the
   replay goes on from the new length. During an `R` replay (回放变化图) these keys and the wheel
   step from the length the replay shows and end the replay, as in Java.
