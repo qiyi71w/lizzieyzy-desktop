@@ -16,8 +16,8 @@ import { SETTINGS_PAGES, type SettingsDialog } from "../engine/settings";
 import { registerSettingTargets } from "../engine/settingsTargets";
 import { isChinese, product, registerProduct, t } from "../i18n";
 import { cssColor, DEFAULT_BLUNDER_COLORS, DEFAULT_BLUNDER_THRESHOLDS, DEFAULT_THEME, JAVA_CLASSIC_THEME, JAVA_SOFT_THEME, LIZZIE_DEFAULT_FONT, opaque, SYSTEM_DEFAULT_FONT, themeSkin } from "./model";
-import type { LoadedImages } from "./state";
-import { softStoneShadow } from "./stones";
+import { loadVariants, type LoadedImages } from "./state";
+import { softStoneShadow, stonePicture } from "./stones";
 import { icon } from "../design/icons";
 import type { InterfaceColors } from "../design/palette";
 import { stepper } from "../design/stepper";
@@ -679,8 +679,15 @@ function paintPreview(canvas: HTMLCanvasElement, v: ThemeSettings, images: Loade
     g.ellipse(cx + 0.5, cy + 0.5, rr + 0.5, rr + 0.5, 0, 0, Math.PI * 2);
     g.fill();
   };
-  const stones = [[x + square * 2, y + square * 3], [x + square, y + square * 2]];
+  // The two stones stand on points (2, 3) and (1, 2) of the grid; 立体棋子 picks their pictures there
+  // as the board does.
+  const stones = [[x + square * 2, y + square * 3, 2, 3], [x + square, y + square * 2, 1, 2]];
   if (enhanced && v.showStoneShadow) for (const [sx, sy] of stones) softStoneShadow(g, sx + 0.5, sy + 0.5, radius, v.shadowSize);
+  const picture = (own: HTMLImageElement | undefined, others: HTMLImageElement[] | undefined, [, , px, py]: number[]) => {
+    if (!enhanced || !others?.length) return own;
+    const pick = stonePicture(others.length + 1, px, py);
+    return pick === 0 ? own : others[pick - 1];
+  };
   const stone = (sx: number, sy: number, black: boolean, img: HTMLImageElement | undefined) => {
     if (v.showStoneShadow && !enhanced) {
       const top = g.createRadialGradient(sx, sy, 0, sx, sy, radius + shadow);
@@ -707,8 +714,8 @@ function paintPreview(canvas: HTMLCanvasElement, v: ThemeSettings, images: Loade
       }
     } else g.drawImage(img, sx - radius, sy - radius, size, size);
   };
-  stone(stones[0][0], stones[0][1], true, images.black);
-  stone(stones[1][0], stones[1][1], false, images.white);
+  stone(stones[0][0], stones[0][1], true, picture(images.black, images.blackVariants, stones[0]));
+  stone(stones[1][0], stones[1][1], false, picture(images.white, images.whiteVariants, stones[1]));
 }
 
 /** The draft's preview images. An image the theme names that does not read is left out, so the
@@ -728,13 +735,15 @@ async function loadPreviewImages(settings: AppearanceSettings, draft: ThemeSetti
     return img.decode().then(() => img, () => undefined);
   };
   const linen = !unread(urls.background, draft.backgroundImage, DEFAULT_PATHS.background) && programStage(themeSkin(settings.theme) !== "modern", false, urls.background);
-  const [background, board, black, white] = await Promise.all([
+  const [background, board, black, white, blackVariants, whiteVariants] = await Promise.all([
     linen ? stageReady.then(stageWallpaper) : decoded(urls.background, draft.backgroundImage, DEFAULT_PATHS.background),
     decoded(urls.board, draft.boardImage, DEFAULT_PATHS.board),
     decoded(urls.black, draft.blackStoneImage, DEFAULT_PATHS.black),
     decoded(urls.white, draft.whiteStoneImage, DEFAULT_PATHS.white),
+    loadVariants(urls.blackVariants),
+    loadVariants(urls.whiteVariants),
   ]);
-  return { background, board, black, white };
+  return { background, board, black, white, blackVariants, whiteVariants };
 }
 
 // ------------------------------------------------------------------ page

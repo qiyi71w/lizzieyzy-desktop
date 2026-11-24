@@ -1416,12 +1416,13 @@ function drawNextMoveInfo(g: CanvasRenderingContext2D, s: BoardScene, geo: Board
 }
 
 /** drawNextBlunderFirstMove (BoardRenderer.java:3404-3485): while the 下一手 详细 variation shows,
- *  the move itself as a stone of the side to play with its numbers in the opposite colour. */
-function drawNextFirstMove(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardGeom, X: (x: number) => number, Y: (y: number) => number, report: BoardReport) {
+ *  the move itself as a stone of the side to play with its numbers in the opposite colour; `shadow`
+ *  false when its shadow is already drawn. */
+function drawNextFirstMove(g: CanvasRenderingContext2D, s: BoardScene, geo: BoardGeom, X: (x: number) => number, Y: (y: number) => number, report: BoardReport, shadow: boolean) {
   const info = s.overlay.next_move!;
   const x = X(info.point.x), y = Y(info.point.y);
   const black = s.toPlay === "Black";
-  drawStone(g, x, y, geo.stoneRadius, black, info.point.x, info.point.y);
+  drawStone(g, x, y, geo.stoneRadius, black, info.point.x, info.point.y, shadow);
   g.fillStyle = black ? "#fff" : "#000";
   const texts = nextMoveTexts(g, s, geo.square, x, y);
   report.nextMove = { x: info.point.x, y: info.point.y, texts, fill: black ? "#000" : "#fff" };
@@ -1588,13 +1589,14 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
   if (layer && below) drawOwnership(g, layer.ownership, s.stones, cols, layer.style, X, Y, sq, true);
   const preview = s.preview ? playVariation(s.stones, s.toPlay, cols, s.preview, s.preview.length, d.removeDeadInVariation) : null;
   const stones = preview?.stones ?? s.stones;
+  /** The points whose 立体棋子 shadow the stone pass already drew under every stone. */
+  const shadowed = new Set<number>();
   if (layers.stones) {
     const onlyNew = layers.float && !layers.float.edit && !layers.float.setup ? preview?.numbers ?? null : null;
-    const shown: number[] = [];
-    for (let p = 0; p < stones.length; p++) if (stones[p] && (!onlyNew || onlyNew.has(p))) shown.push(p);
+    for (let p = 0; p < stones.length; p++) if (stones[p] && (!onlyNew || onlyNew.has(p))) shadowed.add(p);
     // 立体棋子's soft shadows reach past the stone: all of them go under every stone.
-    if (look.enhanced) for (const p of shown) stoneShadow(g, px(p), py(p), r);
-    for (const p of shown) drawStone(g, px(p), py(p), r, stones[p] === "Black", p % cols, i(p / cols), !look.enhanced);
+    if (look.enhanced) for (const p of shadowed) stoneShadow(g, px(p), py(p), r);
+    for (const p of shadowed) drawStone(g, px(p), py(p), r, stones[p] === "Black", p % cols, i(p / cols), !look.enhanced);
   }
   // drawmoveblock (BoardRenderer.java:1390-1408), composited after the stones and any shown
   // variation (renderImages 1880): a square 46% of the grid wide in the colour to play, on a point
@@ -1653,7 +1655,8 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
     if (ignoredCandidate?.point && d.suggestionOrder && ignoredCandidate.order < 9) orderBadge(g, X(ignoredCandidate.point.x), Y(ignoredCandidate.point.y), ignoredCandidate.order, sq, whiteBadges(s));
     drawCandidateLabels(g, geo, shown, s, branch, hideHoverInfo, hoverIndex >= 0 && preview?.stones[hoverIndex] === "Black", report);
   } else if (next.length) drawNextMoveOutlines(g, next, s.nextColor!, X, Y, r);
-  if (nextHover) drawNextFirstMove(g, s, geo, X, Y, report);
+  // The variation starts with that move, so with 立体棋子 its shadow is already under the stones.
+  if (nextHover) drawNextFirstMove(g, s, geo, X, Y, report, !look.enhanced || !shadowed.has(nextHover.y * cols + nextHover.x));
   // drawTrackingOverlay (BoardRenderer.java:414, 2721-2734): main board, no branch shown.
   if (!branch) drawTracking(g, s, X, Y, sq, r, report);
   // drawFocusStone (BoardRenderer.java:421-422, 1410-1416): a magenta ring of 7/6 the stone

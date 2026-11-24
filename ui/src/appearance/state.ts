@@ -68,7 +68,7 @@ async function loadThemeImages(settings: AppearanceSettings, theme: ThemeSetting
 }
 
 /** The pictures among `urls` that decode, in order. */
-async function loadVariants(urls: readonly string[]): Promise<HTMLImageElement[]> {
+export async function loadVariants(urls: readonly string[]): Promise<HTMLImageElement[]> {
   return (await Promise.all(urls.map(loadImage))).filter((img) => img !== undefined);
 }
 
