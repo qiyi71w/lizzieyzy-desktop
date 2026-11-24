@@ -228,12 +228,14 @@ function hover(point: string | null) {
 /** `hoveredPoint` of the 下一手 详细 point. */
 const NEXT_MOVE = "next";
 
-/** BoardRenderer.mouseOveredMove for a pointer: `near` tells whether an intersection is under it
- *  (within a stone radius + 1 px). The 下一手 详细 point comes first; beyond 最大候选点数 the
- *  candidates exist only with show-nosugg-circle (BoardData.tryToLimitMoves), except a 优先分析此点
- *  point of the foreground engine (BoardData.java:619-628). */
-function hoverNear(v: WorkbenchView, near: (p: Point) => boolean) {
-  if (!hoverAllowed(v)) return hover(null);
+/** BoardRenderer.mouseOveredMove for the intersection under the pointer (`at`, the whole square
+ *  around it as BoardRenderer.convertScreenToCoordinates finds it; LizzieFrame.isMouseOver
+ *  compares points). The 下一手 详细 point comes first; beyond 最大候选点数 the candidates exist
+ *  only with show-nosugg-circle (BoardData.tryToLimitMoves), except a 优先分析此点 point of the
+ *  foreground engine (BoardData.java:619-628). */
+function hoverAt(v: WorkbenchView, at: Point | null) {
+  if (!hoverAllowed(v) || !at) return hover(null);
+  const near = (p: Point) => p.x === at.x && p.y === at.y;
   const doubleEngine = dual !== null;
   const next = nextMoveTarget(v) ?? (doubleEngine ? nextMoveTarget(v, v.secondary?.board ?? null) : null);
   if (next && near(next)) return hover(NEXT_MOVE);
@@ -646,11 +648,7 @@ function bindPointer() {
     if (rectPointer("main", right ? null : point)) schedule();
     if (!boardPointerMoved(point !== null)) return;
     if (right && !dual) return hover(null);
-    const geo = mainGeom(v, right && dual ? dual.right : panels.board);
-    const rect = $("main").getBoundingClientRect();
-    const x = ev.clientX - rect.left - geo.x - geo.margin;
-    const y = ev.clientY - rect.top - geo.y - geo.margin;
-    hoverNear(v, (p) => Math.hypot(x - p.x * geo.square, y - p.y * geo.square) <= geo.stoneRadius + 1);
+    hoverAt(v, gridPoint(v, mainGeom(v, right && dual ? dual.right : panels.board), ev.clientX, ev.clientY));
   };
   $("board").addEventListener("mousemove", (ev) => pointerMoved(ev, false));
   $("board2").addEventListener("mousemove", (ev) => pointerMoved(ev, true));
@@ -890,12 +888,18 @@ function pressScrollbar(ev: MouseEvent, axis: "vertical" | "horizontal", at: num
 function boardPointAt(clientX: number, clientY: number): Point | null {
   const v = state.view;
   if (!panels || !v) return null;
-  const { width, height } = v.document.size;
   const rect = $("main").getBoundingClientRect();
   // 思考模式: the raw board first, then the main board (LizzieFrame.java:9611-9614).
   const second = dual ? dual.right : v.settings.extra_mode === "Thinking" && side ? side.aux : null;
   const onSecond = second && clientX - rect.left >= second.x && clientX - rect.left < second.x + second.w && clientY - rect.top < second.y + second.h;
-  const geo = mainGeom(v, second && (dual ? clientX - rect.left >= dual.right.x : onSecond) ? second : panels.board);
+  return gridPoint(v, mainGeom(v, second && (dual ? clientX - rect.left >= dual.right.x : onSecond) ? second : panels.board), clientX, clientY);
+}
+
+/** BoardRenderer.convertScreenToCoordinates: the intersection of board `geo` whose square holds a
+ *  client point, null off the board. */
+function gridPoint(v: WorkbenchView, geo: BoardGeom, clientX: number, clientY: number): Point | null {
+  const { width, height } = v.document.size;
+  const rect = $("main").getBoundingClientRect();
   const x = clientX - rect.left - geo.x - geo.margin;
   const y = clientY - rect.top - geo.y - geo.margin;
   const cx = Math.floor((x + geo.square / 2) / geo.square);
@@ -1377,7 +1381,7 @@ function independentInput(input: IndependentInput): void {
       if (!input.pressed) pointerAt(point);
       if (rectPointer("independent", point)) schedule();
       if (!boardPointerMoved(point !== null)) return;
-      hoverNear(v, (p) => Math.hypot(input.fx - p.x, input.fy - p.y) <= input.reach);
+      hoverAt(v, point);
       break;
     }
     case "leave":

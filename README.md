@@ -387,7 +387,9 @@ importing the matching LizzieYzy Next settings.
   play with the helper's fixed time and visit limits, 不再提示 is saved; closing the notice leaves
   GMA waiting until the helper arms it again.
 - Analysis: candidates on the board (win rate, visits, score lead), the variation shown when
-  hovering a candidate (captures are worked out by the core), the sub board cycling through
+  the pointer is anywhere in a candidate's square, as in Java, so moving between adjacent
+  candidates goes straight from one variation to the next (captures are worked out by the
+  core), the sub board cycling through
   candidates on click, the candidate tables, the win-rate graph, 统计 and Kata形势 (below), and
   the status and title lines. Candidates use
   Java's wood-backed allocation colours and row layout, including the separate visits font.
