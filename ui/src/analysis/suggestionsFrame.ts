@@ -182,12 +182,18 @@ export function rankWidths(faces: TableFaces, head: string, figures: string[], n
 
 /** A cell's background in both lists: its own colour, or in 占比 a 2 px underline of the share
  *  token under the right-aligned number, growing leftwards from the cell's right padding, over
- *  the row's `tint`. */
-export function cellBackground(c: FrameCell, tint: string): string {
-  if (c.bar === null) return c.bg;
+ *  the row's `tint`. Longhands, not the `background` shorthand: the shorthand would also set an
+ *  inline transparent colour, which hides the stylesheet's row hover behind a 占比 cell. */
+export function cellBackground(c: FrameCell, tint: string): Pick<CSSStyleDeclaration, "backgroundColor" | "backgroundImage" | "backgroundPosition" | "backgroundSize" | "backgroundRepeat"> {
+  if (c.bar === null) return { backgroundColor: c.bg, backgroundImage: "", backgroundPosition: "", backgroundSize: "", backgroundRepeat: "" };
   const share = Math.min(100, Math.max(0, c.bar));
-  const bar = `linear-gradient(to left, var(--ws-share-bar-strong) ${share}%, transparent ${share}%) right 8px bottom 3px / calc(100% - 16px) 2px no-repeat`;
-  return tint ? `${bar}, ${tint}` : bar;
+  return {
+    backgroundColor: tint,
+    backgroundImage: `linear-gradient(to left, var(--ws-share-bar-strong) ${share}%, transparent ${share}%)`,
+    backgroundPosition: "right 8px bottom 3px",
+    backgroundSize: "calc(100% - 16px) 2px",
+    backgroundRepeat: "no-repeat",
+  };
 }
 
 // ------------------------------------------------------------------ the window
@@ -499,7 +505,7 @@ export function bootFrame(): void {
         }
         cell.title = actual ? c.text : "";
         cell.style.color = c.fg;
-        cell.style.background = cellBackground(c, cells[0].bg);
+        Object.assign(cell.style, cellBackground(c, cells[0].bg));
       });
     });
     paintBottom();

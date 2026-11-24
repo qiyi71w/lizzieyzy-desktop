@@ -2753,7 +2753,8 @@ export function paintDualStrip(g: CanvasRenderingContext2D, text: string, x: num
 
 /** One drawing of VariationTree.drawTree (scroll pane) or VariationTreeBig.drawTree (whole tree
  *  in the panel): the deferred drawing, the centre of every node walked (for click hit-testing,
- *  Java's calc pass), the current node's place and lane and the extent of what was drawn. */
+ *  Java's calc pass), the current node's place and lane, the extent of what was drawn and, by row
+ *  top, the node whose move number the row shows. */
 interface TreeWalk {
   ops: ((g: CanvasRenderingContext2D) => void)[];
   hits: Map<string, number>;
@@ -2763,12 +2764,84 @@ interface TreeWalk {
   maxLane: number;
   maxX: number;
   maxY: number;
-  numbers: number;
+  rows: Map<number, number>;
 }
 
-/** Row and lane spacing, node size and the first lane's left edge: Java's 20 px plus room for a
- *  three-digit move number at the Label size left of the trunk. */
+/** Row and lane spacing, node size and the first lane's least left edge (Java's 20, 20, 11 and
+ *  the scroll pane's 20 px plus the room the current node's ring needs). */
 const [TREE_YS, TREE_XS, TREE_DOT, TREE_X0] = [20, 20, 11, 24];
+/** From a row number's right edge to the first lane's left edge: 2 px, the column's 1 px edge
+ *  and the 3 px the current node's ring reaches left of its node. */
+const TREE_NUMBER_GAP = 6;
+
+/** A row number drawn, in panel coordinates (its ink box) for the acceptance report. */
+export interface TreeRowNumber {
+  node: number;
+  text: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  current: boolean;
+}
+
+/** Where the lanes start and where they show from: with 显示分支面板上的手数 the first lane starts
+ *  right of the tree's widest move number (in the current row's 600 weight) and of the column's
+ *  4 px left padding, at `TREE_X0` at least, and the lanes show from `gutter` (where the first
+ *  lane's current ring ends); left of it is the column, which they pass under when they scroll or
+ *  move left. Without the numbers there is no column and the lanes show from the panel's edge. */
+export interface TreeMargin {
+  x0: number;
+  gutter: number;
+}
+
+function treeMargin(g: CanvasRenderingContext2D, nodes: Map<number, TreeNodeView>, numbers: boolean): TreeMargin {
+  if (!numbers) return { x0: TREE_X0, gutter: 0 };
+  let most = 0;
+  for (const n of nodes.values()) if (n.kind === "Black" || n.kind === "White") most = Math.max(most, n.move_number);
+  g.font = `600 ${typeScale().label}px ${panelFont("ui")}`;
+  const x0 = Math.max(TREE_X0, 4 + Math.ceil(tabularWidth(g, String(most))) + TREE_NUMBER_GAP);
+  return { x0, gutter: x0 - 3 };
+}
+
+/** The move numbers of the rows in the column at the panel's left (a row is one move deeper than
+ *  the row above, so all its nodes are the same move; this replaces Java's number beside every
+ *  node, which ran into the next lane's nodes). Each row shows its chosen node's move number,
+ *  right-aligned in tabular figures at the Label size in the secondary text colour, the current
+ *  node's row in the text colour at 600; a row whose chosen node is the root or places stones
+ *  shows none. `top` is how far the drawing is scrolled; rows outside `viewH` are left out.
+ *  While the lanes are moved under the column (`under`) a hairline at its edge sets them off. */
+function paintRowNumbers(g: CanvasRenderingContext2D, walk: TreeWalk, nodes: Map<number, TreeNodeView>, margin: TreeMargin, top: number, viewH: number, under: boolean): TreeRowNumber[] {
+  const p = stagePalette();
+  const size = typeScale().label;
+  const right = margin.x0 - TREE_NUMBER_GAP;
+  const drawn: TreeRowNumber[] = [];
+  if (under) {
+    g.fillStyle = p.line;
+    g.fillRect(margin.gutter - 1, 0, 1, viewH);
+  }
+  g.save();
+  g.beginPath();
+  g.rect(0, 0, margin.gutter - 1, viewH);
+  g.clip();
+  g.textBaseline = "alphabetic";
+  for (const [y, n] of walk.rows) {
+    const node = nodes.get(n)!;
+    const row = y - top;
+    if ((node.kind !== "Black" && node.kind !== "White") || row + TREE_DOT < 0 || row > viewH) continue;
+    const current = y === walk.curY;
+    const text = String(node.move_number);
+    g.font = `${current ? "600 " : ""}${size}px ${panelFont("ui")}`;
+    g.fillStyle = current ? p.text : p.text2;
+    const w = tabularWidth(g, text);
+    const base = row + 5.5 + size * 0.36;
+    const ink = g.measureText(text);
+    fillTabular(g, text, right - w, base);
+    drawn.push({ node: n, text, x: right - w, y: base - ink.actualBoundingBoxAscent, w, h: ink.actualBoundingBoxAscent + ink.actualBoundingBoxDescent, current });
+  }
+  g.restore();
+  return drawn;
+}
 
 /** VariationTree.drawTree / VariationTreeBig.drawTree from `start` at (`posx`, `posy`), Java's lane
  *  allocation. Nodes left of `minX` or above the top are not drawn. `fit` is the whole-tree view:
@@ -2781,7 +2854,6 @@ function walkTree(
   start0: number,
   current: number,
   line: Set<number>,
-  numbers: boolean,
   nodeColors: Map<number, number[]>,
   posx: number,
   posy0: number,
@@ -2803,8 +2875,6 @@ function walkTree(
     return level >= 0 ? p.treeNodes[level] : cssColor(c);
   };
   const lineColor = (n: number) => (line.has(n) ? p.treeLine : p.treeLineOff);
-  const labelSize = typeScale().label;
-  const labelFont = `${labelSize}px ${panelFont("ui")}`;
   const node = (n: number) => nodes.get(n)!;
   const kids = (n: number) => node(n).children;
   const moveNo = (n: number) => {
@@ -2812,7 +2882,7 @@ function walkTree(
     for (let p = node(n).parent; p !== null; p = node(p).parent) d++;
     return d;
   };
-  const walk: TreeWalk = { ops: [], hits: new Map(), curX: 0, curY: 0, curLane: 0, maxLane: 0, maxX: w, maxY: h, numbers: 0 };
+  const walk: TreeWalk = { ops: [], hits: new Map(), curX: 0, curY: 0, curLane: 0, maxLane: 0, maxX: w, maxY: h, rows: new Map() };
   const { ops, hits } = walk;
   const shown = (x: number, y: number) => x > minX && y > 0;
   // LizzieFrame varTreeMaxX / varTreeMaxY: 60 px beyond the farthest node drawn
@@ -2829,25 +2899,6 @@ function walkTree(
       g.lineTo(x2 + 0.5, y2 + 0.5);
       g.stroke();
     });
-  /** The move number in secondary text at the panels' Label size: `left` ends clear of a trunk
-   *  node's current ring, level with its centre; `above` is centred over a branch's first node. */
-  const label = (n: number, x: number, y: number, place: "left" | "above") => {
-    const k = node(n).number;
-    if (!numbers || k === 0) return;
-    walk.numbers++;
-    ops.push((g) => {
-      g.font = labelFont;
-      g.fillStyle = p.text2;
-      g.textBaseline = "alphabetic";
-      if (place === "left") {
-        g.textAlign = "right";
-        g.fillText(`${k}`, x - 5, y + 5.5 + labelSize * 0.36);
-      } else {
-        g.textAlign = "center";
-        g.fillText(`${k}`, x + 5.5, y - 5);
-      }
-    });
-  };
   const dot = (n: number, x: number, y: number) => {
     const dim = !line.has(n);
     const commented = look.showCommentNode && node(n).has_comment;
@@ -2893,9 +2944,17 @@ function walkTree(
     });
     if (!fit) grow(x, y);
   };
+  // A row's number comes from its node on the current line, else from its leftmost node.
+  const picked = new Map<number, { lane: number; on: boolean }>();
   const visit = (n: number, x: number, y: number, lane: number) => {
     hits.set(`${x + 5},${y + 5}`, n);
     if (n === current) [walk.curX, walk.curY, walk.curLane] = [x, y, lane];
+    const on = line.has(n);
+    const was = picked.get(y);
+    if (!was || (on && !was.on) || (on === was.on && lane < was.lane)) {
+      picked.set(y, { lane, on });
+      walk.rows.set(y, n);
+    }
   };
   const lanes: number[] = [];
   const drawTree = (posy: number, startLane: number, start: number, variation: number) => {
@@ -2920,7 +2979,6 @@ function walkTree(
     if (!fit || shown(x, posy)) {
       if (node(start).parent !== null) {
         dot(start, x, posy);
-        label(start, x, posy, "above");
       } else {
         // root: square, an accent centre while it is the displayed node
         ops.push((g) => {
@@ -2945,7 +3003,6 @@ function walkTree(
       if (!shown(x, posy)) continue;
       dot(n, x, posy);
       segment(x + 5, posy - 1, x + 5, posy - YS + 11, lineColor(n));
-      label(n, x, posy, "left");
     }
     while (n !== start) {
       n = node(n).parent!;
@@ -2958,17 +3015,18 @@ function walkTree(
 }
 
 /** LizzieFrame.createVarTreeImage + VariationTree.draw/drawTree (VariationTree.java:44-402): the
- * whole tree laid out from the root at (20, 20) with Java's lane allocation, shown through the scroll
- * pane that renderVarTree positions on the current node (LizzieFrame.java:13942-13975) unless the
- * user scrolled it (`scroll`). Nodes off the current line are dimmed; with show-comment-node-color
- * commented nodes carry a dot of the comment-node colour, and every node is filled with the 错误节点
- * colour the core projects for it (`nodeColors`, LizzieFrame.getBlunderNodeColor 11465-11536 with
- * Board.updateIsBest; VariationTree.java:136-158), hollow without one;
- * the current node carries an ink ring; 显示分支面板上的手数 (`numbers`)
- * writes each node's core display number beside it (VariationTree.java:159-176, 285-304).
- * 设置最大宽度 (`maxWidth`, setTreeMaxLimit 13894-13908): a layout that wide is cut off there and
- * reported `tooWide` (Board.setBigBranch). Returns node centres (panel coordinates) for click
- * hit-testing and the viewport. */
+ * whole tree laid out from the root at (x0, 20) with Java's lane allocation, shown through the
+ * scroll pane that renderVarTree positions on the current node (LizzieFrame.java:13942-13975)
+ * unless the user scrolled it (`scroll`). Nodes off the current line are dimmed; with
+ * show-comment-node-color commented nodes carry a dot of the comment-node colour, and every node
+ * is filled with the 错误节点 colour the core projects for it (`nodeColors`,
+ * LizzieFrame.getBlunderNodeColor 11465-11536 with Board.updateIsBest; VariationTree.java:136-158),
+ * hollow without one; the current node carries an ink ring; 显示分支面板上的手数 (`numbers`)
+ * writes each row's move number in the column at the panel's left (paintRowNumbers), which stays
+ * there as the tree scrolls sideways. 设置最大宽度 (`maxWidth`, setTreeMaxLimit 13894-13908): a
+ * layout that wide is cut off there and reported `tooWide` (Board.setBigBranch). Returns node
+ * centres (panel coordinates) for click hit-testing, nodes under the number column left out, the
+ * viewport and the row numbers drawn. */
 export function paintTree(
   g: CanvasRenderingContext2D,
   r: Rect,
@@ -2980,16 +3038,17 @@ export function paintTree(
   numbers: boolean,
   nodeColors: Map<number, number[]>,
   maxWidth: number,
-): { hits: Map<string, number>; viewport: TreeViewport; numbers: number; tooWide: boolean } {
+): { hits: Map<string, number>; viewport: TreeViewport; margin: TreeMargin; rowNumbers: TreeRowNumber[]; tooWide: boolean } {
   const { w, h } = r;
   const p = stagePalette();
-  let walk = walkTree(nodes, root, current, line, numbers, nodeColors, TREE_X0, 20, 0, Infinity, false, w, h);
+  const margin = treeMargin(g, nodes, numbers);
+  let walk = walkTree(nodes, root, current, line, nodeColors, margin.x0, 20, 0, Infinity, false, w, h);
   const tooWide = walk.maxX >= maxWidth;
   const maxX = tooWide ? maxWidth : walk.maxX;
   // VariationTree.draw: with the current lane taken as 0 (getCurLane from the root), the tree
   // moves left only when the cut width is under the first lane's end.
-  const shift = Math.max(0, TREE_XS + TREE_X0 + TREE_DOT - maxX);
-  if (shift > 0) walk = walkTree(nodes, root, current, line, numbers, nodeColors, TREE_X0 - shift, 20, 0, Infinity, false, w, h);
+  const shift = Math.max(0, TREE_XS + margin.x0 + TREE_DOT - maxX);
+  if (shift > 0) walk = walkTree(nodes, root, current, line, nodeColors, margin.x0 - shift, 20, 0, Infinity, false, w, h);
   const { hits, ops, curX, curY, maxY } = walk;
   // JScrollPane with AS_NEEDED bars of DemoScrollBarUI width 9; the horizontal bar is off when the
   // pane is under 100 px high (LizzieFrame.java:13976-13983).
@@ -2998,24 +3057,29 @@ export function paintTree(
   const vbar = maxY > viewH;
   const viewW = w - (vbar ? SCROLLBAR : 0);
   const clampTop = (v: number) => Math.max(0, Math.min(i(v), maxY - viewH));
-  const clampLeft = (v: number) => Math.max(0, Math.min(i(v), maxX - viewW));
+  // A tree no wider than the panel (the image is the panel's width, every node 60 px short of its
+  // edge) never scrolls sideways: Java's centring would move it by the vertical bar's width with no
+  // horizontal bar to move it back, which here would put the first lane under the number column.
+  const clampLeft = (v: number) => (maxX <= w ? 0 : Math.max(0, Math.min(i(v), maxX - viewW)));
   // renderVarTree: the current node centred in each direction; the root keeps the origin.
   const atRoot = nodes.get(current)!.parent === null;
   const top = clampTop(scroll ? scroll.top : curY <= viewH / 2 || atRoot ? 0 : curY - viewH / 2);
   const left = clampLeft(scroll ? scroll.left : curX <= viewW / 2 || atRoot ? 0 : curX - viewW / 2);
   // The cut image is maxX wide: nothing beyond it shows.
   const shownW = Math.min(viewW, maxX - left);
+  // The lanes pass under the number column.
   g.save();
   g.beginPath();
-  g.rect(0, 0, shownW, viewH);
+  g.rect(margin.gutter, 0, shownW - margin.gutter, viewH);
   g.clip();
   g.translate(-left, -top);
   ops.forEach((op) => op(g));
   g.restore();
+  const rowNumbers = numbers ? paintRowNumbers(g, walk, nodes, margin, top, viewH, shift + left > 0) : [];
   const visible = new Map<string, number>();
   for (const [k, id] of hits) {
     const [x, y] = k.split(",").map(Number);
-    if (y - top >= 0 && y - top < viewH && x - left >= 0 && x - left < shownW) visible.set(`${x - left},${y - top}`, id);
+    if (y - top >= 0 && y - top < viewH && x - left >= margin.gutter && x - left < shownW) visible.set(`${x - left},${y - top}`, id);
   }
   const vertical = vbar ? scrollbar(viewH, maxY, top) : null;
   const horizontal = hbar ? scrollbar(viewW, maxX, left) : null;
@@ -3032,14 +3096,15 @@ export function paintTree(
     g.roundRect(ARROW + horizontal.thumbStart, h - SCROLLBAR + 2, horizontal.thumb, SCROLLBAR - 4, (SCROLLBAR - 4) / 2);
     g.fill();
   }
-  return { hits: visible, viewport: { top, left, maxX, maxY, viewW, viewH, vertical, horizontal }, numbers: walk.numbers, tooWide };
+  return { hits: visible, viewport: { top, left, maxX, maxY, viewW, viewH, vertical, horizontal }, margin, rowNumbers, tooWide };
 }
 
 /** LizzieFrame.createVarTreeImage's simple view (shouldShowSimpleVariation) drawn by
  *  VariationTreeBig.draw (VariationTreeBig.java:320-367): no scroll bars; the current node sits
  *  in the middle row, the drawing starts at the ancestor near the top of the panel and stops at its
  *  bottom, and it moves left so that the current lane (and as much of the lanes to its right as
- *  fits) shows. Nodes are drawn as in the scroll pane; returns their centres for clicks. */
+ *  fits) shows. Nodes are drawn as in the scroll pane, the row numbers in the same column at the
+ *  panel's left; returns the node centres for clicks. */
 export function paintTreeFit(
   g: CanvasRenderingContext2D,
   r: Rect,
@@ -3048,10 +3113,11 @@ export function paintTreeFit(
   line: Set<number>,
   numbers: boolean,
   nodeColors: Map<number, number[]>,
-): { hits: Map<string, number>; viewport: TreeViewport; numbers: number } {
+): { hits: Map<string, number>; viewport: TreeViewport; margin: TreeMargin; rowNumbers: TreeRowNumber[] } {
   const { w, h } = r;
   const viewport: TreeViewport = { top: 0, left: 0, maxX: w, maxY: h, viewW: w, viewH: h, vertical: null, horizontal: null };
-  if (w <= 0 || h <= 0) return { hits: new Map(), viewport, numbers: 0 };
+  const margin = treeMargin(g, nodes, numbers);
+  if (w <= 0 || h <= 0) return { hits: new Map(), viewport, margin, rowNumbers: [] };
   const node = (n: number) => nodes.get(n)!;
   const depth = (n: number) => {
     let d = 0;
@@ -3071,8 +3137,8 @@ export function paintTreeFit(
     posy -= TREE_YS;
   }
   // The dummy drawing finds the current lane and the widest lane.
-  const { curLane: lane, maxLane } = walkTree(nodes, start, current, line, numbers, nodeColors, 0, posy, 0, h, true, w, h);
-  const x0 = TREE_X0;
+  const { curLane: lane, maxLane } = walkTree(nodes, start, current, line, nodeColors, 0, posy, 0, h, true, w, h);
+  const x0 = margin.x0;
   let startx = x0;
   const over = (lane + 1) * TREE_XS + x0 + TREE_DOT - w;
   if (over > 0) startx -= over;
@@ -3081,19 +3147,20 @@ export function paintTreeFit(
     if ((maxLane - lane) * TREE_XS < half) startx -= (maxLane - lane) * TREE_XS;
     else if (lane * TREE_XS + x0 + TREE_DOT > w) startx -= half;
   }
-  const walk = walkTree(nodes, start, current, line, numbers, nodeColors, startx, posy, 0, h, true, w, h);
+  const walk = walkTree(nodes, start, current, line, nodeColors, startx, posy, 0, h, true, w, h);
   g.save();
   g.beginPath();
-  g.rect(0, 0, w, h);
+  g.rect(margin.gutter, 0, w - margin.gutter, h);
   g.clip();
   walk.ops.forEach((op) => op(g));
   g.restore();
+  const rowNumbers = numbers ? paintRowNumbers(g, walk, nodes, margin, 0, h, startx < x0) : [];
   const hits = new Map<string, number>();
   for (const [k, id] of walk.hits) {
     const [x, y] = k.split(",").map(Number);
-    if (x >= 0 && x < w && y >= 0 && y < h) hits.set(k, id);
+    if (x >= margin.gutter && x < w && y >= 0 && y < h) hits.set(k, id);
   }
-  return { hits, viewport, numbers: walk.numbers };
+  return { hits, viewport, margin, rowNumbers };
 }
 
 /** Scroll bar width and arrow button length of DemoScrollBarUI. */

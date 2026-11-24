@@ -1120,8 +1120,6 @@ pub struct TreeNodeView {
     pub kind: TreeNodeKind,
     pub pass: bool,
     pub move_number: u32,
-    /// Display numbering, including branch restarts, SGF MN and passes; 0 for no number.
-    pub number: u32,
     pub has_comment: bool,
 }
 

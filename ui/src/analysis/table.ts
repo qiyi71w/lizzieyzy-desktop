@@ -674,7 +674,7 @@ export function renderMainTable(host: HTMLElement, v: WorkbenchView): void {
       cell.title = r.actual ? c.text : "";
       cell.style.color = c.fg;
       // 占比: its share underline over the row's own tint (cellBackground).
-      cell.style.background = cellBackground(c, cells[0].bg);
+      Object.assign(cell.style, cellBackground(c, cells[0].bg));
     });
   });
 }

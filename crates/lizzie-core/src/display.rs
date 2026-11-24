@@ -107,43 +107,6 @@ pub fn numbering(rec: &GameRecord, path: &[NodeId]) -> Numbering {
     Numbering { list, counts }
 }
 
-/// Variation-tree numbers (`VariationTree.java:285-298`): the main trunk (lane 0) shows each
-/// move's real number; other nodes `moveMNNumber`, which shares the board's branch/MN/pass rules,
-/// without replaying a board position for every node. Setup nodes have no move number.
-pub fn tree_numbers(rec: &GameRecord) -> Vec<u32> {
-    let mut numbers = vec![0; rec.node_count()];
-    let mut trunk = vec![false; rec.node_count()];
-    let mut at = Some(crate::record::ROOT);
-    while let Some(id) = at {
-        trunk[id as usize] = true;
-        at = rec.main_child(id);
-    }
-    let mut pending = vec![(crate::record::ROOT, None)];
-    while let Some((id, parent_count)) = pending.pop() {
-        let node = rec.node(id);
-        let mut count = match node.kind {
-            NodeKind::Move { .. } | NodeKind::Pass { .. } => {
-                if node.parent == Some(crate::record::ROOT) { Some(node.move_number) }
-                else { parent_count.map(|n: u32| n.saturating_add(1)) }
-            }
-            NodeKind::Snapshot | NodeKind::DummyPass => parent_count,
-        };
-        if let Some(parent) = node.parent {
-            let first = rec.node(parent).children.iter().copied()
-                .find(|&c| rec.node(c).kind != NodeKind::DummyPass);
-            if node.branch_numbers_from_one && first != Some(id) {
-                count = Some(if node.kind == NodeKind::DummyPass { 0 } else { 1 });
-            }
-            count = sgf_mn(rec, id).or(count);
-        }
-        if matches!(node.kind, NodeKind::Move { .. } | NodeKind::Pass { .. }) {
-            numbers[id as usize] = if trunk[id as usize] { node.move_number } else { count.unwrap_or(node.move_number) };
-        }
-        pending.extend(node.children.iter().map(|&child| (child, count)));
-    }
-    numbers
-}
-
 /// Captures made by a hover variation, under the current preview rules (0 = no length limit).
 pub fn pv_captures(base: &Position, to_play: Stone, pv: &[Option<Point>], limit: u32, remove_dead: bool) -> Vec<Vec<Point>> {
     if !remove_dead {

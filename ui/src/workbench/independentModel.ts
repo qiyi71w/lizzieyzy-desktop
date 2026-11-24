@@ -62,10 +62,9 @@ export interface KeyInit {
 
 export type IndependentInput = { board: IndependentBoard } & (
   | { type: "ready" }
-  /** The pointer over the main board, in intersection units from the top-left intersection, and
-   *  the stone radius + 1 px in the same units (BoardRenderer.mouseOveredMove's reach);
+  /** The pointer over the main board, in intersection units from the top-left intersection;
    *  `pressed` while a button is held (mouseDragged). */
-  | { type: "hover"; fx: number; fy: number; reach: number; pressed: boolean }
+  | { type: "hover"; fx: number; fy: number; pressed: boolean }
   | { type: "enter" }
   | { type: "leave" }
   /** `sx`, `sy`: the pressed screen point (CSS px), where a popup opens. */

@@ -15,12 +15,12 @@ import { stagePalette } from "../design/stage";
 import { skin } from "../design/theme";
 
 registerProduct({
-  ZhCn: { graphNoAnalysis: "尚无分析数据，开始分析后显示曲线", graphAnalysing: "正在分析，结果会显示在这里", graphMove: "第{0}手", graphNamed: "{0}（{1}）" },
-  ZhTw: { graphNoAnalysis: "尚無分析資料，開始分析後顯示曲線", graphAnalysing: "正在分析，結果會顯示在這裡", graphMove: "第{0}手", graphNamed: "{0}（{1}）" },
-  EnUs: { graphNoAnalysis: "No analysis yet. Start analysis to draw the curve.", graphAnalysing: "Analysing; results appear here.", graphMove: "Move {0}", graphNamed: "{0} ({1})" },
-  JaJp: { graphNoAnalysis: "まだ分析データがありません。分析を開始すると曲線を表示します", graphAnalysing: "分析中です。結果はここに表示されます", graphMove: "{0}手目", graphNamed: "{0}（{1}）" },
-  KoKr: { graphNoAnalysis: "아직 분석 데이터가 없습니다. 분석을 시작하면 곡선이 표시됩니다", graphAnalysing: "분석 중입니다. 결과가 여기에 표시됩니다", graphMove: "{0}수", graphNamed: "{0} ({1})" },
-  ThTh: { graphNoAnalysis: "ยังไม่มีข้อมูลการวิเคราะห์ เริ่มวิเคราะห์เพื่อแสดงเส้นกราฟ", graphAnalysing: "กำลังวิเคราะห์ ผลจะแสดงที่นี่", graphMove: "ตาที่ {0}", graphNamed: "{0} ({1})" },
+  ZhCn: { graphMove: "第{0}手", graphNamed: "{0}（{1}）" },
+  ZhTw: { graphMove: "第{0}手", graphNamed: "{0}（{1}）" },
+  EnUs: { graphMove: "Move {0}", graphNamed: "{0} ({1})" },
+  JaJp: { graphMove: "{0}手目", graphNamed: "{0}（{1}）" },
+  KoKr: { graphMove: "{0}수", graphNamed: "{0} ({1})" },
+  ThTh: { graphMove: "ตาที่ {0}", graphNamed: "{0} ({1})" },
 });
 
 const i = Math.trunc;
@@ -34,9 +34,7 @@ export interface GraphScene {
   display: DisplaySettings;
   /** WinrateGraph.mouseOverNode, only while 显示鼠标悬停信息 is on. */
   hover: number | null;
-  /** The view's engine is analysing: the empty graph says results are on their way. */
-  analysing: boolean;
-  /** WinrateGraph suppressGraphContent (play mode): no content and no empty-state caption. */
+  /** WinrateGraph suppressGraphContent (play mode): no content. */
   suppressed: boolean;
   /** An engine game on the board (Board.isPkBoard, EngineGamePresentation.current()): the engine
    *  playing each side, whether a game is being played (EngineGameSnapshot.playing) and the side
@@ -133,8 +131,6 @@ export interface GraphReport {
   legend: string[];
   /** The move numbers on the axis strip. */
   xLabels: string[];
-  /** The empty graph's caption, null while anything is plotted or the graph is suppressed. */
-  emptyText: string | null;
   /** The engine-game graph, null for the single-engine graph. */
   engineGame: EngineGraphReport | null;
 }
@@ -508,7 +504,6 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
     hoverScoreText: null,
     legend: [],
     xLabels: [],
-    emptyText: null,
     engineGame: eg
       ? { black: eg.black, white: eg.white, blackPieces: 0, whitePieces: 0, scoreSide: scoreRenderable ? engineScoreSide : null, blackText: null, whiteText: null, hoverBlackText: null, hoverWhiteText: null }
       : null,
@@ -582,32 +577,9 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
       });
     });
   };
-  /** The empty graph's caption on the chip ground, centred on the midline: nothing is plotted.
-   *  Left out where one line of it does not fit. */
-  const caption = () => {
-    if (report.pointCount || report.scorePointCount) return;
-    const text = product(s.analysing ? "graphAnalysing" : "graphNoAnalysis");
-    g.font = labelFont;
-    const w = stringWidth(g, text) + 2 * CHIP_PAD;
-    const h = labelH + 6;
-    if (w > W0 - 2 * INSET || h > height) return;
-    report.emptyText = text;
-    const x = i((W0 - w) / 2);
-    const y = baselineY - i(h / 2);
-    overlay.push(() => {
-      g.fillStyle = p.graphChip;
-      g.beginPath();
-      g.roundRect(x, y, w, h, CHIP_RADIUS);
-      g.fill();
-      g.font = labelFont;
-      g.fillStyle = p.graphLabel;
-      g.fillText(text, x + CHIP_PAD, y + 3 + lm.ascent);
-    });
-  };
-  /** Nothing to plot along: the grid and scales, and the caption. */
+  /** Nothing to plot along: the grid and scales. */
   const bare = () => {
     scaleLabels(scoreRenderable ? d.initialMaxScoreLead : null);
-    caption();
     flush();
     return { report, hits: null };
   };
@@ -1275,7 +1247,6 @@ export function paintGraph(g: CanvasRenderingContext2D, r: Rect, s: GraphScene):
       });
     });
   }
-  caption();
   flush();
 
   // buildGraphNavigationTargets over buildGraphPath: the current line, then the main trunk after

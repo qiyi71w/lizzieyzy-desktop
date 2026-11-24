@@ -387,7 +387,9 @@ importing the matching LizzieYzy Next settings.
   play with the helper's fixed time and visit limits, 不再提示 is saved; closing the notice leaves
   GMA waiting until the helper arms it again.
 - Analysis: candidates on the board (win rate, visits, score lead), the variation shown when
-  hovering a candidate (captures are worked out by the core), the sub board cycling through
+  the pointer is anywhere in a candidate's square, as in Java, so moving between adjacent
+  candidates goes straight from one variation to the next (captures are worked out by the
+  core), the sub board cycling through
   candidates on click, the candidate tables, the win-rate graph, 统计 and Kata形势 (below), and
   the status and title lines. Candidates use
   Java's wood-backed allocation colours and row layout, including the separate visits font.
@@ -522,11 +524,11 @@ importing the matching LizzieYzy Next settings.
     Gaps without analysis are bridged by a dashed line that is never filled, an analysed move
     with no analysed neighbour shows as a dot, and a branch shows the main line dashed from the
     fork. The current move carries its markers and a readout of its win rate and score lead;
-    hovering shows the hovered move's number and values. A graph without analysis says so (or
-    that analysis is running) instead of staying blank, and a large graph sets its text a step
-    up. Click or drag navigates (a click on a branch may jump to the main line through the
-    fork), the wheel steps through moves, and a right click clears a selected table row or
-    steps back.
+    hovering shows the hovered move's number and values. A graph without analysis, whether or
+    not analysis is running, shows its grid and scales with no caption, as in Java, and a large
+    graph sets its text a step up. Click or drag navigates (a click on a branch may jump to the
+    main line through the fork), the wheel steps through moves, and a right click clears a
+    selected table row or steps back.
     During an 引擎对局, and afterwards on that board, on a saved engine game (its root `DZ` tag)
     and on a watched 跑谱贡献 rating game, the graph is Java's engine-game graph: each engine's
     win rate as its own unfilled curve (Black's engine in the win-rate colour, White's in the
@@ -554,7 +556,8 @@ importing the matching LizzieYzy Next settings.
     at their content's width (序号 only as wide as its labels), the actual move's row shows its
     rank with a small 实战 under it and each change in small type before its value (Java's
     "15(实战)" / "↓-4.6(50.4)" stay in the row's tooltip), and a narrow list puts the change
-    above the value instead of cutting it.
+    above the value instead of cutting it. The pointer's row is shaded across every column,
+    占比 included (the actual move's row keeps its loss-level colour).
     独立选点列表 (`U`) opens it in its own window with 7 or 9 columns (sortable by header,
     also from the keyboard: `Tab` to the header, `←`/`→` to a column, `Enter` or `Space`),
     列表 / 柱状图 / 当前手 / 鼠标悬停, 总计算量 / 最高计算量 / 集中度, 总在最前 (`Q`) and a
@@ -613,8 +616,13 @@ importing the matching LizzieYzy Next settings.
     asked for.
   - 小棋盘设置: the sub board shows its own candidate's variation (click / right click / wheel,
     paused while the pointer rests on it with 小棋盘不刷新), the first-instinct (prior) or
-    after-calculation (visits) heat map, or the stones only. The variation tree shows each
-    node's move number (分支面板上的手数) as the board numbers it.
+    after-calculation (visits) heat map, or the stones only.
+  - 分支面板上的手数 writes the variation tree's move numbers in a column at the panel's left,
+    one per row (every node of a row is the same move), the current node's row in bold; the
+    column stays in place when the tree scrolls sideways or the whole-tree layout moves left.
+    A change from Java, whose number beside every node ran into the next branch's nodes: the
+    numbers count the record's moves, without 分支内从1开始 or an SGF `MN` renumbering (the
+    board still follows them).
   - Two changes from Java: a pass inside a branch keeps the branch's count, and setup stones
     right after the root no longer start the count at 2; 纯网络形势 > 小方块 has its own effect
     (Java read the KataGo-estimate setting there); 设置自动播放's 落子最佳选点 shows its own setting

@@ -1502,7 +1502,6 @@ fn step_sound(rec: &GameRecord, node: NodeId) -> StoneSound {
 
 fn tree_view(doc: &Document) -> TreeView {
     let rec = &doc.record;
-    let numbers = crate::display::tree_numbers(rec);
     let nodes = rec
         .nodes()
         .filter(|(_, n)| n.kind != NodeKind::DummyPass)
@@ -1526,7 +1525,6 @@ fn tree_view(doc: &Document) -> TreeView {
             },
             pass: matches!(n.kind, NodeKind::Pass { .. }),
             move_number: n.move_number,
-            number: numbers[id as usize],
             has_comment: !n.comment.is_empty(),
         })
         .collect();

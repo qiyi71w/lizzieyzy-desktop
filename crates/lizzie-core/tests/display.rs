@@ -407,40 +407,6 @@ fn next_move_information_compares_the_record_move_with_the_best_candidate() {
 }
 
 #[test]
-fn tree_numbers_follow_branch_restarts_mn_and_passes() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut wb = workbench(dir.path());
-    open(&mut wb, "(;SZ[9];B[aa];W[bb](;B[cc])(;B[dd]MN[8];W[];B[ee]))");
-    let rec = &wb.document().record;
-    let ids = [ROOT, child(rec, &[0]), child(rec, &[0, 0]), child(rec, &[0, 0, 0]),
-        child(rec, &[0, 0, 1]), child(rec, &[0, 0, 1, 0]), child(rec, &[0, 0, 1, 0, 0])];
-    let tree = wb.view(true).tree.unwrap();
-    for (id, number) in ids.into_iter().zip([0, 1, 2, 3, 8, 9, 10]) {
-        assert_eq!(tree.nodes.iter().find(|n| n.id == id).unwrap().number, number);
-    }
-    open(&mut wb, "(;SZ[9];B[aa];W[bb](;B[cc])(;B[dd];W[];B[ee]))");
-    let rec = &wb.document().record;
-    let ids = [child(rec, &[0, 0, 1]), child(rec, &[0, 0, 1, 0]), child(rec, &[0, 0, 1, 0, 0])];
-    let tree = wb.view(true).tree.unwrap();
-    for (id, number) in ids.into_iter().zip([1, 2, 3]) {
-        assert_eq!(tree.nodes.iter().find(|n| n.id == id).unwrap().number, number);
-    }
-    display(&mut wb, |s| s.branch_numbers_from_one = false);
-    open(&mut wb, "(;SZ[9];B[aa];W[bb](;B[cc])(;B[dd];W[];B[ee]))");
-    let rec = &wb.document().record;
-    let id = child(rec, &[0, 0, 1, 0, 0]);
-    assert_eq!(wb.view(true).tree.unwrap().nodes.iter().find(|n| n.id == id).unwrap().number, 5);
-    // The main trunk shows the real move numbers, an SGF `MN` notwithstanding (lane 0).
-    open(&mut wb, "(;SZ[9];B[aa];W[bb]MN[10];B[cc])");
-    let rec = &wb.document().record;
-    let ids = [child(rec, &[0]), child(rec, &[0, 0]), child(rec, &[0, 0, 0])];
-    let tree = wb.view(true).tree.unwrap();
-    for (id, number) in ids.into_iter().zip([1, 2, 3]) {
-        assert_eq!(tree.nodes.iter().find(|n| n.id == id).unwrap().number, number);
-    }
-}
-
-#[test]
 fn next_move_hover_includes_the_played_move_then_the_reply_pv_and_captures() {
     let rec = sgf::read("(;SZ[9]PL[B]AB[ba]AW[aa];B[ab])").unwrap();
     let next = child(&rec, &[0]);
