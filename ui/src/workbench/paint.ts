@@ -359,11 +359,16 @@ function boardFill(g: CanvasRenderingContext2D, x: number, y: number, w: number,
 
 /** jhlabs GaussianFilter(radius) on an opaque region: makeKernel (sigma = radius / 3, taps beyond
  * the radius zeroed, normalised), then two convolveAndTranspose passes with CLAMP_EDGES, each
- * rounding to (int)(v + 0.5). Canvas `filter` is not used: WebKitGTK ignores it. */
-function blurRegion(g: CanvasRenderingContext2D, r: Rect, radius: number) {
-  const dpr = window.devicePixelRatio || 1;
-  const rad = radius * dpr;
-  const [x, y, w, h] = [Math.round(r.x * dpr), Math.round(r.y * dpr), Math.round(r.w * dpr), Math.round(r.h * dpr)];
+ * rounding to (int)(v + 0.5). Canvas `filter` is not used: WebKitGTK ignores it. The kernel works
+ * in device pixels. */
+interface Kernel {
+  rad: number;
+  reach: number;
+  weights: number[];
+}
+
+function blurKernel(radius: number): Kernel {
+  const rad = radius * (window.devicePixelRatio || 1);
   const reach = Math.ceil(rad);
   const sigma = rad / 3;
   const kernel = Array.from({ length: reach * 2 + 1 }, (_, k) => {
@@ -371,7 +376,92 @@ function blurRegion(g: CanvasRenderingContext2D, r: Rect, radius: number) {
     return d > rad * rad ? 0 : Math.exp(-d / (2 * sigma * sigma)) / Math.sqrt(2 * Math.PI * sigma);
   });
   const total = kernel.reduce((a, b) => a + b, 0);
-  const weights = kernel.map((v) => v / total);
+  return { rad, reach, weights: kernel.map((v) => v / total) };
+}
+
+/** A blurred region of the stage in device pixels: its rectangle, its kernel and its pixels. */
+interface Frosted {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  k: Kernel;
+  img: ImageData;
+}
+
+/** The regions a static background blurred, by rectangle and kernel (`frostKey`). */
+export type FrostRegions = Map<string, Frosted>;
+
+const frostKey = (x: number, y: number, w: number, h: number, k: Kernel) => `${x},${y},${w},${h},${k.rad}`;
+
+/** Column `X` of the region [x, x + w) x [y, y + h) blurred as blurRegion blurs it (the same sums
+ *  in the same order): the horizontal pass, clamped to the region's columns, then the vertical
+ *  one, clamped to its rows, as RGB per row. `src` holds the unblurred pixels with its top-left
+ *  pixel at (sx, sy). A column at least `reach` from both sides of the region does not depend on
+ *  where they are. */
+function frostColumn(src: ImageData, sx: number, sy: number, x: number, y: number, w: number, h: number, k: Kernel, X: number): Uint8ClampedArray {
+  const { reach, weights } = k;
+  const px = src.data;
+  const across = new Uint8ClampedArray(h * 3);
+  for (let l = 0; l < h; l++) {
+    let r0 = 0;
+    let g0 = 0;
+    let b0 = 0;
+    for (let s = -reach; s <= reach; s++) {
+      const wt = weights[s + reach];
+      if (!wt) continue;
+      const o = ((y + l - sy) * src.width + Math.min(x + w - 1, Math.max(x, X + s)) - sx) * 4;
+      r0 += px[o] * wt;
+      g0 += px[o + 1] * wt;
+      b0 += px[o + 2] * wt;
+    }
+    across[l * 3] = i(r0 + 0.5);
+    across[l * 3 + 1] = i(g0 + 0.5);
+    across[l * 3 + 2] = i(b0 + 0.5);
+  }
+  const out = new Uint8ClampedArray(h * 3);
+  for (let a = 0; a < h; a++) {
+    let r0 = 0;
+    let g0 = 0;
+    let b0 = 0;
+    for (let s = -reach; s <= reach; s++) {
+      const wt = weights[s + reach];
+      if (!wt) continue;
+      const o = Math.min(h - 1, Math.max(0, a + s)) * 3;
+      r0 += across[o] * wt;
+      g0 += across[o + 1] * wt;
+      b0 += across[o + 2] * wt;
+    }
+    out[a * 3] = i(r0 + 0.5);
+    out[a * 3 + 1] = i(g0 + 0.5);
+    out[a * 3 + 2] = i(b0 + 0.5);
+  }
+  return out;
+}
+
+/** Writes `column` (RGB per row) as column `a` of the opaque image `img`. */
+function putColumn(img: ImageData, a: number, column: Uint8ClampedArray) {
+  const d = img.data;
+  for (let l = 0; l < img.height; l++) {
+    const o = (l * img.width + a) * 4;
+    d[o] = column[l * 3];
+    d[o + 1] = column[l * 3 + 1];
+    d[o + 2] = column[l * 3 + 2];
+    d[o + 3] = 255;
+  }
+}
+
+/** The device rectangle of a stage rectangle. */
+function deviceRect(r: Rect): [number, number, number, number] {
+  const dpr = window.devicePixelRatio || 1;
+  return [Math.round(r.x * dpr), Math.round(r.y * dpr), Math.round(r.w * dpr), Math.round(r.h * dpr)];
+}
+
+/** Blurs region `r` of what `g` holds; the result is kept in `frost`. */
+function blurRegion(g: CanvasRenderingContext2D, r: Rect, radius: number, frost: FrostRegions) {
+  const k = blurKernel(radius);
+  const { reach, weights } = k;
+  const [x, y, w, h] = deviceRect(r);
   const img = g.getImageData(x, y, w, h);
   const px = img.data;
   const tmp = new Uint8ClampedArray(px.length);
@@ -401,12 +491,14 @@ function blurRegion(g: CanvasRenderingContext2D, r: Rect, radius: number) {
   pass(px, tmp, true);
   pass(tmp, px, false);
   g.putImageData(img, x, y);
+  frost.set(frostKey(x, y, w, h, k), { x, y, w, h, k, img });
 }
 
-/** GlassEffectRenderer.drawLiquidEffects (GlassEffectRenderer.java:226-266) at the moment the
- *  background is painted: the moving highlight (6 s cycle) and the top / bottom inner shadows. */
-function liquidEffects(g: CanvasRenderingContext2D, r: Rect) {
-  const phase = (Date.now() % 6000) / 6000;
+/** GlassEffectRenderer.drawLiquidEffects (GlassEffectRenderer.java:226-266) at the moment `at`
+ *  (ms) the background is painted: the moving highlight (6 s cycle) and the top / bottom inner
+ *  shadows. */
+function liquidEffects(g: CanvasRenderingContext2D, r: Rect, at: number) {
+  const phase = (at % 6000) / 6000;
   const cx = r.x + r.w * (0.5 + 0.3 * Math.sin(phase * Math.PI * 2));
   const cy = r.y + r.h * (0.5 + 0.3 * Math.cos(phase * Math.PI * 2 * 0.7));
   const highlight = g.createRadialGradient(cx, cy, 0, cx, cy, Math.max(r.w, r.h) * 0.5);
@@ -485,16 +577,30 @@ function drawCard(g: CanvasRenderingContext2D, r: Rect, p: StagePalette, w: numb
  * FROSTED (glass-blur-radius 10) or, from level 2, LIQUID (liquid-blur-radius 15 plus its
  * highlight and inner shadows) with the theme's overlay, border and highlight; at level 0 only
  * the region blurred by the theme's background-filter.
- * Painted once per size into a detached canvas and returned as a PNG blob: a live full-window canvas
- * layer would be recomposited every frame by WebKitGTK. */
-export function paintBackground(w: number, h: number, stage: StageCards): Promise<Blob | null> {
-  const p = stagePalette();
+ * Painted once per size and layout into a detached canvas and returned as a PNG blob: a live
+ * full-window canvas layer would be recomposited every frame by WebKitGTK. `at` is the moment of
+ * the liquid highlight; the regions blurred are kept in `frost`. */
+export function paintBackground(w: number, h: number, stage: StageCards, at: number, frost: FrostRegions): Promise<Blob | null> {
   const canvas = document.createElement("canvas");
   const g = prepare(canvas, { x: 0, y: 0, w, h });
+  paintWallpaper(g, w, h);
+  paintCards(g, w, h, stage, at, (r, radius) => blurRegion(g, r, radius, frost));
+  const { promise, resolve } = Promise.withResolvers<Blob | null>();
+  canvas.toBlob(resolve);
+  return promise;
+}
+
+function paintWallpaper(g: CanvasRenderingContext2D, w: number, h: number) {
+  const p = stagePalette();
   if (look.pureBackground && !p.builtin) {
     g.fillStyle = look.pureBackground;
     g.fillRect(0, 0, w, h);
   } else drawTexture(g, p.builtin ? stageWallpaper() : look.background, 0, 0, w, h, 0, 0);
+}
+
+/** The stage over its wallpaper: `blur` frosts a card's region of the wallpaper. */
+function paintCards(g: CanvasRenderingContext2D, w: number, h: number, stage: StageCards, at: number, blur: (r: Rect, radius: number) => void) {
+  const p = stagePalette();
   // The glass setting acts only on a stage the user chose: the program's own stage never frosts
   // its cards (DESIGN.md: 卡片不模糊背后的壁纸), whatever glass-effect-level says.
   const glass = p.builtin || look.pureBackground ? [] : stage.cards;
@@ -504,11 +610,11 @@ export function paintBackground(w: number, h: number, stage: StageCards): Promis
     if (r.w <= 0 || r.h <= 0 || r.x < 0 || r.y < 0 || r.x + r.w > w || r.y + r.h > h) continue;
     if (!glassy) {
       // GaussianFilter(0) leaves the region as it is.
-      if (look.backgroundFilter > 0) blurRegion(g, r, look.backgroundFilter);
+      if (look.backgroundFilter > 0) blur(r, look.backgroundFilter);
       continue;
     }
     const radius = liquid ? look.liquidBlur : look.glassBlur;
-    if (radius > 0) blurRegion(g, r, radius);
+    if (radius > 0) blur(r, radius);
     g.fillStyle = look.glassOverlay;
     g.beginPath();
     g.roundRect(r.x, r.y, r.w, r.h, CARD_RADIUS);
@@ -525,14 +631,81 @@ export function paintBackground(w: number, h: number, stage: StageCards): Promis
     g.beginPath();
     g.roundRect(r.x + 1, r.y + 1, r.w - 2, i(r.h / 3), CARD_RADIUS);
     g.fill();
-    if (liquid) liquidEffects(g, r);
+    if (liquid) liquidEffects(g, r, at);
   }
   for (const r of stage.cards) drawCard(g, r, p, w, h);
   g.fillStyle = p.line;
   for (const d of stage.dividers) g.fillRect(d.x, d.y, d.w, d.h);
-  const { promise, resolve } = Promise.withResolvers<Blob | null>();
-  canvas.toBlob(resolve);
-  return promise;
+}
+
+/** The stage of a held separator drag, painted every frame on a live canvas instead of being
+ *  encoded: the wallpaper painted once at the press, the liquid highlight at the moment of the
+ *  background shown at the press, and the frosted regions taken from that background where a card
+ *  keeps its rectangle and computed otherwise (a card's column far enough from its sides is the
+ *  same wherever the sides are, so only the columns near a moved side are new each frame). */
+export interface LiveStage {
+  wall: HTMLCanvasElement;
+  at: number;
+  regions: FrostRegions;
+  /** Columns at least `reach` from their region's sides, by the region's rows and kernel. */
+  columns: Map<string, Map<number, Uint8ClampedArray>>;
+  /** The wallpaper's pixels, read on the first frosted column computed. */
+  src: ImageData | null;
+}
+
+const columnKey = (y: number, h: number, k: Kernel) => `${y},${h},${k.rad}`;
+
+/** A live stage of the `w` x `h` workbench whose static background was painted at `at` and
+ *  blurred `frost` (empty when the background shown is for another size or appearance). */
+export function beginLiveStage(w: number, h: number, at: number, frost: FrostRegions): LiveStage {
+  const wall = document.createElement("canvas");
+  paintWallpaper(prepare(wall, { x: 0, y: 0, w, h }), w, h);
+  const columns = new Map<string, Map<number, Uint8ClampedArray>>();
+  for (const f of frost.values()) {
+    const key = columnKey(f.y, f.h, f.k);
+    const kept = columns.get(key) ?? new Map<number, Uint8ClampedArray>();
+    columns.set(key, kept);
+    for (let a = f.k.reach; a < f.w - f.k.reach; a++) {
+      const column = new Uint8ClampedArray(f.h * 3);
+      for (let l = 0; l < f.h; l++) {
+        const o = (l * f.w + a) * 4;
+        column.set(f.img.data.subarray(o, o + 3), l * 3);
+      }
+      kept.set(f.x + a, column);
+    }
+  }
+  return { wall, at, regions: frost, columns, src: null };
+}
+
+/** The stage of `live` with the cards `stage` into `g` (prepared for the `w` x `h` workbench). */
+export function paintLiveStage(g: CanvasRenderingContext2D, live: LiveStage, w: number, h: number, stage: StageCards): void {
+  g.save();
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalCompositeOperation = "copy";
+  g.drawImage(live.wall, 0, 0);
+  g.restore();
+  paintCards(g, w, h, stage, live.at, (r, radius) => {
+    const k = blurKernel(radius);
+    const [x, y, rw, rh] = deviceRect(r);
+    let img = live.regions.get(frostKey(x, y, rw, rh, k))?.img;
+    if (!img) {
+      img = new ImageData(rw, rh);
+      const key = columnKey(y, rh, k);
+      const kept = live.columns.get(key) ?? new Map<number, Uint8ClampedArray>();
+      live.columns.set(key, kept);
+      for (let a = 0; a < rw; a++) {
+        const inner = a >= k.reach && a < rw - k.reach;
+        let column = inner ? kept.get(x + a) : undefined;
+        if (!column) {
+          live.src ??= live.wall.getContext("2d")!.getImageData(0, 0, live.wall.width, live.wall.height);
+          column = frostColumn(live.src, 0, 0, x, y, rw, rh, k, x + a);
+          if (inner) kept.set(x + a, column);
+        }
+        putColumn(img, a, column);
+      }
+    }
+    g.putImageData(img, x, y);
+  });
 }
 
 /** BoardRenderer.drawShadow with show-stone-shadow and shadow-size (BoardRenderer.java:3796-3860):

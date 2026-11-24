@@ -361,6 +361,11 @@ interface Drag {
 }
 let drag: Drag | null = null;
 
+/** Whether a separator or divider drag is held (the workbench paints its stage live meanwhile). */
+export function dragHeld(): boolean {
+  return drag !== null;
+}
+
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
 
 function pointerIn(e: PointerEvent): { x: number; y: number } {

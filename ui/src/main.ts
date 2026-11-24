@@ -23,7 +23,7 @@ import { boardGeom, cardLayout, doubleEngineLayout, floatBoardLayout, mainMargin
 import { arrangedLayout, type ArrangementFallback } from "./workbench/arrangement";
 import { bindEditLayout, dividerOwner, editArrangement, editing as layoutEditing, editReport, editUnavailable, handleEditLayoutKey, javaPreview, placeEdit } from "./workbench/editLayout";
 import { handleLayoutKey } from "./workbench/extraMode";
-import { bindPanels, controlsShowing, dividerDraft, handlePanelKey, layoutRequest, placeHandles } from "./workbench/panels";
+import { bindPanels, controlsShowing, dividerDraft, dragHeld, handlePanelKey, layoutRequest, placeHandles } from "./workbench/panels";
 import { onPresentationChange, presentation } from "./workbench/presentation";
 import { independentReport, relayIndependent, startIndependent } from "./workbench/independent";
 import type { IndependentInput } from "./workbench/independentModel";
@@ -90,6 +90,7 @@ import { humanSlDisplay } from "./humansl/state";
 import {
   aiScoreText,
   loadImages,
+  beginLiveStage,
   paintBackground,
   paintBoard,
   paintCaptured,
@@ -97,6 +98,7 @@ import {
   paintPlayStat,
   paintStatus,
   paintDualStrip,
+  paintLiveStage,
   playouts,
   paintSubBoard,
   paintTree,
@@ -107,6 +109,8 @@ import {
   type BoardReport,
   type OwnershipLayer,
   type BoardScene,
+  type FrostRegions,
+  type LiveStage,
   type StageCards,
   type PreviewVariation,
   type StatReport,
@@ -937,16 +941,74 @@ function changed(panel: string, sig: string): boolean {
   return true;
 }
 
-/** The wallpaper with its cards is a static background of #main, one per size and layout. */
+/** The wallpaper with its cards is a static background of #main, one per size and layout: its
+ *  object URL and what it was painted for (`sig` the render's background signature, `size` its
+ *  size and appearance part), when (`at`, the liquid highlight's moment) and the regions it
+ *  frosted. `image` keeps the decoded picture alive while it is shown. */
 let backgroundUrl: string | null = null;
-async function installBackground(size: string, w: number, h: number, stage: StageCards) {
-  const blob = await paintBackground(w, h, stage);
-  if (!blob || lastSig.bg !== size) return;
+let installed: { sig: string; size: string; at: number; frost: FrostRegions; image: HTMLImageElement } | null = null;
+async function installBackground(sig: string, size: string, w: number, h: number, stage: StageCards) {
+  const at = Date.now();
+  const frost: FrostRegions = new Map();
+  const blob = await paintBackground(w, h, stage, at, frost);
+  if (!blob || lastSig.bg !== sig) return;
+  // A background swapped in before its picture is decoded is drawn as nothing for a frame or more
+  // (the wallpaper and every card vanish): it replaces the shown one only once decoded.
+  const url = URL.createObjectURL(blob);
+  const image = new Image();
+  image.src = url;
+  await image.decode().catch(() => undefined);
+  if (lastSig.bg !== sig) {
+    URL.revokeObjectURL(url);
+    return;
+  }
   if (backgroundUrl) URL.revokeObjectURL(backgroundUrl);
-  backgroundUrl = URL.createObjectURL(blob);
+  backgroundUrl = url;
   const main = $("main");
-  main.style.backgroundImage = `url(${backgroundUrl})`;
+  main.style.backgroundImage = `url(${url})`;
   main.style.backgroundSize = `${w}px ${h}px`;
+  installed = { sig, size, at, frost, image };
+  endLiveStage();
+}
+
+/** While a separator or divider drag is held the stage changes every frame; encoding it each time
+ *  would leave the background behind the pointer until it rests (every result superseded before
+ *  it lands) and flash it on each swap. The stage is painted instead, in the same render as the
+ *  panels, into this canvas under them; it goes once the static background shows the layout the
+ *  drag left. It shows over the stage colour of #main as the static background does (not over that
+ *  background, which a wallpaper not opaque everywhere would let through). */
+const stageLive = document.createElement("canvas");
+stageLive.id = "stageLive";
+stageLive.style.display = "none";
+stageLive.style.pointerEvents = "none";
+stageLive.style.backgroundColor = "inherit";
+let liveStage: { size: string; stage: LiveStage } | null = null;
+
+/** Paints the stage `stage` live for the drag held (`sig` its background signature, `size` its size
+ *  and appearance part). */
+function paintStageLive(sig: string, size: string, w: number, h: number, stage: StageCards) {
+  if (liveStage?.size !== size) {
+    const shown = installed?.size === size ? installed : null;
+    liveStage = { size, stage: beginLiveStage(w, h, shown?.at ?? Date.now(), shown?.frost ?? new Map()) };
+    delete lastSig.live;
+  }
+  if (!changed("live", sig)) return;
+  if (!stageLive.isConnected) $("main").prepend(stageLive);
+  paintLiveStage(prepare(stageLive, { x: 0, y: 0, w, h }), liveStage.stage, w, h, stage);
+  stageLive.style.display = "";
+}
+
+/** Takes the live stage away two frames after the static background shows the current layout, so
+ *  that it has been drawn; a drag held again keeps it. */
+function endLiveStage() {
+  if (stageLive.style.display === "none") return;
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (dragHeld() || !installed || installed.sig !== lastSig.bg || stageLive.style.display === "none") return;
+    stageLive.style.display = "none";
+    stageLive.width = stageLive.height = 1;
+    liveStage = null;
+    delete lastSig.live;
+  }));
 }
 
 /** LizzieFrame.drawPonderingState: only ambient status depends on active pondering. An engine left
@@ -1122,7 +1184,11 @@ function render() {
   // Edits change a node's position, marks or side to play in place: the revision moves on.
   const docSig = `${v.document.id}:${v.document.revision}:${pos.node}:${pos.to_play}`;
   const background = `${size}:${mode}:${JSON.stringify(stage)}`;
-  if (changed("bg", background)) installBackground(background, W, H, stage);
+  // A held drag paints the stage live; otherwise the static background follows the layout, and a
+  // live stage left by a drag goes once the background shown is the current one.
+  if (dragHeld()) paintStageLive(background, size, W, H, stage);
+  else if (changed("bg", background)) installBackground(background, size, W, H, stage);
+  else if (installed?.sig === background) endLiveStage();
   // 界面 > 面板 flags; holding X hides the tree, the list and the comment (Input.java:616-623).
   const controls = controlsShowing();
   for (const id of PANEL_IDS) {
@@ -1162,7 +1228,8 @@ function render() {
   const previewSig = scene.preview ? `${scene.preview.order}:${scene.preview.length}:${scene.preview.pv.length}` : "";
   const scoreSig = v.score ? JSON.stringify(v.score) : "";
   const searchSig = JSON.stringify([v.region, scene.selecting, v.focus, v.settings.tracking, scene.priority]);
-  if (!floating && changed("board", `${background}:${P.board.x},${P.board.y},${P.board.w}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("main", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}:${searchSig}:${JSON.stringify(scene.moveRect)}:${reviewSig}`))
+  // The board draws nothing of the stage: only its size and appearance (and the mode) repaint it.
+  if (!floating && changed("board", `${size}:${mode}:${P.board.x},${P.board.y},${P.board.w},${P.board.h}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("main", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}:${searchSig}:${JSON.stringify(scene.moveRect)}:${reviewSig}`))
     boardReport = paintBoard(prepare($("board"), P.board), mainGeom(v, P.board), P.board, scene);
   if (dual) renderDual(v, dual, W, H, size, docSig, ui, scoreSig, scene);
   // The sub boards and panels follow the current position, never a review.
