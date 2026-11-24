@@ -50,7 +50,7 @@ import "./editing/commands";
 import "./analysis/graphCommands";
 import { graphDestination, graphTarget, paintGraph, type GraphHits, type GraphReport } from "./analysis/graph";
 import { matchPlaying, sideName } from "./match/state";
-import { bindTables, boardPointerMoved, clearTableSelection, mainTableSignature, pageStep, redo, renderMainTable, resetTables, stepVariationOrMove, tableBranchLength, tablesReport, undo } from "./analysis/table";
+import { bindTables, boardPointerMoved, clearTableSelection, mainTableSignature, pageStep, redo, renderMainTable, resetTables, stepMainVariationOrMove, stepVariationOrMove, tableBranchLength, tablesReport, undo } from "./analysis/table";
 import { frameReport, framesReport, handleTableKey, relayFrame, startFrame } from "./analysis/tableCommands";
 import { handleHawkeyeKey, hawkeyeReport, relayHawkeye, startHawkeye } from "./hawkeye/commands";
 import { commentaryReport, relayCommentary, renderCommentPanel, startCommentary } from "./commentary/commands";
@@ -1419,7 +1419,7 @@ function independentInput(input: IndependentInput): void {
       if (!v.score) releaseBoard(input.point, input.button);
       break;
     case "wheel":
-      stepVariationOrMove(input.down);
+      stepMainVariationOrMove(input.down);
       break;
   }
 }
