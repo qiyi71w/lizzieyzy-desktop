@@ -394,23 +394,25 @@ export type FrostRegions = Map<string, Frosted>;
 
 const frostKey = (x: number, y: number, w: number, h: number, k: Kernel) => `${x},${y},${w},${h},${k.rad}`;
 
-/** Column `X` of the region [x, x + w) x [y, y + h) blurred as blurRegion blurs it (the same sums
- *  in the same order): the horizontal pass, clamped to the region's columns, then the vertical
- *  one, clamped to its rows, as RGB per row. `src` holds the unblurred pixels with its top-left
- *  pixel at (sx, sy). A column at least `reach` from both sides of the region does not depend on
- *  where they are. */
-function frostColumn(src: ImageData, sx: number, sy: number, x: number, y: number, w: number, h: number, k: Kernel, X: number): Uint8ClampedArray {
+/** Rows [from, to) of column `X` of the region [x, x + w) x [y, y + h) blurred as blurRegion blurs it
+ *  (the same sums in the same order), written as column `X - x` of `img` (the region's picture): the
+ *  horizontal pass, clamped to the region's columns, over the rows the vertical one reads, then the
+ *  vertical pass, clamped to its rows. `src` holds the unblurred pixels with its top-left pixel at
+ *  the origin. */
+function frostRows(src: ImageData, x: number, y: number, w: number, h: number, k: Kernel, X: number, from: number, to: number, img: ImageData) {
   const { reach, weights } = k;
   const px = src.data;
+  const lo = Math.max(0, from - reach);
+  const hi = Math.min(h, to + reach);
   const across = new Uint8ClampedArray(h * 3);
-  for (let l = 0; l < h; l++) {
+  for (let l = lo; l < hi; l++) {
     let r0 = 0;
     let g0 = 0;
     let b0 = 0;
     for (let s = -reach; s <= reach; s++) {
       const wt = weights[s + reach];
       if (!wt) continue;
-      const o = ((y + l - sy) * src.width + Math.min(x + w - 1, Math.max(x, X + s)) - sx) * 4;
+      const o = ((y + l) * src.width + Math.min(x + w - 1, Math.max(x, X + s))) * 4;
       r0 += px[o] * wt;
       g0 += px[o + 1] * wt;
       b0 += px[o + 2] * wt;
@@ -419,8 +421,8 @@ function frostColumn(src: ImageData, sx: number, sy: number, x: number, y: numbe
     across[l * 3 + 1] = i(g0 + 0.5);
     across[l * 3 + 2] = i(b0 + 0.5);
   }
-  const out = new Uint8ClampedArray(h * 3);
-  for (let a = 0; a < h; a++) {
+  const d = img.data;
+  for (let a = from; a < to; a++) {
     let r0 = 0;
     let g0 = 0;
     let b0 = 0;
@@ -432,21 +434,10 @@ function frostColumn(src: ImageData, sx: number, sy: number, x: number, y: numbe
       g0 += across[o + 1] * wt;
       b0 += across[o + 2] * wt;
     }
-    out[a * 3] = i(r0 + 0.5);
-    out[a * 3 + 1] = i(g0 + 0.5);
-    out[a * 3 + 2] = i(b0 + 0.5);
-  }
-  return out;
-}
-
-/** Writes `column` (RGB per row) as column `a` of the opaque image `img`. */
-function putColumn(img: ImageData, a: number, column: Uint8ClampedArray) {
-  const d = img.data;
-  for (let l = 0; l < img.height; l++) {
-    const o = (l * img.width + a) * 4;
-    d[o] = column[l * 3];
-    d[o + 1] = column[l * 3 + 1];
-    d[o + 2] = column[l * 3 + 2];
+    const o = (a * w + X - x) * 4;
+    d[o] = i(r0 + 0.5);
+    d[o + 1] = i(g0 + 0.5);
+    d[o + 2] = i(b0 + 0.5);
     d[o + 3] = 255;
   }
 }
@@ -638,74 +629,99 @@ function paintCards(g: CanvasRenderingContext2D, w: number, h: number, stage: St
   for (const d of stage.dividers) g.fillRect(d.x, d.y, d.w, d.h);
 }
 
-/** The stage of a held separator drag, painted every frame on a live canvas instead of being
- *  encoded: the wallpaper painted once at the press, the liquid highlight at the moment of the
- *  background shown at the press, and the frosted regions taken from that background where a card
- *  keeps its rectangle and computed otherwise (a card's column far enough from its sides is the
- *  same wherever the sides are, so only the columns near a moved side are new each frame). */
+/** The stage painted on a live canvas instead of being encoded, while the static background shows
+ *  another stage (a separator held, a window resized, a panel shown or hidden): the wallpaper and
+ *  the cards painted as paintBackground paints them, the liquid highlight at the moment of the
+ *  background shown, and the frosted regions. The wallpaper is tiled from the origin, so its pixels
+ *  hold whatever the workbench's size, and a frosted pixel depends only on the wallpaper and on how
+ *  far it is from its region's sides: one at least `reach` from the left and right sides of two
+ *  regions (or whose two regions share their columns) and at least `reach` from their tops and
+ *  bottoms (or whose regions share their rows) is blurred alike in both. A region is copied from the
+ *  frosted region it overlaps most (the static background's, or the last live paint's) wherever
+ *  that holds, so only the bands near a moved side are computed each frame. */
 export interface LiveStage {
-  wall: HTMLCanvasElement;
   at: number;
-  regions: FrostRegions;
-  /** Columns at least `reach` from their region's sides, by the region's rows and kernel. */
-  columns: Map<string, Map<number, Uint8ClampedArray>>;
-  /** The wallpaper's pixels, read on the first frosted column computed. */
+  /** The frosted regions of the static background shown at the start, and of the last live paint. */
+  shown: Frosted[];
+  last: Frosted[];
+  /** The wallpaper's pixels, read once a frosted pixel is computed, over the workbench rounded up
+   *  to 512 device pixels so that a window resized reads them again only every 512 pixels it grows. */
   src: ImageData | null;
 }
 
-const columnKey = (y: number, h: number, k: Kernel) => `${y},${h},${k.rad}`;
+/** A live stage of the appearance whose static background shown was painted at `at` and blurred
+ *  `frost` (empty when that background is for another appearance). */
+export function beginLiveStage(at: number, frost: FrostRegions): LiveStage {
+  return { at, shown: [...frost.values()], last: [], src: null };
+}
 
-/** A live stage of the `w` x `h` workbench whose static background was painted at `at` and
- *  blurred `frost` (empty when the background shown is for another size or appearance). */
-export function beginLiveStage(w: number, h: number, at: number, frost: FrostRegions): LiveStage {
-  const wall = document.createElement("canvas");
-  paintWallpaper(prepare(wall, { x: 0, y: 0, w, h }), w, h);
-  const columns = new Map<string, Map<number, Uint8ClampedArray>>();
-  for (const f of frost.values()) {
-    const key = columnKey(f.y, f.h, f.k);
-    const kept = columns.get(key) ?? new Map<number, Uint8ClampedArray>();
-    columns.set(key, kept);
-    for (let a = f.k.reach; a < f.w - f.k.reach; a++) {
-      const column = new Uint8ClampedArray(f.h * 3);
-      for (let l = 0; l < f.h; l++) {
-        const o = (l * f.w + a) * 4;
-        column.set(f.img.data.subarray(o, o + 3), l * 3);
-      }
-      kept.set(f.x + a, column);
+/** The wallpaper's pixels over at least `w` x `h` device pixels, rounded up to 512. */
+function wallpaperPixels(w: number, h: number): ImageData {
+  const dpr = window.devicePixelRatio || 1;
+  const canvas = document.createElement("canvas");
+  const ww = Math.ceil(w / 512) * 512;
+  const wh = Math.ceil(h / 512) * 512;
+  const g = prepare(canvas, { x: 0, y: 0, w: ww / dpr, h: wh / dpr });
+  paintWallpaper(g, ww / dpr, wh / dpr);
+  return g.getImageData(0, 0, canvas.width, canvas.height);
+}
+
+/** The region [x, x + w) x [y, y + h) of `live`'s wallpaper frosted with `k`. */
+function frostLive(live: LiveStage, x: number, y: number, w: number, h: number, k: Kernel): Frosted {
+  const r = k.reach;
+  let from: Frosted | null = null;
+  let most = 0;
+  for (const f of [...live.last, ...live.shown]) {
+    if (f.k.rad !== k.rad) continue;
+    if (f.x === x && f.y === y && f.w === w && f.h === h) return f;
+    const area = Math.max(0, Math.min(x + w, f.x + f.w) - Math.max(x, f.x)) * Math.max(0, Math.min(y + h, f.y + f.h) - Math.max(y, f.y));
+    if (area > most) {
+      most = area;
+      from = f;
     }
   }
-  return { wall, at, regions: frost, columns, src: null };
+  const img = new ImageData(w, h);
+  // The rows blurred alike in `from`: all where the two share their rows, else those at least
+  // `reach` inside both.
+  const [top, bottom] = !from ? [0, 0] : from.y === y && from.h === h ? [0, h] : [Math.max(r, from.y + r - y), Math.min(h - r, from.y + from.h - r - y)];
+  const shareColumns = from?.x === x && from.w === w;
+  for (let a = 0; a < w; a++) {
+    const X = x + a;
+    const alike = from !== null && top < bottom && (shareColumns || (a >= r && a < w - r && X - from.x >= r && X - from.x < from.w - r));
+    if (alike) {
+      const d = img.data;
+      const s = from!.img.data;
+      for (let l = top; l < bottom; l++) {
+        const o = (l * w + a) * 4;
+        const p = ((y + l - from!.y) * from!.w + X - from!.x) * 4;
+        d[o] = s[p];
+        d[o + 1] = s[p + 1];
+        d[o + 2] = s[p + 2];
+        d[o + 3] = 255;
+      }
+    }
+    if (alike && top === 0 && bottom === h) continue;
+    if (!live.src || live.src.width < x + w || live.src.height < y + h) live.src = wallpaperPixels(x + w, y + h);
+    if (!alike) frostRows(live.src, x, y, w, h, k, X, 0, h, img);
+    else {
+      if (top > 0) frostRows(live.src, x, y, w, h, k, X, 0, top, img);
+      if (bottom < h) frostRows(live.src, x, y, w, h, k, X, bottom, h, img);
+    }
+  }
+  return { x, y, w, h, k, img };
 }
 
 /** The stage of `live` with the cards `stage` into `g` (prepared for the `w` x `h` workbench). */
 export function paintLiveStage(g: CanvasRenderingContext2D, live: LiveStage, w: number, h: number, stage: StageCards): void {
-  g.save();
-  g.setTransform(1, 0, 0, 1, 0, 0);
-  g.globalCompositeOperation = "copy";
-  g.drawImage(live.wall, 0, 0);
-  g.restore();
+  paintWallpaper(g, w, h);
+  const painted: Frosted[] = [];
   paintCards(g, w, h, stage, live.at, (r, radius) => {
-    const k = blurKernel(radius);
     const [x, y, rw, rh] = deviceRect(r);
-    let img = live.regions.get(frostKey(x, y, rw, rh, k))?.img;
-    if (!img) {
-      img = new ImageData(rw, rh);
-      const key = columnKey(y, rh, k);
-      const kept = live.columns.get(key) ?? new Map<number, Uint8ClampedArray>();
-      live.columns.set(key, kept);
-      for (let a = 0; a < rw; a++) {
-        const inner = a >= k.reach && a < rw - k.reach;
-        let column = inner ? kept.get(x + a) : undefined;
-        if (!column) {
-          live.src ??= live.wall.getContext("2d")!.getImageData(0, 0, live.wall.width, live.wall.height);
-          column = frostColumn(live.src, 0, 0, x, y, rw, rh, k, x + a);
-          if (inner) kept.set(x + a, column);
-        }
-        putColumn(img, a, column);
-      }
-    }
-    g.putImageData(img, x, y);
+    const f = frostLive(live, x, y, rw, rh, blurKernel(radius));
+    painted.push(f);
+    g.putImageData(f.img, x, y);
   });
+  live.last = painted;
 }
 
 /** BoardRenderer.drawShadow with show-stone-shadow and shadow-size (BoardRenderer.java:3796-3860):
