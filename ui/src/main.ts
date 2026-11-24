@@ -1212,7 +1212,7 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
         }
       : null;
   const engineSig = engineGame ? `${engineGame.playing}:${engineGame.black}:${engineGame.white}:${engineGame.scoreSide}` : "";
-  if (P.shown.graph && changed("graph", `${at(P.graph)}:${docSig}:${pos.line_end}:${historyRevision}:${graphSettings}:${graphHover}:${playMode}:${v.engine.analysing}:${engineSig}`)) {
+  if (P.shown.graph && changed("graph", `${at(P.graph)}:${docSig}:${pos.line_end}:${historyRevision}:${graphSettings}:${graphHover}:${playMode}:${engineSig}`)) {
     // WinrateGraph suppressGraphContent: nothing plotted in play mode.
     const painted = paintGraph(prepare($("graph"), P.graph), P.graph, {
       nodes: state.nodes,
@@ -1220,7 +1220,6 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
       history: playMode ? new Map() : historyByNode,
       display: graphDisplay,
       hover: playMode ? null : graphHover,
-      analysing: v.engine.analysing,
       suppressed: playMode,
       engineGame,
     });

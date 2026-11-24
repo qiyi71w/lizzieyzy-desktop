@@ -522,11 +522,11 @@ importing the matching LizzieYzy Next settings.
     Gaps without analysis are bridged by a dashed line that is never filled, an analysed move
     with no analysed neighbour shows as a dot, and a branch shows the main line dashed from the
     fork. The current move carries its markers and a readout of its win rate and score lead;
-    hovering shows the hovered move's number and values. A graph without analysis says so (or
-    that analysis is running) instead of staying blank, and a large graph sets its text a step
-    up. Click or drag navigates (a click on a branch may jump to the main line through the
-    fork), the wheel steps through moves, and a right click clears a selected table row or
-    steps back.
+    hovering shows the hovered move's number and values. A graph without analysis, whether or
+    not analysis is running, shows its grid and scales with no caption, as in Java, and a large
+    graph sets its text a step up. Click or drag navigates (a click on a branch may jump to the
+    main line through the fork), the wheel steps through moves, and a right click clears a
+    selected table row or steps back.
     During an 引擎对局, and afterwards on that board, on a saved engine game (its root `DZ` tag)
     and on a watched 跑谱贡献 rating game, the graph is Java's engine-game graph: each engine's
     win rate as its own unfilled curve (Black's engine in the win-rate colour, White's in the
