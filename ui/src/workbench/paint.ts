@@ -3057,7 +3057,10 @@ export function paintTree(
   const vbar = maxY > viewH;
   const viewW = w - (vbar ? SCROLLBAR : 0);
   const clampTop = (v: number) => Math.max(0, Math.min(i(v), maxY - viewH));
-  const clampLeft = (v: number) => Math.max(0, Math.min(i(v), maxX - viewW));
+  // A tree no wider than the panel (the image is the panel's width, every node 60 px short of its
+  // edge) never scrolls sideways: Java's centring would move it by the vertical bar's width with no
+  // horizontal bar to move it back, which here would put the first lane under the number column.
+  const clampLeft = (v: number) => (maxX <= w ? 0 : Math.max(0, Math.min(i(v), maxX - viewW)));
   // renderVarTree: the current node centred in each direction; the root keeps the origin.
   const atRoot = nodes.get(current)!.parent === null;
   const top = clampTop(scroll ? scroll.top : curY <= viewH / 2 || atRoot ? 0 : curY - viewH / 2);
