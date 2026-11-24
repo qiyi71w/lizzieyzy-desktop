@@ -21,7 +21,7 @@ importing the matching LizzieYzy Next settings.
   comment), `B` (back to the main branch), the mouse wheel, the bottom bar navigation buttons and
   move-number field, and clicks in the variation tree. The variation tree scrolls with its own
   scroll bars and mouse wheel; it re-centres on the current node when the position changes.
-  界面 > 面板 > 分支面板设置 chooses how it fits: unticking 使用滚动面板拓展宽度 lays the tree out
+  显示 > 面板 > 分支面板设置 chooses how it fits: unticking 使用滚动面板拓展宽度 lays the tree out
   inside the panel without scroll bars, with the current node in the middle row and the wheel
   stepping through the moves as over the board (the other two items are then disabled).
   设置最大宽度 (10000 by default) cuts a scrolled tree at that width; a tree that reaches it is
@@ -635,7 +635,7 @@ importing the matching LizzieYzy Next settings.
     right after the root no longer start the count at 2; 纯网络形势 > 小方块 has its own effect
     (Java read the KataGo-estimate setting there); 设置自动播放's 落子最佳选点 shows its own setting
     (Java filled it from the other check box).
-- Workbench panels (界面 > 面板, Java shortcuts): 小棋盘 (`Alt+Z`), 胜率图 (`Alt+W`), 评论/问题手面板
+- Workbench panels (显示 > 面板, Java shortcuts): 小棋盘 (`Alt+Z`), 胜率图 (`Alt+W`), 评论/问题手面板
   (`Alt+T`; disabled in 四方图 and 双引擎模式), 分支面板 (`Shift+G`), 选点列表面板 (`Alt+G`), 信息面板 and 状态面板
   show or hide their panels and are remembered; 放大小棋盘 (`Ctrl+F`) and 放大胜率图 (`Ctrl+W`) use
   Java's enlarged layouts (the large win-rate graph hides the list and, with the variation tree
