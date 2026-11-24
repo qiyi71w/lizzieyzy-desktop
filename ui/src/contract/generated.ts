@@ -192,11 +192,7 @@ export type TreeNodeView = { id: number, parent: number | null,
 /**
  * Children in order, without dummy placeholders.
  */
-children: Array<number>, kind: TreeNodeKind, pass: boolean, move_number: number, 
-/**
- * Display numbering, including branch restarts, SGF MN and passes; 0 for no number.
- */
-number: number, has_comment: boolean, };
+children: Array<number>, kind: TreeNodeKind, pass: boolean, move_number: number, has_comment: boolean, };
 
 export type TreeView = { document: number, nodes: Array<TreeNodeView>, };
 

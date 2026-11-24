@@ -616,8 +616,13 @@ importing the matching LizzieYzy Next settings.
     asked for.
   - 小棋盘设置: the sub board shows its own candidate's variation (click / right click / wheel,
     paused while the pointer rests on it with 小棋盘不刷新), the first-instinct (prior) or
-    after-calculation (visits) heat map, or the stones only. The variation tree shows each
-    node's move number (分支面板上的手数) as the board numbers it.
+    after-calculation (visits) heat map, or the stones only.
+  - 分支面板上的手数 writes the variation tree's move numbers in a column at the panel's left,
+    one per row (every node of a row is the same move), the current node's row in bold; the
+    column stays in place when the tree scrolls sideways or the whole-tree layout moves left.
+    A change from Java, whose number beside every node ran into the next branch's nodes: the
+    numbers count the record's moves, without 分支内从1开始 or an SGF `MN` renumbering (the
+    board still follows them).
   - Two changes from Java: a pass inside a branch keeps the branch's count, and setup stones
     right after the root no longer start the count at 2; 纯网络形势 > 小方块 has its own effect
     (Java read the KataGo-estimate setting there); 设置自动播放's 落子最佳选点 shows its own setting

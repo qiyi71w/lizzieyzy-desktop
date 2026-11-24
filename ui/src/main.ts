@@ -110,6 +110,8 @@ import {
   type StatReport,
   type SubBoardReport,
   type SubBoardScene,
+  type TreeMargin,
+  type TreeRowNumber,
   type TreeViewport,
 } from "./workbench/paint";
 
@@ -124,7 +126,9 @@ let treeFitShown = false;
 /** The tree the panel last drew (state.nodes is replaced with every tree update). */
 let treeSource = state.nodes;
 let treeRevision = 0;
-let treeNumbersDrawn = 0;
+/** The row numbers the tree panel last drew and the margin it laid the lanes out with. */
+let treeRowNumbers: TreeRowNumber[] = [];
+let treeMargin: TreeMargin | null = null;
 /** User scroll of the variation tree, for the position it was made at (`treeScrollFor`). */
 let treeScroll: { top: number; left: number } | null = null;
 let treeScrollFor = "";
@@ -1259,7 +1263,8 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
     const painted = treeFitShown ? paintTreeFit(prepare($("tree"), P.tree), P.tree, state.nodes, pos.node, state.line, treeNumbers, colors) : scrolled!;
     treeHits = painted.hits;
     treeView = painted.viewport;
-    treeNumbersDrawn = painted.numbers;
+    treeRowNumbers = painted.rowNumbers;
+    treeMargin = painted.margin;
   }
   place($("comment"), P.comment);
   // 记录选点信息到评论中: Java's pane shows the summary its engine writes into the comment.
@@ -1631,7 +1636,11 @@ function uiReport() {
       keptBeyondLimit: [...keptPoints(state.view?.analysis ?? null)],
       tree: {
         numbers: state.view?.settings.display.treeMoveNumbers ?? false,
-        drawn: treeNumbersDrawn,
+        drawn: treeRowNumbers.length,
+        /** One number per row in the column at the panel's left (panel coordinates, ink boxes). */
+        rowNumbers: treeRowNumbers,
+        /** The first lane's left edge and the number column's right edge (0 without numbers). */
+        margin: treeMargin,
         /** The whole tree in the panel; the node centres a click goes to (panel coordinates). */
         fit: treeFitShown,
         viewport: treeView,
