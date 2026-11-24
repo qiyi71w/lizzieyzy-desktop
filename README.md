@@ -554,7 +554,8 @@ importing the matching LizzieYzy Next settings.
     at their content's width (序号 only as wide as its labels), the actual move's row shows its
     rank with a small 实战 under it and each change in small type before its value (Java's
     "15(实战)" / "↓-4.6(50.4)" stay in the row's tooltip), and a narrow list puts the change
-    above the value instead of cutting it.
+    above the value instead of cutting it. The pointer's row is shaded across every column,
+    占比 included (the actual move's row keeps its loss-level colour).
     独立选点列表 (`U`) opens it in its own window with 7 or 9 columns (sortable by header,
     also from the keyboard: `Tab` to the header, `←`/`→` to a column, `Enter` or `Space`),
     列表 / 柱状图 / 当前手 / 鼠标悬停, 总计算量 / 最高计算量 / 集中度, 总在最前 (`Q`) and a
