@@ -437,10 +437,40 @@ export function editUnavailable(): ArrangementFallback | null {
   const mode = presentation(v).mode;
   const key = JSON.stringify([W, main.clientHeight, r, mode, committed, v.settings.panels, language(), frameMetrics().frameFontSize, appearanceRevision()]);
   if (unavailableFor?.key === key) return unavailableFor.value;
-  const H = main.clientHeight - barHeight();
+  const H = editRoom(main.clientHeight);
   const value = arrangedLayout(W, H, r, mode, committed ?? initialArrangement(W, H, r, mode)).fallback;
   unavailableFor = { key, value };
   return value;
+}
+
+/** The workbench height of `H` the edit bar leaves (all of it while the bar shows). */
+function editRoom(H: number): number {
+  return H - barHeight();
+}
+
+/** A divider move outside edit mode, kept where its result still fits the workbench the edit bar
+ *  would leave (editUnavailable's fit), so a drag alone never makes 编辑面板布局… unavailable; a
+ *  start `a` that does not fit there already is limited by the minimum heights only. The bar is
+ *  measured once per drag. */
+function editable(W: number, H: number, r: LayoutRequest, mode: ExtraMode, a: PanelArrangement, move: DividerOwner["move"]): DividerOwner["move"] {
+  let room: number | null = null;
+  const fits = (b: PanelArrangement, h: number) => arrangedLayout(W, h, r, mode, b).fallback === null;
+  return (upper, y, from) => {
+    const next = move(upper, y, from);
+    if (!next) return next;
+    const h = (room ??= editRoom(H));
+    if (fits(next, h) || !fits(a, h)) return next;
+    // The furthest height towards `y` whose result still fits.
+    let ok = from;
+    let bad = y;
+    while (Math.abs(bad - ok) > 0.25) {
+      const mid = (ok + bad) / 2;
+      const m = move(upper, mid, from);
+      if (!m || fits(m, h)) ok = mid;
+      else bad = mid;
+    }
+    return move(upper, ok, from);
+  };
 }
 
 /** 显示 > 面板 > 编辑面板布局…: opens the session with the committed arrangement as its draft. */
@@ -615,7 +645,7 @@ function previewMove(W: number, H: number, r: LayoutRequest, mode: ExtraMode, a:
  *  release becomes the draft and a move is previewMove's; otherwise the release is committed (one
  *  SetPanelArrangement). */
 export function dividerOwner(W: number, H: number, r: LayoutRequest, mode: ExtraMode, a: PanelArrangement): DividerOwner {
-  if (!session) return { move: (upper, y) => moveDivider(W, H, r, mode, a, upper, y), release: commitArrangement };
+  if (!session) return { move: editable(W, H, r, mode, a, (upper, y) => moveDivider(W, H, r, mode, a, upper, y)), release: commitArrangement };
   return {
     move: previewMove(W, H, r, mode, a),
     release: async (next) => {
@@ -642,7 +672,7 @@ export function javaLayoutDividers(v: WorkbenchView, W: number, H: number, r: La
   return {
     dividers,
     owner: {
-      move: previewMove(W, H, r, mode, a),
+      move: editable(W, H, r, mode, a, previewMove(W, H, r, mode, a)),
       release: async (next) => {
         const committed = await commitArrangement(next);
         if (committed) timedMessage(product("arrangedFromJava"), ARRANGED_NOTICE_SECONDS);

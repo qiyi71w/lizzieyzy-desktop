@@ -343,8 +343,8 @@ window.addEventListener("blur", hideControls);
 // The four Java zones (InFrameLeftoverDragHandles) and, while a panel arrangement applies, the
 // dividers between neighbouring panels of a column (arrangement.ts), or without one the Java
 // layout's extra dividers (editLayout.ts javaLayoutDividers), share one drag: a press captures the
-// pointer, moving changes only a UI draft, releasing hands the draft over once, and Escape, a lost
-// pointer or leaving the window cancel it.
+// pointer, moving changes only a UI draft, releasing hands the draft over once (no new press until
+// that is done), and Escape, a lost pointer capture or the window losing the focus cancel it.
 
 type Seam = "left" | "right" | "commentTop" | "variationList";
 const SEAMS: Seam[] = ["left", "right", "commentTop", "variationList"];
@@ -361,6 +361,8 @@ interface Drag {
   cancel(): void;
 }
 let drag: Drag | null = null;
+/** A released drag is handing its draft over: no new press until it is done. */
+let releasing = false;
 
 /** Whether a separator or divider drag is held (the workbench paints its stage live meanwhile). */
 export function dragHeld(): boolean {
@@ -379,8 +381,14 @@ async function finishDrag(commit: boolean): Promise<void> {
   const d = drag;
   drag = null;
   if (d.el.hasPointerCapture(d.pointer)) d.el.releasePointerCapture(d.pointer);
-  if (commit) await d.release();
-  else d.cancel();
+  if (commit) {
+    releasing = true;
+    try {
+      await d.release();
+    } finally {
+      releasing = false;
+    }
+  } else d.cancel();
   repaint();
 }
 
@@ -394,7 +402,7 @@ function createHandle(name: string, kind: "edge" | "seam" | "divider", press: (e
   el.className = `panel-handle ${kind}`;
   el.dataset.name = name;
   el.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0 || drag || !state.view) return;
+    if (e.button !== 0 || drag || releasing || !state.view) return;
     const d = press(e);
     if (!d) return;
     e.preventDefault();
@@ -425,17 +433,19 @@ document.addEventListener("keydown", (e) => {
 }, true);
 window.addEventListener("blur", cancelDrag);
 
-/** Puts the zone `name` at `r`, creating it on first use; hides it when `r` is null. */
+/** Puts the zone `name` at `r`, creating it on first use; hides it when `r` is null or empty (an
+ *  empty one would keep its last size in the style and still take the pointer). */
 function placeZone(name: string, r: Rect | null, create: () => HTMLElement): void {
+  const shown = r && r.w >= 1 && r.h >= 1 ? r : null;
   let el = handleEls.get(name);
   if (!el) {
-    if (!r) return;
+    if (!shown) return;
     el = create();
     handleEls.set(name, el);
     $("main").append(el);
   }
-  el.style.display = r ? "" : "none";
-  if (r) Object.assign(el.style, { left: `${r.x}px`, top: `${r.y}px`, width: `${r.w}px`, height: `${r.h}px` });
+  el.style.display = shown ? "" : "none";
+  if (shown) Object.assign(el.style, { left: `${shown.x}px`, top: `${shown.y}px`, width: `${shown.w}px`, height: `${shown.h}px` });
 }
 
 // ---- the Java zones
@@ -527,15 +537,18 @@ function pressDivider(name: string, e: PointerEvent): Omit<Drag, "el" | "pointer
   if (!placed || !divider) return null;
   const { owner } = placed;
   const grab = pointerIn(e).y - divider.y;
+  // This drag's own draft: a release reads it, not one a later drag left in arrangementDraft.
+  let mine: PanelArrangement | null = null;
   return {
     divider: true,
     move(p) {
-      arrangementDraft = owner.move(divider.upper, p.y - grab, divider.y);
+      mine = owner.move(divider.upper, p.y - grab, divider.y);
+      arrangementDraft = mine;
     },
     async release() {
-      const next = arrangementDraft;
+      const next = mine;
       if (next && (await owner.release(next)) && arrangementDraft === next && !sameArrangement(state.view?.settings.panel_arrangement, next)) return;
-      if (!drag) arrangementDraft = null;
+      if (!drag && arrangementDraft === next) arrangementDraft = null;
     },
     cancel() {
       arrangementDraft = null;
@@ -550,10 +563,12 @@ registerViewHandler((v) => {
 /** Places the zones for the layout just drawn: the Java zones `h` (none outside the locked
  *  layout) and, while an arrangement applies or the Java layout has extra dividers, the `dividers`
  *  worked by `owner`. While a drag is held the zones stay put; a divider drag ends uncommitted
- *  once no dividers are placed (another mode, or a window the arrangement does not fit). */
+ *  once its divider is no longer placed (another mode, its panel hidden, a window the arrangement
+ *  does not fit, the Java layout's extra dividers no longer applying). */
 export function placeHandles(h: Handles | null, dividers: ArrangementDivider[] | null, owner: DividerOwner | null): void {
   if (drag) {
-    if (drag.divider && !(dividers && owner)) cancelDrag();
+    const held = drag.el.dataset.name;
+    if (drag.divider && !(owner && dividers?.some((d) => d.name === held && d.zone.w >= 1))) cancelDrag();
     return;
   }
   lastHandles = h;

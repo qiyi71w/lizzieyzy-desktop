@@ -14,7 +14,7 @@ import { os } from "./design/theme";
 import { mountWindowBar, setWindowTitle } from "./chrome/windowBar";
 import { buildToolbar, renderToolbar, topToolbarReport } from "./chrome/toolbar";
 import { onUnavailable, onView, snapshot } from "./contract/client";
-import type { BoardOverlayView, FloatSceneView, HistoryPoint, NodeAnalysisView, PanelArrangement, Point, SubBoardMode, WorkbenchView } from "./contract/generated";
+import type { ArrangeablePanel, BoardOverlayView, FloatSceneView, HistoryPoint, NodeAnalysisView, PanelArrangement, Point, SubBoardMode, WorkbenchView } from "./contract/generated";
 import { dialogOpen, message } from "./dialogs";
 import { errorText } from "./errorText";
 import { format, product, setLanguage, t } from "./i18n";
@@ -121,6 +121,8 @@ import {
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const PANEL_IDS: PanelId[] = ["captured", "stat", "graph", "comment", "status", "tree", "table", "sub"];
+/** The panels holding X hides (Input.java:616-623): no divider beside them is placed meanwhile. */
+const X_HIDES: Partial<Record<ArrangeablePanel, true>> = { VariationGraph: true, CandidateList: true, Comment: true };
 
 let panels: Panels | null = null;
 /** The panel arrangement the workbench was last laid out with, or why it shows the Java layout
@@ -1176,7 +1178,14 @@ function render() {
   const carded = dual ? null : cardLayout(normal, H);
   // Without an arrangement the Java layout gets its extra dividers where edit mode could start.
   const extra = carded && !shownArrangement && !layoutEditing() && (mode === "Normal" || mode === "Min") ? javaLayoutDividers(v, W, H, request, mode, normal) : null;
-  panels = carded ? (preview ? javaPreview(normal, carded.panels, preview) : extra ? { ...carded.panels, arranged: { dividers: extra.dividers } } : carded.panels) : { ...normal, board: dual!.left, glass: [], handles: null };
+  const withDividers = carded ? (preview ? javaPreview(normal, carded.panels, preview) : extra ? { ...carded.panels, arranged: { dividers: extra.dividers } } : carded.panels) : { ...normal, board: dual!.left, glass: [], handles: null };
+  // 界面 > 面板 flags; holding X hides the tree, the list and the comment (Input.java:616-623), and
+  // with them the dividers beside them (Java's own zones stay, as InFrameLeftoverDragHandles keeps
+  // them while the key list shows).
+  const controls = controlsShowing();
+  panels = controls && withDividers.arranged
+    ? { ...withDividers, arranged: { dividers: withDividers.arranged.dividers.filter((d) => !X_HIDES[d.upper] && !X_HIDES[d.lower]) } }
+    : withDividers;
   const P = panels;
   const stage: StageCards = { cards: carded?.cards ?? [], dividers: carded?.dividers ?? [] };
   stageCards = stage;
@@ -1191,8 +1200,6 @@ function render() {
   if (dragHeld()) paintStageLive(background, size, W, H, stage);
   else if (changed("bg", background)) installBackground(background, size, W, H, stage);
   else if (installed?.sig === background) endLiveStage();
-  // 界面 > 面板 flags; holding X hides the tree, the list and the comment (Input.java:616-623).
-  const controls = controlsShowing();
   for (const id of PANEL_IDS) {
     const shown = !dual && P.shown[id] && !(controls && (id === "tree" || id === "table" || id === "comment"));
     const display = shown ? "" : "none";
@@ -1211,8 +1218,10 @@ function render() {
     delete lastSig.raw;
   }
   // 布局编辑模式 leaves only the arrangement's dividers: the Java zones would commit panel sizes.
-  // The Java layout's extra dividers sit beside its zones.
-  placeHandles(layoutEditing() ? null : P.handles, P.arranged?.dividers ?? null, shownArrangement && P.arranged ? dividerOwner(W, H, request, mode, shownArrangement) : extra?.owner ?? null);
+  // The Java layout's extra dividers sit beside its zones. A drag held on one of them (the draft
+  // shown, nothing committed) ends once they no longer apply to the Java layout.
+  const extraGone = held && !edit.arrangement && !layoutEditing() && ((mode !== "Normal" && mode !== "Min") || editUnavailable() !== null);
+  placeHandles(layoutEditing() ? null : P.handles, extraGone ? null : P.arranged?.dividers ?? null, shownArrangement && P.arranged ? dividerOwner(W, H, request, mode, shownArrangement) : extra?.owner ?? null);
   placeEdit(P, stage.cards, W, H, request, mode, P.arranged ? shownArrangement : null);
   // The system menu bar (macOS) holds whether 编辑面板布局… can start (its disabled reason); a resize
   // or a layout change alone publishes no view and takes no input, so the bar is brought up to date

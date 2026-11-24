@@ -122,7 +122,8 @@ export function arrangedLayout(width: number, height: number, r: LayoutRequest, 
     for (const [k, p] of c.shown.entries()) {
       if (placed[k].exact < minHeight(p.panel, frame.statH) - 1e-6) return { panels: null, fallback: "fit" };
       rects.set(p.panel, { x: c.rect.x, y: placed[k].y, w: c.rect.w, h: placed[k].h });
-      if (k === 0) continue;
+      // A column too narrow for the zone inside its card has no divider (nothing to press).
+      if (k === 0 || c.rect.w - 2 * CARD_INSET < 1) continue;
       const upper = c.shown[k - 1].panel;
       const y = placed[k].y;
       dividers.push({
