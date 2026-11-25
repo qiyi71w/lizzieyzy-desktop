@@ -910,8 +910,12 @@ importing the matching LizzieYzy Next settings.
 - 自动棋谱快析 (综合设置 > 棋谱加载 > 打开棋谱后自动快速分析, on by default): after a record is opened,
   every main-trunk move without analysis is analysed in the background. Which engine does it
   follows Java: a KataGo `analysis` process started for the task, or the foreground engine
-  itself when 精析设置 > 复用当前前台引擎 is on or the foreground engine is this client's Windows
-  NVIDIA (CUDA/TensorRT) KataGo. A record that declares rules waits until the engine confirms
+  itself when 精析设置 > 复用当前前台引擎 is on, the foreground engine is a cloud engine or this
+  client's Windows NVIDIA (CUDA/TensorRT) KataGo, or the analysis command's program no longer
+  exists. That last check covers a program named by a path (not one found on `PATH`, nor a
+  command on 精析设置's SSH host) while the lightweight model is not in use; the application log
+  says so once per run of the program instead of every record failing quietly. A record that
+  declares rules waits until the engine confirms
   them. The foreground engine stays idle while an attempt runs and resumes when the task ends. A
   borrowed engine is taken over with `stop` and its rules are read (without them it is given back
   unsearched); it searches each move to 16 visits (longer games get an overview of every 8th move
@@ -932,12 +936,23 @@ importing the matching LizzieYzy Next settings.
   command, with the file's path, instead of Java's separate message); 选择引擎 makes it the same way from a
   saved engine, and 自动生成 asks for the KataGo program, model and config files. 远程引擎 with
   设置 runs the analysis command on an SSH host instead (see remote engines below); the
-  lightweight quick-analysis model is a file of this computer and is not used then. The hint's
+  lightweight quick-analysis model is a file of this computer and is not used then. When it is
+  used, its command carries the foreground KataGo's backend settings (DirectML, or OpenVINO with
+  its cache folder and NPU device), so it runs on the same backend. The hint's
   这里 opens KataGo's analysis engine documentation in the system browser.
+  - Batch size: KataGo pads every batch to `nnMaxBatchSize` on DirectML and on OpenVINO NPUs (and
+    for any command with `onnxPadBatch=true` or `metalPadBatch=true`), and the bundled
+    `analysis.cfg` sets 64. As in Java, every analysis process started for such a command
+    (quick, flash, batch and whole-game analysis, and the preload) adds
+    `nnMaxBatchSize = max(2, (analysis threads × search threads + 1) / 2)`, the size KataGo picks
+    for those backends, when the configured size is larger; a quick request's 2 × 1 threads run
+    batches of 2 instead of 64. A size written in the command's own `-override-config` is kept,
+    and commands for other backends (CUDA, TensorRT, OpenCL, Eigen, Metal) are unchanged.
   - 启动Lizzie时预加载引擎 starts the analysis process with the configured command when the
     application starts, as in Java: at once, or, when the analysis depends on the foreground
     engine (复用当前前台引擎, a cloud foreground engine, or this client's Windows NVIDIA,
-    TensorRT or OpenCL KataGo), once that engine is ready. With 复用当前前台引擎 no process starts. Nothing is preloaded while
+    TensorRT or OpenCL KataGo), once that engine is ready. No process starts when 闪电分析 would
+    borrow the foreground engine (复用当前前台引擎, or a cloud foreground engine as below). Nothing is preloaded while
     analysis is paused or 自动分析, 整盘精析, a game or an engine match runs, or when the engine it
     depends on failed (also failed to launch). A record still being read (at start-up, the record
     given on the command line or the resumed game) is waited for; as in Java, opening an SGF
@@ -997,7 +1012,8 @@ importing the matching LizzieYzy Next settings.
     last-engine choice stay unchanged.
   - Switching replaces the foreground engine and synchronizes the current board, komi and
     rules. Automatic quick analysis borrows a cloud foreground engine rather than launching a
-    separate local process. A switch succeeds once the new engine has confirmed the board
+    separate local process, and so do 闪电分析, 批量精析 and 整盘精析 while 精析设置's command
+    was never edited and its 远程引擎 is off. A switch succeeds once the new engine has confirmed the board
     sync; only then does successful cloud/local switching run the normal analysis
     preload entry. 切换到本地引擎 selects the first local profile whose executable and referenced
     model/config/JAR files exist. 引擎 > 关闭当前引擎 disconnects it; closing the center alone
@@ -1050,8 +1066,9 @@ importing the matching LizzieYzy Next settings.
   from the first / to the last move; the range is remembered), and 全部分支精析 asks every move of
   every branch. Moves that already have more than 精析设置's 单步计算量 are skipped unless 总是覆盖 is
   on. Like Java the run uses 精析设置's analysis engine (a running quick analysis ends and hands
-  its process over) or, with 复用当前前台引擎, borrows the foreground engine the same way quick
-  analysis does; without an analysis command it offers 精析设置 first and then starts. A
+  its process over) or borrows the foreground engine the same way quick analysis does: with
+  复用当前前台引擎, or when the foreground engine is a cloud engine, 精析设置's command was never
+  edited and its 远程引擎 is off. Without an analysis command (and nothing to borrow) it offers 精析设置 first and then starts. A
   progress window (进度 n/m) blocks the workbench: 隐藏界面 hides it while the run continues,
   取消分析 ends the run and keeps the answers so far (an analysis process ends and the foreground
   engine it stopped stays paused until resumed; a borrowed engine is given back), and GTP控制台
@@ -1135,7 +1152,7 @@ importing the matching LizzieYzy Next settings.
   while it runs); 终止自动分析 or 进度表's 开始/结束 asks about strengthening as single-record
   analysis does, saves the current record and ends the batch (while the next record is still
   loading, it ends the batch there). 批量精析 uses the 精析设置 analysis process (or the borrowed
-  foreground engine, as chosen when the batch started) for the whole batch and shows its
+  foreground engine, decided as for 闪电分析 when the batch started) for the whole batch and shows its
   progress window; 取消分析 ends the engine without saving the current record, which stays first
   in 进度表 with the results it has, so 开始/结束(闪电模式) continues from it and asks only for
   the positions still below the requested visits (all of them with 总是覆盖已有分析结果). A
@@ -1170,7 +1187,8 @@ importing the matching LizzieYzy Next settings.
   available throughout. The analysis process uses KataGo's whole-game throughput thread profile;
   an explicitly accepted matching whole-game measured profile takes precedence after off-thread
   artifact/hardware verification (stale or ambiguous profiles use the normal thread profile).
-  复用当前前台引擎 uses the same sequential foreground lease as quick analysis; a borrowed search
+  Borrowing the foreground engine (复用当前前台引擎, or a cloud foreground engine as for 闪电分析)
+  uses the same sequential foreground lease as quick analysis; a borrowed search
   is given up only after 8 s without any report from the engine (one that keeps reporting may
   take longer, as in Java); switching the
   foreground engine during such a run, or while it is still returning the engine after its last
