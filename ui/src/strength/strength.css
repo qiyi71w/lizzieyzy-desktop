@@ -198,6 +198,9 @@
   flex: 1;
   min-height: 0;
   position: relative;
+  /* A panel keeps its padding and scroll bars when the toolbar and the strip leave less height
+     than that; clipped here, it never paints over the strip below. */
+  overflow: hidden;
   border-top: 1px solid var(--ds-line);
 }
 .ps-dash {
