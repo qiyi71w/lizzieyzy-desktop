@@ -94,6 +94,9 @@ struct Request {
     selected: Option<String>,
     /// The earliest the selected move is played.
     pace: Instant,
+    /// Whether the rules last sent with the request have KataGo's button: a count is judged under
+    /// the rules it was asked under, whatever the foreground plays when the answer comes.
+    button: bool,
 }
 /// What the companion is asked: readiness, a policy level's one-visit probe and, when the AI may
 /// pass, KataGo's own pass check, or a search level's search; then the reply waits for its pace.
@@ -556,22 +559,15 @@ impl Workbench {
     /// its score lead to the game's komi, giving a draw to the first player to pass when the rules
     /// the count was asked under have KataGo's button. Without a count the game is not counted.
     fn human_sl_counted(&mut self, response: Option<&Value>, now: Instant) {
-        let Some((node, komi)) = self
+        let Some((node, komi, button)) = self
             .human_sl
             .session
             .as_ref()
-            .and_then(|s| Some((s.request.as_ref()?.node, s.komi)))
+            .and_then(|s| s.request.as_ref().map(|r| (r.node, s.komi, r.button)))
         else {
             return;
         };
-        let rules = match self.quick_rules() {
-            Value::String(name) => KataRules::parse(&name),
-            rules => KataRules::parse(&rules.to_string()),
-        };
-        let first_passer = rules
-            .is_some_and(|r| r.has_button())
-            .then(|| scoring::first_passer(&self.doc.record, node))
-            .flatten();
+        let first_passer = button.then(|| scoring::first_passer(&self.doc.record, node)).flatten();
         let black_to_play = self.doc.record.node(node).to_play == Stone::Black;
         let result = response
             .and_then(|r| r["rootInfo"]["scoreLead"].as_f64())

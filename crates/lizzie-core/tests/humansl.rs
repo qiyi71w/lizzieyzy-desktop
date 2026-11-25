@@ -1759,6 +1759,32 @@ fn under_button_rules_an_even_count_goes_to_the_first_passer() {
     assert_eq!(saved_result(&mut f), "0");
 }
 
+/// The count is judged under the rules it was asked under: when the foreground KataGo whose
+/// button rules the count was sent with exits before the companion answers, an even count still
+/// goes to the first player to pass, in the record and once saved, rather than under the rules
+/// analysis falls back to without a foreground.
+#[test]
+fn a_count_keeps_the_rules_it_was_asked_under_when_the_foreground_exits() {
+    let mut f = fixture(true);
+    let fg = foreground_with(&mut f, BUTTON);
+    f.wb.set_komi(7.0).unwrap();
+    serve_with(&mut f, fg, false, BUTTON);
+    let (mut f, id, q) = both_pass(f, CoachLevel::Kyu5, 7.0);
+    assert_eq!(q["rules"]["hasButton"], true);
+    f.wb.engine_input(fg, EngineInput::Exited(Some(1)));
+    f.wb.engine_tick(Instant::now() + Duration::from_secs(1));
+    assert!(f.wb.inspect().human_sl.unwrap().counting);
+    count(&mut f, id, &q, 0.5);
+    assert_eq!(
+        result(&f),
+        Some(HumanSlResult::Counted {
+            verdict: ScoreVerdict::DrawToFirstPasser { winner: Stone::Black }
+        })
+    );
+    assert_eq!(f.wb.document().record.info.result, "B+");
+    assert_eq!(saved_result(&mut f), "B+");
+}
+
 /// A count that times out after 20 seconds, that KataGo answers with an error or without a score
 /// lead, or whose companion exits, leaves the game not counted and the record without a result;
 /// it is not asked again.

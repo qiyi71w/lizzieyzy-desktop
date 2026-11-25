@@ -89,6 +89,7 @@ impl Workbench {
             evaluation: None,
             selected: None,
             pace: now,
+            button: false,
         });
         self.human_sl_send(now);
     }
@@ -108,6 +109,11 @@ impl Workbench {
             return;
         };
         let rules = self.quick_rules();
+        let button = match &rules {
+            Value::String(name) => KataRules::parse(name),
+            rules => KataRules::parse(&rules.to_string()),
+        }
+        .is_some_and(|r| r.has_button());
         let Some(s) = self.human_sl.session.as_ref() else {
             return;
         };
@@ -128,6 +134,9 @@ impl Workbench {
             Search::Count => protocol::count_query(&r.id, at),
             Search::Pacing => return,
         };
+        if let Some(r) = self.human_sl.session.as_mut().and_then(|s| s.request.as_mut()) {
+            r.button = button;
+        }
         if !self.engines.worker_send(worker, &line) {
             self.human_sl_request_failed(now);
         }
