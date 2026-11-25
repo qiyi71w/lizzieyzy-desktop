@@ -564,6 +564,38 @@ function stoneShadow(g: CanvasRenderingContext2D, cx: number, cy: number, r: num
   g.restore();
 }
 
+/** 立体棋子's shadows of one board canvas, painted once into a transparent layer of the canvas's size
+ *  and kept while `key` (the stones' points, the board geometry, the canvas size and transform and
+ *  the shadow size) stays: analysis repaints then composite one image instead of two gradients per
+ *  stone. Source-over is associative, so the layer composited onto the board equals the shadows
+ *  painted onto it one by one. */
+const shadowLayers = new WeakMap<HTMLCanvasElement | OffscreenCanvas, { key: string; layer: HTMLCanvasElement }>();
+
+function enhancedShadows(g: CanvasRenderingContext2D, points: number[], geometry: string, px: (p: number) => number, py: (p: number) => number, r: number) {
+  const canvas = g.canvas;
+  const t = g.getTransform();
+  const key = `${canvas.width}x${canvas.height}|${t.a},${t.b},${t.c},${t.d},${t.e},${t.f}|${geometry}|${r}|${look.shadowSize}|${points.join(",")}`;
+  let cached = shadowLayers.get(canvas);
+  if (cached?.key !== key) {
+    const layer = cached?.layer ?? document.createElement("canvas");
+    if (layer.width !== canvas.width || layer.height !== canvas.height) {
+      layer.width = canvas.width;
+      layer.height = canvas.height;
+    }
+    const lg = layer.getContext("2d")!;
+    lg.setTransform(1, 0, 0, 1, 0, 0);
+    lg.clearRect(0, 0, layer.width, layer.height);
+    lg.setTransform(t);
+    for (const p of points) softStoneShadow(lg, px(p), py(p), r, look.shadowSize);
+    cached = { key, layer };
+    shadowLayers.set(canvas, cached);
+  }
+  g.save();
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.drawImage(cached.layer, 0, 0);
+  g.restore();
+}
+
 /** BoardRenderer.drawShadow2 (BoardRenderer.java:3757-3789) under policy and raw-net circles: a
  *  faint ring just outside the circle. Java never sets `cachedStoneCenter2`, so the cached image's
  *  gradient and fill sit at its corner and only the lower-right quarter of the ring is drawn. */
@@ -1594,8 +1626,9 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
   if (layers.stones) {
     const onlyNew = layers.float && !layers.float.edit && !layers.float.setup ? preview?.numbers ?? null : null;
     for (let p = 0; p < stones.length; p++) if (stones[p] && (!onlyNew || onlyNew.has(p))) shadowed.add(p);
-    // 立体棋子's soft shadows reach past the stone: all of them go under every stone.
-    if (look.enhanced) for (const p of shadowed) stoneShadow(g, px(p), py(p), r);
+    // 立体棋子's soft shadows reach past the stone: all of them go under every stone. An empty board
+    // has none, so it neither builds nor composites the layer.
+    if (look.enhanced && look.showShadow && shadowed.size) enhancedShadows(g, [...shadowed], `${ox},${oy},${geo.margin},${marginY},${sq},${squareY},${cols}`, px, py, r);
     for (const p of shadowed) drawStone(g, px(p), py(p), r, stones[p] === "Black", p % cols, i(p / cols), !look.enhanced);
   }
   // drawmoveblock (BoardRenderer.java:1390-1408), composited after the stones and any shown
