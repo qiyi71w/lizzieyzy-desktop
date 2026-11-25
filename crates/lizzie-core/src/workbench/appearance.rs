@@ -15,6 +15,8 @@ impl Workbench {
             || (!(12..=20).contains(&appearance.frame_font_size) && appearance.frame_font_size != self.config.appearance.frame_font_size) {
             return Err(ApiError::new(ErrorKind::InvalidArgument,"appearance settings"));
         }
+        // 默认 or a bundled theme named in another letter case is that theme, under its own name.
+        appearance.theme = appearance::listed_name(&appearance.theme).to_string();
         if self.config.appearance == appearance && self.appearance_theme == theme { return Ok(false); }
         let images = appearance::capture_external_images(&self.storage, &mut appearance, &mut theme).map_err(io)?;
         let path = if appearance.theme == "default" { None } else { Some(appearance::theme_file(&self.storage,&appearance.theme).map_err(io)?) };
@@ -48,7 +50,8 @@ impl Workbench {
     }
     /// ConfigDialog2.java:4391-4477: catalog management is immediate, independent of the
     /// appearance draft. Deletion never changes the running window's committed projection.
-    pub fn add_theme(&mut self, name:&str) -> Result<(),ApiError> {
+    /// Adding answers false, creating nothing, when the name is taken ([`appearance::add_theme`]).
+    pub fn add_theme(&mut self, name:&str) -> Result<bool,ApiError> {
         appearance::add_theme(&self.storage,name).map_err(io)
     }
     pub fn delete_theme(&mut self, name:&str) -> Result<(),ApiError> {

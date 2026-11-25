@@ -415,6 +415,8 @@ impl Workbench {
         };
         let mut config = loaded.config;
         config.commentary.preferences = config.commentary.preferences.normalized();
+        // A saved theme named like 默认 or a bundled theme in another letter case is that theme.
+        config.appearance.theme = crate::appearance::listed_name(&config.appearance.theme).to_string();
         // Config.java:3907-3912: mode policy also applies when opening an older config.
         if config.ui.extra_mode.hides_comment() {
             config.panels.show_comment = false;

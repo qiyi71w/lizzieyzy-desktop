@@ -127,18 +127,44 @@ pub const BUNDLED: &[(&str, &str)] = &[
 ];
 /// The bundled theme of Java's Morandi palette (its 经典配色 off).
 pub const JAVA_SOFT: &str = "java-soft";
-/// The bundled themes whose name chooses the interface skin (Java's classic colours, its Morandi
-/// palette). Each name stays its bundled theme's even after that is deleted (hidden).
-pub const SKIN_THEMES: [&str; 2] = ["java-classic",JAVA_SOFT];
+/// Whether two theme names name the same theme: compared ignoring letter case, as Java's 添加
+/// compares them (`toLowerCase`, ConfigDialog2.java:4463-4469) and as the Windows and macOS file
+/// systems open the folder.
+pub fn same_name(a: &str, b: &str) -> bool { a == b || a.to_lowercase() == b.to_lowercase() }
+/// The bundled theme `name` names ([`same_name`]), by its own spelling.
+pub fn bundled_theme(name: &str) -> Option<&'static str> {
+    BUNDLED.iter().map(|(n,_)| *n).find(|n| same_name(n,name))
+}
+/// The name the theme list gives the theme `name`: "default" and a bundled theme by their own
+/// spelling, every other theme as it is.
+pub fn listed_name(name: &str) -> &str {
+    if same_name(name,"default") { "default" } else { bundled_theme(name).unwrap_or(name) }
+}
 pub fn themes_dir(storage: &Storage) -> PathBuf { storage.config_file.parent().unwrap_or(Path::new(".")).join("themes") }
 pub fn valid_name(name: &str) -> bool {
     !name.trim().is_empty() && name == name.trim() && !matches!(name,"."|"..") && !name.eq_ignore_ascii_case(".images")
         && !name.chars().any(|c| c.is_control() || "/\\:*?\"<>|".contains(c))
 }
-pub fn theme_file(storage: &Storage, name: &str) -> std::io::Result<PathBuf> {
-    if !valid_name(name) || name.eq_ignore_ascii_case("default") { return Err(std::io::Error::other("invalid theme name")); }
-    Ok(themes_dir(storage).join(name).join("theme.txt"))
+/// The folder of the theme `name`. A bundled theme's is the user's folder of its name in any
+/// letter case ([`same_name`]), which on Windows and macOS is one folder anyway: the one of its own
+/// spelling when there is one, else the first by name, whatever spelling `name` has. A user
+/// theme's is the folder of exactly its name.
+fn theme_dir(storage: &Storage, name: &str) -> PathBuf {
+    let dir = themes_dir(storage);
+    let Some(bundled) = bundled_theme(name) else { return dir.join(name) };
+    let own = dir.join(bundled);
+    if own.is_dir() { return own; }
+    same_name_entries(&dir,bundled).into_iter().filter(|p| p.is_dir()).min().unwrap_or(own)
 }
+pub fn theme_file(storage: &Storage, name: &str) -> std::io::Result<PathBuf> {
+    if !valid_name(name) || same_name(name,"default") { return Err(std::io::Error::other("invalid theme name")); }
+    Ok(theme_dir(storage,name).join("theme.txt"))
+}
+/// The deleted bundled themes ([`delete_theme`]), by their own spelling.
+fn hidden_themes(storage: &Storage) -> Vec<String> {
+    settings::load_json(&storage.config_file.with_file_name("hidden-themes.json"))
+}
+fn is_hidden(hidden: &[String], name: &str) -> bool { hidden.iter().any(|h| same_name(h,name)) }
 pub fn java_key(field: &str) -> String {
     let mut out = String::new();
     for c in field.chars() { if c.is_ascii_uppercase() { out.push('-'); out.push(c.to_ascii_lowercase()); } else { out.push(c); } }
@@ -211,7 +237,7 @@ pub(crate) const PAGE_KEYS: &[&str] = &[
 /// a blank string (String.trim) is left out, as is an unset 界面颜色.
 pub fn to_java(name: &str, stored: Option<&[u8]>, theme: &ThemeSettings) -> Value {
     let mut raw = stored.and_then(|bytes| serde_json::from_slice::<Map<String,Value>>(bytes).ok())
-        .or_else(|| BUNDLED.iter().find(|(n,_)| *n == name).and_then(|(_,raw)| serde_json::from_str(raw).ok()))
+        .or_else(|| bundled_raw(name).and_then(|raw| serde_json::from_str(raw).ok()))
         .unwrap_or_default();
     let Value::Object(fields) = serde_json::to_value(theme).expect("theme serializes") else { unreachable!() };
     for (key,value) in fields.into_iter().map(|(k,v)|(java_key(&k),v)).filter(|(k,_)| PAGE_KEYS.contains(&k.as_str())) {
@@ -221,13 +247,12 @@ pub fn to_java(name: &str, stored: Option<&[u8]>, theme: &ThemeSettings) -> Valu
     Value::Object(raw)
 }
 pub fn load_theme(storage: &Storage, name: &str, defaults: &ThemeSettings) -> ThemeSettings {
-    if name == "default" || !valid_name(name) { return defaults.clone(); }
+    if same_name(name,"default") || !valid_name(name) { return defaults.clone(); }
     // A key the theme lacks takes the 默认 theme's value (Theme.java:473-478), but the 界面颜色
     // are each theme's own: a theme without them shows its skin's colours.
     let defaults = &ThemeSettings { ui_chrome_color: Vec::new(), ui_control_color: Vec::new(), ui_accent_color: Vec::new(), ui_text_color: Vec::new(), ..defaults.clone() };
-    let hidden: Vec<String> = settings::load_json(&storage.config_file.with_file_name("hidden-themes.json"));
-    if hidden.iter().any(|hidden| hidden == name) && theme_file(storage,name).is_ok_and(|path|!path.is_file()) { return defaults.clone(); }
-    let bundled = BUNDLED.iter().find(|(n,_)| *n == name).and_then(|(_,raw)|serde_json::from_str::<Value>(raw).ok());
+    if is_hidden(&hidden_themes(storage),name) && theme_file(storage,name).is_ok_and(|path|!path.is_file()) { return defaults.clone(); }
+    let bundled = bundled_raw(name).and_then(|raw|serde_json::from_str::<Value>(raw).ok());
     let mut theme = bundled.as_ref().and_then(Value::as_object).map_or_else(|| defaults.clone(), |v| merge_java(defaults,v));
     if let Ok(path) = theme_file(storage,name) {
         if let Ok(bytes) = std::fs::read(path) { if let Ok(Value::Object(raw)) = serde_json::from_slice(&bytes) { theme = merge_java(&theme,&raw); } }
@@ -287,15 +312,24 @@ pub fn shipped_stones() -> Vec<ShippedStones> {
             ShippedStones { theme: theme.into(), pairs: pairs.into_iter().map(|[black,white]| (black,white)).collect() }))
         .collect()
 }
-pub fn catalog(storage: &Storage, defaults: &ThemeSettings) -> Vec<ThemeEntry> {
-    let dir = themes_dir(storage);
-    let hidden: Vec<String> = settings::load_json(&storage.config_file.with_file_name("hidden-themes.json"));
-    let mut names: Vec<String> = BUNDLED.iter().filter(|(n,_)|!hidden.iter().any(|h|h == n)).map(|(n,_)|n.to_string()).collect();
-    if let Ok(entries) = std::fs::read_dir(&dir) { for entry in entries.flatten() {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if valid_name(&name) && entry.path().join("theme.txt").is_file() && !names.contains(&name) { names.push(name); }
+/// The names the theme list shows, 默认 left out: the bundled themes not deleted, then the user's
+/// theme folders. A folder of a bundled theme's name in any letter case ([`same_name`]) holds that
+/// theme's edits and is listed once, under the bundled name; user folders whose names differ only
+/// in case are each their own theme, as Java lists its theme folders (ConfigDialog2.java:4372-4383).
+fn theme_names(storage: &Storage) -> Vec<String> {
+    let hidden = hidden_themes(storage);
+    let mut names: Vec<String> = BUNDLED.iter().map(|(n,_)| *n).filter(|n| !is_hidden(&hidden,n)).map(String::from).collect();
+    if let Ok(entries) = std::fs::read_dir(themes_dir(storage)) { for entry in entries.flatten() {
+        let folder = entry.file_name().to_string_lossy().into_owned();
+        if !valid_name(&folder) || same_name(&folder,"default") || !entry.path().join("theme.txt").is_file() { continue; }
+        let name = listed_name(&folder);
+        if !names.iter().any(|n| n == name) { names.push(name.to_string()); }
     } }
-    names.sort_by_key(|s|s.to_lowercase()); names.insert(0,"default".into());
+    names
+}
+pub fn catalog(storage: &Storage, defaults: &ThemeSettings) -> Vec<ThemeEntry> {
+    let mut names = theme_names(storage);
+    names.sort_by(|a,b| a.to_lowercase().cmp(&b.to_lowercase()).then_with(|| a.cmp(b))); names.insert(0,"default".into());
     names.into_iter().map(|name|ThemeEntry{values:load_theme(storage,&name,defaults),replaced_images:replaced_images(storage,&name),name}).collect()
 }
 /// The bundled theme `name`'s pictures its user folder replaces: a file of the same name that is
@@ -303,15 +337,20 @@ pub fn catalog(storage: &Storage, defaults: &ThemeSettings) -> Vec<ThemeEntry> {
 /// one), so it replaces nothing.
 fn replaced_images(storage: &Storage, name: &str) -> Vec<String> {
     use sha2::{Digest, Sha256};
-    let dir = themes_dir(storage).join(name);
-    BUNDLED_IMAGES.iter().filter(|(t,_,_)| *t == name)
+    let Some(bundled) = bundled_theme(name) else { return Vec::new() };
+    let dir = theme_dir(storage,bundled);
+    BUNDLED_IMAGES.iter().filter(|(t,_,_)| *t == bundled)
         .filter(|(_,file,hash)| std::fs::read(dir.join(file)).is_ok_and(|bytes| format!("{:x}",Sha256::digest(&bytes)) != *hash && is_image(&bytes)))
         .map(|(_,file,_)| file.to_string()).collect()
 }
-pub fn add_theme(storage: &Storage, name: &str) -> std::io::Result<()> {
-    if !valid_name(name) || name.eq_ignore_ascii_case("default") || SKIN_THEMES.iter().any(|t| name.eq_ignore_ascii_case(t))
-        || catalog(storage,&ThemeSettings::default()).iter().any(|e|e.name.eq_ignore_ascii_case(name)) {
-        return Err(std::io::Error::other("invalid or duplicate theme name"));
+/// 添加 (ConfigDialog2.java:4456-4472): a new theme `name` from the jar's template. `Ok(false)`,
+/// creating nothing, when the name is taken ([`same_name`]): Java compares the list's names
+/// (4463-4469); here 默认 and every bundled theme also keep their names after deleting hid them,
+/// as their files stay.
+pub fn add_theme(storage: &Storage, name: &str) -> std::io::Result<bool> {
+    if !valid_name(name) { return Err(std::io::Error::other("invalid theme name")); }
+    if same_name(name,"default") || bundled_theme(name).is_some() || theme_names(storage).iter().any(|n| same_name(n,name)) {
+        return Ok(false);
     }
     let file = theme_file(storage,name)?;
     let dir = file.parent().expect("theme directory");
@@ -327,17 +366,22 @@ pub fn add_theme(storage: &Storage, name: &str) -> std::io::Result<()> {
     std::fs::create_dir(dir)?;
     let result = files.iter().try_for_each(|(name,bytes)|settings::write_atomic(&dir.join(name),bytes));
     if result.is_err() { let _ = std::fs::remove_dir_all(dir); }
-    result
+    result.map(|()| true)
 }
 pub fn delete_theme(storage: &Storage, name: &str) -> std::io::Result<()> {
     let file = theme_file(storage,name)?;
-    // The built-in files stay read-only; hide a deleted bundle and remove its user override.
-    let dir = file.parent().expect("theme directory");
-    if dir.exists() { std::fs::remove_dir_all(dir)?; }
-    if BUNDLED.iter().any(|(n,_)| *n == name) {
-        let path = storage.config_file.with_file_name("hidden-themes.json");
-        let mut hidden: Vec<String> = settings::load_json(&path);
-        if !hidden.iter().any(|h|h==name) { hidden.push(name.into()); settings::save_json(&path,&hidden)?; }
+    let Some(bundled) = bundled_theme(name) else {
+        let dir = file.parent().expect("theme directory");
+        if dir.exists() { std::fs::remove_dir_all(dir)?; }
+        return Ok(());
+    };
+    // The built-in files stay read-only; hide a deleted bundle and remove its user override, the
+    // folder of its name in any letter case.
+    for dir in same_name_entries(&themes_dir(storage),bundled).into_iter().filter(|p| p.is_dir()) { std::fs::remove_dir_all(dir)?; }
+    let mut hidden = hidden_themes(storage);
+    if !is_hidden(&hidden,bundled) {
+        hidden.push(bundled.into());
+        settings::save_json(&storage.config_file.with_file_name("hidden-themes.json"),&hidden)?;
     }
     Ok(())
 }
@@ -346,23 +390,35 @@ pub fn delete_theme(storage: &Storage, name: &str) -> std::io::Result<()> {
 #[derive(Clone, Debug, PartialEq)]
 pub struct ThemeFolder { pub name: String, pub files: Vec<(String, Vec<u8>)> }
 
-/// Whether a theme folder holds the untouched bundled theme `name`: the same `theme.txt` values,
-/// and every image it shows (`(file, bytes)`) the bundled file of that name.
+/// Whether a theme folder holds the untouched bundled theme `name` ([`same_name`]): the same
+/// `theme.txt` values, and every image it shows (`(file, bytes)`) the bundled file of that name.
 pub fn bundled_copy(name: &str, raw: &Map<String,Value>, images: &[(&str,&[u8])]) -> bool {
     use sha2::{Digest, Sha256};
-    let Some((_,bundled)) = BUNDLED.iter().find(|(n,_)| *n == name) else { return false };
+    let Some((theme,bundled)) = BUNDLED.iter().find(|(n,_)| same_name(n,name)) else { return false };
     serde_json::from_str::<Value>(bundled).ok().as_ref().and_then(Value::as_object) == Some(raw)
         && images.iter().all(|(file,bytes)| { let hash = format!("{:x}",Sha256::digest(bytes));
-            BUNDLED_IMAGES.iter().any(|(t,f,h)| *t == name && f == file && *h == hash) })
+            BUNDLED_IMAGES.iter().any(|(t,f,h)| t == theme && f == file && *h == hash) })
 }
-/// Entries of the themes folder named `name` in any letter case (one folder on Windows and macOS).
+/// The bundled `theme.txt` of the theme `name` ([`same_name`]).
+fn bundled_raw(name: &str) -> Option<&'static str> {
+    BUNDLED.iter().find(|(n,_)| same_name(n,name)).map(|(_,raw)| *raw)
+}
+/// Entries of the themes folder named `name` ([`same_name`]; one folder on Windows and macOS).
 fn same_name_entries(dir: &Path, name: &str) -> Vec<PathBuf> {
     std::fs::read_dir(dir).into_iter().flatten().flatten()
-        .filter(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case(name)).map(|e| e.path()).collect()
+        .filter(|e| same_name(&e.file_name().to_string_lossy(),name)).map(|e| e.path()).collect()
 }
 /// The user's themes folder has a folder `name` (in any letter case).
 pub(crate) fn has_folder(storage: &Storage, name: &str) -> bool {
     !same_name_entries(&themes_dir(storage),name).is_empty()
+}
+/// The entries of the themes folder that are the theme `name`'s folder: a bundled theme's in any
+/// letter case ([`same_name`]), a user theme's of exactly its name (on Windows and macOS any
+/// letter case is the same entry).
+fn folder_entries(dir: &Path, name: &str) -> Vec<PathBuf> {
+    if bundled_theme(name).is_some() { return same_name_entries(dir,name); }
+    let path = dir.join(name);
+    if path.symlink_metadata().is_ok() { vec![path] } else { Vec::new() }
 }
 /// The folder already exists under exactly this name and holds these files.
 fn unchanged(dir: &Path, folder: &ThemeFolder) -> bool {
@@ -372,7 +428,7 @@ fn unchanged(dir: &Path, folder: &ThemeFolder) -> bool {
 /// The existing theme folders that writing `folders` would replace.
 pub fn replaced_themes(storage: &Storage, folders: &[ThemeFolder]) -> Vec<String> {
     let dir = themes_dir(storage);
-    folders.iter().filter(|f| !unchanged(&dir,f) && !same_name_entries(&dir,&f.name).is_empty()).map(|f| f.name.clone()).collect()
+    folders.iter().filter(|f| !unchanged(&dir,f) && !folder_entries(&dir,&f.name).is_empty()).map(|f| f.name.clone()).collect()
 }
 /// Theme folders written by a settings import; dropping it before [`Self::keep`] removes them
 /// and puts every folder they replaced back.
@@ -411,7 +467,7 @@ pub(crate) fn install_themes(storage: &Storage, folders: &[ThemeFolder]) -> std:
         for (file,bytes) in &folder.files { std::fs::write(staged.join(file),bytes)?; }
     }
     for (i,folder) in pending.iter().enumerate() {
-        for (j,old) in same_name_entries(&dir,&folder.name).into_iter().enumerate() {
+        for (j,old) in folder_entries(&dir,&folder.name).into_iter().enumerate() {
             let aside = work.join(format!("replaced-{i}-{j}"));
             std::fs::rename(&old,&aside)?;
             install.moves.push((old,aside));
@@ -437,10 +493,10 @@ impl Drop for ShownTheme {
 /// Shows the bundled theme `name` again when deleting it hid it ([`delete_theme`]).
 pub(crate) fn show_hidden_theme(storage: &Storage, name: &str) -> std::io::Result<ShownTheme> {
     let path = storage.config_file.with_file_name("hidden-themes.json");
-    let hidden: Vec<String> = settings::load_json(&path);
-    if !hidden.iter().any(|h| h == name) { return Ok(ShownTheme { path, before: None }); }
+    let hidden = hidden_themes(storage);
+    if !is_hidden(&hidden,name) { return Ok(ShownTheme { path, before: None }); }
     let before = std::fs::read(&path)?;
-    settings::save_json(&path,&hidden.iter().filter(|h| *h != name).collect::<Vec<_>>())?;
+    settings::save_json(&path,&hidden.iter().filter(|h| !same_name(h,name)).collect::<Vec<_>>())?;
     Ok(ShownTheme { path, before: Some(before) })
 }
 
@@ -580,6 +636,12 @@ fn stone_variant(value:&str, n:u32) -> Option<String> {
     Some(format!("{}{stem}{n}{}", &value[..name_at], &value[dot..]))
 }
 pub fn images(storage:&Storage, appearance:&AppearanceSettings, theme:&ThemeSettings) -> ThemeImages {
+    // The custom overrides and the 默认 theme's own paths are relative to the themes folder
+    // (Theme.java:502,523: Theme.pathPrefix), a named theme's to its folder.
+    let themes = themes_dir(storage);
+    let named = valid_name(&appearance.theme);
+    let folder = (named && !same_name(&appearance.theme,"default")).then(|| theme_dir(storage,&appearance.theme));
+    let bundled = bundled_theme(&appearance.theme);
     let read = |custom:&str, value:&str| {
         for (index,candidate) in [custom,value].into_iter().enumerate() {
             if candidate.is_empty() { continue; }
@@ -587,13 +649,11 @@ pub fn images(storage:&Storage, appearance:&AppearanceSettings, theme:&ThemeSett
             if candidate.starts_with("data:image/") || shipped_image(candidate) { return Some((candidate.to_string(),is_custom)); }
             let path = Path::new(candidate);
             if path.is_absolute() { if let Ok(data) = image_data(path) { return Some((data,is_custom)); } }
-            else if valid_name(&appearance.theme) {
-                // The custom overrides and the 默认 theme's own paths are relative to the themes
-                // folder (Theme.java:502,523: Theme.pathPrefix), a named theme's to its folder.
-                let root=if is_custom || appearance.theme == "default" { themes_dir(storage) } else { themes_dir(storage).join(&appearance.theme) };
+            else if named {
+                let root = match &folder { Some(folder) if !is_custom => folder, _ => &themes };
                 if let Ok(data) = image_data(&root.join(path)) { return Some((data,is_custom)); }
-                if !is_custom && bundled_image_exists(&appearance.theme,candidate) {
-                    return Some((format!("/themes/{}/{}",appearance.theme,candidate.replace('\\',"/")),false));
+                if let Some(bundled) = bundled.filter(|b| !is_custom && bundled_image_exists(b,candidate)) {
+                    return Some((format!("/themes/{bundled}/{}",candidate.replace('\\',"/")),false));
                 }
             }
         }
