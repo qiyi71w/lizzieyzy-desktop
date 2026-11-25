@@ -1,5 +1,5 @@
 use super::*;
-use crate::humansl::choose;
+use crate::humansl::{choose, passing};
 use serde_json::json;
 
 /// The readiness check may take as long as the engine's first GPU compilation.
@@ -31,7 +31,7 @@ impl Workbench {
         };
         if s.phase != HumanSlPhase::Playing
             || s.request.is_some()
-            || self.doc.record.node(self.cursor).to_play == s.human
+            || self.doc.record.node(s.live).to_play == s.human
         {
             return;
         }
@@ -71,15 +71,14 @@ impl Workbench {
         s.request = Some(Request {
             id: Self::human_sl_request_id(s, &phase),
             generation: s.generation,
-            doc: self.doc.id,
-            node: self.cursor,
-            stamp: self.doc.record.node(self.cursor).stamp,
-            position_context: self.human_sl.position_context,
+            node: s.live,
+            stamp: self.doc.record.node(s.live).stamp,
             started: now,
             deadline: now + budget,
             attempt: 0,
             phase,
             candidates: Vec::new(),
+            human_pass: false,
             top_share: None,
             selected: None,
             pace: now,
@@ -125,14 +124,17 @@ impl Workbench {
             self.human_sl_request_failed(now);
         }
     }
+    /// Whether the request still asks about the game's position as it stands: the same session
+    /// generation, document, position and position meaning (its stamp). What the board shows
+    /// does not matter.
     fn human_sl_request_current(&self) -> bool {
         self.human_sl.session.as_ref().is_some_and(|s| {
             s.request.as_ref().is_some_and(|r| {
                 r.generation == s.generation
-                    && r.doc == self.doc.id
-                    && r.position_context == self.human_sl.position_context
-                    && r.node == self.cursor
-                    && self.doc.record.node(self.cursor).stamp == r.stamp
+                    && s.doc == self.doc.id
+                    && r.node == s.live
+                    && self.doc.record.contains(r.node)
+                    && self.doc.record.node(r.node).stamp == r.stamp
             })
         })
     }
@@ -161,6 +163,7 @@ impl Workbench {
             r.phase = first;
             r.id = id;
             r.candidates.clear();
+            r.human_pass = false;
             r.top_share = None;
             r.deadline = now + budget;
             self.human_sl_send(now);
@@ -171,10 +174,6 @@ impl Workbench {
             s.turn = now;
             self.human_sl.notices.push(HumanSlNotice::AiMoveFailed);
         }
-    }
-    /// Whether the AI may pass at the request's position: from move 200 on.
-    fn human_sl_may_pass(&self, node: NodeId) -> bool {
-        self.doc.record.node(node).move_number >= 200
     }
     /// A policy level's probe answered: its legal moves and, when the AI may pass, KataGo's own
     /// pass check next.
@@ -193,16 +192,35 @@ impl Workbench {
             return;
         }
         let candidates = protocol::policy(response, &self.doc.record, node, false);
-        let may_pass = self.human_sl_may_pass(node);
+        let may_pass = passing::allowed(&self.doc.record, node);
+        let human_pass =
+            may_pass && passing::human_would_pass(&protocol::policy(response, &self.doc.record, node, true));
         let s = self.human_sl.session.as_mut().unwrap();
         let id = Self::human_sl_request_id(s, &Search::PassCheck);
         let r = s.request.as_mut().unwrap();
         r.top_share = choose::top_share(&candidates);
         r.candidates = candidates;
+        r.human_pass = human_pass;
         if may_pass {
             r.phase = Search::PassCheck;
             r.id = id;
             self.human_sl_send(now);
+        } else {
+            self.human_sl_sample_policy(now);
+        }
+    }
+    /// A policy level's pass check answered: the AI passes when KataGo's search says so; where
+    /// players of the level would mostly pass, it plays KataGo's move instead, what is left of
+    /// their policy being noise; otherwise it samples the policy.
+    fn human_sl_pass_checked(&mut self, response: &Value, now: Instant) {
+        let Some(r) = self.human_sl.session.as_ref().and_then(|s| s.request.as_ref()) else {
+            return;
+        };
+        if passing::ends(response, &self.doc.record, r.node) {
+            self.human_sl_chosen(Some("pass".into()), now);
+        } else if let Some(vertex) = passing::search_move(response).filter(|_| r.human_pass) {
+            let vertex = vertex.to_string();
+            self.human_sl_chosen(Some(vertex), now);
         } else {
             self.human_sl_sample_policy(now);
         }
@@ -231,8 +249,8 @@ impl Workbench {
         }
         let human = protocol::policy(response, &self.doc.record, node, false);
         let top_share = choose::top_share(&human);
-        let may_pass = self.human_sl_may_pass(node);
-        let selected = if may_pass && protocol::prefers_pass(response) {
+        let may_pass = passing::allowed(&self.doc.record, node);
+        let selected = if may_pass && passing::ends(response, &self.doc.record, node) {
             Some("pass".to_string())
         } else {
             let human = if may_pass {
@@ -273,18 +291,22 @@ impl Workbench {
             self.human_sl_apply_ai(now);
         }
     }
+    /// The chosen reply is played on the game's position, which the board shows again if the
+    /// player was browsing (Java `applyAiMoveIfCurrent`).
     fn human_sl_apply_ai(&mut self, now: Instant) {
         if !self.human_sl_request_current() {
-            self.human_sl_exit(true);
+            self.human_sl_lost_game();
             return;
         }
         let Some(s) = self.human_sl.session.as_mut() else {
             return;
         };
+        let live = s.live;
         let Some(r) = s.request.take() else { return };
         let Some(vertex) = r.selected else { return };
         s.ai_ms = s.ai_ms.saturating_add(now.duration_since(s.turn).as_millis() as u64);
         s.turn = now;
+        self.browse_to(live);
         let point = gtp::parse_vertex(self.doc.record.size, &vertex).ok().flatten();
         let passed = point.is_none() || !self.human_sl_commit(point);
         if passed {
@@ -329,7 +351,7 @@ impl Workbench {
             return;
         }
         if !self.human_sl_request_current() {
-            self.human_sl_exit(true);
+            self.human_sl_lost_game();
             return;
         }
         if let Some(error) = response.get("error") {
@@ -346,8 +368,7 @@ impl Workbench {
             }
             Search::Ready => self.human_sl_prepared(now),
             Search::Probe => self.human_sl_probed(&response, now),
-            Search::PassCheck if protocol::prefers_pass(&response) => self.human_sl_chosen(Some("pass".into()), now),
-            Search::PassCheck => self.human_sl_sample_policy(now),
+            Search::PassCheck => self.human_sl_pass_checked(&response, now),
             Search::Play => self.human_sl_searched(&response, now),
             Search::Pacing => {}
         }

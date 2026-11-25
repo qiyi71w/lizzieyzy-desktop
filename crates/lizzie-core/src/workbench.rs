@@ -945,7 +945,6 @@ impl Workbench {
         } else {
             Vec::new()
         };
-        self.human_sl_position_changed();
         // 优先分析此点 is recorded for the shown position only.
         self.priority_points.clear();
         self.priority_engine = None;

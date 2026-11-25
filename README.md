@@ -1309,8 +1309,16 @@ importing the matching LizzieYzy Next settings.
   at that level plays the same move, longer when the choice is open, a little quicker in the
   opening (自然 0.4–8 s, 快 0.25–1.8 s, 慢 0.8–14 s, counted from the start of the AI's turn); an
   engine answer that arrives later is played at once, and ending the game while the AI waits plays
-  nothing. The AI does not pass before move 200; an AI answer for a position that is no longer
-  current ends the session without touching the record. A companion process that exits is
+  nothing. KataGo's own search decides when the AI passes (a 1-dan-or-stronger level's search,
+  a kyu level's extra 40-visit check without the human model), from the point where 40% of the
+  board's points have been played, or right after the player passed; after the player's pass the
+  AI also passes when that gives up at most a point, and where most players of a kyu level would
+  pass but KataGo still sees a point that matters, the AI plays KataGo's move. Browsing earlier
+  moves does not end the game: the AI's reply is played on the game's position and the board goes
+  back there; on a browsed position a click only brings the board back (saying so), and 停一手
+  brings it back and passes there (Java only brings it back). If the game's moves are deleted,
+  the session ends with a message; an AI answer for a game that has ended or been replaced, or
+  whose position changed, is dropped without touching the record. A companion process that exits is
   started again for the next move; two failed attempts show 重试 AI. The bar under the board
   shows the opponent's Fox / Tygem rank, both
   clocks and the turn, with 停一手 (`P`) and 结束并复盘. Ending, cancelling or a failed start stops
