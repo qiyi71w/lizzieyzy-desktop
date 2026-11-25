@@ -166,6 +166,14 @@ pub enum RemoteFailure {
         trusted: String,
         offered: String,
     },
+    /// The file of trusted host keys exists but could not be read or is not valid: nothing was
+    /// sent to the host and the file was left as it is (Java `SshKnownHosts` refuses the key too).
+    KnownHostsUnreadable {
+        host: String,
+        port: u16,
+        path: String,
+        detail: String,
+    },
     /// The remote command ended by itself: its exit status, or the signal that ended it.
     Ended {
         status: Option<u32>,
@@ -194,6 +202,15 @@ impl std::fmt::Display for RemoteFailure {
                     "host key of {host}:{port} changed (trusted {trusted}, offered {offered})"
                 )
             }
+            RemoteFailure::KnownHostsUnreadable {
+                host,
+                port,
+                path,
+                detail,
+            } => write!(
+                f,
+                "refused {host}:{port}: trusted host keys in {path} could not be read: {detail}"
+            ),
             RemoteFailure::Ended { status: Some(s), .. } => write!(f, "remote command exited with code {s}"),
             RemoteFailure::Ended { signal: Some(s), .. } => write!(f, "remote command ended by signal {s}"),
             RemoteFailure::Ended { .. } => write!(f, "remote command ended"),
@@ -235,11 +252,14 @@ impl KnownHosts {
         &self.path
     }
 
-    fn load(&self) -> BTreeMap<String, String> {
-        std::fs::read_to_string(&self.path)
-            .ok()
-            .and_then(|text| serde_json::from_str(&text).ok())
-            .unwrap_or_default()
+    /// The trusted keys by `host:port`: none while the file does not exist yet; an error when it
+    /// exists but cannot be read or parsed, so that it is never taken for empty and overwritten.
+    fn load(&self) -> io::Result<BTreeMap<String, String>> {
+        match std::fs::read_to_string(&self.path) {
+            Ok(text) => serde_json::from_str(&text).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e)),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(BTreeMap::new()),
+            Err(e) => Err(e),
+        }
     }
 
     fn store(&self, hosts: &BTreeMap<String, String>) -> io::Result<()> {
@@ -250,10 +270,16 @@ impl KnownHosts {
         crate::settings::write_atomic(&self.path, text.as_bytes())
     }
 
-    /// Trusts `key` for `host:port` when none is trusted yet; a different trusted key refuses it.
+    /// Trusts `key` for `host:port` when none is trusted yet; a different trusted key refuses it,
+    /// and so does a file of trusted keys that cannot be read.
     fn check(&self, host: &str, port: u16, key: &PublicKey) -> Result<(), RemoteFailure> {
         let _file = self.file.lock().unwrap();
-        let mut hosts = self.load();
+        let mut hosts = self.load().map_err(|e| RemoteFailure::KnownHostsUnreadable {
+            host: host.to_string(),
+            port,
+            path: self.path.display().to_string(),
+            detail: e.to_string(),
+        })?;
         let name = host_key(host, port);
         let offered = key
             .to_openssh()
@@ -282,12 +308,13 @@ impl KnownHosts {
     /// Trusts the key `host:port` offered when it was last refused, if it is the one with the
     /// fingerprint `shown` the user was shown. `true` as well when that key is trusted already
     /// (another refusal of it was confirmed); `false` when another key was offered since: that
-    /// one has its own refusal to confirm.
+    /// one has its own refusal to confirm. A file of trusted keys that cannot be read is an error
+    /// and is left as it is.
     pub fn trust_offered(&self, host: &str, port: u16, shown: &str) -> io::Result<bool> {
         let has_shown = |text: &String| PublicKey::from_openssh(text).is_ok_and(|key| fingerprint(&key) == shown);
         let name = host_key(host, port);
         let _file = self.file.lock().unwrap();
-        let mut hosts = self.load();
+        let mut hosts = self.load()?;
         if hosts.get(&name).is_some_and(has_shown) {
             return Ok(true);
         }

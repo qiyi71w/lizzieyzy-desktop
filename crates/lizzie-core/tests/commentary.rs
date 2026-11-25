@@ -406,7 +406,7 @@ const PLAIN_HTTP_ACCEPTED: [&str; 11] = [
     "[fc00::1]",
     "[fd12:3456:789a::1234]",
 ];
-const PLAIN_HTTP_REFUSED: [&str; 24] = [
+const PLAIN_HTTP_REFUSED: [&str; 35] = [
     "8.8.8.8",
     "172.15.255.255",
     "172.32.0.1",
@@ -431,6 +431,17 @@ const PLAIN_HTTP_REFUSED: [&str; 24] = [
     "[::ffff:192.168.1.3]",
     "[::ffff:c0a8:103]",
     "[fd00::1%25eth0]",
+    "[::192.168.1.5]",
+    "[::c0a8:105]",
+    "192.168.1.5.",
+    "0300.0250.1.1",
+    "0xC0A80101",
+    "192.168.257",
+    "user@192.168.1.5",
+    "192.168.1.5@evil.com",
+    "evil.com#@192.168.1.5",
+    "192.168.1.5\\evil.com",
+    "%31%39%32.168.1.5",
 ];
 #[test]
 fn plain_http_is_accepted_for_this_computer_and_literal_private_addresses_only() {
@@ -472,6 +483,10 @@ fn plain_http_is_accepted_for_this_computer_and_literal_private_addresses_only()
         "http://[::ffff:7f00:1]",
         "http://+10.0.0.2",
         "http://10.0.0.+2",
+        // A port is plain decimal digits, as in Java `URI`: a sign is refused.
+        "http://192.168.1.5:+80/v1",
+        "http://192.168.1.5:-80/v1",
+        "https://example.com:+443/v1",
     ] {
         assert!(validate_base_url(base).is_err(), "{base}");
     }

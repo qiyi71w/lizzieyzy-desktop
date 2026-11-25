@@ -107,7 +107,8 @@ pub fn validate_base_url(value: &str) -> Result<String, CommentaryFailure> {
         }
         (h, p)
     };
-    if !port.is_empty() && port.parse::<u16>().is_err() {
+    // Java `URI`: a port is decimal digits only (`str::parse` would also take a leading `+`).
+    if !port.is_empty() && (!port.bytes().all(|b| b.is_ascii_digit()) || port.parse::<u16>().is_err()) {
         return Err(bad());
     }
     if scheme.eq_ignore_ascii_case("http") && !allows_plain_http(host) {
