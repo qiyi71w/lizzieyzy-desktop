@@ -107,6 +107,7 @@ import {
   ARROW,
   SCROLLBAR,
   type BoardReport,
+  type CapturedReport,
   type OwnershipLayer,
   type BoardScene,
   type FrostRegions,
@@ -170,6 +171,7 @@ let positionStones = "";
 let boardReport: BoardReport | null = null;
 let subReport: SubBoardReport | null = null;
 let statReport: StatReport | null = null;
+let capturedReport: CapturedReport | null = null;
 /** 双引擎模式: the boards' rectangles, what the right board drew and the status strips as drawn. */
 let dual: DualPanels | null = null;
 let rightReport: BoardReport | null = null;
@@ -204,10 +206,14 @@ let projectedSecondary: NodeAnalysisView | null = null;
 let projectedHistory: HistoryPoint[] = [];
 let projectedView: WorkbenchView | null = null;
 
-/** Java runtime summary keys must also be literal t() calls for bundle extraction. */
+/** Java runtime caption keys (rule-set short names and rules summaries) must also be literal t()
+ *  calls for bundle extraction. */
 function rulesCaption(key: string | null): string | null {
   if (!key) return null;
   const captions: Record<string, string> = {
+    "LizzieFrame.currentRules.chinese2027": t("LizzieFrame.currentRules.chinese2027"),
+    "LizzieFrame.currentRules.chinese2027DrawToWhite": t("LizzieFrame.currentRules.chinese2027DrawToWhite"),
+    "LizzieFrame.currentRules.chinese2027DrawToFirstPass": t("LizzieFrame.currentRules.chinese2027DrawToFirstPass"),
     "LizzieFrame.currentRules.chinese": t("LizzieFrame.currentRules.chinese"),
     "LizzieFrame.currentRules.chn-ancient": t("LizzieFrame.currentRules.chn-ancient"),
     "LizzieFrame.currentRules.japanese": t("LizzieFrame.currentRules.japanese"),
@@ -1384,7 +1390,7 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
     subReport = paintSubBoard(prepare($("sub"), P.sub), boardGeom(P.sub, cols, rows, SUB_MARGIN_RATIO), P.sub, sub);
   const ai = v.statistics;
   if (P.shown.captured && changed("captured", `${at(P.captured)}:${!!P.smallCaptured}:${docSig}:${v.komi}:${v.engine.analysing}:${v.engine.rules_key}:${ai.ai_score_black}:${ai.ai_score_white}`))
-    paintCaptured(prepare($("captured"), P.captured), P.captured, {
+    capturedReport = paintCaptured(prepare($("captured"), P.captured), P.captured, {
       toPlay: pos.to_play,
       blackCaptures: pos.black_captures,
       whiteCaptures: pos.white_captures,
@@ -1831,8 +1837,10 @@ function uiReport() {
       rawNet: state.view?.rawNet ? { mode: state.view.rawNet.mode, node: state.view.rawNet.node, hasPolicy: !!state.view.rawNet.policy } : null,
       board: boardReport,
       sub: subReport && { ...subReport, candidateIndex: subCandidate },
-      /** Kata形势 / 统计 / AI总评分 / 终局点目 (T11): what the panels and overlays drew. */
+      /** Kata形势 / 统计 / AI总评分 / 终局点目 (T11) and the captured panel's rules caption: what
+       *  the panels and overlays drew. */
       information: {
+        captured: capturedReport,
         stat: statReport,
         aiScore: state.view ? { black: state.view.statistics.ai_score_black === null ? null : aiScoreText(state.view.statistics.ai_score_black), white: state.view.statistics.ai_score_white === null ? null : aiScoreText(state.view.statistics.ai_score_white) } : null,
         kataEstimate: state.view ? { ...state.view.kata_estimate.state, hidden: state.view.kata_estimate.hidden, style: state.view.settings.display.kataEstimateStyle, mainBoard: boardReport?.estimate ?? null, subBoard: subReport?.ownership ?? null } : null,

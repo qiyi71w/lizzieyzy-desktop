@@ -1,7 +1,8 @@
 //! 终局点目's verdict and the rules caption through the public `Workbench` operations, with a
 //! controlled KataGo reporting chosen rules: equal totals are a draw (or the first passer's under
-//! KataGo's button rules), whole margins have no ".0", the result written into `RE` follows, and
-//! territory rules keep their name whatever `friendlyPassOk` says.
+//! KataGo's button rules), whole margins have no ".0", the result written into `RE` follows,
+//! territory rules keep their name whatever `friendlyPassOk` says, and the caption names the 2027
+//! Chinese rule set the rules and the game's komi are.
 
 use std::sync::{Arc, Mutex};
 
@@ -230,4 +231,37 @@ fn japanese_and_korean_rules_are_named_whatever_friendly_pass_says() {
         others
     );
     assert_eq!(caption(CHINESE), Some("LizzieFrame.currentRules.chinese".to_string()));
+}
+
+/// The caption follows the komi as well as the rules (`RulePreset.captionKey`): Chinese rules
+/// with komi 7 are 中国规则2027, with 7.5 中国规则 (2002), with a komi of no rule set still
+/// 中国规则; the button rules are 2027·平局先停胜 whatever the komi.
+#[test]
+fn the_caption_follows_the_komi() {
+    let dir = tempfile::tempdir().unwrap();
+    let caption_at = |rules: &str, komis: &[f64]| -> Vec<Option<String>> {
+        let world = World::default();
+        let (mut wb, id) = started(dir.path(), &world, rules);
+        komis
+            .iter()
+            .map(|&komi| {
+                wb.set_komi(komi).unwrap();
+                answer_all(&mut wb, &world, id, rules);
+                wb.view(false).engine.rules_key
+            })
+            .collect()
+    };
+    let key = |k: &str| Some(format!("LizzieFrame.currentRules.{k}"));
+    assert_eq!(
+        caption_at(CHINESE, &[7.0, 7.5, 6.5, 7.0]),
+        [key("chinese2027"), key("chinese"), key("chinese"), key("chinese2027")]
+    );
+    assert_eq!(
+        caption_at(CHINESE_BUTTON, &[7.0, 7.5, 0.5]),
+        [
+            key("chinese2027DrawToFirstPass"),
+            key("chinese2027DrawToFirstPass"),
+            key("chinese2027DrawToFirstPass")
+        ]
+    );
 }

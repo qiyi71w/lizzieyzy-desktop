@@ -2525,6 +2525,19 @@ export interface CapturedScene {
   small?: boolean;
 }
 
+/** What paintCaptured drew, in panel coordinates: the rules caption (null when the panel shows
+ *  the move number or has no room for the caption) and the boxes beside and below it. */
+export interface CapturedReport {
+  width: number;
+  height: number;
+  caption: string | null;
+  captionBox: Rect | null;
+  /** Black's and White's stone with the 提子 beside it, and the 贴目 row (null with one row). */
+  black: Rect;
+  white: Rect;
+  komi: Rect | null;
+}
+
 /** drawCaptured's AI总评分 text (LizzieFrame.AIscore + "%.1f"). */
 export function aiScoreText(score: number): string {
   return `${t("LizzieFrame.AIscore")}${score.toFixed(1)}`;
@@ -2565,9 +2578,9 @@ const MIN_TEXT = 9;
  *  instead: first the second row (吻合度, 贴目; the small strip moves 吻合度 beside its stones
  *  while that fits), then the caption (the dot stays), then the 提子 names (each count stays
  *  beside its stone). */
-export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedScene) {
+export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedScene): CapturedReport | null {
   const { w, h } = r;
-  if (w < 10 || h < 5) return;
+  if (w < 10 || h < 5) return null;
   const p = stagePalette();
   const family = panelFont();
   const type = typeScale();
@@ -2660,15 +2673,27 @@ export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedS
   stone(w - pad - z.stone / 2, s.toPlay === "White", p.stoneWhite, p.stoneWhiteEdge);
   drawFigures(g, plan.top[0], pad + z.stone + z.gap, baseA, z.label, z.large, family, p);
   drawFigures(g, plan.top[1], w - pad - z.stone - z.gap - figuresWidth(g, plan.top[1], z.label, z.large, family), baseA, z.label, z.large, family, p);
+  // Each stone with the 提子 beside it.
+  const [blackW, whiteW] = plan.top.map((top) => z.stone + (top.length ? z.gap + figuresWidth(g, top, z.label, z.large, family) : 0));
+  const komiW = figuresWidth(g, komi, z.label, z.body, family);
+  const report: CapturedReport = {
+    width: w,
+    height: h,
+    caption: null,
+    captionBox: null,
+    black: { x: pad, y: rowA - z.stone / 2, w: blackW, h: z.stone },
+    white: { x: w - pad - whiteW, y: rowA - z.stone / 2, w: whiteW, h: z.stone },
+    komi: plan.twoRows ? { x: i(w / 2 - komiW / 2), y: baseB - z.body, w: komiW, h: z.body * 1.2 } : null,
+  };
   if (plan.twoRows) {
     drawFigures(g, black.bottom, pad, baseB, z.label, z.large, family, p);
     drawFigures(g, white.bottom, w - pad - figuresWidth(g, white.bottom, z.label, z.large, family), baseB, z.label, z.large, family, p);
-    drawFigures(g, komi, i(w / 2 - figuresWidth(g, komi, z.label, z.body, family) / 2), baseB, z.label, z.body, family, p);
+    drawFigures(g, komi, i(w / 2 - komiW / 2), baseB, z.label, z.body, family, p);
   }
   // The middle: the dot and the caption.
   const start = i(w / 2 - (z.dot + (plan.caption ? 5 * k + captionWidth(z) : 0)) / 2);
   engineDot(g, start + z.dot / 2, rowA, z.dot, s.analysing, p);
-  if (!plan.caption) return;
+  if (!plan.caption) return report;
   const captionBase = Math.round(rowA + z.body * 0.36);
   if (s.rules) {
     g.font = `${z.body}px ${family}`;
@@ -2676,7 +2701,10 @@ export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedS
     g.textAlign = "left";
     g.textBaseline = "alphabetic";
     g.fillText(s.rules, start + z.dot + 5 * k, captionBase);
+    report.caption = s.rules;
+    report.captionBox = { x: start + z.dot + 5 * k, y: captionBase - z.body, w: captionWidth(z), h: z.body * 1.2 };
   } else drawFigures(g, moveNumber, start + z.dot + 5 * k, captionBase, z.label, z.body, family, p);
+  return report;
 }
 
 /** What the statistics panel shows, from core projections only. */

@@ -1511,7 +1511,21 @@ importing the matching LizzieYzy Next settings.
 - Rules: an SGF record's `RU` is applied to KataGo (`kata-set-rules`) before analysis. When the
   engine cannot confirm it, a dialog asks whether to continue with the engine's current rules
   (no pauses analysis). `Shift+D` opens the KataGo rules editor. The rules caption names the
-  rules KataGo reports. Its Japanese and Korean presets have 未提净死子时允许停一手 off, as KataGo
+  rules KataGo reports together with the game komi. The core keeps one table of rule sets, each
+  KataGo rules with the komi that belongs to them, in this order: 中国规则 2027 (komi 7), its
+  平局时白方胜 variant (the same rules, komi 7.5), its 平局时最先放弃着手一方胜 variant (Chinese rules
+  with the button, komi 7), 中国规则 2002 (7.5), 日本规则 (6.5), 中国古棋 (7.5), Tromp-Taylor
+  (7.5) and 应氏规则 (7.5). Rule sets with the same rules are told apart by komi; one whose rules
+  are its own is recognised whatever the komi. The caption shows a short name for the three 2027
+  rule sets (中国规则2027 for Chinese rules with komi 7, 2027·平局先停胜 for Chinese rules with
+  the button, e.g. 数子规则下收后方贴还0.5目 set to 是 in the editor) and otherwise the rules'
+  name; it changes with the komi as well as the rules, so Chinese rules with komi 7.5 read
+  中国规则 and with a komi of no rule set (such as 6.5) still 中国规则. Because 平局时白方胜 counts
+  exactly like 中国规则 2002, it is recognised only as the rule set chosen last; choosing a rule
+  set is not available yet, so those rules and komi read 中国规则. The same table gives the komi
+  of an even game under the current rules: the recognised rule set's komi, otherwise the komi new
+  games start with after a handicap game (7.5 while no rule set is chosen), otherwise the current
+  game komi. KataGo's Japanese and Korean presets have 未提净死子时允许停一手 off, as KataGo
   reports them; territory scoring does not use that field, so territory rules keep their name
   (日本规则) whichever way it is set. The same comparison names the engine game's 本局规则 and the
   野狐 rules, and the editor's 典型规则 buttons fill in the same presets.
