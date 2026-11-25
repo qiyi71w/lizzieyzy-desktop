@@ -7,7 +7,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use lizzie_core::api::{FlashOutcome, FlashTarget, GameCommand, WholeGameState};
+use lizzie_core::api::{FlashOutcome, FlashTarget, GameCommand, TrackingUnavailable, WholeGameState};
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::cloud::{CloudConnectError, CloudConnector, CloudLaunch, CloudProvider, CloudStartFailure, SocketCredentials, SocketTokenSource};
 use lizzie_core::engine::gtp::{parse_info, Dialect, Frame, Framer};
@@ -1180,7 +1180,7 @@ fn custom_engine_reports_focus_unsupported_without_a_remote_query_and_keeps_anal
     let v = b.wb.view(false);
     assert!(v.engine.paused);
     assert_eq!(v.focus.capability, FocusCapability::Unsupported);
-    assert!(!v.focus.available, "评估此点 must not be offered");
+    assert_eq!(v.focus.unavailable, Some(TrackingUnavailable::EngineUnsupported), "评估此点 must not be offered");
     assert!(peer.latest_queries().is_empty(), "the probe must not cost a remote query: {:?}", peer.latest_queries());
     b.wb.toggle_analysis().unwrap();
     assert!(b.pump_until(Duration::from_secs(10), |_| !peer.latest_queries().is_empty()), "resumed analysis reaches the peer");

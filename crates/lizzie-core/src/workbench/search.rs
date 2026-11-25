@@ -11,17 +11,25 @@
 //! each position a kept region is sent for its own (`clearbestmoves`).
 //!
 //! Tracked points belong to one position of one document, one engine instance and the current
-//! target and update interval: any change of these ends the tracking (`contextChanged`). While the
-//! foreground engine analyses, each tracked point below the target gets extra search (`focus`)
-//! until its candidate reaches the target or stops progressing for 8 seconds. Changing only the
-//! focus re-sends the same request, which KataGo continues on the same search tree. Pausing ends
-//! the extra search and keeps the points; nothing here resumes a paused analysis.
+//! target and update interval: any change of these ends the tracking (`contextChanged`). A point
+//! is taken only while the foreground engine analyses that position for the user: one added while
+//! it is paused or stopped by a limit would get no search (`moveFocusCapability` asks
+//! `isPondering`). While the foreground engine analyses, each tracked point below the target gets
+//! extra search (`focus`) until its candidate reaches the target or stops progressing for 8
+//! seconds. Changing only the focus re-sends the same request, which KataGo continues on the same
+//! search tree. Pausing ends the extra search and keeps the points; nothing here resumes a paused
+//! analysis. A background task borrowing or holding the foreground engine (整盘精析, 闪电分析,
+//! 自动快析) only interrupts the extra search: once the engine analyses the tracked position for
+//! the user again, the interrupted points are searched extra again, and an engine that kept
+//! searching it is sent nothing new.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use super::Workbench;
-use crate::api::{ApiError, ErrorKind, FocusView, RegionCommand, RegionView, TrackedPointView, TrackingCommand};
+use crate::api::{
+    ApiError, ErrorKind, FocusView, RegionCommand, RegionView, TrackedPointView, TrackingCommand, TrackingUnavailable,
+};
 use crate::engine::runtime::{FocusCapability, InstanceId, SearchFocus, SearchRegion};
 use crate::record::{NodeId, Point};
 use crate::settings::{RegionSettings, TrackingSettings};
@@ -72,6 +80,9 @@ pub(super) struct SearchFlow {
     context: Option<TrackContext>,
     selected: Vec<Point>,
     active: Vec<Point>,
+    /// The foreground engine is lent to a background task: `active` waits for its return, without
+    /// the 8 seconds without progress running.
+    suspended: bool,
     visits: HashMap<Point, u64>,
     deadlines: HashMap<Point, Instant>,
     /// What a newly tracked point counts at once; a stored result with more visits from an earlier
@@ -88,8 +99,27 @@ impl SearchFlow {
         self.context = None;
         self.selected.clear();
         self.active.clear();
+        self.suspended = false;
         self.visits.clear();
         self.deadlines.clear();
+    }
+
+    /// The extra search of every point still below the target ends (`onFocusStopped`).
+    fn stop_extra_search(&mut self) {
+        self.active.clear();
+        self.suspended = false;
+        self.deadlines.clear();
+    }
+
+    /// The engine lent to a background task is back analysing the tracked position: the
+    /// interrupted points get extra search again, each with its 8 seconds, and count the search
+    /// they get from now on, not the one the task interrupted.
+    fn resume_extra_search(&mut self, now: Instant) {
+        self.suspended = false;
+        for &point in &self.active {
+            self.visits.insert(point, 0);
+            self.deadlines.insert(point, now + PROGRESS_TIMEOUT);
+        }
     }
 
     fn deactivate(&mut self, point: Point) {
@@ -219,9 +249,15 @@ impl Workbench {
         if self.search.context.is_some() && self.search.context != context {
             self.search.end_tracking();
         }
-        if !analyse || !self.tracking_available() {
-            self.search.active.clear();
+        if analyse && self.tracking_available() {
+            if self.search.suspended {
+                self.search.resume_extra_search(Instant::now());
+            }
+        } else if self.foreground_borrowed() && !self.analysis_stopped_for_user() && !self.search.active.is_empty() {
+            self.search.suspended = true;
             self.search.deadlines.clear();
+        } else {
+            self.search.stop_extra_search();
         }
         // The latest line counts only while its engine still searches this position.
         let foreground = self.engines.foreground();
@@ -235,7 +271,7 @@ impl Workbench {
             self.search.live = None;
         }
         let focus = match self.search.context {
-            Some(c) if !self.search.active.is_empty() => Some(SearchFocus {
+            Some(c) if !self.search.active.is_empty() && !self.search.suspended => Some(SearchFocus {
                 instance: c.instance,
                 doc: c.position.0,
                 node: c.position.1,
@@ -392,9 +428,9 @@ impl Workbench {
         })
     }
 
-    /// `canStartTrackingAnalysis`: a started local KataGo in the foreground whose own probe found
-    /// `focus`, analysing for the user (not lent to a background task, not 双引擎模式, not the pure
-    /// network, not setting up a position).
+    /// The engine side of `canStartTrackingAnalysis`: a started local KataGo in the foreground
+    /// whose own probe found `focus`, analysing for the user (not lent to a background task, not
+    /// 双引擎模式, not the pure network, not setting up a position).
     fn tracking_available(&self) -> bool {
         let Some(fg) = self.engines.foreground() else {
             return false;
@@ -407,6 +443,36 @@ impl Workbench {
             && !self.double_engine()
             && !self.engines.raw_net_active()
             && !self.setup_mode()
+    }
+
+    /// The user's pause, a time or visit limit's stop, or 分析 黑／白 for the side to move keeps
+    /// the foreground engine from analysing this position; resuming the analysis ends each.
+    fn analysis_stopped_for_user(&self) -> bool {
+        let here = Some((self.doc.id, self.cursor));
+        self.paused || self.limit_stop == here || self.side_hold == here
+    }
+
+    /// Why no point can be tracked now (`canStartTrackingAnalysis`, `trackingUnavailableKey`):
+    /// besides the engine, the foreground engine must be told to analyse this very position, as
+    /// a point added otherwise gets no search (`isPondering`). The pause is named only when
+    /// resuming the analysis is all it takes.
+    fn tracking_unavailable(&self) -> Option<TrackingUnavailable> {
+        match self.engines.foreground().map(|fg| self.engines.focus_capability(fg)) {
+            Some(FocusCapability::Unsupported) => return Some(TrackingUnavailable::EngineUnsupported),
+            Some(FocusCapability::Failed) => return Some(TrackingUnavailable::ProbeFailed),
+            _ => {}
+        }
+        if !self.tracking_available() {
+            return Some(TrackingUnavailable::Unavailable);
+        }
+        if self.engines.wants_analysis(self.doc.id, self.cursor) {
+            return None;
+        }
+        Some(if self.analysis_stopped_for_user() {
+            TrackingUnavailable::AnalysisPaused
+        } else {
+            TrackingUnavailable::Unavailable
+        })
     }
 
     /// A foreground analysis line of `instance` for `position`: it becomes the live candidates and
@@ -446,7 +512,7 @@ impl Workbench {
                         format!("point {point:?} is off the board"),
                     ));
                 }
-                if !self.tracking_available()
+                if self.tracking_unavailable().is_some()
                     || self.search.selected.contains(&point)
                     || !self.empty_here(point)
                     || !self.trackable_in_region(point)
@@ -567,7 +633,7 @@ impl Workbench {
                 });
                 TrackedPointView {
                     point,
-                    active: self.search.active.contains(&point),
+                    active: self.search.active.contains(&point) && !self.search.suspended,
                     visits: self.search.visits.get(&point).copied().unwrap_or(0),
                     rank,
                 }
@@ -575,7 +641,7 @@ impl Workbench {
             .collect();
         FocusView {
             capability: fg.map_or(FocusCapability::Unknown, |f| self.engines.focus_capability(f)),
-            available: self.tracking_available(),
+            unavailable: self.tracking_unavailable(),
             target_visits: self.config.tracking.max_visits,
             points,
             cancellation_pending: fg.is_some_and(|f| {

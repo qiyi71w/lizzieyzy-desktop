@@ -3160,9 +3160,9 @@ export type FocusView = {
  */
 capability: FocusCapability, 
 /**
- * A point can be tracked now (`canStartTrackingAnalysis`).
+ * Why no point can be tracked now; `None` when one can (`canStartTrackingAnalysis`).
  */
-available: boolean, target_visits: number, 
+unavailable: TrackingUnavailable | null, target_visits: number, 
 /**
  * Tracked points, in the order they were chosen.
  */
@@ -3172,6 +3172,8 @@ points: Array<TrackedPointView>,
  * not yet accepted).
  */
 cancellation_pending: boolean, };
+
+export type TrackingUnavailable = "EngineUnsupported" | "ProbeFailed" | "AnalysisPaused" | "Unavailable";
 
 export type TrackedPointView = { point: Point, 
 /**
