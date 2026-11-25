@@ -473,7 +473,22 @@ impl Workbench {
         };
         let position = self.doc.record.position(self.cursor);
         let territory = self.config.display.territory_scoring;
-        Some(marks.score(self.cursor, &position, self.komi, territory, self.handicap_bonus()))
+        // `ScoreResult.setScore`: the foreground engine's reported rules decide whether the first
+        // player to pass wins equal totals (`FirstPassDraw.drawWinner`).
+        let draw_winner = self
+            .engines
+            .foreground()
+            .and_then(|f| self.engines.confirmed_rules(f))
+            .filter(|r| r.has_button())
+            .and_then(|_| crate::scoring::first_passer(&self.doc.record, self.cursor));
+        Some(marks.score(
+            self.cursor,
+            &position,
+            self.komi,
+            territory,
+            self.handicap_bonus(),
+            draw_winner,
+        ))
     }
 
     /// White's handicap compensation under KataGo's reported `whiteHandicapBonus`

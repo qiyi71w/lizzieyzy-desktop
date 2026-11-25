@@ -27,6 +27,9 @@ pub struct FoxView {
     pub can_start: bool,
     pub can_stop: bool,
     pub rules: Option<String>,
+    /// Key of the preset name `rules` are (`FoxRulesText.describe`), else none and the dialog
+    /// words them field by field.
+    pub rules_preset_key: Option<String>,
     pub max_time: Option<f64>,
     pub max_visits: Option<u64>,
     pub connection: u64,

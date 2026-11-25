@@ -6,8 +6,54 @@
 //! or the other side's dead stone; any other region is neutral. Dead stones count as points of
 //! the side whose area they lie in and as its prisoners.
 
-use crate::api::{ScorePoint, ScoreView};
-use crate::record::{BoardSize, NodeId, Point, Position, Stone};
+use crate::api::{ScorePoint, ScoreVerdict, ScoreView};
+use crate::record::{BoardSize, GameRecord, NodeId, NodeKind, Point, Position, Stone};
+
+/// The player who passed first on the way to `node`, if anyone did (`FirstPassDraw.firstPasser`).
+/// A `DD[true]` placeholder is no player's pass.
+pub fn first_passer(record: &GameRecord, node: NodeId) -> Option<Stone> {
+    let mut first = None;
+    let mut at = Some(node);
+    while let Some(n) = at {
+        if let NodeKind::Pass { color } = record.node(n).kind {
+            first = Some(color);
+        }
+        at = record.parent(n);
+    }
+    first
+}
+
+/// The verdict of the totals (`CountVerdict`): equal totals are a draw, or `draw_winner`'s when
+/// the rules give a drawn count to the first player to pass.
+fn verdict(black_total: f64, white_total: f64, draw_winner: Option<Stone>) -> ScoreVerdict {
+    let margin = black_total - white_total;
+    if margin.abs() < 1e-9 {
+        return match draw_winner {
+            Some(winner) => ScoreVerdict::DrawToFirstPasser { winner },
+            None => ScoreVerdict::Draw,
+        };
+    }
+    let winner = if margin > 0.0 { Stone::Black } else { Stone::White };
+    let margin = margin.abs();
+    // Java: a whole margin as a long, else `%.1f` (half up).
+    let margin = if margin == margin.trunc() {
+        format!("{}", margin as i64)
+    } else {
+        format!("{:.1}", (margin * 10.0).round() / 10.0)
+    };
+    ScoreVerdict::Win { winner, margin }
+}
+
+/// The SGF `RE` of a verdict (`GameResult.sgf`): `B+3.5`, `0` for a draw, `B+` for a draw won by
+/// passing first.
+fn sgf_result(verdict: &ScoreVerdict) -> String {
+    let side = |s: Stone| if s == Stone::Black { "B+" } else { "W+" };
+    match verdict {
+        ScoreVerdict::Draw => "0".into(),
+        ScoreVerdict::DrawToFirstPasser { winner } => side(*winner).into(),
+        ScoreVerdict::Win { winner, margin } => format!("{}{margin}", side(*winner)),
+    }
+}
 
 /// The marks of one scoring session, on the stones it started from.
 #[derive(Clone, Debug, PartialEq)]
@@ -118,7 +164,8 @@ impl Marks {
 
     /// The count with `komi` and the captures of the scored position (`showGroupResult`,
     /// `ScoreResult.setScore`). `handicap_bonus` is White's handicap compensation under area
-    /// scoring (KataGo `whiteHandicapBonus` N or N-1 applied to the handicap stones).
+    /// scoring (KataGo `whiteHandicapBonus` N or N-1 applied to the handicap stones);
+    /// `draw_winner` wins equal totals (KataGo's button rules: the first player to pass).
     pub fn score(
         &self,
         node: NodeId,
@@ -126,6 +173,7 @@ impl Marks {
         komi: f64,
         territory: bool,
         handicap_bonus: u32,
+        draw_winner: Option<Stone>,
     ) -> ScoreView {
         let owners = self.owners();
         let (mut black_alive, mut white_alive, mut black_points, mut white_points) = (0u32, 0u32, 0u32, 0u32);
@@ -171,8 +219,8 @@ impl Marks {
                 (white_alive + white_points) as f64 + komi,
             )
         };
-        let diff = (black_total - white_total).abs();
-        let result = format!("{}+{diff:.1}", if black_total >= white_total { "B" } else { "W" });
+        let verdict = verdict(black_total, white_total, draw_winner);
+        let result = sgf_result(&verdict);
         ScoreView {
             node,
             points,
@@ -186,6 +234,7 @@ impl Marks {
             komi,
             black_total,
             white_total,
+            verdict,
             result,
         }
     }

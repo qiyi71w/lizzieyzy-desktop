@@ -1690,9 +1690,16 @@ black_points: number, white_points: number,
  */
 black_captures: number, white_captures: number, komi: number, black_total: number, white_total: number, 
 /**
- * SGF result written by 确认结果 (`B+3.5`, `W+0.5`; Black wins ties like Java).
+ * Who won and by how much, or a draw (`CountVerdict`).
+ */
+verdict: ScoreVerdict, 
+/**
+ * SGF result written by 确认结果: `B+3.5`, `W+4`, `0` for a draw, `B+` / `W+` for a draw
+ * the rules give to the first player to pass.
  */
 result: string, };
+
+export type ScoreVerdict = { "type": "Draw" } | { "type": "DrawToFirstPasser", winner: Stone, } | { "type": "Win", winner: Stone, margin: string, };
 
 export type MoveEvaluation = { 
 /**
@@ -2333,7 +2340,12 @@ export type FoxCommand = { "type": "Prepare" } | { "type": "Start", port: number
 
 export type FoxReplaceChoice = "Ask" | "Save" | "Replace" | "Cancel";
 
-export type FoxView = { status_key: string, listening: boolean, port: number, owns_board: boolean, preparing: boolean, restoring: boolean, ready: boolean, can_start: boolean, can_stop: boolean, rules: string | null, max_time: number | null, max_visits: number | null, connection: number, game: number, revision: number, live_node: number | null, browsing: boolean, browsing_status_key: string, clock: FoxClockView | null, pending: FoxSubmissionView | null, submissions: Array<FoxSubmissionView>, desired_pda: number | null, confirmed_pda: number | null, pda_status_key: string, transcript: Array<string>, outcome: FoxStartOutcome | null, };
+export type FoxView = { status_key: string, listening: boolean, port: number, owns_board: boolean, preparing: boolean, restoring: boolean, ready: boolean, can_start: boolean, can_stop: boolean, rules: string | null, 
+/**
+ * Key of the preset name `rules` are (`FoxRulesText.describe`), else none and the dialog
+ * words them field by field.
+ */
+rules_preset_key: string | null, max_time: number | null, max_visits: number | null, connection: number, game: number, revision: number, live_node: number | null, browsing: boolean, browsing_status_key: string, clock: FoxClockView | null, pending: FoxSubmissionView | null, submissions: Array<FoxSubmissionView>, desired_pda: number | null, confirmed_pda: number | null, pda_status_key: string, transcript: Array<string>, outcome: FoxStartOutcome | null, };
 
 export type FoxClockView = { main_seconds: number, byo_seconds: number, periods: number, remaining_seconds: number, };
 
@@ -4279,3 +4291,9 @@ browser_sync: boolean,
  * The web window title's status (`reportSyncStatus`).
  */
 browser_status: OnlineText | null, live: LiveListView, always_goto_last: boolean, open_html_on_live: boolean, };
+
+/** KataGo's official rules presets (`KataGoRules.officialPresets`), by name. */
+export const KATA_RULE_PRESETS: Readonly<Record<string, Readonly<Record<string, string | boolean>>>> = {"aga":{"friendlyPassOk":true,"hasButton":false,"ko":"SITUATIONAL","scoring":"AREA","suicide":false,"tax":"NONE","whiteHandicapBonus":"N-1"},"aga-button":{"friendlyPassOk":true,"hasButton":true,"ko":"SITUATIONAL","scoring":"AREA","suicide":false,"tax":"NONE","whiteHandicapBonus":"N-1"},"ancient-territory":{"friendlyPassOk":false,"hasButton":false,"ko":"SIMPLE","scoring":"TERRITORY","suicide":false,"tax":"ALL","whiteHandicapBonus":"0"},"bga":{"friendlyPassOk":true,"hasButton":false,"ko":"SITUATIONAL","scoring":"AREA","suicide":false,"tax":"NONE","whiteHandicapBonus":"N-1"},"chinese":{"friendlyPassOk":true,"hasButton":false,"ko":"SIMPLE","scoring":"AREA","suicide":false,"tax":"NONE","whiteHandicapBonus":"N"},"chinese-kgs":{"friendlyPassOk":true,"hasButton":false,"ko":"POSITIONAL","scoring":"AREA","suicide":false,"tax":"NONE","whiteHandicapBonus":"N"},"chinese-ogs":{"friendlyPassOk":true,"hasButton":false,"ko":"POSITIONAL","scoring":"AREA","suicide":false,"tax":"NONE","whiteHandicapBonus":"N"},"goe":{"friendlyPassOk":true,"hasButton":false,"ko":"POSITIONAL","scoring":"AREA","suicide":true,"tax":"NONE","whiteHandicapBonus":"0"},"japanese":{"friendlyPassOk":false,"hasButton":false,"ko":"SIMPLE","scoring":"TERRITORY","suicide":false,"tax":"SEKI","whiteHandicapBonus":"0"},"korean":{"friendlyPassOk":false,"hasButton":false,"ko":"SIMPLE","scoring":"TERRITORY","suicide":false,"tax":"SEKI","whiteHandicapBonus":"0"},"new-zealand":{"friendlyPassOk":true,"hasButton":false,"ko":"SITUATIONAL","scoring":"AREA","suicide":true,"tax":"NONE","whiteHandicapBonus":"0"},"stone-scoring":{"friendlyPassOk":true,"hasButton":false,"ko":"SIMPLE","scoring":"AREA","suicide":false,"tax":"ALL","whiteHandicapBonus":"0"},"tromp-taylor":{"friendlyPassOk":false,"hasButton":false,"ko":"POSITIONAL","scoring":"AREA","suicide":true,"tax":"NONE","whiteHandicapBonus":"0"}};
+
+/** The engine game's standard rules choices: preset name and label key (`MatchRuleOption`). */
+export const MATCH_RULE_OPTIONS: ReadonlyArray<readonly [preset: string, labelKey: string]> = [["chinese","LizzieFrame.currentRules.chinese"],["stone-scoring","LizzieFrame.currentRules.chn-ancient"],["japanese","MatchRules.option.japaneseKorean"],["aga","MatchRules.option.agaBga"],["new-zealand","MatchRules.option.newZealand"],["tromp-taylor","MatchRules.option.trompTaylor"],["goe","LizzieFrame.currentRules.goe"]];

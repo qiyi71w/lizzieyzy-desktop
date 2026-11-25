@@ -80,7 +80,7 @@ fn generate() -> String {
         NextMoveInfo,
         RawNetMode, RawNetView,
         EstimateStyle, CoordinateStyle, PvVisitsMode,
-        KataEstimateMode, KataEstimateState, KataEstimateView, ScoreCommand, ScorePoint, ScoreView,
+        KataEstimateMode, KataEstimateState, KataEstimateView, ScoreCommand, ScorePoint, ScoreView, ScoreVerdict,
         MoveEvaluation, MoveChange, StatisticsView, FramePlacement,
         ExtraMode, SecondaryEngineView, SecondaryView,
         AnalysisEngineSettings, QuickModelView, QuickModelStatus, QuickAnalysisView, ProblemListSettings,
@@ -173,9 +173,32 @@ fn generate() -> String {
         out.push_str(d.trim());
         out.push_str("\n\n");
     }
+    out.push_str(&rule_constants());
     out.truncate(out.trim_end().len());
     out.push('\n');
     out
+}
+
+/// The core's rules presets and engine-game rules choices, for the rules editor's 典型规则 buttons
+/// and the 本局规则 picker: the UI keeps no copy of its own.
+fn rule_constants() -> String {
+    use lizzie_core::engine::rules::{KataRules, MATCH_RULE_OPTIONS, PRESETS};
+    let presets: serde_json::Map<String, serde_json::Value> = PRESETS
+        .iter()
+        .map(|p| {
+            let rules = KataRules::preset(p.0).unwrap().to_gtp_argument();
+            (p.0.to_string(), serde_json::from_str(&rules).unwrap())
+        })
+        .collect();
+    let options: Vec<[&str; 2]> = MATCH_RULE_OPTIONS.iter().map(|o| [o.0, o.1]).collect();
+    format!(
+        "/** KataGo's official rules presets (`KataGoRules.officialPresets`), by name. */\n\
+         export const KATA_RULE_PRESETS: Readonly<Record<string, Readonly<Record<string, string | boolean>>>> = {};\n\n\
+         /** The engine game's standard rules choices: preset name and label key (`MatchRuleOption`). */\n\
+         export const MATCH_RULE_OPTIONS: ReadonlyArray<readonly [preset: string, labelKey: string]> = {};\n",
+        serde_json::to_string(&presets).unwrap(),
+        serde_json::to_string(&options).unwrap(),
+    )
 }
 
 #[test]

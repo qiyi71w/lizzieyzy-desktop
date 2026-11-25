@@ -53,21 +53,11 @@ impl Workbench {
     }
 
     fn match_rule_name(&self, rules: &crate::engine::rules::KataRules) -> String {
-        use crate::engine::rules::KataRules;
-        for (preset, key) in [
-            ("chinese", "LizzieFrame.currentRules.chinese"),
-            ("stone-scoring", "LizzieFrame.currentRules.chn-ancient"),
-            ("japanese", "MatchRules.option.japaneseKorean"),
-            ("aga", "MatchRules.option.agaBga"),
-            ("new-zealand", "MatchRules.option.newZealand"),
-            ("tromp-taylor", "MatchRules.option.trompTaylor"),
-            ("goe", "LizzieFrame.currentRules.goe"),
-        ] {
-            if KataRules::preset(preset).is_some_and(|preset| preset == *rules) {
-                return self.match_text(key);
-            }
-        }
-        self.match_text("NewEngineGameDialog.matchRules.custom")
+        self.match_text(
+            rules
+                .match_option()
+                .map_or("NewEngineGameDialog.matchRules.custom", |o| o.1),
+        )
     }
 
     /// MatchRulesTexts.replaceSgfComment: one localized, replaceable snapshot block in the root.

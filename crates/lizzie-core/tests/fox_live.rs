@@ -146,6 +146,16 @@ fn stop_invalidates_late_choice_and_confirms_rules_limits_no_clock_and_position_
     assert!(h.sent.iter().any(|c|c=="kata-time_settings none"));
     assert!(!h.received.iter().any(|s|s.starts_with("AFPLAY")));
 }
+/// The rules line names the preset the core finds the engine's rules to be: Japanese rules are
+/// 日本/韩国规则 whatever friendlyPassOk says; rules that are no preset are worded field by field.
+#[test]
+fn the_rules_line_names_the_preset_by_the_core_comparison() {
+    let japanese = |friendly: bool, tax: &str| format!(r#"{{"friendlyPassOk":{friendly},"hasButton":false,"ko":"SIMPLE","scoring":"TERRITORY","suicide":false,"tax":"{tax}","whiteHandicapBonus":"0"}}"#);
+    for (rules, key) in [(RULES.to_string(), Some("Fox.rulesPreset.chinese")), (japanese(true, "SEKI"), Some("Fox.rulesPreset.japaneseKorean")), (japanese(false, "SEKI"), Some("Fox.rulesPreset.japaneseKorean")), (japanese(false, "NONE"), None)] {
+        let mut h=Harness::new(); h.rules=rules; h.prepare();
+        assert_eq!(h.wb.inspect().fox.rules_preset_key.as_deref(), key, "{}", h.rules);
+    }
+}
 #[test]
 fn a_web_viewer_cannot_take_the_board_while_fox_listens_before_its_first_position() {
     use lizzie_core::web_board::ClientMessage;

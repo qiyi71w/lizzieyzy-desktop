@@ -1,7 +1,7 @@
 /* 点目结果 (ScoreResult): a non-modal window beside the board while scoring, the dialog's ground,
    radius and shadow without a scrim; its title bar moves it. The hint, the scoring rule, each
    side's count after its stone, then the result on the winner's colour (the workbench's flat
-   stones, design/stage.css); the footer (design/dialog.css) ends the body. */
+   stones, design/stage.css) or a draw's grey; the footer (design/dialog.css) ends the body. */
 
 .score-result {
   position: fixed;
@@ -60,4 +60,9 @@
   background: var(--ws-stone-white);
   color: var(--ws-on-white);
   box-shadow: inset 0 0 0 1px var(--ws-stone-white-edge);
+}
+/* A draw on Java's grey: the theme's quiet ink, with the pane's ground for the words. */
+.score-total[data-winner="draw"] {
+  background: var(--ds-text-3);
+  color: var(--ds-panel);
 }

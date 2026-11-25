@@ -772,6 +772,37 @@ fn unverifiable_rules_require_consent_and_verified_mismatch_is_not_consent() {
     assert!(!m.held.iter().any(|(_, _, c)| c.starts_with("genmove")));
 }
 
+/// 本局规则 is named by the core's rules presets: Japanese rules saved by earlier versions with
+/// friendlyPassOk true are still 日本/韩国规则 (territory scoring does not use that field), while a
+/// real difference is 自定义.
+#[test]
+fn territory_match_rules_keep_their_name_whatever_friendly_pass_says() {
+    let japanese = |friendly: bool, tax: &str| {
+        format!(
+            r#"{{"ko":"SIMPLE","scoring":"TERRITORY","tax":"{tax}","suicide":false,"hasButton":false,"whiteHandicapBonus":"0","friendlyPassOk":{friendly}}}"#
+        )
+    };
+    for (rules, choice) in [
+        (japanese(true, "SEKI"), Some("japanese")),
+        (japanese(false, "SEKI"), Some("japanese")),
+        (japanese(true, "NONE"), None),
+    ] {
+        let mut m = Match::new();
+        m.command(MatchCommand::Start {
+            settings: MatchSettings {
+                rules,
+                ..MatchSettings::default()
+            },
+            session: genmove(),
+            first_engine: 0,
+            second_engine: 1,
+            disable_wrn: true,
+        });
+        let view = m.wb.inspect().engine_match.unwrap();
+        assert_eq!(view.rules_target_choice.as_deref(), choice);
+    }
+}
+
 #[test]
 fn spec_03_komi_revision_commits_only_after_both_participants_confirm() {
     // EngineManager.java:7624–7756: applied KM stays old until both confirmations;
