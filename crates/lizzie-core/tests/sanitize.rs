@@ -373,3 +373,59 @@ fn canonicalization_is_bounded_and_preserves_unrecognized_escapes() {
         ("分析 %E4%B8%AD stage=done", "分析 %E4%B8%AD stage=done"),
     ]);
 }
+
+// Java also decoded these whenever the text held `\"`, `\'`, `\u` or `\U`, even with no
+// credential in it: `\\wsl.localhost\Ubuntu` became `\wsl.localhost\Ubuntu`.
+#[test]
+fn noncredential_paths_and_escapes_are_kept_as_written() {
+    for written in [
+        r"\\wsl.localhost\Ubuntu\x",
+        r"C:\Users\a\katago.exe",
+        r"\\server\share\u0041",
+        r#"{"command":"C:\\Users\\a\\katago.exe gtp","logDir":"\\\\wsl.localhost\\Ubuntu"}"#,
+        r#"katago.exe -config \"C:\Program Files\x.cfg\" gtp"#,
+    ] {
+        assert_cases(&[(written, written)]);
+    }
+}
+
+#[test]
+fn credentials_beside_paths_are_masked_and_the_paths_kept_as_written() {
+    assert_cases(&[
+        (
+            r"katago.exe gtp -config C:\Users\a\k.cfg -override-config logDir=\\wsl.localhost\Ubuntu\logs,password=CANARY_PW",
+            r"katago.exe gtp -config C:\Users\a\k.cfg -override-config logDir=\\wsl.localhost\Ubuntu\logs,password=<redacted>",
+        ),
+        (
+            r"plink -pw CANARY_PW user@host \\server\Users\katago.exe gtp",
+            r"plink -pw <redacted> user@host \\server\Users\katago.exe gtp",
+        ),
+        (
+            r"body=password%3DCANARY_PCT logDir=\\wsl.localhost\Ubuntu",
+            r"body=password%3D<redacted> logDir=\\wsl.localhost\Ubuntu",
+        ),
+        (
+            r"body=%70assword=CANARY_PCT path=\\server\share\u0041",
+            r"body=%70assword=<redacted> path=\\server\share\u0041",
+        ),
+    ]);
+}
+
+// A credential found only after decoding escapes is masked in the decoded text, as in Java.
+#[test]
+fn credentials_hidden_behind_escapes_are_masked_in_the_decoded_text() {
+    assert_cases(&[
+        (
+            r#"payload={\"password\":\"CANARY_JSON\"} logDir=\\wsl.localhost\Ubuntu"#,
+            r#"payload={"password":"<redacted>"} logDir=\wsl.localhost\Ubuntu"#,
+        ),
+        (
+            r"passw\u006frd=CANARY_ESCAPED logDir=\\wsl.localhost\Ubuntu",
+            r"password=<redacted> logDir=\wsl.localhost\Ubuntu",
+        ),
+        (
+            r"--token CANARY_WRITTEN passw\u006frd=CANARY_ESCAPED \\server\share",
+            r"--token <redacted> password=<redacted> \server\share",
+        ),
+    ]);
+}
