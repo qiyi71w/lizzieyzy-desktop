@@ -1291,8 +1291,12 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             Ok(changed(&app, &shared, done))
         }
         Command::AddTheme { name } => {
-            shared.workbench.lock().unwrap().add_theme(&name)?;
-            Ok(CommandResult::Done)
+            // ConfigDialog2.java:4463-4469: a taken name shows Java's duplicate message.
+            Ok(if shared.workbench.lock().unwrap().add_theme(&name)? {
+                CommandResult::Done
+            } else {
+                CommandResult::Refused { message_key: "ConfigDialog2.duplicateThemeName".into() }
+            })
         }
         Command::DeleteTheme { name } => {
             // ConfigDialog2.java:4423-4427: keep the dialog open and show Java's failure text.

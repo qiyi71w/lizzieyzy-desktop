@@ -1308,9 +1308,10 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   add.onclick = async () => {
     const name = await themeNameDialog();
     if (name === null) return;
-    // Java compares the list's names; the bundled themes are also taken under their stored names
-    // and in every language, and stay taken after they are deleted.
-    const names = [t("LizzieConfig.title.defaultTheme"), ...Object.keys(BUNDLED_THEME_KEYS), ...Object.values(BUNDLED_THEME_NAMES).flatMap((n) => Object.values(n)), ...(catalog?.themes.map((e) => e.name) ?? [])];
+    // Java compares the list's names. The core judges the stored ones (默认 and every bundled theme
+    // stay taken after they are deleted) and refuses a taken name with Java's message; the names
+    // the list shows for 默认 and the bundled themes, in every language, are taken too.
+    const names = [t("LizzieConfig.title.defaultTheme"), ...Object.values(BUNDLED_THEME_NAMES).flatMap((n) => Object.values(n))];
     if (names.some((n) => n.toLowerCase() === name.toLowerCase())) {
       await message(t("Message.title"), t("ConfigDialog2.duplicateThemeName"));
       return;

@@ -81,7 +81,7 @@ impl Reader<'_> {
             let complete = own.iter().all(|(k, d, i)| i.is_some() || configured(&raw, k, d).is_some_and(|c| c.trim().is_empty()));
             let shown: Vec<(&str, &[u8])> = own.iter().filter_map(|(_, _, i)| i.as_ref().map(|(f, b)| (f.as_str(), b.as_slice()))).collect();
             if complete && appearance::bundled_copy(&name, &raw, &shown) { continue; }
-            let bundled = appearance::BUNDLED.iter().any(|(n, _)| *n == name);
+            let bundled = appearance::bundled_theme(&name).is_some();
             let images: Result<Vec<(&str, Shown)>, String> = own.into_iter().map(|(k, d, i)| Ok((k, match i {
                 Some(i) => Shown::Copy(i),
                 // Theme.getImageByKey's next steps: ui's value (or the same default name) in theme/,
@@ -120,7 +120,7 @@ impl Reader<'_> {
 /// `java-soft` the theme Java's Morandi palette is here, so a Java theme of either name becomes
 /// "<name> (LizzieYzy Next)".
 pub(super) fn product_name(java: &str) -> String {
-    if java.eq_ignore_ascii_case("default") || java.eq_ignore_ascii_case(appearance::JAVA_SOFT) { format!("{java} (LizzieYzy Next)") } else { java.to_string() }
+    if appearance::same_name(java,"default") || appearance::same_name(java,appearance::JAVA_SOFT) { format!("{java} (LizzieYzy Next)") } else { java.to_string() }
 }
 
 /// `config.optString(key, default)` for an image key; `None` for a value that is not text.

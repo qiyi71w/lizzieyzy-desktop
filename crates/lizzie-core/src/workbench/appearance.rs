@@ -48,7 +48,8 @@ impl Workbench {
     }
     /// ConfigDialog2.java:4391-4477: catalog management is immediate, independent of the
     /// appearance draft. Deletion never changes the running window's committed projection.
-    pub fn add_theme(&mut self, name:&str) -> Result<(),ApiError> {
+    /// Adding answers false, creating nothing, when the name is taken ([`appearance::add_theme`]).
+    pub fn add_theme(&mut self, name:&str) -> Result<bool,ApiError> {
         appearance::add_theme(&self.storage,name).map_err(io)
     }
     pub fn delete_theme(&mut self, name:&str) -> Result<(),ApiError> {

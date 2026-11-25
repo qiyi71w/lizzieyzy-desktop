@@ -41,15 +41,16 @@ impl Reader<'_> {
             let Some(raw)=ui.get(key) else {continue}; handled.push(("ui",key));
             let value=match key {
                 // Java reads theme/<ui.theme>/ (Theme.java:63-68): an imported folder wins, under
-                // its name here; otherwise the default entry's labels mean the default theme.
+                // its name here (a bundled theme's in any letter case is that theme); otherwise
+                // the default entry's labels mean the default theme.
                 "theme"=>raw.as_str().map(|v| {
                     let name = super::themes::product_name(v);
-                    if self.mapped.themes.iter().any(|t| t.name == name) { name }
-                    else if v.eq_ignore_ascii_case("default") || DEFAULT_THEME_LABELS.contains(&v) {
+                    if self.mapped.themes.iter().any(|t| t.name == name) { appearance::listed_name(&name).to_string() }
+                    else if appearance::same_name(v,"default") || DEFAULT_THEME_LABELS.contains(&v) {
                         soft=morandi.is_some();
                         (if soft { JAVA_SOFT } else { "default" }).to_string()
                     }
-                    else { v.to_string() }
+                    else { appearance::listed_name(v).to_string() }
                 }).filter(|v|appearance::valid_name(v)).map(Value::from),
                 "board-style"=>raw.as_str().and_then(|v|match v {"japanese"=>Some(Value::from("Japanese")),"chinese-classic"=>Some(Value::from("ChineseClassic")),_=>None}),
                 // 外观模式 replaces Java's interface styles: Apple style was its dark interface.
@@ -60,7 +61,7 @@ impl Reader<'_> {
             };
             match value {
                 Some(value)=> {
-                    if key=="theme" && value.as_str().is_some_and(|n| n!="default" && !appearance::BUNDLED.iter().any(|(b,_)|*b==n)
+                    if key=="theme" && value.as_str().is_some_and(|n| n!="default" && appearance::bundled_theme(n).is_none()
                         && !self.mapped.themes.iter().any(|t| t.name == n)) {
                         // Java shows its default values for a theme without a readable folder.
                         let it=self.item(format!("ui.{key}"),ImportStatus::Incompatible);

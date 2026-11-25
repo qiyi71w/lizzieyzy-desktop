@@ -754,10 +754,16 @@ importing the matching LizzieYzy Next settings.
     dropped by 取消. As in Java, 重置 saves the whole dialog with the default 错误节点 rules and
     reopens it, and 添加 (a new theme) and 删除 take effect at once and reopen the dialog,
     dropping unsaved edits on the other pages; the 当前主题 row and 删除's confirmation say so
-    first, and 删除 is in red. A new theme's name must differ from every listed theme, including
-    默认 and the bundled themes (Java 经典, Java 柔和, 日式榧木, 胡桃木, 云子) in any interface language. Saving a named theme writes the page's values
+    first, and 删除 is in red. A new theme's name must differ, ignoring letter case as Java
+    compares, from every listed theme, from 默认 and from every bundled theme (also a deleted one),
+    and from the names the list shows for them (Java 经典, Java 柔和, 日式榧木, 胡桃木, 云子) in any
+    interface language. Saving a named theme writes the page's values
     over that theme's `theme.txt` and keeps the keys the page does not edit, as Java does.
-    Bundled themes are read-only: deleting one hides it, and edits are kept as the user's copy.
+    Bundled themes are read-only: deleting one hides it (its name stays taken), and edits are kept
+    as the user's copy, the folder of its name in the themes folder. A folder named like a bundled
+    theme in another letter case is that theme's copy on every system, as it is on Windows and
+    macOS (`custom` lists, saves and is deleted as `Custom`); user theme folders whose names differ
+    only in case, where the file system allows both, stay two themes, as Java lists them.
     The live preview shows the background the workbench would draw (the linen wallpaper for the
     default background) and falls back to the pure colour when an image path cannot be read.
   - Java 经典 is a bundled theme holding Java's own default values and images. While it is the

@@ -158,10 +158,10 @@ fn a_failed_theme_or_config_write_does_not_publish_new_settings() {
 #[test]
 fn new_themes_use_the_java_template_and_deletion_removes_only_the_chosen_theme() {
     let dir=tempfile::tempdir().unwrap(); let s=storage(dir.path()); let mut wb=workbench(dir.path());
-    wb.add_theme("Personal").unwrap();
+    assert!(wb.add_theme("Personal").unwrap());
     let theme=appearance::load_theme(&s,"Personal",&ThemeSettings::default());
     assert_eq!(theme.black_stone_image,"black.png");
-    assert!(wb.add_theme("personal").is_err());
+    assert!(!wb.add_theme("personal").unwrap());
     assert!(wb.add_theme("../outside").is_err());
     assert!(wb.delete_theme("default").is_err());
     let settings=AppearanceSettings{theme:"Personal".into(),..Default::default()};
@@ -180,8 +180,95 @@ fn new_themes_use_the_java_template_and_deletion_removes_only_the_chosen_theme()
         assert_eq!(appearance::load_theme(&s,name,&ui),ThemeSettings::default());
         wb.delete_theme(name).unwrap();
         assert!(!appearance::catalog(&s,&ThemeSettings::default()).iter().any(|t|t.name==name));
-        assert!(wb.add_theme(upper).is_err());
+        assert!(!wb.add_theme(upper).unwrap());
     }
+}
+fn theme_names(wb:&Workbench) -> Vec<String> {
+    appearance::catalog(wb.storage(),&ThemeSettings::default()).into_iter().map(|e| e.name).collect()
+}
+/// 添加 refuses 默认 and every bundled theme's name in any letter case, before and after deleting
+/// hid the theme, and creates no folder; another name is added.
+#[test]
+fn default_and_bundled_theme_names_stay_taken_in_any_letter_case() {
+    let dir=tempfile::tempdir().unwrap(); let mut wb=workbench(dir.path());
+    let bundled=["sabaki","yasnaya","Megapack","Custom","Fast","kaya","walnut","yunzi","java-classic","java-soft"];
+    let variants=|name:&str| {
+        let mut chars=name.chars(); let first=chars.next().unwrap();
+        let flipped:String=if first.is_uppercase() { first.to_lowercase().collect() } else { first.to_uppercase().collect() };
+        [name.to_string(),name.to_uppercase(),name.to_lowercase(),format!("{flipped}{}",chars.as_str())]
+    };
+    let refuses_all=|wb:&mut Workbench| {
+        for name in ["default","Default","DEFAULT"] { assert!(!wb.add_theme(name).unwrap(),"{name}"); }
+        for name in bundled { for variant in variants(name) { assert!(!wb.add_theme(&variant).unwrap(),"{variant}"); } }
+    };
+    refuses_all(&mut wb);
+    for name in bundled { wb.delete_theme(name).unwrap(); }
+    assert_eq!(theme_names(&wb),vec!["default"]);
+    refuses_all(&mut wb);
+    let themes=appearance::themes_dir(wb.storage());
+    assert!(std::fs::read_dir(&themes).map_or(true,|mut entries| entries.next().is_none()));
+    assert!(wb.add_theme("Personal").unwrap());
+    assert_eq!(theme_names(&wb),vec!["default","Personal"]);
+}
+/// A folder named like a bundled theme in another letter case (one folder on Windows and macOS)
+/// is that theme's: listed once under the bundled name, read, shown, saved and deleted there; a
+/// selection saved in the folder's letter case reopens as the bundled theme.
+#[test]
+fn a_folder_named_like_a_bundled_theme_in_another_case_is_that_theme() {
+    let dir=tempfile::tempdir().unwrap(); let mut wb=workbench(dir.path());
+    let themes=appearance::themes_dir(wb.storage());
+    let folder=themes.join("custom");
+    std::fs::create_dir_all(&folder).unwrap();
+    let mut raw:serde_json::Value=serde_json::from_str(include_str!("../../../ui/public/themes/Custom/theme.txt")).unwrap();
+    raw["shadow-size"]=serde_json::json!(40);
+    std::fs::write(folder.join("theme.txt"),raw.to_string()).unwrap();
+    std::fs::write(folder.join("board.png"),include_bytes!("../../../ui/public/assets/newtheme/black.png")).unwrap();
+    let catalog=appearance::catalog(wb.storage(),&ThemeSettings::default());
+    let custom:Vec<_>=catalog.iter().filter(|e| e.name.eq_ignore_ascii_case("custom")).collect();
+    assert_eq!(custom.len(),1);
+    assert_eq!(custom[0].name,"Custom");
+    assert_eq!(custom[0].values.shadow_size,40);
+    assert_eq!(custom[0].replaced_images,vec!["board.png".to_string()]);
+    let selected=AppearanceSettings { theme:"Custom".into(), ..Default::default() };
+    assert!(appearance::images(wb.storage(),&selected,&custom[0].values).board.starts_with("data:image/png;base64,"));
+    let mut edited=custom[0].values.clone(); edited.shadow_size=55;
+    wb.set_appearance_settings(selected,edited).unwrap();
+    let saved:serde_json::Value=serde_json::from_slice(&std::fs::read(folder.join("theme.txt")).unwrap()).unwrap();
+    assert_eq!(saved["shadow-size"],55);
+    let folders=|| std::fs::read_dir(&themes).unwrap().flatten().filter(|e| e.file_name().eq_ignore_ascii_case("custom")).count();
+    assert_eq!(folders(),1);
+    let file=wb.storage().config_file.clone();
+    let mut config:serde_json::Value=serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    config["appearance"]["theme"]="custom".into();
+    std::fs::write(&file,config.to_string()).unwrap();
+    let mut reopened=workbench(dir.path()); let v=reopened.view(true).settings;
+    assert_eq!(v.appearance.theme,"Custom");
+    assert_eq!(v.theme.shadow_size,55);
+    reopened.delete_theme("Custom").unwrap();
+    assert_eq!(folders(),0);
+    assert!(!theme_names(&reopened).iter().any(|n| n.eq_ignore_ascii_case("custom")));
+    assert!(!reopened.add_theme("custom").unwrap());
+}
+/// Two user theme folders whose names differ only in letter case, where the file system tells
+/// them apart, are two themes, as Java lists them; 添加 takes neither name again and 删除 removes
+/// only the chosen one.
+#[test]
+fn user_theme_folders_differing_only_in_case_stay_two_themes() {
+    let dir=tempfile::tempdir().unwrap(); let mut wb=workbench(dir.path());
+    assert!(wb.add_theme("Mine").unwrap());
+    let themes=appearance::themes_dir(wb.storage());
+    // A file system that ignores case has one folder for both names.
+    if themes.join("MINE").exists() { return; }
+    std::fs::create_dir(themes.join("mine")).unwrap();
+    std::fs::write(themes.join("mine/theme.txt"),r#"{"shadow-size":12}"#).unwrap();
+    let catalog=appearance::catalog(wb.storage(),&ThemeSettings::default());
+    let shadow=|name:&str| catalog.iter().find(|e| e.name==name).unwrap().values.shadow_size;
+    assert_eq!(theme_names(&wb),vec!["default","Custom","Fast","java-classic","java-soft","kaya","Megapack","Mine","mine","sabaki","walnut","yasnaya","yunzi"]);
+    assert_eq!(shadow("mine"),12);
+    assert_ne!(shadow("Mine"),12);
+    assert!(!wb.add_theme("MINE").unwrap());
+    wb.delete_theme("mine").unwrap();
+    assert!(themes.join("Mine").is_dir() && !themes.join("mine").exists());
 }
 #[test]
 fn custom_images_are_owned_copies_and_clear_restores_the_default() {
