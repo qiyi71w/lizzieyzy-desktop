@@ -43,89 +43,41 @@ impl Workbench {
             "MatchRules.details.status" => java_text(language, "MatchRules.details.status"),
             "MatchRules.details.actual" => java_text(language, "MatchRules.details.actual"),
             "MatchRules.details.unavailable" => java_text(language, "MatchRules.details.unavailable"),
+            "MatchRules.details.lastObserved" => java_text(language, "MatchRules.details.lastObserved"),
+            "MatchRules.checking" => java_text(language, "MatchRules.checking"),
+            "MatchRules.failed" => java_text(language, "MatchRules.failed"),
             "MatchRules.status.CONFIRMED" => java_text(language, "MatchRules.status.CONFIRMED"),
+            "MatchRules.status.PENDING" => java_text(language, "MatchRules.status.PENDING"),
+            "MatchRules.status.SET_FAILED" => java_text(language, "MatchRules.status.SET_FAILED"),
+            "MatchRules.status.QUERY_FAILED" => java_text(language, "MatchRules.status.QUERY_FAILED"),
             "MatchRules.unconfirmed" => java_text(language, "MatchRules.unconfirmed"),
             "MatchRules.reason.QUERY_UNSUPPORTED" => java_text(language, "MatchRules.reason.QUERY_UNSUPPORTED"),
+            "MatchRules.reason.QUERY_REJECTED" => java_text(language, "MatchRules.reason.QUERY_REJECTED"),
+            "MatchRules.reason.QUERY_TIMEOUT" => java_text(language, "MatchRules.reason.QUERY_TIMEOUT"),
+            "MatchRules.reason.INVALID_READBACK" => java_text(language, "MatchRules.reason.INVALID_READBACK"),
+            "MatchRules.reason.SET_REJECTED" => java_text(language, "MatchRules.reason.SET_REJECTED"),
+            "MatchRules.reason.SET_TIMEOUT" => java_text(language, "MatchRules.reason.SET_TIMEOUT"),
             "MatchRules.black" => java_text(language, "MatchRules.black"),
             "MatchRules.white" => java_text(language, "MatchRules.white"),
+            "NewEngineGameDialog.matchRules.custom" => java_text(language, "NewEngineGameDialog.matchRules.custom"),
             _ => java_text(language, key),
         }
     }
 
-    fn match_rule_name(&self, rules: &crate::engine::rules::KataRules) -> String {
-        self.match_text(
-            rules
-                .match_option()
-                .map_or("NewEngineGameDialog.matchRules.custom", |o| o.1),
-        )
-    }
-
-    /// MatchRulesTexts.replaceSgfComment: one localized, replaceable snapshot block in the root.
+    /// MatchRulesTexts.replaceSgfComment: the record's 本局规则 (`historyMatchRules`) as one
+    /// localized, replaceable block in the root, its body the 本局规则详情 text.
     fn match_rules_comment(&self, current: &str) -> String {
-        let Some(run) = self.matches.run.as_ref() else {
+        let Some((_, snapshot)) = self
+            .matches
+            .rules_record
+            .as_ref()
+            .filter(|(doc, _)| *doc == self.doc.id)
+        else {
             return current.to_string();
         };
-        let Some(target) = crate::engine::rules::KataRules::parse(&run.settings.rules) else {
-            return current.to_string();
-        };
-        let text = |key| self.match_text(key);
-        let confirmed = run.sides.iter().all(|participant| participant.rules_verified);
-        let status = |confirmed| {
-            text(if confirmed {
-                "MatchRules.status.CONFIRMED"
-            } else {
-                "MatchRules.unconfirmed"
-            })
-        };
-        let mut lines = vec![
-            text("MatchRules.sgf.begin"),
-            text("MatchRules.details.target").replace("{0}", &self.match_rule_name(&target)),
-            status(confirmed),
-        ];
-        for side in [Stone::Black, Stone::White] {
-            let index = side_index(run.first_is_black, side);
-            let participant = &run.sides[index];
-            let identity = if index == 0 {
-                &run.settings.first
-            } else {
-                &run.settings.second
-            };
-            // Java writes the command as configured; credentials in it are masked here, as in
-            // every other persisted text.
-            let commands = crate::sanitize::sanitize(&identity.commands);
-            let label = if identity.name.is_empty() {
-                commands
-            } else if commands.is_empty() {
-                identity.name.clone()
-            } else {
-                format!("{} ({commands})", identity.name)
-            };
-            let color = text(if side == Stone::Black {
-                "MatchRules.black"
-            } else {
-                "MatchRules.white"
-            });
-            lines.push(
-                text("MatchRules.details.side")
-                    .replace("{0}", &color)
-                    .replace("{1}", &label),
-            );
-            lines.push(text("MatchRules.details.status").replace("{0}", &status(participant.rules_verified)));
-            if participant.rules_verified {
-                if let Some(observed) = &participant.observed_rules {
-                    let named = format!("{} ({})", self.match_rule_name(observed), observed.field_summary());
-                    lines.push(text("MatchRules.details.actual").replace("{0}", &named));
-                }
-            } else {
-                lines.push(
-                    text("MatchRules.details.unavailable").replace("{0}", &text("MatchRules.reason.QUERY_UNSUPPORTED")),
-                );
-            }
-        }
-        lines.push(text("MatchRules.sgf.end"));
-        let section = lines.join("\n");
-        let begin = text("MatchRules.sgf.begin");
-        let end = text("MatchRules.sgf.end");
+        let begin = self.match_text("MatchRules.sgf.begin");
+        let end = self.match_text("MatchRules.sgf.end");
+        let section = format!("{begin}\n{}\n{end}", self.match_rules_details(snapshot));
         if let Some((start, stop)) = current
             .find(&begin)
             .zip(current.find(&end))

@@ -2577,7 +2577,8 @@ const MIN_TEXT = 9;
  *  Text shrinks to fit, never under MIN_TEXT; a section too short or narrow for that drops rows
  *  instead: first the second row (吻合度, 贴目; the small strip moves 吻合度 beside its stones
  *  while that fits), then the caption (the dot stays), then the 提子 names (each count stays
- *  beside its stone). */
+ *  beside its stone). Returns what was drawn; its captionBox is the rules caption's text box as
+ *  drawn (Java's matchRulesCaptionHitBox), null when no caption is drawn. */
 export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedScene): CapturedReport | null {
   const { w, h } = r;
   if (w < 10 || h < 5) return null;
@@ -2695,15 +2696,21 @@ export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedS
   engineDot(g, start + z.dot / 2, rowA, z.dot, s.analysing, p);
   if (!plan.caption) return report;
   const captionBase = Math.round(rowA + z.body * 0.36);
-  if (s.rules) {
-    g.font = `${z.body}px ${family}`;
-    g.fillStyle = p.text2;
-    g.textAlign = "left";
-    g.textBaseline = "alphabetic";
-    g.fillText(s.rules, start + z.dot + 5 * k, captionBase);
-    report.caption = s.rules;
-    report.captionBox = { x: start + z.dot + 5 * k, y: captionBase - z.body, w: captionWidth(z), h: z.body * 1.2 };
-  } else drawFigures(g, moveNumber, start + z.dot + 5 * k, captionBase, z.label, z.body, family, p);
+  if (!s.rules) {
+    drawFigures(g, moveNumber, start + z.dot + 5 * k, captionBase, z.label, z.body, family, p);
+    return report;
+  }
+  g.font = `${z.body}px ${family}`;
+  g.fillStyle = p.text2;
+  g.textAlign = "left";
+  g.textBaseline = "alphabetic";
+  const x = start + z.dot + 5 * k;
+  g.fillText(s.rules, x, captionBase);
+  const m = g.measureText(s.rules);
+  const ascent = m.fontBoundingBoxAscent || z.body * 0.8;
+  const descent = m.fontBoundingBoxDescent || z.body * 0.25;
+  report.caption = s.rules;
+  report.captionBox = { x, y: captionBase - ascent, w: m.width, h: ascent + descent };
   return report;
 }
 

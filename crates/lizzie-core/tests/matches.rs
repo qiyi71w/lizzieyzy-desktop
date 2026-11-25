@@ -1571,3 +1571,191 @@ fn the_pda_dialog_reaches_the_kata_go_pda_participant_whichever_engine_is_in_fro
         assert!(sent(&plain, id).is_empty());
     }
 }
+
+// 本局规则 summary and details. Expected texts are Java's (B2 `MatchRulesSnapshot.mainSummary`,
+// `MatchRulesTexts.details`, `EngineGamePresentation.inspectableMatchRules`) in the English bundle.
+const CHINESE_FIELDS: &str =
+    "Chinese (ko=SIMPLE, scoring=AREA, tax=NONE, suicide=false, hasButton=false, whiteHandicapBonus=N, friendlyPassOk=true)";
+const JAPANESE_RULES: &str = r#"{"ko":"SIMPLE","scoring":"TERRITORY","tax":"SEKI","suicide":false,"hasButton":false,"whiteHandicapBonus":"0","friendlyPassOk":true}"#;
+
+fn caption(m: &Match) -> Option<String> {
+    m.wb.inspect().match_rules_caption
+}
+
+fn details(m: &Match) -> Option<String> {
+    match m.wb.inspect_match_rules() {
+        CommandResult::MatchRulesDetails { text } => Some(text),
+        CommandResult::Unchanged => None,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn without_a_game_the_rules_caption_stays_the_engines_and_nothing_is_inspected() {
+    let mut m = Match::with_locale(Some("en-US"));
+    assert_eq!(caption(&m), None);
+    assert_eq!(details(&m), None);
+    // A saved engine game reopened is a new record without the game's 本局规则 (its GameInfo has
+    // no engine-game record); the block in its comment is only text.
+    open_sgf(
+        &mut m,
+        "(;GM[1]SZ[19]DZ[KW]C[Match rules\nTarget: Chinese\nconfirmed\nEnd of match rules];B[pd])",
+    );
+    assert_eq!(caption(&m), None);
+    assert_eq!(details(&m), None);
+}
+
+#[test]
+fn confirmed_match_rules_name_the_target_and_list_each_engines_fields() {
+    let mut m = Match::with_locale(Some("en-US"));
+    m.start(genmove());
+    // Preparing: both sides idle.
+    assert_eq!(caption(&m).as_deref(), Some("Checking match rules"));
+    assert_eq!(
+        details(&m).as_deref(),
+        Some(concat!(
+            "Target: Chinese\nChecking match rules\n",
+            "Black: First (/opt/katago gtp)\nStatus: pending\nEffective rules unavailable: pending\n",
+            "White: Second (/opt/katago gtp)\nStatus: pending\nEffective rules unavailable: pending",
+        ))
+    );
+    m.serve(&|_, _| None);
+    assert_eq!(m.phase(), Some(MatchPhase::Playing));
+    assert_eq!(caption(&m).as_deref(), Some("Chinese"));
+    let expected = format!(
+        "Target: Chinese\nconfirmed\nBlack: First (/opt/katago gtp)\nStatus: confirmed\nEffective rules: {CHINESE_FIELDS}\nWhite: Second (/opt/katago gtp)\nStatus: confirmed\nEffective rules: {CHINESE_FIELDS}"
+    );
+    assert_eq!(details(&m), Some(expected.clone()));
+    // Inspecting asks no engine anything.
+    for id in m.world.ids() {
+        m.world.take(id);
+    }
+    details(&m);
+    for id in m.world.ids() {
+        assert!(m.world.take(id).is_empty());
+    }
+
+    // The game ends and the board is reviewed: the record the game left on it is shown.
+    m.finish_turn("resign");
+    assert_eq!(m.phase(), None);
+    assert_eq!(caption(&m).as_deref(), Some("Chinese"));
+    assert_eq!(details(&m), Some(expected));
+    // Another record has none.
+    let new_board = |confirmed| EditCommand::NewBoard { confirmed };
+    if let CommandResult::NeedsEditConfirmation { target } = m.wb.edit(new_board(None)).unwrap() {
+        assert_eq!(m.wb.edit(new_board(Some(target))).unwrap(), CommandResult::Done);
+    }
+    assert_eq!(caption(&m), None);
+    assert_eq!(details(&m), None);
+}
+
+#[test]
+fn an_engine_that_cannot_query_rules_is_named_unconfirmed_with_the_reason() {
+    let mut m = Match::with_locale(Some("en-US"));
+    m.start(genmove());
+    let first = m.world.ids()[0];
+    let plain = "name\nversion\nlist_commands\nboardsize\nclear_board\nkomi\nplay\nundo\ngenmove";
+    m.serve(&|instance, command| (instance == first && command == "list_commands").then(|| plain.to_string()));
+    // Waiting for consent is still checking (Java publishes the game's rules after consent).
+    let view = m.wb.inspect().engine_match.unwrap();
+    assert!(view.rules_consent_required);
+    assert_eq!(caption(&m).as_deref(), Some("Checking match rules"));
+    m.command(MatchCommand::ConfirmRules {
+        game: view.game,
+        allow: true,
+    });
+    m.serve(&|_, _| None);
+    assert_eq!(m.phase(), Some(MatchPhase::Playing));
+    assert_eq!(caption(&m).as_deref(), Some("Black: Unconfirmed / White: Chinese"));
+    assert_eq!(
+        details(&m),
+        Some(format!(
+            "Target: Chinese\nUnconfirmed\nBlack: First (/opt/katago gtp)\nStatus: Unconfirmed\nEffective rules unavailable: cannot query rules\nWhite: Second (/opt/katago gtp)\nStatus: confirmed\nEffective rules: {CHINESE_FIELDS}"
+        ))
+    );
+}
+
+#[test]
+fn a_failed_preparation_stays_inspectable_with_the_last_observation() {
+    let mut m = Match::with_locale(Some("en-US"));
+    m.start(genmove());
+    let first = m.world.ids()[0];
+    m.serve(&|instance, command| {
+        (instance == first).then_some(())?;
+        if command == "kata-get-rules" {
+            Some(JAPANESE_RULES.to_string())
+        } else if command == "kata-set-rules chinese" {
+            // The overlay is refused; giving the engine its own rules back is not.
+            Some("?cannot set rules".to_string())
+        } else {
+            None
+        }
+    });
+    assert_eq!(m.phase(), None, "the start failed");
+    let view = m.wb.view(false);
+    assert_eq!(view.match_outcome.unwrap().end, MatchEnd::Retired);
+    assert_eq!(
+        view.match_notices
+            .iter()
+            .map(|n| n.message_key.as_str())
+            .collect::<Vec<_>>(),
+        ["MatchRules.failed.setFailed"]
+    );
+    assert_eq!(
+        caption(&m).as_deref(),
+        Some("Black: Japanese / Korean / White: Chinese")
+    );
+    assert_eq!(
+        details(&m),
+        Some(format!(
+            "Target: Chinese\nMatch rules could not be prepared.\nBlack: First (/opt/katago gtp)\nStatus: setting rules rejected\nEffective rules unavailable: setting rules rejected\nLast observed (not current): Japanese / Korean (ko=SIMPLE, scoring=TERRITORY, tax=SEKI, suicide=false, hasButton=false, whiteHandicapBonus=0, friendlyPassOk=true)\nWhite: Second (/opt/katago gtp)\nStatus: confirmed\nEffective rules: {CHINESE_FIELDS}"
+        ))
+    );
+    // The failed start is shown until another game starts.
+    m.start(genmove());
+    assert_eq!(caption(&m).as_deref(), Some("Checking match rules"));
+}
+
+#[test]
+fn a_query_that_fails_shows_the_engines_earlier_rules_as_not_current() {
+    let mut m = Match::with_locale(Some("en-US"));
+    m.start(genmove());
+    let second = m.world.ids()[1];
+    // The engine answered its start-up query, then refuses the match's.
+    let asked = std::cell::Cell::new(0);
+    m.serve(&|instance, command| {
+        (instance == second && command == "kata-get-rules").then_some(())?;
+        asked.set(asked.get() + 1);
+        (asked.get() > 1).then(|| "?rules query refused".to_string())
+    });
+    assert_eq!(m.phase(), None);
+    assert_eq!(
+        m.wb.view(false)
+            .match_notices
+            .iter()
+            .map(|n| n.message_key.as_str())
+            .collect::<Vec<_>>(),
+        ["MatchRules.failed.queryFailed"]
+    );
+    assert_eq!(caption(&m).as_deref(), Some("Black: Chinese / White: Chinese"));
+    let text = details(&m).unwrap();
+    assert!(
+        text.ends_with(&format!(
+            "White: Second (/opt/katago gtp)\nStatus: rules query rejected\nEffective rules unavailable: rules query rejected\nLast observed (not current): {CHINESE_FIELDS}"
+        )),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_start_stopped_before_any_rules_answer_leaves_no_match_rules() {
+    // Java kept 正在检查本局规则 after such a start; nothing is being checked any more.
+    let mut m = Match::with_locale(Some("en-US"));
+    m.start(genmove());
+    assert_eq!(caption(&m).as_deref(), Some("Checking match rules"));
+    m.command(MatchCommand::Stop);
+    m.serve(&|_, _| None);
+    assert_eq!(m.phase(), None);
+    assert_eq!(caption(&m), None);
+    assert_eq!(details(&m), None);
+}

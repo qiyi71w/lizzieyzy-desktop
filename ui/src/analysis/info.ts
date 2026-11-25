@@ -108,7 +108,7 @@ export function statScene(v: WorkbenchView, history: Map<number, HistoryPoint>, 
     kata: !!v.engine.foreground?.katago || lead !== null,
     matched: v.statistics.moves.find((m) => m.node === node)?.matched ?? null,
     moveNumber: v.position.move_number,
-    moveNumberDown: !!v.engine.rules_key,
+    moveNumberDown: !!(v.match_rules_caption ?? v.engine.rules_key),
   };
 }
 

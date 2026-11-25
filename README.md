@@ -1301,11 +1301,26 @@ importing the matching LizzieYzy Next settings.
   seat since, synced to the position then shown); a failure to start it is only logged and it is
   not tried again. While a match runs, opening records, browsing, engine switching, editing and
   the other analysis modes are refused.
+  本局规则 on the board: from the start of an engine game, the rules caption in the 提子 panel
+  shows the game's rules instead of the engine's (正在检查本局规则 while the engines are asked;
+  the target's name, such as 中国规则, once both engines confirmed it; else each side's rules,
+  such as `黑方: 中国规则 / 白方: 未确认`). After the game, or after a start that failed once an
+  engine had answered, the board keeps showing them until another board is opened. A click on
+  the caption text or `Shift+D` opens 本局规则详情: a read-only, selectable text with the target,
+  the outcome and, per side, the engine and its command, its status and the rules it confirmed
+  (or why they are unavailable and the last rules observed). The text is the same as the saved
+  record's 本局规则 block and is frozen when shown; no engine is asked again. 关闭 or `Esc`
+  closes it. Without 本局规则 a click on the caption does nothing new and `Shift+D` opens the
+  rules dialog as before. When the panel is too small for the caption it is left out, as the
+  engine's rules caption is; `Shift+D` still opens the details. A saved engine game opened
+  again shows no 本局规则 (Java does not read them back either).
   Differences from Java: results are always SGF `B+R` / `W+R`; the batch summary lists each
   engine's own settings after colours are exchanged (Java mixed the black and white sides there);
   a custom batch folder name made only of dots or separators is refused, so files stay under
   `EngineGames`; 当前局面续弈 and 加载开局SGF keep setup stones and side to play set between
-  moves (Java replayed only the moves).
+  moves (Java replayed only the moves); 本局规则详情 masks credential values in the engine
+  commands (Java showed the command as typed); a start stopped before either engine answered
+  the rules query leaves no 本局规则 (Java kept showing 正在检查本局规则 until the next game).
 - AI 陪练 (HumanSL; the menu bar's AI 陪练 button, 棋局 > 新建对局 > AI 陪练, function search): a
   game against KataGo's human-imitation (HumanSL) network on the main board. The setup dialog
   follows Java: 训练方式 (实战后复盘 hides candidates, the winrate graph, Kata形势, policy and
