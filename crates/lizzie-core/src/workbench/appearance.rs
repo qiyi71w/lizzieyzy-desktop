@@ -15,6 +15,8 @@ impl Workbench {
             || (!(12..=20).contains(&appearance.frame_font_size) && appearance.frame_font_size != self.config.appearance.frame_font_size) {
             return Err(ApiError::new(ErrorKind::InvalidArgument,"appearance settings"));
         }
+        // 默认 or a bundled theme named in another letter case is that theme, under its own name.
+        appearance.theme = appearance::listed_name(&appearance.theme).to_string();
         if self.config.appearance == appearance && self.appearance_theme == theme { return Ok(false); }
         let images = appearance::capture_external_images(&self.storage, &mut appearance, &mut theme).map_err(io)?;
         let path = if appearance.theme == "default" { None } else { Some(appearance::theme_file(&self.storage,&appearance.theme).map_err(io)?) };

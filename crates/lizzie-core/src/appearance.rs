@@ -146,13 +146,15 @@ pub fn valid_name(name: &str) -> bool {
         && !name.chars().any(|c| c.is_control() || "/\\:*?\"<>|".contains(c))
 }
 /// The folder of the theme `name`. A bundled theme's is the user's folder of its name in any
-/// letter case ([`same_name`]), which on Windows and macOS is one folder anyway; a user theme's
-/// is the folder of exactly its name.
+/// letter case ([`same_name`]), which on Windows and macOS is one folder anyway: the one of its own
+/// spelling when there is one, else the first by name, whatever spelling `name` has. A user
+/// theme's is the folder of exactly its name.
 fn theme_dir(storage: &Storage, name: &str) -> PathBuf {
     let dir = themes_dir(storage);
-    let exact = dir.join(name);
-    if bundled_theme(name).is_none() || exact.is_dir() { return exact; }
-    same_name_entries(&dir,name).into_iter().find(|p| p.is_dir()).unwrap_or(exact)
+    let Some(bundled) = bundled_theme(name) else { return dir.join(name) };
+    let own = dir.join(bundled);
+    if own.is_dir() { return own; }
+    same_name_entries(&dir,bundled).into_iter().filter(|p| p.is_dir()).min().unwrap_or(own)
 }
 pub fn theme_file(storage: &Storage, name: &str) -> std::io::Result<PathBuf> {
     if !valid_name(name) || same_name(name,"default") { return Err(std::io::Error::other("invalid theme name")); }
@@ -410,6 +412,14 @@ fn same_name_entries(dir: &Path, name: &str) -> Vec<PathBuf> {
 pub(crate) fn has_folder(storage: &Storage, name: &str) -> bool {
     !same_name_entries(&themes_dir(storage),name).is_empty()
 }
+/// The entries of the themes folder that are the theme `name`'s folder: a bundled theme's in any
+/// letter case ([`same_name`]), a user theme's of exactly its name (on Windows and macOS any
+/// letter case is the same entry).
+fn folder_entries(dir: &Path, name: &str) -> Vec<PathBuf> {
+    if bundled_theme(name).is_some() { return same_name_entries(dir,name); }
+    let path = dir.join(name);
+    if path.symlink_metadata().is_ok() { vec![path] } else { Vec::new() }
+}
 /// The folder already exists under exactly this name and holds these files.
 fn unchanged(dir: &Path, folder: &ThemeFolder) -> bool {
     same_name_entries(dir,&folder.name).iter().any(|p| p.file_name().is_some_and(|n| *n == *folder.name))
@@ -418,7 +428,7 @@ fn unchanged(dir: &Path, folder: &ThemeFolder) -> bool {
 /// The existing theme folders that writing `folders` would replace.
 pub fn replaced_themes(storage: &Storage, folders: &[ThemeFolder]) -> Vec<String> {
     let dir = themes_dir(storage);
-    folders.iter().filter(|f| !unchanged(&dir,f) && !same_name_entries(&dir,&f.name).is_empty()).map(|f| f.name.clone()).collect()
+    folders.iter().filter(|f| !unchanged(&dir,f) && !folder_entries(&dir,&f.name).is_empty()).map(|f| f.name.clone()).collect()
 }
 /// Theme folders written by a settings import; dropping it before [`Self::keep`] removes them
 /// and puts every folder they replaced back.
@@ -457,7 +467,7 @@ pub(crate) fn install_themes(storage: &Storage, folders: &[ThemeFolder]) -> std:
         for (file,bytes) in &folder.files { std::fs::write(staged.join(file),bytes)?; }
     }
     for (i,folder) in pending.iter().enumerate() {
-        for (j,old) in same_name_entries(&dir,&folder.name).into_iter().enumerate() {
+        for (j,old) in folder_entries(&dir,&folder.name).into_iter().enumerate() {
             let aside = work.join(format!("replaced-{i}-{j}"));
             std::fs::rename(&old,&aside)?;
             install.moves.push((old,aside));
@@ -626,6 +636,12 @@ fn stone_variant(value:&str, n:u32) -> Option<String> {
     Some(format!("{}{stem}{n}{}", &value[..name_at], &value[dot..]))
 }
 pub fn images(storage:&Storage, appearance:&AppearanceSettings, theme:&ThemeSettings) -> ThemeImages {
+    // The custom overrides and the 默认 theme's own paths are relative to the themes folder
+    // (Theme.java:502,523: Theme.pathPrefix), a named theme's to its folder.
+    let themes = themes_dir(storage);
+    let named = valid_name(&appearance.theme);
+    let folder = (named && !same_name(&appearance.theme,"default")).then(|| theme_dir(storage,&appearance.theme));
+    let bundled = bundled_theme(&appearance.theme);
     let read = |custom:&str, value:&str| {
         for (index,candidate) in [custom,value].into_iter().enumerate() {
             if candidate.is_empty() { continue; }
@@ -633,12 +649,10 @@ pub fn images(storage:&Storage, appearance:&AppearanceSettings, theme:&ThemeSett
             if candidate.starts_with("data:image/") || shipped_image(candidate) { return Some((candidate.to_string(),is_custom)); }
             let path = Path::new(candidate);
             if path.is_absolute() { if let Ok(data) = image_data(path) { return Some((data,is_custom)); } }
-            else if valid_name(&appearance.theme) {
-                // The custom overrides and the 默认 theme's own paths are relative to the themes
-                // folder (Theme.java:502,523: Theme.pathPrefix), a named theme's to its folder.
-                let root=if is_custom || appearance.theme == "default" { themes_dir(storage) } else { theme_dir(storage,&appearance.theme) };
+            else if named {
+                let root = match &folder { Some(folder) if !is_custom => folder, _ => &themes };
                 if let Ok(data) = image_data(&root.join(path)) { return Some((data,is_custom)); }
-                if let Some(bundled) = bundled_theme(&appearance.theme).filter(|b| !is_custom && bundled_image_exists(b,candidate)) {
+                if let Some(bundled) = bundled.filter(|b| !is_custom && bundled_image_exists(b,candidate)) {
                     return Some((format!("/themes/{bundled}/{}",candidate.replace('\\',"/")),false));
                 }
             }

@@ -197,16 +197,17 @@ fn default_and_bundled_theme_names_stay_taken_in_any_letter_case() {
         let flipped:String=if first.is_uppercase() { first.to_lowercase().collect() } else { first.to_uppercase().collect() };
         [name.to_string(),name.to_uppercase(),name.to_lowercase(),format!("{flipped}{}",chars.as_str())]
     };
+    let themes=appearance::themes_dir(wb.storage());
+    let no_folders=|| std::fs::read_dir(&themes).map_or(true,|mut entries| entries.next().is_none());
     let refuses_all=|wb:&mut Workbench| {
         for name in ["default","Default","DEFAULT"] { assert!(!wb.add_theme(name).unwrap(),"{name}"); }
         for name in bundled { for variant in variants(name) { assert!(!wb.add_theme(&variant).unwrap(),"{variant}"); } }
+        assert!(no_folders());
     };
     refuses_all(&mut wb);
     for name in bundled { wb.delete_theme(name).unwrap(); }
     assert_eq!(theme_names(&wb),vec!["default"]);
     refuses_all(&mut wb);
-    let themes=appearance::themes_dir(wb.storage());
-    assert!(std::fs::read_dir(&themes).map_or(true,|mut entries| entries.next().is_none()));
     assert!(wb.add_theme("Personal").unwrap());
     assert_eq!(theme_names(&wb),vec!["default","Personal"]);
 }
@@ -248,6 +249,49 @@ fn a_folder_named_like_a_bundled_theme_in_another_case_is_that_theme() {
     assert_eq!(folders(),0);
     assert!(!theme_names(&reopened).iter().any(|n| n.eq_ignore_ascii_case("custom")));
     assert!(!reopened.add_theme("custom").unwrap());
+}
+/// Saving with 默认 or a bundled theme named in another letter case commits that theme under its
+/// own name, as reopening reads it.
+#[test]
+fn a_theme_saved_under_another_letter_case_is_that_theme_at_once() {
+    let dir=tempfile::tempdir().unwrap(); let mut wb=workbench(dir.path());
+    let mut theme=appearance::load_theme(wb.storage(),"Custom",&ThemeSettings::default()); theme.shadow_size=33;
+    wb.set_appearance_settings(AppearanceSettings { theme:"cUSTOM".into(), ..Default::default() },theme).unwrap();
+    let v=wb.view(false).settings;
+    assert_eq!((v.appearance.theme.as_str(),v.theme.shadow_size),("Custom",33));
+    assert_eq!(workbench(dir.path()).view(true).settings.appearance.theme,"Custom");
+    let mut defaults=ThemeSettings::default(); defaults.shadow_size=44;
+    wb.set_appearance_settings(AppearanceSettings { theme:"Default".into(), ..Default::default() },defaults.clone()).unwrap();
+    let v=wb.view(false).settings;
+    assert_eq!((v.appearance.theme.as_str(),v.theme.shadow_size),("default",44));
+    assert_eq!(wb.config().appearance_defaults,defaults);
+}
+/// Where the file system holds `Custom` and `custom` both, the bundled theme is one theme whatever
+/// spelling a caller uses: the folder of its own spelling.
+#[test]
+fn a_bundled_theme_is_one_folder_whatever_spelling_names_it() {
+    let dir=tempfile::tempdir().unwrap(); let mut wb=workbench(dir.path());
+    let themes=appearance::themes_dir(wb.storage());
+    std::fs::create_dir_all(themes.join("Custom")).unwrap();
+    if themes.join("custom").exists() { return; } // one folder for both names
+    std::fs::create_dir(themes.join("custom")).unwrap();
+    std::fs::write(themes.join("Custom/theme.txt"),r#"{"shadow-size":21}"#).unwrap();
+    std::fs::write(themes.join("custom/theme.txt"),r#"{"shadow-size":12}"#).unwrap();
+    std::fs::write(themes.join("custom/board.png"),include_bytes!("../../../ui/public/assets/newtheme/black.png")).unwrap();
+    for name in ["Custom","custom","CUSTOM"] {
+        let values=appearance::load_theme(wb.storage(),name,&ThemeSettings::default());
+        assert_eq!(values.shadow_size,21,"{name}");
+        let shown=appearance::images(wb.storage(),&AppearanceSettings { theme:name.into(), ..Default::default() },&values);
+        assert_eq!(shown.board,"/themes/Custom/board.png","{name}");
+    }
+    let catalog=appearance::catalog(wb.storage(),&ThemeSettings::default());
+    let custom=catalog.iter().find(|e| e.name=="Custom").unwrap();
+    assert!(custom.replaced_images.is_empty());
+    let mut edited=custom.values.clone(); edited.shadow_size=22;
+    wb.set_appearance_settings(AppearanceSettings { theme:"custom".into(), ..Default::default() },edited).unwrap();
+    let saved:serde_json::Value=serde_json::from_slice(&std::fs::read(themes.join("Custom/theme.txt")).unwrap()).unwrap();
+    assert_eq!(saved["shadow-size"],22);
+    assert_eq!(std::fs::read_to_string(themes.join("custom/theme.txt")).unwrap(),r#"{"shadow-size":12}"#);
 }
 /// Two user theme folders whose names differ only in letter case, where the file system tells
 /// them apart, are two themes, as Java lists them; 添加 takes neither name again and 删除 removes

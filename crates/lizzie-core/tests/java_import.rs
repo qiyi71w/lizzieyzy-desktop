@@ -2846,6 +2846,39 @@ fn java_theme_replacing_a_user_theme_needs_confirmation_and_failures_leave_theme
     assert!(!names.contains(&"Broken".to_string()));
 }
 
+/// Java folders `Mine` and `mine` (a file system that tells them apart) are two user themes, as
+/// Java lists them: both come over and stay, and a later import of one replaces only that one.
+#[test]
+fn java_user_themes_differing_only_in_case_both_come_over() {
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir(tmp.path().join("Case")).unwrap();
+    if tmp.path().join("case").exists() { return; } // one folder for both names
+    let java = tmp.path().join("java");
+    java_theme(&java, "Mine", SABAKI_BOARD, json!({"shadow-size": 50}));
+    java_theme(&java, "mine", PLAIN_BOARD, json!({"shadow-size": 12}));
+    std::fs::write(java.join("config.txt"), json!({"ui": {"theme": "Mine"}}).to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    assert!(p.replaced_themes.is_empty(), "{:?}", p.replaced_themes);
+    wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    let s = wb.view(true).settings;
+    assert_eq!((s.appearance.theme.as_str(), s.theme.shadow_size), ("Mine", 50));
+    assert_eq!(shown_board(&wb, "Mine"), data_url(SABAKI_BOARD));
+    assert_eq!(shown_board(&wb, "mine"), data_url(PLAIN_BOARD));
+    // A later import of Mine alone replaces Mine and leaves mine as it is.
+    let themes = lizzie_core::appearance::themes_dir(wb.storage());
+    let mine_before = snapshot(&themes.join("mine"));
+    let again = tmp.path().join("again");
+    java_theme(&again, "Mine", PLAIN_BOARD, json!({"shadow-size": 51}));
+    std::fs::write(again.join("config.txt"), json!({"ui": {"theme": "Mine"}}).to_string()).unwrap();
+    let p = preview(&mut wb, &again);
+    assert_eq!(p.replaced_themes, vec!["Mine".to_string()]);
+    wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    assert_eq!(snapshot(&themes.join("mine")), mine_before);
+    assert_eq!(lizzie_core::appearance::load_theme(wb.storage(), "Mine", &Default::default()).shadow_size, 51);
+}
+
 #[test]
 fn java_theme_named_default_comes_over_renamed_and_stays_selected() {
     // Java's ui.theme "default" reads theme/default/ when that folder exists (Theme.java:63-68).

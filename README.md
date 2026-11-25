@@ -1537,8 +1537,10 @@ importing the matching LizzieYzy Next settings.
   following it), else the file of that name in `theme/`, else the built-in picture. The theme
   Java had selected stays selected (a bundled theme deleted here is listed again), and Java's
   translated 默认 / Default entry selects the default
-  theme. An untouched copy of a bundled theme is skipped; a changed one becomes the user's copy
-  of that bundled theme, whose own files are not changed. A theme folder that cannot be read,
+  theme. An untouched copy of a bundled theme is skipped; a changed one (its folder named in any
+  letter case) becomes the user's copy of that bundled theme, whose own files are not changed.
+  A user theme folder replaces only the theme of exactly its name, so folders such as `Mine`
+  and `mine`, where the file system allows both, come over as two themes. A theme folder that cannot be read,
   whose TIFF picture cannot be decoded, or whose `theme.txt` holds values no theme can use (such
   as a colour channel above 255), is listed as not usable with those keys or that picture and is
   not imported; the other themes and settings still come over. `default` is
