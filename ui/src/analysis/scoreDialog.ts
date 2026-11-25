@@ -141,7 +141,8 @@ async function confirmResult() {
 }
 
 /** packAndPosition (ScoreResult.java:97-134) inside the window: right of the board, else left of
- *  it, above, below, or at the right edge; vertically a third above the board's middle. */
+ *  it, above, below, or at the right edge; vertically a third above the board's middle. The
+ *  window stays whole inside the app window (scoreDialog.css caps its size). */
 function position(section: HTMLElement) {
   const board = boardRect();
   if (!board) return;
@@ -154,8 +155,10 @@ function position(section: HTMLElement) {
   else if (board.top - h > 0) [x, y] = [board.left + board.width / 2 - w / 2, board.top - h];
   else if (board.bottom + h <= H) [x, y] = [board.left + board.width / 2 - w / 2, board.bottom];
   else [x, y] = [W - w, beside];
-  section.style.left = `${Math.round(x)}px`;
-  section.style.top = `${Math.round(y)}px`;
+  // Kept inside the window; the far edge floors so a fractional size still ends inside it.
+  const r = section.getBoundingClientRect();
+  section.style.left = `${Math.max(0, Math.min(Math.round(x), Math.floor(W - r.width)))}px`;
+  section.style.top = `${Math.max(0, Math.min(Math.round(y), Math.floor(H - r.height)))}px`;
 }
 
 function refresh() {
@@ -207,12 +210,18 @@ export function bindScoreDialog(board: () => DOMRect | null): void {
   });
 }
 
-/** The dialog as shown, for the acceptance probe. */
+/** The dialog as shown, for the acceptance probe: its lines, its box and the window's size, and
+ *  whether any line or the footer is wider than the room it has. */
 export function scoreDialogReport() {
   const shown = !!box?.isConnected && !!lines;
+  const r = shown ? box!.getBoundingClientRect() : null;
+  const parts = shown ? [...box!.querySelectorAll<HTMLElement>(".score-lines > *, .ds-footer, .score-body")] : [];
   return {
     visible: shown,
     lines: shown ? [lines!.hint, lines!.rule, lines!.black, lines!.white, lines!.result].map((el) => el.textContent ?? "") : [],
     toggleRules: shown ? toggleRules!.textContent : null,
+    rect: r && { left: r.left, top: r.top, right: r.right, bottom: r.bottom },
+    viewport: { width: window.innerWidth, height: window.innerHeight },
+    clipped: parts.some((el) => el.scrollWidth > el.clientWidth + 1),
   };
 }
