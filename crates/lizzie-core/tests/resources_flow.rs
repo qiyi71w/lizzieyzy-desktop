@@ -744,11 +744,12 @@ fn humansl_settings_normalize_and_corrupt_fields_do_not_drop_the_config() {
     })).unwrap();
     let settings = config.human_sl;
     let s = settings.training;
-    assert_eq!((s.mode, s.level, s.player_color), (TrainingMode::PostGameReview, CoachLevel::Kyu10, PlayerColor::Random));
-    assert_eq!((s.pace, s.handicap, s.komi), (Pace::Natural, 9, 7.5));
+    // Nine handicap stones: the player takes Black whatever the saved colour.
+    assert_eq!((s.mode, s.level, s.player_color), (TrainingMode::PostGameReview, CoachLevel::Kyu10, PlayerColor::Black));
+    assert_eq!((s.pace, s.handicap), (Pace::Natural, 9));
     assert!(!settings.advanced_visible && settings.model_path.is_none() && !config.record.read_komi);
-    let s = HumanSlTrainingSettings { handicap: 255, komi: f64::INFINITY, ..Default::default() }.normalized();
-    assert_eq!((s.handicap, s.komi), (9, 7.5));
+    let s = HumanSlTrainingSettings { handicap: 255, player_color: PlayerColor::White, ..Default::default() }.normalized();
+    assert_eq!((s.handicap, s.player_color), (9, PlayerColor::Black));
     let config: Config = serde_json::from_value(serde_json::json!({"humanSl": "broken"})).unwrap();
     assert_eq!(config.human_sl, Default::default());
 }

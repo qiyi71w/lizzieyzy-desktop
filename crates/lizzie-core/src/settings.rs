@@ -875,7 +875,8 @@ pub enum PlayerColor {
     White,
 }
 
-/// The last started AI 陪练 game's choices.
+/// The last started AI 陪练 game's choices. The komi is no choice: the game starts with the
+/// even-game komi of the rules KataGo plays, or 0.5 with a handicap.
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct HumanSlTrainingSettings {
@@ -886,7 +887,6 @@ pub struct HumanSlTrainingSettings {
     /// AI 思考时间: paces the AI's replies, nothing else.
     pub pace: Pace,
     pub handicap: u8,
-    pub komi: f64,
 }
 
 impl Default for HumanSlTrainingSettings {
@@ -897,16 +897,17 @@ impl Default for HumanSlTrainingSettings {
             player_color: PlayerColor::Random,
             pace: Pace::Natural,
             handicap: 0,
-            komi: 7.5,
         }
     }
 }
 
 impl HumanSlTrainingSettings {
+    /// At most nine handicap stones; with a handicap the player takes Black and receives them
+    /// (`HumanSlTrainingConfig.resolveHumanIsBlack`).
     pub fn normalized(mut self) -> Self {
         self.handicap = self.handicap.min(9);
-        if !self.komi.is_finite() {
-            self.komi = 7.5;
+        if self.handicap > 0 {
+            self.player_color = PlayerColor::Black;
         }
         self
     }
@@ -965,7 +966,6 @@ impl<'de> Deserialize<'de> for HumanSlTrainingSettings {
             player_color: serde_json::from_value(field("playerColor")).unwrap_or_default(),
             pace,
             handicap: number("handicap").unwrap_or(0.0).clamp(0.0, 9.0) as u8,
-            komi: number("komi").unwrap_or(7.5),
         }.normalized())
     }
 }

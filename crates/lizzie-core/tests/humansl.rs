@@ -95,6 +95,9 @@ struct Fixture {
     world: World,
 }
 fn fixture(model: bool) -> Fixture {
+    fixture_with(model, |_| {})
+}
+fn fixture_with(model: bool, adjust: impl FnOnce(&mut Config)) -> Fixture {
     let dir = tempfile::tempdir().unwrap();
     let storage = Storage::in_dirs(&dir.path().join("config"), &dir.path().join("data"));
     let mut config = Config::default();
@@ -105,6 +108,7 @@ fn fixture(model: bool) -> Fixture {
         std::fs::File::create(&path).unwrap().set_len(1024 * 1024 + 1).unwrap();
         config.human_sl.model_path = Some(path.to_string_lossy().into_owned());
     }
+    adjust(&mut config);
     settings::save_json(&storage.config_file, &config).unwrap();
     let world = World::default();
     let mut wb = Workbench::new(storage, None, Box::new(world.clone()), vec![]);
@@ -163,6 +167,10 @@ fn answer(f: &mut Fixture, id: InstanceId, vertex: &str) {
     f.wb.engine_tick(Instant::now() + Duration::from_secs(15));
 }
 fn foreground(f: &mut Fixture) -> InstanceId {
+    foreground_with(f, CHINESE)
+}
+/// A foreground KataGo that reports `rules` (`kata-get-rules`).
+fn foreground_with(f: &mut Fixture, rules: &str) -> InstanceId {
     f.wb.save_engine_settings(
         vec![EngineProfile {
             name: "KataGo".into(),
@@ -174,11 +182,16 @@ fn foreground(f: &mut Fixture) -> InstanceId {
     .unwrap();
     f.wb.start_engines();
     let id = f.world.0.lock().unwrap().last().unwrap().id;
-    serve(f, id, false);
+    serve_with(f, id, false, rules);
     id
 }
+/// KataGo's chinese rules, as `kata-get-rules` reports them.
+const CHINESE: &str = r#"{"ko":"SIMPLE","scoring":"AREA","suicide":false,"tax":"NONE","whiteHandicapBonus":"N","friendlyPassOk":true,"hasButton":false}"#;
 /// Answers the foreground engine's commands; returns them.
 fn serve(f: &mut Fixture, id: InstanceId, fail_name: bool) -> Vec<String> {
+    serve_with(f, id, fail_name, CHINESE)
+}
+fn serve_with(f: &mut Fixture, id: InstanceId, fail_name: bool, rules: &str) -> Vec<String> {
     let mut seen = Vec::new();
     for _ in 0..30 {
         let pending = f.world.take(id);
@@ -189,7 +202,7 @@ fn serve(f: &mut Fixture, id: InstanceId, fail_name: bool) -> Vec<String> {
             f.wb.engine_input(id, EngineInput::Stdout(String::new()));
             let (n, command) = line.split_once(' ').unwrap();
             let word = command.split_whitespace().next().unwrap();
-            let text=match word {"name"=>"KataGo","version"=>"1.18.2","list_commands"=>"name\nversion\nlist_commands\nkomi\nboardsize\nclear_board\nplay\nundo\nset_position\nkata-analyze\nkata-set-rules\nkata-get-rules\nstop","kata-get-rules"=>r#"{"ko":"SIMPLE","scoring":"AREA","suicide":false,"tax":"NONE","whiteHandicapBonus":"N","friendlyPassOk":true,"hasButton":false}"#,_=>""};
+            let text=match word {"name"=>"KataGo","version"=>"1.18.2","list_commands"=>"name\nversion\nlist_commands\nkomi\nboardsize\nclear_board\nplay\nundo\nset_position\nkata-analyze\nkata-set-rules\nkata-get-rules\nstop","kata-get-rules"=>rules,_=>""};
             f.wb.engine_input(
                 id,
                 EngineInput::Stdout(format!(
@@ -222,35 +235,43 @@ fn missing_model_refuses_without_starting_a_process() {
     assert!(f.world.0.lock().unwrap().is_empty());
     assert!(f.wb.inspect().human_sl.is_none());
 }
+/// A two-stone game: the player takes Black and the stones whatever colour the settings chose,
+/// with a komi of 0.5 (B2 `CoachSetupForm.config`, `HumanSlTrainingConfig.resolveHumanIsBlack`);
+/// the board changes only once the companion is ready.
 #[test]
 fn preparation_is_transactional_and_success_persists_settings() {
-    let mut f = fixture(true);
-    f.wb.edit(EditCommand::Play {
-        point: Point { x: 0, y: 0 },
-        color: None,
-    })
-    .unwrap();
-    let old = f.wb.document().id;
-    let s = HumanSlTrainingSettings {
-        komi: 0.5,
-        handicap: 2,
-        ..settings(PlayerColor::White)
-    };
-    let id = start(&mut f, s, false);
-    assert_eq!(f.wb.document().id, old);
-    assert_eq!(f.wb.inspect().human_sl.unwrap().phase, HumanSlPhase::Preparing);
-    ready(&mut f, id);
-    let view = f.wb.inspect();
-    assert_ne!(view.document.id, old);
-    assert_eq!(view.document.info.komi, 0.5);
-    assert_eq!(view.document.info.handicap, 2);
-    assert_eq!(view.position.stones.iter().flatten().count(), 2);
-    assert_eq!(view.position.to_play, Stone::White);
-    assert!(view.human_sl.unwrap().human_turn);
-    assert!(f.wb.config().human_sl.advanced_visible);
-    let storage = f.wb.storage().clone();
-    let reopened = Workbench::new(storage, None, Box::new(World::default()), vec![]);
-    assert_eq!(reopened.config().human_sl.training.handicap, 2);
+    for color in [PlayerColor::White, PlayerColor::Random, PlayerColor::Black] {
+        let mut f = fixture(true);
+        f.wb.edit(EditCommand::Play {
+            point: Point { x: 0, y: 0 },
+            color: None,
+        })
+        .unwrap();
+        let old = f.wb.document().id;
+        let s = HumanSlTrainingSettings {
+            handicap: 2,
+            ..settings(color)
+        };
+        let id = start(&mut f, s, false);
+        assert_eq!(f.wb.document().id, old);
+        assert_eq!(f.wb.inspect().human_sl.unwrap().phase, HumanSlPhase::Preparing);
+        ready(&mut f, id);
+        let view = f.wb.inspect();
+        assert_ne!(view.document.id, old);
+        assert_eq!(view.document.info.komi, 0.5, "{color:?}");
+        assert_eq!(view.komi, 0.5);
+        assert_eq!(view.document.info.handicap, 2);
+        assert_eq!(view.position.stones.iter().flatten().count(), 2);
+        assert_eq!(view.position.to_play, Stone::White);
+        let session = view.human_sl.unwrap();
+        assert!(session.human_is_black, "{color:?}");
+        assert!(!session.human_turn && session.ai_thinking);
+        assert!(f.wb.config().human_sl.advanced_visible);
+        let storage = f.wb.storage().clone();
+        let reopened = Workbench::new(storage, None, Box::new(World::default()), vec![]);
+        let saved = &reopened.config().human_sl.training;
+        assert_eq!((saved.handicap, saved.player_color), (2, PlayerColor::Black));
+    }
 }
 #[test]
 fn ai_moves_first_and_human_clicks_are_turn_gated() {
@@ -1509,7 +1530,7 @@ fn before_forty_percent_the_ai_does_not_pass_unless_the_player_just_passed() {
 
 /// Right after the player's pass the AI may pass on the first move: when KataGo's top move is a
 /// pass, and when passing too gives up at most a point (B2 `SearchView.passEnds`,
-/// `PASS_TOLERANCE_POINTS`).
+/// `PASS_TOLERANCE_POINTS`). Both players having passed, KataGo then counts the game.
 #[test]
 fn after_the_players_pass_the_ai_may_pass_early() {
     for level in LEVELS {
@@ -1517,8 +1538,9 @@ fn after_the_players_pass_the_ai_may_pass_early() {
             let second = if top.0 == "pass" { ("K10", 0.4) } else { ("pass", 0.0) };
             let (mut f, id) = ai_turn(level, 0);
             respond(&mut f, id, json!({"K10":0.7,"pass":0.3}), infos(top, second));
-            assert_eq!(ai_move(&f), NodeKind::Pass { color: Stone::White }, "{level:?} {top:?}");
+            assert_eq!(kind(&f, f.wb.cursor()), NodeKind::Pass { color: Stone::White }, "{level:?} {top:?}");
             assert_eq!(f.wb.inspect().position.move_number, 2);
+            assert!(f.wb.inspect().human_sl.unwrap().counting);
         }
     }
     // Passing would cost 1.5 points: the AI plays on.
@@ -1556,4 +1578,312 @@ fn a_policy_level_that_would_pass_plays_katagos_point_instead() {
             point: Point { x: 15, y: 3 }
         }
     );
+}
+
+// ---- the game's end: komi, both passes and KataGo's count, resignations (B2 `GameResult`,
+// `AiResignation`, `HumanSlGameController.countAndEnd` / `resign`, `CoachSetupForm.config`).
+
+/// KataGo's chinese rules with the button: a drawn count goes to the first player to pass.
+const BUTTON: &str = r#"{"ko":"SIMPLE","scoring":"AREA","tax":"NONE","suicide":false,"hasButton":true,"whiteHandicapBonus":"N","friendlyPassOk":true}"#;
+fn black(s: HumanSlTrainingSettings) -> HumanSlTrainingSettings {
+    HumanSlTrainingSettings {
+        player_color: PlayerColor::Black,
+        ..s
+    }
+}
+
+/// An even game starts with the even-game komi of the rules the foreground KataGo plays: the 2027
+/// Chinese rules 7, the Japanese 6.5, the 2027 rules with the button 7; rules of no rule set keep
+/// the current komi. The settings view shows that komi before the start.
+#[test]
+fn an_even_game_takes_the_komi_of_the_rules_katago_plays() {
+    let japanese = r#"{"ko":"SIMPLE","scoring":"TERRITORY","tax":"SEKI","suicide":false,"hasButton":false,"whiteHandicapBonus":"0","friendlyPassOk":false}"#;
+    let aga = r#"{"ko":"SITUATIONAL","scoring":"AREA","tax":"NONE","suicide":false,"hasButton":false,"whiteHandicapBonus":"N-1","friendlyPassOk":true}"#;
+    for (rules, komi, even) in [(CHINESE, 7.0, 7.0), (japanese, 7.5, 6.5), (BUTTON, 7.5, 7.0), (aga, 6.0, 6.0)] {
+        let mut f = fixture(true);
+        let fg = foreground_with(&mut f, rules);
+        f.wb.set_komi(komi).unwrap();
+        serve_with(&mut f, fg, false, rules);
+        assert_eq!(f.wb.inspect().settings.human_sl.even_komi, even, "{rules}");
+        let id = start(&mut f, settings(PlayerColor::Black), false);
+        ready(&mut f, id);
+        let view = f.wb.inspect();
+        assert_eq!((view.document.info.komi, view.komi), (even, even), "{rules}");
+    }
+}
+
+/// A new game, the player Black under `komi`: the player passes, then the AI after KataGo's
+/// search; returns KataGo's count query.
+fn both_pass(mut f: Fixture, lv: CoachLevel, komi: f64) -> (Fixture, InstanceId, Value) {
+    f.wb.set_komi(komi).unwrap();
+    let id = start(&mut f, black(level(lv, Pace::Fast)), false);
+    ready(&mut f, id);
+    assert_eq!(f.wb.human_sl(HumanSlCommand::Pass).unwrap(), CommandResult::Done);
+    respond(&mut f, id, json!({"K10":0.7,"pass":0.3}), infos(("pass", 0.5), ("K10", 0.4)));
+    let id = f.world.worker();
+    let q = f.world.query(id);
+    (f, id, q)
+}
+/// KataGo's count: `lead`, the score lead of the side to move.
+fn count(f: &mut Fixture, id: InstanceId, q: &Value, lead: f64) {
+    out(
+        &mut f.wb,
+        id,
+        json!({"id":q["id"],"rootInfo":{"scoreLead":lead,"winrate":0.5,"visits":200},
+            "moveInfos":[{"move":"pass","order":0,"visits":200,"scoreLead":lead}]}),
+    );
+}
+fn result(f: &Fixture) -> Option<HumanSlResult> {
+    f.wb.inspect().human_sl.unwrap().result
+}
+fn won(winner: Stone, margin: &str) -> Option<HumanSlResult> {
+    Some(HumanSlResult::Counted {
+        verdict: ScoreVerdict::Win {
+            winner,
+            margin: margin.into(),
+        },
+    })
+}
+/// The record's result once saved and read back.
+fn saved_result(f: &mut Fixture) -> String {
+    let path = f.dir.path().join("coach.sgf");
+    let job = f.wb.begin_save(path.to_str().unwrap(), "LizzieYzy Tauri:test");
+    let written = lizzie_core::formats::write_record_file(&job.path, &job.text).map_err(|e| e.to_string());
+    assert!(f.wb.complete_save(job.ticket, written));
+    lizzie_core::formats::read_file(&path, false).unwrap().1.info.result
+}
+
+/// Both players passing ends the game: KataGo counts it with 200 visits of its own search, the
+/// result rounds its lead to the half-point komi and goes into the record, which keeps it when
+/// saved and read back. Nothing is played while KataGo counts or after; the session stays on.
+#[test]
+fn both_passes_end_the_game_and_the_count_goes_into_the_record() {
+    for lv in LEVELS {
+        let (mut f, id, q) = both_pass(fixture(true), lv, 7.5);
+        assert_eq!(q["maxVisits"], 200, "{lv:?}");
+        assert!(q["overrideSettings"].get("humanSLProfile").is_none());
+        assert_eq!(q["komi"], 7.5);
+        let view = f.wb.inspect();
+        let s = view.human_sl.unwrap();
+        assert!(s.counting && !s.human_turn && !s.ai_thinking && s.clock.is_none() && s.result.is_none());
+        assert!(view.human_sl_notices.contains(&HumanSlNotice::BothPassed));
+        assert!(!view.human_sl_notices.contains(&HumanSlNotice::AiPassed));
+        assert_eq!(f.wb.edit(EditCommand::Pass).unwrap(), CommandResult::Unchanged);
+        assert_eq!(f.wb.human_sl(HumanSlCommand::Resign).unwrap(), CommandResult::Unchanged);
+        // Black, to move, is 6.8 points behind: White wins by 6.5.
+        count(&mut f, id, &q, -6.8);
+        assert_eq!(result(&f), won(Stone::White, "6.5"), "{lv:?}");
+        let s = f.wb.inspect().human_sl.unwrap();
+        assert!(s.phase == HumanSlPhase::Playing && !s.counting && !s.human_turn && s.clock.is_none());
+        assert_eq!(f.wb.document().record.info.result, "W+6.5");
+        assert_eq!(click(&mut f, 3, 3), CommandResult::Unchanged);
+        assert_eq!(f.wb.inspect().position.move_number, 2);
+        assert_eq!(saved_result(&mut f), "W+6.5");
+        f.wb.human_sl(HumanSlCommand::Finish).unwrap();
+        assert!(f.wb.inspect().human_sl.is_none());
+        assert_eq!(f.wb.document().record.info.result, "W+6.5");
+    }
+    // The player White: the AI opens, both pass, White is to move and 3.2 ahead.
+    let mut f = fixture(true);
+    f.wb.set_komi(7.5).unwrap();
+    let id = start(&mut f, settings(PlayerColor::White), false);
+    ready(&mut f, id);
+    answer(&mut f, id, "D4");
+    assert_eq!(f.wb.human_sl(HumanSlCommand::Pass).unwrap(), CommandResult::Done);
+    respond(&mut f, id, json!({"K10":0.7,"pass":0.3}), infos(("pass", 0.5), ("K10", 0.4)));
+    let id = f.world.worker();
+    let q = f.world.query(id);
+    count(&mut f, id, &q, 3.2);
+    assert_eq!(result(&f), won(Stone::White, "3.5"));
+    assert_eq!(f.wb.document().record.info.result, "W+3.5");
+}
+
+/// Under the rules analysis asks for with the button, KataGo's lead holds the first passer's half
+/// point, which comes off before rounding to the whole-point komi: an even count goes to the
+/// first player to pass by no margin (`B+`, `W+`), and other counts keep a whole margin. Without
+/// the button an even count is a draw (`0`).
+#[test]
+fn under_button_rules_an_even_count_goes_to_the_first_passer() {
+    let button = || {
+        fixture_with(true, |c| {
+            c.analysis_engine.use_current_rules = false;
+            c.analysis_engine.specific_rules = BUTTON.into();
+        })
+    };
+    for (lead, expected, record) in [
+        (
+            0.5,
+            Some(HumanSlResult::Counted {
+                verdict: ScoreVerdict::DrawToFirstPasser { winner: Stone::Black },
+            }),
+            "B+",
+        ),
+        (2.6, won(Stone::Black, "2"), "B+2"),
+    ] {
+        let (mut f, id, q) = both_pass(button(), CoachLevel::Kyu5, 7.0);
+        assert_eq!(q["rules"]["hasButton"], true);
+        count(&mut f, id, &q, lead);
+        assert_eq!(result(&f), expected, "{lead}");
+        assert_eq!(f.wb.document().record.info.result, record);
+        assert_eq!(saved_result(&mut f), record);
+    }
+    // White passed first, before the game started from the current position.
+    let mut f = button();
+    f.wb.set_komi(7.0).unwrap();
+    click(&mut f, 3, 3);
+    f.wb.edit(EditCommand::Pass).unwrap();
+    let id = start(&mut f, black(level(CoachLevel::Kyu5, Pace::Fast)), true);
+    ready(&mut f, id);
+    assert!(f.wb.inspect().human_sl.unwrap().human_is_black);
+    assert_eq!(f.wb.human_sl(HumanSlCommand::Pass).unwrap(), CommandResult::Done);
+    respond(&mut f, id, json!({"K10":0.7,"pass":0.3}), infos(("pass", 0.5), ("K10", 0.4)));
+    let id = f.world.worker();
+    let q = f.world.query(id);
+    count(&mut f, id, &q, -0.5);
+    assert_eq!(
+        result(&f),
+        Some(HumanSlResult::Counted {
+            verdict: ScoreVerdict::DrawToFirstPasser { winner: Stone::White }
+        })
+    );
+    assert_eq!(f.wb.document().record.info.result, "W+");
+    // No button: an even count under komi 7 is a draw.
+    let (mut f, id, q) = both_pass(fixture(true), CoachLevel::Kyu5, 7.0);
+    count(&mut f, id, &q, 0.3);
+    assert_eq!(
+        result(&f),
+        Some(HumanSlResult::Counted {
+            verdict: ScoreVerdict::Draw
+        })
+    );
+    assert_eq!(saved_result(&mut f), "0");
+}
+
+/// A count that times out after 20 seconds, that KataGo answers with an error or without a score
+/// lead, or whose companion exits, leaves the game not counted and the record without a result;
+/// it is not asked again.
+#[test]
+fn a_failed_count_leaves_the_game_uncounted_and_the_record_without_a_result() {
+    for failure in ["timeout", "error", "no lead", "exit"] {
+        let (mut f, id, q) = both_pass(fixture(true), CoachLevel::Kyu5, 7.5);
+        match failure {
+            "timeout" => {
+                // The count was asked at the tick that played the AI's pass, 15 s on.
+                f.wb.engine_tick(Instant::now() + Duration::from_secs(15 + 19));
+                assert!(f.wb.inspect().human_sl.unwrap().counting);
+                f.wb.engine_tick(Instant::now() + Duration::from_secs(15 + 21));
+            }
+            "error" => out(&mut f.wb, id, json!({"id":q["id"],"error":"search failed"})),
+            "no lead" => out(&mut f.wb, id, json!({"id":q["id"],"moveInfos":[]})),
+            _ => {
+                f.wb.engine_input(id, EngineInput::Exited(Some(1)));
+            }
+        }
+        assert_eq!(result(&f), Some(HumanSlResult::Uncounted), "{failure}");
+        assert!(!f.wb.inspect().human_sl.unwrap().counting);
+        assert_eq!(f.wb.document().record.info.result, "", "{failure}");
+        let asked_again = f.world.0.lock().unwrap().iter().any(|p| {
+            p.sent.iter().filter_map(|l| serde_json::from_str::<Value>(l).ok()).any(|q| {
+                q.get("action").is_none() && q["id"].as_str().is_some_and(|id| id.starts_with("humansl-count"))
+            })
+        });
+        assert!(!asked_again, "{failure}: the count is not asked again");
+        assert_eq!(saved_result(&mut f), "");
+    }
+}
+
+/// 认输: the player gives up, also while the AI thinks; the AI wins by resignation, written to the
+/// record, and its reply arriving afterwards is dropped. From a browsed position the button only
+/// brings the board back. After the game nothing is played.
+#[test]
+fn the_player_resigns_and_the_ai_wins_by_resignation() {
+    let mut f = fixture(true);
+    let id = start(&mut f, settings(PlayerColor::Black), false);
+    ready(&mut f, id);
+    click(&mut f, 3, 3);
+    let live = f.wb.cursor();
+    assert!(f.wb.inspect().human_sl.unwrap().ai_thinking);
+    assert!(f.wb.navigate(Navigation::First));
+    assert_eq!(f.wb.human_sl(HumanSlCommand::Resign).unwrap(), CommandResult::Done);
+    assert_eq!(f.wb.cursor(), live);
+    assert!(f.wb.inspect().human_sl_notices.contains(&HumanSlNotice::BackToLiveGame));
+    assert_eq!(result(&f), None);
+    assert_eq!(f.wb.human_sl(HumanSlCommand::Resign).unwrap(), CommandResult::Done);
+    assert_eq!(result(&f), Some(HumanSlResult::Resigned { winner: Stone::White }));
+    let s = f.wb.inspect().human_sl.unwrap();
+    assert!(s.phase == HumanSlPhase::Playing && !s.ai_thinking && !s.human_turn && s.clock.is_none());
+    assert_eq!(f.wb.document().record.info.result, "W+R");
+    answer(&mut f, id, "Q16");
+    assert_eq!(f.wb.inspect().position.move_number, 1);
+    assert_eq!(click(&mut f, 15, 15), CommandResult::Unchanged);
+    assert_eq!(f.wb.human_sl(HumanSlCommand::Pass).unwrap(), CommandResult::Unchanged);
+    assert_eq!(f.wb.human_sl(HumanSlCommand::Resign).unwrap(), CommandResult::Unchanged);
+    assert_eq!(saved_result(&mut f), "W+R");
+}
+
+/// Up to `turns` of the AI's turns: KataGo sees the AI at `winrate` and `lead` and its top move is
+/// a stone; the player plays a stone, or passes, in between. Returns the turn the AI resigned on,
+/// if it did.
+fn hopeless_turns(f: &mut Fixture, turns: usize, winrate: f64, lead: f64, player_passes: bool) -> Option<usize> {
+    let size = f.wb.document().record.size;
+    for turn in 0..turns {
+        let (x, row) = ((turn % 19) as u16, (turn / 19) as u16);
+        let vertex = lizzie_core::engine::gtp::vertex(size, Point { x, y: 6 + row });
+        let id = f.world.worker();
+        for _ in 0..6 {
+            let pending = f.world.take(id);
+            if pending.is_empty() {
+                break;
+            }
+            for text in pending {
+                let q: Value = serde_json::from_str(&text).unwrap();
+                if q.get("action").is_none() {
+                    out(
+                        &mut f.wb,
+                        id,
+                        json!({"id":q["id"],"humanPolicy":{(vertex.clone()):1.0},
+                            "moveInfos":[{"move":vertex,"order":0,"visits":50,"utility":-0.9,"scoreLead":lead}],
+                            "rootInfo":{"winrate":winrate,"scoreLead":lead}}),
+                    );
+                }
+            }
+        }
+        f.wb.engine_tick(Instant::now() + Duration::from_secs(15));
+        if let Some(result) = result(f) {
+            let human = if f.wb.inspect().human_sl.unwrap().human_is_black { Stone::Black } else { Stone::White };
+            assert_eq!(result, HumanSlResult::Resigned { winner: human });
+            return Some(turn + 1);
+        }
+        let played = if player_passes {
+            f.wb.human_sl(HumanSlCommand::Pass).unwrap()
+        } else {
+            click(f, x, 10 + row)
+        };
+        assert_eq!(played, CommandResult::Done, "turn {turn}");
+    }
+    None
+}
+
+/// The AI resigns by its level once 40% of the board was played: a policy level after 20 turns in
+/// a row at most 0.5% and 40 points behind, a search level after 10 turns at most 1% and 20 points
+/// behind. A turn short, a point short or before 40% of the board it plays on.
+#[test]
+fn the_ai_resigns_by_its_level() {
+    for (lv, turns, winrate, lead) in [(CoachLevel::Kyu5, 20, 0.005, -40.0), (CoachLevel::Dan3, 10, 0.01, -20.0)] {
+        // From move 145 of 361 points, the thresholds met every turn: it plays on for one turn
+        // short of the count and resigns on the last.
+        let (mut f, _) = ai_turn(lv, 145);
+        assert_eq!(hopeless_turns(&mut f, turns, winrate, lead, false), Some(turns), "{lv:?}");
+        assert!(f.wb.inspect().human_sl_notices.contains(&HumanSlNotice::AiResigned));
+        assert_eq!(f.wb.inspect().position.move_number, 145 + 2 * (turns as u32 - 1));
+        assert_eq!(f.wb.document().record.info.result, "B+R");
+        assert_eq!(saved_result(&mut f), "B+R");
+        // A point short.
+        let (mut f, _) = ai_turn(lv, 145);
+        assert_eq!(hopeless_turns(&mut f, turns + 1, winrate, lead + 1.0, false), None, "{lv:?}");
+        // Before 40% of the board (moves 100 to 138 < 144.4), the player passing so that a policy
+        // level asks KataGo too.
+        let (mut f, _) = ai_turn(lv, 100);
+        assert_eq!(hopeless_turns(&mut f, turns, winrate, lead, true), None, "{lv:?}");
+    }
 }

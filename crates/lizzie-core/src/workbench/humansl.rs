@@ -6,10 +6,12 @@ use super::Workbench;
 use crate::api::*;
 use crate::engine::{
     gtp,
+    rules::{KataRules, RuleSet},
     runtime::{InstanceId, LeaseAvailability, RuntimeEvent},
 };
 use crate::humansl::{self, protocol, CoachLevelKind};
-use crate::record::{DocumentEdit, NodeId, Point, Stone};
+use crate::record::{DocumentEdit, NodeId, NodeKind, Point, Stone};
+use crate::scoring;
 use crate::settings::{HumanSlTrainingSettings, PlayerColor, TrainingMode};
 use serde_json::Value;
 use std::time::{Duration, Instant};
@@ -54,6 +56,17 @@ struct Session {
     live: NodeId,
     generation: u64,
     training_start_node: Option<NodeId>,
+    /// Where the game started (Java `gameStartNode`): the two passes that end it come after it.
+    start_node: NodeId,
+    /// The komi a new game starts with, decided at the start; once the game is on, the game's
+    /// komi (Java `gameKomi`), which rounds its count.
+    komi: f64,
+    /// The AI's hopeless turns so far against its level's thresholds.
+    resignation: humansl::Resignation,
+    /// KataGo counts the game after both players passed.
+    counting: bool,
+    /// How the game ended; the session stays on for review until it is finished.
+    result: Option<HumanSlResult>,
     restore: Option<u64>,
     resume: bool,
     started_game: bool,
@@ -75,12 +88,16 @@ struct Request {
     human_pass: bool,
     /// The human policy's share on its most popular move, which paces the reply.
     top_share: Option<f64>,
+    /// KataGo's root winrate and score lead for the AI, which its resignation goes by; a policy
+    /// level has them only from its pass check.
+    evaluation: Option<(f64, f64)>,
     selected: Option<String>,
     /// The earliest the selected move is played.
     pace: Instant,
 }
 /// What the companion is asked: readiness, a policy level's one-visit probe and, when the AI may
 /// pass, KataGo's own pass check, or a search level's search; then the reply waits for its pace.
+/// Once both players passed, KataGo's count of the game.
 #[derive(PartialEq)]
 enum Search {
     Ready,
@@ -88,6 +105,7 @@ enum Search {
     PassCheck,
     Play,
     Pacing,
+    Count,
 }
 /// Where the board stood for an action on the game: on the game's position, brought back to it
 /// from a browsed one, or nowhere, the game being gone.
@@ -138,6 +156,7 @@ impl Workbench {
                 Ok(self.human_sl_queue_exit(ExitContinuation::Ui(continuation)))
             }
             HumanSlCommand::Pass => Ok(self.human_sl_human_move(None)),
+            HumanSlCommand::Resign => Ok(self.human_sl_resign()),
             HumanSlCommand::RetryAi => {
                 if self
                     .human_sl
@@ -239,6 +258,9 @@ impl Workbench {
             }
         };
         self.engines.report_worker_diagnostics(worker);
+        // `CoachSetupForm.config`: with a handicap the player takes Black (the settings are
+        // normalized so) and the komi is 0.5; an even game takes the even-game komi of the rules
+        // KataGo plays, as the board stands before the game.
         let human = match settings.player_color {
             PlayerColor::Black => Stone::Black,
             PlayerColor::White => Stone::White,
@@ -250,6 +272,12 @@ impl Workbench {
                 }
             }
         };
+        let komi = if settings.handicap > 0 {
+            humansl::HANDICAP_KOMI
+        } else {
+            self.human_sl_even_komi()
+        };
+        let resignation = humansl::Resignation::for_play(settings.level.play());
         let now = Instant::now();
         self.human_sl.session = Some(Session {
             id,
@@ -275,13 +303,26 @@ impl Workbench {
             live: self.cursor,
             generation: 0,
             training_start_node: None,
+            start_node: self.cursor,
+            komi,
+            resignation,
+            counting: false,
+            result: None,
             restore: None,
             resume: false,
             started_game: false,
             diagnostics: Default::default(),
         });
-        self.human_sl_request(true, now);
+        self.human_sl_request(Search::Ready, now);
         Ok(CommandResult::Done)
+    }
+
+    /// The komi of an even game under the rules the foreground KataGo plays
+    /// (`CoachSetupContext.ofMainWindow`, `RulePreset.evenGameKomi`): that of the rule set they
+    /// are; else, after a handicap game, the komi new games start with; else the current komi.
+    pub(super) fn human_sl_even_komi(&self) -> f64 {
+        let rules = self.engines.foreground().and_then(|f| self.engines.confirmed_rules(f));
+        RuleSet::even_game_komi(rules, self.komi, self.doc.record.info.handicap > 0, None)
     }
 
     fn human_sl_command(&self, base: &str, model: &std::path::Path) -> Result<String, &'static str> {
@@ -331,6 +372,7 @@ impl Workbench {
         let advanced = s.advanced;
         let current = s.from_current;
         let human = s.human;
+        let komi = s.komi;
         // Persist before changing the document: a disk failure cannot leave a half-started game.
         if let Err(e) = self.commit_config(|c| {
             c.human_sl.training = settings.clone();
@@ -344,7 +386,7 @@ impl Workbench {
             self.reopen_empty_board(size, false);
             self.komi_changed = true;
             self.start_komi = None;
-            self.apply_komi(settings.komi);
+            self.apply_komi(komi);
             let _ = self.apply_edit(DocumentEdit::SetHandicap {
                 handicap: u32::from(settings.handicap),
             });
@@ -385,6 +427,9 @@ impl Workbench {
         s.turn = now;
         s.doc = self.doc.id;
         s.live = self.cursor;
+        s.start_node = self.cursor;
+        // A game from the current position keeps the record's komi.
+        s.komi = self.komi;
         if current {
             s.training_start_node = Some(self.cursor);
         }
@@ -421,13 +466,10 @@ impl Workbench {
 
     /// The player's stone at `point`, or pass. While the player browses, the board only goes back
     /// to the game's position, saying so; the move or pass is not played (Java `atLiveGame`).
+    /// Once both players passed, KataGo counts the game; while it counts and after the game,
+    /// nothing is played.
     pub(super) fn human_sl_human_move(&mut self, point: Option<Point>) -> CommandResult {
-        if !self
-            .human_sl
-            .session
-            .as_ref()
-            .is_some_and(|s| s.phase == HumanSlPhase::Playing)
-        {
+        if !self.human_sl_game_on() {
             return CommandResult::Unchanged;
         }
         match self.human_sl_to_game() {
@@ -446,8 +488,134 @@ impl Workbench {
         let s = self.human_sl.session.as_mut().unwrap();
         s.human_ms = s.human_ms.saturating_add(now.duration_since(s.turn).as_millis() as u64);
         s.turn = now;
-        self.human_sl_schedule(now);
+        if point.is_none() && self.human_sl_both_passed() {
+            self.human_sl_count(now);
+        } else {
+            self.human_sl_schedule(now);
+        }
         CommandResult::Done
+    }
+
+    /// The game is being played: the session plays, KataGo is not counting it and it has no
+    /// result yet.
+    fn human_sl_game_on(&self) -> bool {
+        self.human_sl
+            .session
+            .as_ref()
+            .is_some_and(|s| s.phase == HumanSlPhase::Playing && !s.counting && s.result.is_none())
+    }
+
+    /// The player resigns, also while the AI thinks: the AI wins and the game stays on the board
+    /// for review (`HumanSlGameController.resign`). From a browsed position the board only goes
+    /// back to the game's.
+    fn human_sl_resign(&mut self) -> CommandResult {
+        if !self.human_sl_game_on() {
+            return CommandResult::Unchanged;
+        }
+        match self.human_sl_to_game() {
+            GameShown::Ended => return CommandResult::Done,
+            GameShown::Returned => {
+                self.human_sl.notices.push(HumanSlNotice::BackToLiveGame);
+                return CommandResult::Done;
+            }
+            GameShown::Already => {}
+        }
+        let winner = self.human_sl.session.as_ref().unwrap().human.opposite();
+        self.human_sl_end_game(HumanSlResult::Resigned { winner }, Instant::now());
+        CommandResult::Done
+    }
+
+    /// Both players passed one after the other since the game started
+    /// (`HumanSlGameController.bothPlayersPassed`).
+    fn human_sl_both_passed(&self) -> bool {
+        let Some(s) = self.human_sl.session.as_ref() else {
+            return false;
+        };
+        let record = &self.doc.record;
+        let pass = |node: NodeId| matches!(record.node(node).kind, NodeKind::Pass { .. });
+        s.live != s.start_node
+            && pass(s.live)
+            && record
+                .parent(s.live)
+                .is_some_and(|previous| previous != s.start_node && pass(previous))
+    }
+
+    /// Both players passed: KataGo counts the game, and then it is over
+    /// (`HumanSlGameController.countAndEnd`). The clocks stop.
+    fn human_sl_count(&mut self, now: Instant) {
+        let Some(s) = self.human_sl.session.as_mut() else {
+            return;
+        };
+        s.counting = true;
+        s.turn = now;
+        self.human_sl.notices.push(HumanSlNotice::BothPassed);
+        self.human_sl_request(Search::Count, now);
+    }
+
+    /// KataGo's count arrived (`response`), or failed or timed out (`None`): the result rounds
+    /// its score lead to the game's komi, giving a draw to the first player to pass when the rules
+    /// the count was asked under have KataGo's button. Without a count the game is not counted.
+    fn human_sl_counted(&mut self, response: Option<&Value>, now: Instant) {
+        let Some((node, komi)) = self
+            .human_sl
+            .session
+            .as_ref()
+            .and_then(|s| Some((s.request.as_ref()?.node, s.komi)))
+        else {
+            return;
+        };
+        let rules = match self.quick_rules() {
+            Value::String(name) => KataRules::parse(&name),
+            rules => KataRules::parse(&rules.to_string()),
+        };
+        let first_passer = rules
+            .is_some_and(|r| r.has_button())
+            .then(|| scoring::first_passer(&self.doc.record, node))
+            .flatten();
+        let black_to_play = self.doc.record.node(node).to_play == Stone::Black;
+        let result = response
+            .and_then(|r| r["rootInfo"]["scoreLead"].as_f64())
+            .map(|lead| if black_to_play { lead } else { -lead })
+            .and_then(|lead| scoring::verdict_of_lead(lead, komi, first_passer))
+            .map_or(HumanSlResult::Uncounted, |verdict| HumanSlResult::Counted { verdict });
+        self.human_sl_end_game(result, now);
+    }
+
+    /// The game is over (`HumanSlGameController.endGame`): no more moves or replies, the clocks
+    /// stop, and a counted result or a resignation goes into the record's result (`RE`) through
+    /// the document; a game that was not counted leaves it as it was. The session stays on.
+    fn human_sl_end_game(&mut self, result: HumanSlResult, now: Instant) {
+        let to_play = self
+            .human_sl
+            .session
+            .as_ref()
+            .map(|s| self.doc.record.node(s.live).to_play);
+        let Some(s) = self.human_sl.session.as_mut() else {
+            return;
+        };
+        if !s.counting {
+            let elapsed = now.saturating_duration_since(s.turn).as_millis() as u64;
+            if to_play == Some(s.human) {
+                s.human_ms = s.human_ms.saturating_add(elapsed);
+            } else {
+                s.ai_ms = s.ai_ms.saturating_add(elapsed);
+            }
+        }
+        s.turn = now;
+        s.counting = false;
+        s.failed = false;
+        s.request = None;
+        s.generation += 1;
+        let side = |winner: Stone| if winner == Stone::Black { "B+" } else { "W+" };
+        let record = match &result {
+            HumanSlResult::Counted { verdict } => Some(scoring::sgf_result(verdict)),
+            HumanSlResult::Resigned { winner } => Some(format!("{}R", side(*winner))),
+            HumanSlResult::Uncounted => None,
+        };
+        s.result = Some(result);
+        if let Some(result) = record {
+            let _ = self.apply_edit(DocumentEdit::SetResult { result });
+        }
     }
 
     /// Shows the game's position again after the player browsed (Java `returnToGamePosition`).
@@ -612,7 +780,8 @@ impl Workbench {
     }
     pub(super) fn human_sl_view(&self) -> Option<HumanSlView> {
         let s = self.human_sl.session.as_ref()?;
-        let playing = s.phase == HumanSlPhase::Playing;
+        // While KataGo counts and after the game, nobody is to move and the clocks stand.
+        let playing = s.phase == HumanSlPhase::Playing && !s.counting && s.result.is_none();
         let human_turn = playing && self.doc.record.node(s.live).to_play == s.human;
         Some(HumanSlView {
             id: s.id,
@@ -630,13 +799,15 @@ impl Workbench {
                 HumanSlSide::Ai
             }),
             human_turn,
-            ai_thinking: s.request.is_some(),
+            ai_thinking: s.request.as_ref().is_some_and(|r| r.phase != Search::Count),
             ai_failed: s.failed,
             analysis_display: if s.settings.mode == TrainingMode::LiveAnalysis {
                 HumanSlAnalysisDisplay::Show
             } else {
                 HumanSlAnalysisDisplay::Suppress
             },
+            counting: s.counting,
+            result: s.result.clone(),
         })
     }
     pub(super) fn human_sl_notices(&self) -> Vec<HumanSlNotice> {

@@ -10,6 +10,8 @@ use std::path::Path;
 pub const ROOT_SYMMETRIES: u32 = 2;
 /// KataGo's `gtp_human5k_example.cfg` keeps 40 visits only to judge passing and resigning.
 pub const PASS_CHECK_VISITS: u32 = 40;
+/// KataGo's search that counts a game both players passed in (`FINAL_SCORE_VISITS`).
+pub const COUNT_VISITS: u32 = 200;
 const SEARCH_THREADS: u32 = 8;
 /// Time kept back from a request's budget for the engine's last batch, its JSON and delivery.
 const RETURN_RESERVE_SECONDS: f64 = 0.450;
@@ -140,6 +142,19 @@ pub fn play_query(id: &str, at: Position<'_>, play: &PlaySettings) -> String {
 /// level's pass check.
 pub fn pass_check_query(id: &str, at: Position<'_>) -> String {
     base(id, at, PASS_CHECK_VISITS).to_string()
+}
+
+/// KataGo's own search, without the human profile, of the final position once both players
+/// passed: its score lead counts the game (`finalBlackScoreLead`).
+pub fn count_query(id: &str, at: Position<'_>) -> String {
+    base(id, at, COUNT_VISITS).to_string()
+}
+
+/// The search's root winrate (0 to 1) and score lead, both for the side to move, when it reports
+/// them: what the AI's resignation goes by.
+pub fn root_evaluation(response: &Value) -> Option<(f64, f64)> {
+    let root = response.get("rootInfo")?;
+    Some((root.get("winrate")?.as_f64()?, root.get("scoreLead")?.as_f64()?))
 }
 
 /// The response's human policy, at the top level or in `rootInfo`.

@@ -4,6 +4,10 @@ use serde_json::json;
 
 /// The readiness check may take as long as the engine's first GPU compilation.
 const READY_SECONDS: u64 = 180;
+/// How long KataGo may count a finished game (`COUNT_TIMEOUT`).
+const COUNT_SECONDS: u64 = 20;
+/// The AI's reply that gives the game up (Java `RESIGN`).
+const RESIGN: &str = "resign";
 
 impl Workbench {
     /// Seed the session's random source for reproducible controlled-engine scenarios.
@@ -31,11 +35,13 @@ impl Workbench {
         };
         if s.phase != HumanSlPhase::Playing
             || s.request.is_some()
+            || s.result.is_some()
             || self.doc.record.node(s.live).to_play == s.human
         {
             return;
         }
-        self.human_sl_request(false, now);
+        let first = Self::human_sl_first_phase(&s.settings);
+        self.human_sl_request(first, now);
     }
     /// The level's first question: a search level searches, a policy level probes its policy.
     fn human_sl_first_phase(settings: &HumanSlTrainingSettings) -> Search {
@@ -51,22 +57,22 @@ impl Workbench {
             Search::Probe => "policy",
             Search::PassCheck => "pass",
             Search::Play | Search::Pacing => "play",
+            Search::Count => "count",
         };
         format!("humansl-{kind}-{}-{}", s.id, s.generation)
     }
-    pub(super) fn human_sl_request(&mut self, readiness: bool, now: Instant) {
+    /// Asks the companion `phase`'s first question about the game's position, within its budget:
+    /// the readiness check's, the count's, or the level's per move.
+    pub(super) fn human_sl_request(&mut self, phase: Search, now: Instant) {
         let Some(s) = self.human_sl.session.as_mut() else {
             return;
         };
         s.generation += 1;
         s.failed = false;
-        let (phase, budget) = if readiness {
-            (Search::Ready, Duration::from_secs(READY_SECONDS))
-        } else {
-            (
-                Self::human_sl_first_phase(&s.settings),
-                s.settings.level.play().move_budget(),
-            )
+        let budget = match phase {
+            Search::Ready => Duration::from_secs(READY_SECONDS),
+            Search::Count => Duration::from_secs(COUNT_SECONDS),
+            _ => s.settings.level.play().move_budget(),
         };
         s.request = Some(Request {
             id: Self::human_sl_request_id(s, &phase),
@@ -80,6 +86,7 @@ impl Workbench {
             candidates: Vec::new(),
             human_pass: false,
             top_share: None,
+            evaluation: None,
             selected: None,
             pace: now,
         });
@@ -118,6 +125,7 @@ impl Workbench {
             Search::Probe => protocol::policy_query(&r.id, at, play.profile, protocol::ROOT_SYMMETRIES),
             Search::PassCheck => protocol::pass_check_query(&r.id, at),
             Search::Play => protocol::play_query(&r.id, at, play),
+            Search::Count => protocol::count_query(&r.id, at),
             Search::Pacing => return,
         };
         if !self.engines.worker_send(worker, &line) {
@@ -152,6 +160,11 @@ impl Workbench {
         if let Some(worker) = s.worker.take() {
             self.engines.terminate(worker);
         }
+        // A count that fails or times out is not tried again: the game is not counted.
+        if s.request.as_ref().is_some_and(|r| r.phase == Search::Count) {
+            self.human_sl_counted(None, now);
+            return;
+        }
         let first = Self::human_sl_first_phase(&s.settings);
         let budget = s.settings.level.play().move_budget();
         if s.request.as_ref().is_some_and(|r| r.attempt == 0) {
@@ -165,6 +178,7 @@ impl Workbench {
             r.candidates.clear();
             r.human_pass = false;
             r.top_share = None;
+            r.evaluation = None;
             r.deadline = now + budget;
             self.human_sl_send(now);
         } else {
@@ -213,12 +227,14 @@ impl Workbench {
     /// players of the level would mostly pass, it plays KataGo's move instead, what is left of
     /// their policy being noise; otherwise it samples the policy.
     fn human_sl_pass_checked(&mut self, response: &Value, now: Instant) {
-        let Some(r) = self.human_sl.session.as_ref().and_then(|s| s.request.as_ref()) else {
+        let Some(r) = self.human_sl.session.as_mut().and_then(|s| s.request.as_mut()) else {
             return;
         };
-        if passing::ends(response, &self.doc.record, r.node) {
+        r.evaluation = protocol::root_evaluation(response);
+        let (node, human_pass) = (r.node, r.human_pass);
+        if passing::ends(response, &self.doc.record, node) {
             self.human_sl_chosen(Some("pass".into()), now);
-        } else if let Some(vertex) = passing::search_move(response).filter(|_| r.human_pass) {
+        } else if let Some(vertex) = passing::search_move(response).filter(|_| human_pass) {
             let vertex = vertex.to_string();
             self.human_sl_chosen(Some(vertex), now);
         } else {
@@ -266,12 +282,14 @@ impl Workbench {
         };
         if let Some(r) = self.human_sl.session.as_mut().and_then(|s| s.request.as_mut()) {
             r.top_share = top_share;
+            r.evaluation = protocol::root_evaluation(response);
         }
         self.human_sl_chosen(selected, now);
     }
     /// The move is chosen; it is played once the AI has "thought" for as long as a player of the
-    /// level would over it, at the chosen pace, counted from the start of its turn.
-    fn human_sl_chosen(&mut self, selected: Option<String>, now: Instant) {
+    /// level would over it, at the chosen pace, counted from the start of its turn. When KataGo
+    /// has seen the AI lost for long enough, it resigns instead (`resignIfHopeless`).
+    fn human_sl_chosen(&mut self, mut selected: Option<String>, now: Instant) {
         if selected.is_none() {
             self.human_sl_request_failed(now);
             return;
@@ -284,6 +302,11 @@ impl Workbench {
         let pace = s.settings.pace;
         let Some(r) = s.request.as_mut() else { return };
         let number = self.doc.record.node(r.node).move_number;
+        if let Some((winrate, lead)) = r.evaluation {
+            if s.resignation.should_resign(winrate, lead, number, area) {
+                selected = Some(RESIGN.into());
+            }
+        }
         r.pace = r.started + humansl::think_time(r.top_share, number, area, random, pace);
         r.selected = selected;
         r.phase = Search::Pacing;
@@ -292,7 +315,8 @@ impl Workbench {
         }
     }
     /// The chosen reply is played on the game's position, which the board shows again if the
-    /// player was browsing (Java `applyAiMoveIfCurrent`).
+    /// player was browsing (Java `applyAiMoveIfCurrent`). The AI's resignation ends the game;
+    /// its pass after the player's ends it too, and KataGo counts it (`applyAiMove`).
     fn human_sl_apply_ai(&mut self, now: Instant) {
         if !self.human_sl_request_current() {
             self.human_sl_lost_game();
@@ -306,11 +330,22 @@ impl Workbench {
         let Some(vertex) = r.selected else { return };
         s.ai_ms = s.ai_ms.saturating_add(now.duration_since(s.turn).as_millis() as u64);
         s.turn = now;
+        let human = s.human;
         self.browse_to(live);
+        if vertex == RESIGN {
+            self.human_sl.notices.push(HumanSlNotice::AiResigned);
+            self.human_sl_end_game(HumanSlResult::Resigned { winner: human }, now);
+            return;
+        }
         let point = gtp::parse_vertex(self.doc.record.size, &vertex).ok().flatten();
-        let passed = point.is_none() || !self.human_sl_commit(point);
-        if passed {
-            self.human_sl_commit(None);
+        if point.is_some() && self.human_sl_commit(point) {
+            return;
+        }
+        // A stale or illegal reply passes too, but only the AI's own pass may end the game.
+        self.human_sl_commit(None);
+        if vertex.trim().eq_ignore_ascii_case("pass") && self.human_sl_both_passed() {
+            self.human_sl_count(now);
+        } else {
             self.human_sl.notices.push(HumanSlNotice::AiPassed);
         }
     }
@@ -370,6 +405,7 @@ impl Workbench {
             Search::Probe => self.human_sl_probed(&response, now),
             Search::PassCheck => self.human_sl_pass_checked(&response, now),
             Search::Play => self.human_sl_searched(&response, now),
+            Search::Count => self.human_sl_counted(Some(&response), now),
             Search::Pacing => {}
         }
     }
