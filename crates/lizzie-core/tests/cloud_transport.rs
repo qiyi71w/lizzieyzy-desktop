@@ -7,13 +7,14 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use lizzie_core::api::GameCommand;
+use lizzie_core::api::{FlashOutcome, FlashTarget, GameCommand, WholeGameState};
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::cloud::{CloudConnectError, CloudConnector, CloudLaunch, CloudProvider, CloudStartFailure, SocketCredentials, SocketTokenSource};
 use lizzie_core::engine::gtp::{parse_info, Dialect, Frame, Framer};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, FocusCapability};
+use lizzie_core::engine::ssh::SshSettings;
 use lizzie_core::record::{BoardSize, Point, ROOT};
-use lizzie_core::settings::{NetworkSettings, ProxyMode};
+use lizzie_core::settings::{AnalysisEngineSettings, NetworkSettings, ProxyMode};
 use serde_json::{json, Value};
 use tokio_tungstenite::tungstenite::{accept, Message, WebSocket};
 
@@ -1296,5 +1297,173 @@ fn shutting_all_engines_down_while_a_custom_engine_connects_empties_the_seat_and
     assert!(!v.engine.down, "a shutdown is not a failure");
     assert!(v.engine_failures.is_empty());
     assert!(v.engine.engines.iter().all(|e| e.state.is_none()), "nothing left running");
+    b.finish();
+}
+
+// ---------------------------------------------------------------------------- manual analyses
+// Java `QuickAnalysisPrimaryReuse.shouldReuseForManualAnalysis`: with a cloud foreground engine,
+// an analysis command that is not customized and 精析设置's SSH host off, 整盘速览 and 整盘精析
+// borrow the cloud engine; 复用当前前台引擎 still borrows for any command.
+
+const FOUR_MOVES: &str = "(;SZ[19];B[pd];W[dd];B[pp];W[dp])";
+
+/// Every analysis query gets one in-progress result deep enough for any request; terminations
+/// are answered as [`workbench::terminate_only`] does.
+fn searching(v: &Value) -> Vec<Value> {
+    if v["action"] == "terminate" {
+        return workbench::terminate_only(v);
+    }
+    vec![json!({"id": v["id"], "isDuringSearch": true,
+        "moveInfos": [{"move": "Q4", "visits": 600, "winrate": 0.55, "scoreLead": 1.0, "prior": 0.2, "order": 0, "pv": ["Q4"]}],
+        "rootInfo": {"visits": 610, "winrate": 0.55, "scoreLead": 1.0}})]
+}
+
+/// A bench with a ready 自建算力 foreground engine on `peer` that analyses the open record.
+fn cloud_foreground(peer: &workbench::Peer) -> workbench::Bench {
+    let mut b = workbench::bench();
+    b.open(FOUR_MOVES);
+    b.activate_custom(&peer.url);
+    assert!(b.pump_until(Duration::from_secs(10), |wb| workbench::ready(wb) && !peer.queries().is_empty()));
+    b
+}
+
+/// Stops the foreground analysis and waits until the peer saw the termination; returns the
+/// number of queries so far.
+fn pause(b: &mut workbench::Bench, peer: &workbench::Peer) -> usize {
+    b.wb.toggle_analysis().unwrap();
+    assert!(b.wb.view(false).engine.paused);
+    assert!(b.pump_until(Duration::from_secs(10), |_| !peer.terminated().is_empty()));
+    b.settle();
+    peer.queries().len()
+}
+
+/// The numbers of moves of the positions queried after the first `from` queries.
+fn queried_positions(peer: &workbench::Peer, from: usize) -> Vec<usize> {
+    let mut moves: Vec<usize> = peer.queries()[from..]
+        .iter()
+        .map(|q| q["moves"].as_array().map_or(0, Vec::len))
+        .collect();
+    moves.sort_unstable();
+    moves.dedup();
+    moves
+}
+
+fn flash_completed(wb: &mut lizzie_core::workbench::Workbench) -> bool {
+    matches!(wb.inspect().flash_outcome, Some(FlashOutcome::Completed { .. })) && wb.inspect().flash.is_none()
+}
+
+/// The foreground engine analyses again: a query after the first `from` that was not terminated
+/// (each search of a borrowed engine is) asks about the browsing position.
+fn analyses_again(wb: &mut lizzie_core::workbench::Workbench, peer: &workbench::Peer, from: usize) -> bool {
+    let terminated = peer.terminated();
+    let cursor = wb.inspect().position.move_number as usize;
+    peer.queries()[from..]
+        .iter()
+        .any(|q| !terminated.contains(&q["id"]) && q["moves"].as_array().map_or(0, Vec::len) == cursor)
+}
+
+#[test]
+fn the_default_flash_analysis_borrows_a_cloud_foreground_and_its_analysis_resumes() {
+    let peer = workbench::peer(searching);
+    let mut b = cloud_foreground(&peer);
+    let before = peer.queries().len();
+    assert_eq!(b.wb.start_flash_analysis(FlashTarget::WholeGame).unwrap(), Ok(true));
+    assert!(b.wb.inspect().flash.expect("a flash run").borrowed);
+    assert!(b.pump_until(Duration::from_secs(20), flash_completed), "{:?}", b.wb.inspect().flash_outcome);
+    assert_eq!(queried_positions(&peer, before), [1, 2, 3, 4], "every move's position went to the cloud");
+    let v = b.wb.inspect();
+    assert_eq!((v.problems.analyzed, v.problems.total), (3, 3), "the answers are stored on the record");
+    assert!(v.engine_failures.is_empty() && !v.engine.paused);
+    // Given back unpaused: the cloud engine analyses the browsing position again.
+    assert!(b.pump_until(Duration::from_secs(10), |wb| analyses_again(wb, &peer, before)), "foreground analysis resumes");
+    b.finish();
+}
+
+#[test]
+fn a_paused_foreground_stays_paused_after_the_cloud_served_the_flash_analysis() {
+    let peer = workbench::peer(searching);
+    let mut b = cloud_foreground(&peer);
+    let before = pause(&mut b, &peer);
+    assert_eq!(b.wb.start_flash_analysis(FlashTarget::WholeGame).unwrap(), Ok(true));
+    assert!(b.pump_until(Duration::from_secs(20), flash_completed), "{:?}", b.wb.inspect().flash_outcome);
+    assert_eq!(queried_positions(&peer, before), [1, 2, 3, 4]);
+    assert!(
+        !b.pump_until(Duration::from_millis(500), |wb| analyses_again(wb, &peer, before)),
+        "nothing analyses while paused"
+    );
+    assert!(b.wb.inspect().engine.paused);
+    b.finish();
+}
+
+#[test]
+fn whole_game_analysis_borrows_a_cloud_foreground_and_its_analysis_resumes() {
+    let peer = workbench::peer(searching);
+    let mut b = cloud_foreground(&peer);
+    let before = peer.queries().len();
+    assert_eq!(b.wb.start_whole_game_analysis(500).unwrap(), Ok(true));
+    assert!(
+        b.pump_until(Duration::from_secs(30), |wb| wb.inspect().whole_game.state == WholeGameState::Complete),
+        "{:?}",
+        b.wb.inspect().whole_game
+    );
+    assert_eq!(queried_positions(&peer, before), [0, 1, 2, 3, 4], "the whole trunk went to the cloud");
+    assert!(b.wb.inspect().engine_failures.is_empty());
+    assert!(b.pump_until(Duration::from_secs(10), |wb| analyses_again(wb, &peer, before)), "foreground analysis resumes");
+    b.finish();
+}
+
+/// The bench launches no local programs: an analysis process fails to start.
+fn starts_an_analysis_process(b: &mut workbench::Bench, peer: &workbench::Peer) {
+    let before = pause(b, peer);
+    assert_eq!(b.wb.start_flash_analysis(FlashTarget::WholeGame).unwrap(), Ok(true));
+    assert!(
+        b.pump_until(Duration::from_secs(10), |wb| matches!(wb.inspect().flash_outcome, Some(FlashOutcome::EngineFailed { .. }))),
+        "{:?}",
+        b.wb.inspect().flash_outcome
+    );
+    assert_eq!(peer.queries().len(), before, "nothing went to the cloud");
+}
+
+#[test]
+fn a_customized_analysis_command_keeps_its_own_process_beside_a_cloud_foreground() {
+    let peer = workbench::peer(searching);
+    let mut b = cloud_foreground(&peer);
+    let settings = AnalysisEngineSettings {
+        command: "katago analysis -config analysis.cfg".into(),
+        ..AnalysisEngineSettings::default()
+    };
+    b.wb.save_analysis_engine_settings(settings, "", true).unwrap().unwrap();
+    assert!(b.wb.config().analysis_engine.command_customized);
+    starts_an_analysis_process(&mut b, &peer);
+    assert_eq!(b.wb.start_whole_game_analysis(500).unwrap(), Ok(true));
+    assert!(b.pump_until(Duration::from_secs(10), |wb| wb.inspect().whole_game.state == WholeGameState::Failed));
+
+    // 复用当前前台引擎 still borrows, whatever the command.
+    let mut settings = b.wb.config().analysis_engine.clone();
+    settings.reuse_current_engine = true;
+    b.wb.save_analysis_engine_settings(settings, "", false).unwrap().unwrap();
+    let before = peer.queries().len();
+    assert_eq!(b.wb.start_flash_analysis(FlashTarget::WholeGame).unwrap(), Ok(true));
+    assert!(b.pump_until(Duration::from_secs(20), flash_completed), "{:?}", b.wb.inspect().flash_outcome);
+    assert_eq!(queried_positions(&peer, before), [1, 2, 3, 4]);
+    b.finish();
+}
+
+#[test]
+fn an_analysis_engine_on_an_ssh_host_keeps_its_own_process_beside_a_cloud_foreground() {
+    let peer = workbench::peer(searching);
+    let mut b = cloud_foreground(&peer);
+    let mut settings = b.wb.config().analysis_engine.clone();
+    settings.use_ssh = true;
+    settings.ssh = SshSettings {
+        host: "127.0.0.1".into(),
+        port: "1".into(),
+        user: "lizzie".into(),
+        ..SshSettings::default()
+    };
+    let shown = settings.command.clone();
+    b.wb.save_analysis_engine_settings(settings, &shown, false).unwrap().unwrap();
+    assert!(!b.wb.config().analysis_engine.command_customized);
+    starts_an_analysis_process(&mut b, &peer);
     b.finish();
 }

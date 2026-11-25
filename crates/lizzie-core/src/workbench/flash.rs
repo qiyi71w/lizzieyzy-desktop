@@ -1,7 +1,8 @@
 //! 闪电分析 (Java `LizzieFrame.flashAnalyzeGame`, `AnalysisEngine.startRequest` /
 //! `startRequestAllBranches`, `WaitForAnalysis`): the user analyses the main trunk (整盘速览), a
 //! range of its moves (局部精析) or every branch (全部分支精析) with the 精析设置 analysis engine —
-//! a KataGo analysis process, or the borrowed foreground engine when 复用当前前台引擎 is set.
+//! a KataGo analysis process, or the borrowed foreground engine when 复用当前前台引擎 is set or a
+//! cloud foreground engine serves the default analysis command ([`Workbench::analysis_borrow`]).
 //!
 //! A run asks once for every chosen move that has fewer visits than a request searches (all of
 //! them with 总是覆盖), in order, and stores each answer where it was asked for, as automatic quick
@@ -20,7 +21,7 @@
 use std::collections::{HashMap, VecDeque};
 
 use super::analysis::AnalysisStore;
-use super::quick::{Query, RulesSignature};
+use super::quick::{AnalysisPurpose, Query, RulesSignature};
 use super::Workbench;
 use crate::api::{ApiError, FlashAnalysisView, FlashOutcome, FlashTarget};
 use crate::browse::Navigation;
@@ -158,7 +159,7 @@ impl Workbench {
                 self.commit_config(|c| c.flash_range = range)?;
             }
         }
-        let borrow = self.config.analysis_engine.reuse_current_engine;
+        let borrow = self.analysis_borrow(AnalysisPurpose::Manual).is_some();
         if !borrow && self.analysis_command_base(false).trim().is_empty() {
             return Ok(Err(ANALYSIS_COMMAND_MISSING.to_string()));
         }
@@ -215,7 +216,7 @@ impl Workbench {
 
     /// Starts run `id` now. `Err` holds the Java key of why it cannot.
     fn flash_begin(&mut self, id: u64, plan: Vec<(NodeId, u64)>) -> Result<(), String> {
-        let borrow = self.config.analysis_engine.reuse_current_engine;
+        let borrow = self.analysis_borrow(AnalysisPurpose::Manual).is_some();
         if borrow {
             let availability = self.engines.lease_availability();
             if availability != LeaseAvailability::Available {
@@ -635,7 +636,7 @@ impl Workbench {
                 loading: true,
                 done: 0,
                 total: 0,
-                borrowed: self.config.analysis_engine.reuse_current_engine,
+                borrowed: self.analysis_borrow(AnalysisPurpose::Manual).is_some(),
             });
         }
         self.flash.run.as_ref().map(|r| FlashAnalysisView {

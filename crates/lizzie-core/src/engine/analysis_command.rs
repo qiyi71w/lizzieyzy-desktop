@@ -1,10 +1,12 @@
 //! The command line of a KataGo analysis process: made from a GTP engine command (Java
 //! `AnalysisEngineCommandHelper`) and tuned for a launch (`KataGoRuntimeHelper
-//! .optimizeAnalysisEngineCommand`).
+//! .optimizeAnalysisEngineCommand`, `AnalysisEngineLaunchCommand`).
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use super::gtp::{join_command, prepare_launch, split_command};
+use super::tuning::overrides;
 
 /// An analysis command made from an engine's GTP command.
 #[derive(Clone, Debug, PartialEq)]
@@ -180,6 +182,120 @@ pub fn whole_game(command: &str, pv_len: u32, recommended: u32) -> String {
         append_search_threads(&mut parts, (budget / parallel).clamp(1, 2));
     }
     join_command(&parts).unwrap_or_else(|| command.to_string())
+}
+
+/// `AnalysisEngineLaunchCommand.sizePaddedBatches`: KataGo's ONNX backend pads every batch to
+/// `nnMaxBatchSize` on DirectML and on OpenVINO NPUs (and Metal with `metalPadBatch`), so the
+/// bundled `analysis.cfg`'s 64 would make a two-thread quick analysis run 64 rows per batch. The
+/// size of such a command is lowered to what KataGo picks for a padding backend,
+/// `max(2, (analysis threads × search threads + 1) / 2)`. The command stays as it is when it sets
+/// `nnMaxBatchSize` itself, its backend batches dynamically, its analysis threads cannot be read,
+/// or the size it runs is already that small. `roots` resolve a relative `-config` like a launch.
+pub fn size_padded_batches(command: &str, roots: &[PathBuf]) -> String {
+    let mut parts = split_command(command.trim());
+    if parts.first().is_none_or(String::is_empty) {
+        return command.to_string();
+    }
+    let set = overrides(&parts);
+    if set.contains_key("nnmaxbatchsize") || !pads_every_batch(&set) {
+        return command.to_string();
+    }
+    let config = read_config(command, roots);
+    let int = |key: &str| {
+        let value = match set.get(key) {
+            Some(v) => Some(v.as_str()),
+            None => config.get(key).map(String::as_str),
+        };
+        value.and_then(|v| v.trim().parse::<u32>().ok()).filter(|&n| n > 0)
+    };
+    let Some(analysis_threads) = int("numanalysisthreads") else {
+        return command.to_string();
+    };
+    let search_threads = int("numsearchthreadsperanalysisthread")
+        .or_else(|| int("numsearchthreads"))
+        .unwrap_or(1);
+    // KataGo's `Setup::computeFixedShapeMaxBatchSize` for one device.
+    let fitted = (analysis_threads.saturating_mul(search_threads).saturating_add(1) / 2).max(2);
+    if int("nnmaxbatchsize").is_some_and(|configured| configured <= fitted) {
+        return command.to_string();
+    }
+    append_override(&mut parts, &format!("nnMaxBatchSize={fitted}"));
+    join_command(&parts).unwrap_or_else(|| command.to_string())
+}
+
+/// `padsEveryBatch`: the pinned KataGo's `padsBatchForDevice` (ONNX) and `metalPadBatch` for the
+/// backend the command's overrides select.
+fn pads_every_batch(set: &std::collections::BTreeMap<String, String>) -> bool {
+    let value = |key: &str| set.get(key).map(|v| v.trim().to_lowercase()).unwrap_or_default();
+    let pad = value("onnxpadbatch");
+    if pad == "true" || value("metalpadbatch") == "true" {
+        return true;
+    }
+    if pad == "false" {
+        return false;
+    }
+    match value("onnxprovider").as_str() {
+        "directml" => true,
+        // Like KataGo, NPU anywhere in the default or a per-thread device type.
+        "openvino" => set
+            .iter()
+            .any(|(k, v)| k.starts_with("onnxopenvinodevicetype") && v.to_uppercase().contains("NPU")),
+        _ => false,
+    }
+}
+
+/// The `key = value` lines of the command's `-config` file, keys in lower case, without includes.
+fn read_config(command: &str, roots: &[PathBuf]) -> HashMap<String, String> {
+    let path = prepare_launch(command, roots).and_then(|spec| {
+        let at = spec.args.iter().position(|t| t == "-config" || t == "--config")?;
+        let path = PathBuf::from(spec.args.get(at + 1)?);
+        Some(match spec.working_dir {
+            Some(dir) if path.is_relative() => dir.join(path),
+            _ => path,
+        })
+    });
+    let Some(text) = path.and_then(|p| std::fs::read_to_string(p).ok()) else {
+        return HashMap::new();
+    };
+    text.lines()
+        .filter_map(|line| {
+            let content = line.split('#').next().unwrap_or("");
+            let (key, value) = content.split_once('=')?;
+            let key = key.trim();
+            (!key.is_empty()).then(|| (key.to_lowercase(), value.trim().to_string()))
+        })
+        .collect()
+}
+
+/// The backend settings of an engine command (its `onnx…` overrides, as the experimental
+/// DirectML/OpenVINO setups write them, OpenVINO's cache folder included), comma-joined: what
+/// another command running the same KataGo build carries to select the same backend
+/// (`experimentalBackendOverrides`).
+pub fn backend_overrides(command: &str) -> Option<String> {
+    let parts = split_command(command.trim());
+    let entries: Vec<&str> = parts
+        .windows(2)
+        .filter(|w| w[0] == "-override-config" || w[0] == "--override-config")
+        .flat_map(|w| w[1].split(','))
+        .map(str::trim)
+        .filter(|e| e.contains('=') && override_key(e).starts_with("onnx"))
+        .collect();
+    (!entries.is_empty()).then(|| entries.join(","))
+}
+
+/// `AnalysisEngineCommandHelper.isMissingLocalExecutable`: the command starts a program named by a
+/// path (it holds a separator) that exists under none of `roots` (relative) or not at all
+/// (absolute). Programs looked up on `PATH` and empty commands are not judged.
+pub fn missing_local_program(command: &str, roots: &[PathBuf]) -> bool {
+    let program = split_command(command.trim()).into_iter().next().unwrap_or_default();
+    if !program.contains(['/', '\\']) {
+        return false;
+    }
+    let path = Path::new(&program);
+    if path.is_absolute() {
+        return !path.exists();
+    }
+    !roots.iter().any(|root| root.join(path).exists())
 }
 
 #[cfg(test)]

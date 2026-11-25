@@ -111,7 +111,9 @@ const KATA: &str = "name\nversion\nlist_commands\nkomi\nboardsize\nclear_board\n
 const CHINESE: &str = r#"{"friendlyPassOk":true,"hasButton":false,"ko":"SIMPLE","scoring":"AREA","suicide":false,"tax":"NONE","whiteHandicapBonus":"N"}"#;
 const RECORD: &str = "(;SZ[19];B[pd];W[dd];B[pp];W[dp])";
 const OTHER: &str = "(;SZ[19];B[qd];W[dc])";
-const ANALYSIS: &str = "/opt/katago analysis -config /a.cfg";
+/// A program found on PATH: an analysis program named by a path that does not exist makes automatic
+/// quick analysis borrow the foreground engine.
+const ANALYSIS: &str = "katago analysis -config /a.cfg";
 const PROBE_ARGS: &str = "10 rootInfo true focus pass 0";
 /// D4 as a board point.
 const D4: Point = Point { x: 3, y: 15 };

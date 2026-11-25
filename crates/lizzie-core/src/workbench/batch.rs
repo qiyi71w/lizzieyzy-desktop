@@ -36,7 +36,7 @@ use super::flash::{
     flash_nodes_of, reuse_status_key, ANALYSIS_COMMAND_MISSING, FOREGROUND_RESTORE_FAILED, REQUEST_DISPATCH_FAILED,
     WHOLE_GAME_CONFLICT,
 };
-use super::quick::Query;
+use super::quick::{AnalysisPurpose, Query};
 use super::{PendingSave, SaveJob, Workbench, FAILED_TO_OPEN_FILE, SAVE_FILE_FAILED};
 use crate::api::{
     ApiError, BatchCommand, BatchFailure, BatchItemView, BatchMode, BatchMove, BatchNotice, BatchRunView, BatchView,
@@ -108,8 +108,8 @@ enum FlashEngine {
 
 struct Run {
     work: Work,
-    /// 批量精析 borrows the foreground engine (复用当前前台引擎 when the batch started); the route
-    /// stays for the whole batch.
+    /// 批量精析 borrows the foreground engine (as a flash analysis would when the batch started,
+    /// [`Workbench::analysis_borrow`]); the route stays for the whole batch.
     borrow: bool,
     item: u64,
     /// The read of the current record in flight.
@@ -488,7 +488,7 @@ impl Workbench {
         if let Some(key) = self.batch_conflict(BatchMode::Flash) {
             return Ok(Err(key.to_string()));
         }
-        let borrow = self.config.analysis_engine.reuse_current_engine;
+        let borrow = self.analysis_borrow(AnalysisPurpose::Manual).is_some();
         if borrow {
             let availability = self.engines.lease_availability();
             if availability != crate::engine::runtime::LeaseAvailability::Available {
