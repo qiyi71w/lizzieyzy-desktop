@@ -98,7 +98,10 @@ export function mountTrainingBar(): void {
     thinking.classList.toggle("on", s.ai_thinking || stopping);
     retry.hidden = !(s.phase === "Playing" && s.ai_failed);
     pass.disabled = !(s.phase === "Playing" && s.human_turn);
-    finish.textContent = cleanup ? t("HumanSlTraining.retryCleanup") : stopping ? t("HumanSlTraining.stopping") : t("HumanSlTraining.finishReview");
+    // The bar paints with every view and every 500 ms; replacing the label's text node between
+    // the press and the release of 结束并复盘 cancels that click, so it changes only with its text.
+    const finishText = cleanup ? t("HumanSlTraining.retryCleanup") : stopping ? t("HumanSlTraining.stopping") : t("HumanSlTraining.finishReview");
+    if (finish.textContent !== finishText) finish.textContent = finishText;
     finish.disabled = stopping;
   };
 
