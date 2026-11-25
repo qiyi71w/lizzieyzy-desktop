@@ -3300,12 +3300,13 @@ fn humansl_training_and_model_import_preserve_java_files_and_migrate_live_correc
     let h = &wb.config().human_sl;
     assert_eq!(h.model_path.as_deref().map(Path::new), Some(model.as_path()));
     let s = &h.training;
-    // 网络 9 段 is retired: the opponent becomes 9 段; 用时 无限制 becomes 慢.
+    // 网络 9 段 is retired: the opponent becomes 9 段; 用时 无限制 becomes 慢. With a handicap the
+    // player takes Black (`resolveHumanIsBlack`); the komi is no setting any more.
     assert_eq!(
         (s.mode, s.level, s.player_color),
-        (TrainingMode::LiveAnalysis, CoachLevel::Dan9, PlayerColor::White)
+        (TrainingMode::LiveAnalysis, CoachLevel::Dan9, PlayerColor::Black)
     );
-    assert_eq!((s.pace, s.handicap, s.komi), (Pace::Slow, 2, 0.5));
+    assert_eq!((s.pace, s.handicap), (Pace::Slow, 2));
     assert!(h.advanced_visible);
     assert_eq!(wb.view(false).settings.human_sl.model.status, lizzie_core::api::HumanSlModelStatus::Installed);
     assert_eq!(saved_config(&product).human_sl, wb.config().human_sl);
@@ -3334,9 +3335,9 @@ fn humansl_java_corrupt_or_future_fields_fall_back_independently() {
     let s = &wb.config().human_sl.training;
     assert_eq!(
         (s.mode, s.level, s.player_color),
-        (TrainingMode::PostGameReview, CoachLevel::Dan11, PlayerColor::Random)
+        (TrainingMode::PostGameReview, CoachLevel::Dan11, PlayerColor::Black)
     );
-    assert_eq!((s.pace, s.handicap, s.komi), (Pace::Natural, 9, 7.5));
+    assert_eq!((s.pace, s.handicap), (Pace::Natural, 9));
     assert!(wb.config().human_sl.advanced_visible);
 }
 

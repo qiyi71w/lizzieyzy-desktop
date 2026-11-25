@@ -1938,7 +1938,16 @@ export type HumanSlSettingsView = { model: HumanSlModelView, training: HumanSlTr
 /**
  * Every opponent, weakest first.
  */
-levels: Array<CoachLevelView>, };
+levels: Array<CoachLevelView>, 
+/**
+ * The komi an even game would start with now: the even-game komi of the rules KataGo plays
+ * (`RulePreset.evenGameKomi`).
+ */
+even_komi: number, 
+/**
+ * The komi of a handicap game.
+ */
+handicap_komi: number, };
 
 export type HumanSlModelView = { status: HumanSlModelStatus, path: string | null, };
 
@@ -1956,7 +1965,7 @@ level: CoachLevel, playerColor: PlayerColor,
 /**
  * AI 思考时间: paces the AI's replies, nothing else.
  */
-pace: Pace, handicap: number, komi: number, };
+pace: Pace, handicap: number, };
 
 export type TrainingMode = "PostGameReview" | "LiveAnalysis";
 
@@ -2611,7 +2620,7 @@ export type HumanSlCommand = { "type": "Start", settings: HumanSlTrainingSetting
 /**
  * The user confirmed stopping a running batch analysis ([`crate::api::CommandResult::NeedsBatchStop`]).
  */
-stop_batch: boolean, } | { "type": "CancelPreparation" } | { "type": "Pass" } | { "type": "RetryAi" } | { "type": "Finish" } | { "type": "Abort" } | { "type": "AbortThen", continuation: HumanSlContinuation, };
+stop_batch: boolean, } | { "type": "CancelPreparation" } | { "type": "Pass" } | { "type": "Resign" } | { "type": "RetryAi" } | { "type": "Finish" } | { "type": "Abort" } | { "type": "AbortThen", continuation: HumanSlContinuation, };
 
 export type HumanSlPhase = "Preparing" | "Playing" | "Stopping" | "CleanupPending";
 
@@ -2621,9 +2630,19 @@ export type HumanSlSide = "Human" | "Ai";
 
 export type HumanSlAnalysisDisplay = "Suppress" | "Show";
 
-export type HumanSlView = { id: number, phase: HumanSlPhase, stage: HumanSlStartupStage | null, preparing_secs: number, mode: TrainingMode, level: CoachLevel, human_is_black: boolean, human_ms: number, ai_ms: number, clock: HumanSlSide | null, human_turn: boolean, ai_thinking: boolean, ai_failed: boolean, analysis_display: HumanSlAnalysisDisplay, };
+export type HumanSlView = { id: number, phase: HumanSlPhase, stage: HumanSlStartupStage | null, preparing_secs: number, mode: TrainingMode, level: CoachLevel, human_is_black: boolean, human_ms: number, ai_ms: number, clock: HumanSlSide | null, human_turn: boolean, ai_thinking: boolean, ai_failed: boolean, analysis_display: HumanSlAnalysisDisplay, 
+/**
+ * KataGo counts the game after both players passed.
+ */
+counting: boolean, 
+/**
+ * How the game ended; the session stays on for the player to review until 结束并复盘.
+ */
+result: HumanSlResult | null, };
 
-export type HumanSlNotice = { "type": "AiPassed" } | { "type": "AiMoveFailed" } | { "type": "BackToLiveGame" } | { "type": "GameMovesDeleted" } | { "type": "StartFailed", reason: string, detail: string | null, } | { "type": "ExitRecoveryFailed" } | { "type": "Ended" };
+export type HumanSlNotice = { "type": "AiPassed" } | { "type": "AiMoveFailed" } | { "type": "AiResigned" } | { "type": "BothPassed" } | { "type": "BackToLiveGame" } | { "type": "GameMovesDeleted" } | { "type": "StartFailed", reason: string, detail: string | null, } | { "type": "ExitRecoveryFailed" } | { "type": "Ended" };
+
+export type HumanSlResult = { "type": "Counted", verdict: ScoreVerdict, } | { "type": "Resigned", winner: Stone, } | { "type": "Uncounted" };
 
 export type HumanSlContinuation = "NewGame" | "NewAnalysisGame" | "EngineGame";
 

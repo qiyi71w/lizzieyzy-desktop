@@ -12,6 +12,11 @@ pub struct HumanSlSettingsView {
     pub advanced_visible: bool,
     /// Every opponent, weakest first.
     pub levels: Vec<CoachLevelView>,
+    /// The komi an even game would start with now: the even-game komi of the rules KataGo plays
+    /// (`RulePreset.evenGameKomi`).
+    pub even_komi: f64,
+    /// The komi of a handicap game.
+    pub handicap_komi: f64,
 }
 
 /// An opponent as the interface names it: by its Fox / Tygem rank ("野狐 3D"), then its KataGo

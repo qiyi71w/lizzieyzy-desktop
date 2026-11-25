@@ -80,6 +80,12 @@ registerViewHandler((view) => {
       case "AiMoveFailed":
         timedMessage(t("HumanSlGame.aiMoveFailed"), 4);
         break;
+      case "AiResigned":
+        timedMessage(t("HumanSlGame.aiResigned"), 3);
+        break;
+      case "BothPassed":
+        timedMessage(t("HumanSlGame.bothPassed"), 3);
+        break;
       case "BackToLiveGame":
         timedMessage(t("HumanSlGame.backToLiveGame"), 3);
         break;

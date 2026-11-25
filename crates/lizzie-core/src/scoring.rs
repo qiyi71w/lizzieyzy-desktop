@@ -23,6 +23,27 @@ pub fn first_passer(record: &GameRecord, node: NodeId) -> Option<Stone> {
     first
 }
 
+/// The count of a finished game from KataGo's final score lead for Black (`GameResult.byScore`),
+/// rounded to what the komi allows: with a half-point komi every result is a half point, with a
+/// whole-point komi a draw is possible. Under rules that give a drawn count to the player who
+/// passed first, `first_passer` is that player; KataGo counts the rule as half a point for them
+/// (its button), which comes off again here, so a draw goes to them by no margin and every other
+/// result keeps its whole-point margin. `None` when the lead or the komi is not a number.
+pub fn verdict_of_lead(black_lead: f64, komi: f64, first_passer: Option<Stone>) -> Option<ScoreVerdict> {
+    if !black_lead.is_finite() || !komi.is_finite() {
+        return None;
+    }
+    let lead = match first_passer {
+        Some(Stone::Black) => black_lead - 0.5,
+        Some(Stone::White) => black_lead + 0.5,
+        None => black_lead,
+    };
+    let fraction = komi - komi.floor();
+    // Java `Math.round`: half up.
+    let rounded = (lead - fraction + 0.5).floor() + fraction;
+    Some(verdict(rounded, 0.0, first_passer))
+}
+
 /// The verdict of the totals (`CountVerdict`): equal totals are a draw, or `draw_winner`'s when
 /// the rules give a drawn count to the first player to pass.
 fn verdict(black_total: f64, white_total: f64, draw_winner: Option<Stone>) -> ScoreVerdict {
@@ -46,7 +67,7 @@ fn verdict(black_total: f64, white_total: f64, draw_winner: Option<Stone>) -> Sc
 
 /// The SGF `RE` of a verdict (`GameResult.sgf`): `B+3.5`, `0` for a draw, `B+` for a draw won by
 /// passing first.
-fn sgf_result(verdict: &ScoreVerdict) -> String {
+pub fn sgf_result(verdict: &ScoreVerdict) -> String {
     let side = |s: Stone| if s == Stone::Black { "B+" } else { "W+" };
     match verdict {
         ScoreVerdict::Draw => "0".into(),

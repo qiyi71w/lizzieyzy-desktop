@@ -76,14 +76,6 @@ function megabytes(bytes: number): string {
   return `${(Math.max(0, bytes) / 1024 / 1024).toFixed(1)} MB`;
 }
 
-/** Utils.parseTextToDouble: the field's number, else the fallback. */
-function parseKomi(text: string, fallback: number): number {
-  const s = text.trim();
-  if (!/^-?(\d+\.?\d*|\.\d+)$/.test(s)) return fallback;
-  const n = Number(s);
-  return Number.isFinite(n) ? n : fallback;
-}
-
 /** StartFailed reasons; literal t() calls keep the keys in the Java string extraction. */
 function failureReason(key: string): string {
   const texts: Record<string, string> = {
@@ -223,15 +215,9 @@ export function openHumanSlDialog(): void {
 
   const handicap = select("handicap", Array.from({ length: 10 }, (_, k) => String(k)));
   handicap.selectedIndex = s.handicap;
-  const komi = keyed(el("input", "hs-komi"), "komi");
-  komi.type = "text";
-  komi.inputMode = "decimal";
-  komi.value = String(s.komi);
-  // KomiDocument(true): a signed decimal.
-  komi.addEventListener("input", () => {
-    const kept = komi.value.replace(/[^\d.-]/g, "");
-    if (kept !== komi.value) komi.value = kept;
-  });
+  // The komi is no choice (CoachSetupForm): the even-game komi of the rules KataGo plays, 0.5
+  // with a handicap.
+  const komi = keyed(el("span", "hs-komi"), "komi");
 
   const progress = keyed(el("div", "hs-progress"), "progress");
   const progressFill = el("div", "hs-progress-fill");
@@ -247,14 +233,16 @@ export function openHumanSlDialog(): void {
   const form = el("div");
   row(form, t("HumanSlTraining.mode"), "", mode.el);
   row(form, t("HumanSlTraining.strength"), "", level);
-  row(form, t("HumanSlTraining.color"), "", color.el);
+  const colorRow = row(form, t("HumanSlTraining.color"), t("HumanSlTraining.handicap.note"), color.el);
+  // With a handicap the colour is Black; while 更多设置 is closed, the colour row says why.
+  const colorNote = colorRow.querySelector<HTMLElement>(".ds-row-sub")!;
   const paceRow = row(form, t("HumanSlTraining.pace"), paceHintText(), pace.el);
   const paceHint = paceRow.querySelector<HTMLElement>(".ds-row-sub")!;
   const fromCurrent = keyed(switchRow(form, t("HumanSlTraining.fromCurrent"), "", false).input, "fromCurrent");
   const advanced = el("div");
   groupTitle(advanced, t("HumanSlTraining.more"));
-  row(advanced, t("HumanSlTraining.handicap"), "", handicap);
-  row(advanced, t("HumanSlTraining.komi"), "", komi);
+  row(advanced, t("HumanSlTraining.handicap"), t("HumanSlTraining.handicap.note"), handicap);
+  row(advanced, t("HumanSlTraining.komi"), t("HumanSlTraining.komi.note"), komi);
 
   root.append(el("p", "hs-subtitle", t("HumanSlTraining.subtitle")), form, advanced, summary, failureDetail, downloadPanel);
   const caption = el("span");
@@ -276,9 +264,9 @@ export function openHumanSlDialog(): void {
 
   level.addEventListener("change", edited);
   for (const r of [...mode.inputs, ...pace.inputs, ...color.inputs]) r.addEventListener("change", edited);
-  // updateKomiForHandicap.
+  // updateMoreControls: with a handicap the player takes Black.
   handicap.addEventListener("change", () => {
-    komi.value = handicap.selectedIndex >= 2 ? "0" : "7.5";
+    if (handicap.selectedIndex > 0) color.inputs[COLORS.indexOf("Black")].checked = true;
     edited();
   });
 
@@ -291,16 +279,14 @@ export function openHumanSlDialog(): void {
     render();
   }
 
-  /** selectedConfig. */
+  /** CoachSetupForm.config. */
   function settings(): HumanSlTrainingSettings {
-    const h = handicap.selectedIndex;
     return {
       mode: mode.value() === "1" ? "LiveAnalysis" : "PostGameReview",
       level: levels[level.selectedIndex]?.level ?? s.level,
       playerColor: COLORS[Number(color.value())] ?? "Random",
       pace: PACES[Number(pace.value())] ?? "Natural",
-      handicap: h,
-      komi: parseKomi(komi.value, h >= 2 ? 0 : 7.5),
+      handicap: handicap.selectedIndex,
     };
   }
 
@@ -337,7 +323,13 @@ export function openHumanSlDialog(): void {
     const preparing = phase === "starting" || phase === "preparing";
     // setFormEnabled.
     const choices = [...mode.inputs, ...color.inputs, ...pace.inputs];
-    for (const control of [...choices, level, moreButton, handicap, komi]) control.disabled = !enabled;
+    for (const control of [...choices, level, moreButton, handicap]) control.disabled = !enabled;
+    // With a handicap the colour is fixed: Black (CoachSetupForm.updateMoreControls).
+    const handicapped = handicap.selectedIndex > 0;
+    if (handicapped) for (const r of color.inputs) r.disabled = true;
+    colorNote.hidden = !handicapped || more;
+    const komiValue = handicapped ? state.view?.settings.human_sl.handicap_komi : state.view?.settings.human_sl.even_komi;
+    komi.textContent = komiValue === undefined ? "" : String(komiValue);
     fromCurrent.disabled = !enabled || !canStartFromCurrent();
     if (!canStartFromCurrent()) fromCurrent.checked = false;
     moreButton.setAttribute("aria-expanded", String(more));

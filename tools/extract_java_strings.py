@@ -44,6 +44,8 @@ LOCALES = {
 # English and Thai settings title said "Shif+X". Some entries escape a character twice (\\: \\=
 # \\! \\" \\uXXXX and a leading "\\ "), which Java reads as a backslash before the character and
 # shows; they carry the once-escaped text, the leading one as the space the English entry starts with.
+# AI 陪练's 认输 button read as resigning from an office in Japanese and Korean (辞任, 사임); it
+# takes the words of the game's own resign button (Menu.resignBtn: 投了, 기권), as Thai already does.
 #
 # The entries marked "held" keep PREVIOUS_SHA's wording where the fixed commit rewrote it for
 # behaviour this product does not have yet; each goes when its feature follows the fixed commit.
@@ -92,6 +94,7 @@ CORRECTIONS: dict[str, dict[str, str]] = {
     },
     "JaJp": {
         "ConfigDialog2.modern.proxy.subtitle": "アプリからのネットワーク リクエストでプロキシを使用する方法を選択します",
+        "HumanSlGame.btn.resign": "投了",
         "LizzieChangeMove.txtMoveNumber.error": "無効な番号です!",
         "LizzieFrame.saveFileFailed": "保存に失敗しました!",
         "SetLeelaEngines.lblResign": "winRate を辞任 (%,default -1、範囲 -1 ～ 30):",
@@ -122,6 +125,7 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "FoxKifuDownload.points": " 포인트",
         "FoxKifuDownload.stones": " 돌",
         "FunctionSearch.aliases.menu.kataScolreLead": "우세 집수 표시|점수 리드 보기|덤 포함|덤 제외",
+        "HumanSlGame.btn.resign": "기권",
         "Leelaz.autoAnalyzeComplete": "자동 분석 완료,SGF 저장 위치:",
         "Leelaz.autoAnalyzeStoppedSaved": "자동 분석을 중지했습니다. 현재 SGF 저장 위치:",
         "LizzieChangeMove.txtMoveNumber.error": "잘못된 번호!",

@@ -1329,9 +1329,14 @@ importing the matching LizzieYzy Next settings.
   对手棋力 (31 opponents named by their Fox / Tygem rank, 野狐 17-18K to 野狐 10D, each followed by
   its KataGo level, 10 级 to 11 段 with the 强 half steps between dan levels; 野狐 3D, KataGo 3段 by
   default), colour (random, black or white), AI 思考时间 (自然, 快, 慢), and under 更多
-  设置 handicap and komi; 从当前局面开始 (only when the current position has moves) continues the
-  current record in a new variation, otherwise a new record is started. The last started
-  settings are remembered. The AI's moves come from a separate `katago analysis` process with
+  设置 handicap (0–9); 从当前局面开始 (only when the current position has moves) continues the
+  current record in a new variation, otherwise a new record is started. The komi is not a choice:
+  an even game takes the even-game komi of the rules the foreground KataGo plays (7 under the 2027
+  rules, 6.5 under Japanese rules, the current komi when KataGo has reported no rules), and a
+  handicap game gives the player Black with komi 0.5; the dialog shows the komi and the colour as
+  fixed, with the reason. The last started settings are remembered (a komi saved by earlier
+  versions is ignored, and saved settings with a handicap come back with Black). The AI's moves
+  come from a separate `katago analysis` process with
   `-human-model`, started from the 精析设置 analysis command (a Windows TensorRT engine uses the
   installed CUDA package instead); the game starts only after that process answered a real
   HumanSL request, with Java's loading stages shown meanwhile. Each opponent plays with the
@@ -1350,7 +1355,17 @@ importing the matching LizzieYzy Next settings.
   a kyu level's extra 40-visit check without the human model), from the point where 40% of the
   board's points have been played, or right after the player passed; after the player's pass the
   AI also passes when that gives up at most a point, and where most players of a kyu level would
-  pass but KataGo still sees a point that matters, the AI plays KataGo's move. Browsing earlier
+  pass but KataGo still sees a point that matters, the AI plays KataGo's move. When both players
+  have passed, KataGo counts the position (200 visits, at most 20 s) and the result goes into the
+  record's RE with 对局结束 and the result on the bar; under button rules the first player to pass
+  gets half a point, so an equal count goes to them. A count that fails or runs out of time ends
+  the game without a result in the record. 认输 on the bar ends the game at once, also while the
+  AI thinks, with the AI winning by resignation (`B+R` / `W+R`); on a browsed position it first
+  brings the board back. The AI resigns a hopeless game, never before 40% of the board's points
+  have been played: a kyu level after 20 turns in a row at a win rate of at most 0.5% and at least
+  40 points behind, a dan level after 10 turns at most 1% and 20 points behind; a message says so
+  and the player's win by resignation goes into the record. After the game the bar keeps only
+  结束并复盘. Browsing earlier
   moves does not end the game: the AI's reply is played on the game's position and the board goes
   back there; on a browsed position a click or 停一手 only brings the board back (saying so), and
   the next one plays there. If the game's moves are deleted,
@@ -1358,7 +1373,7 @@ importing the matching LizzieYzy Next settings.
   whose position changed, is dropped without touching the record. A companion process that exits is
   started again for the next move; two failed attempts show 重试 AI. The bar under the board
   shows the opponent's Fox / Tygem rank, both
-  clocks and the turn, with 停一手 (`P`) and 结束并复盘. Ending, cancelling or a failed start stops
+  clocks and the turn, with 停一手 (`P`), 认输 and 结束并复盘. Ending, cancelling or a failed start stops
   the companion and gives the foreground engine back as it was (after 实战后复盘 analysis resumes
   on the finished game); a failed restore offers 重试清理. Opening a record, a new board or another
   game during a session first ends the session, then proceeds. The training report and live

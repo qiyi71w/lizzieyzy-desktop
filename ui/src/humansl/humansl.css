@@ -206,16 +206,26 @@
 .hs-start .icon[hidden] {
   display: none;
 }
+/* 贴目: the komi the game starts with, a value rather than a field. */
+.hs-komi {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
 
 /* ---- training bar (HumanSlTrainingBar): the bottom bar's ground and height, capsules of
-   segments: the opponent, the clocks around the turn with the thinking line, the actions. */
+   segments: the opponent, the clocks around the turn with the thinking line, the actions. When
+   the window is too narrow for them on one line (the minimum window with a large font or a long
+   language), the capsules go on to a further line and the turn's text wraps, so that nothing is
+   cut off; on a wide window the bar is one line of the bottom bar's height. */
 .hs-bar {
   flex: none;
-  height: calc(var(--ds-cap-h) + 18px);
+  min-height: calc(var(--ds-cap-h) + 18px);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
-  padding: 0 12px;
+  align-content: center;
+  gap: 8px 12px;
+  padding: 8px 12px;
   border-top: 1px solid var(--ds-line);
   background: var(--ds-chrome);
   white-space: nowrap;
@@ -234,10 +244,10 @@
   overflow: hidden;
 }
 .hs-bar-identity {
+  flex: none;
   display: flex;
   align-items: baseline;
   gap: 6px;
-  min-width: 0;
 }
 .hs-bar-caption {
   color: var(--ds-text-3);
@@ -245,14 +255,14 @@
 }
 .hs-bar-opponent {
   font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 /* The clocks and the turn: three text segments, the clocks in tabular figures. */
 .hs-bar-status {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
   max-width: 560px;
+  height: auto;
+  min-height: var(--ds-cap-h);
   margin: 0 auto;
 }
 .hs-bar-status > span {
@@ -272,8 +282,10 @@
   flex: 1;
   justify-content: center;
   min-width: 0;
+  padding-block: 4px;
   font-weight: 600;
-  overflow: hidden;
+  text-align: center;
+  white-space: normal;
 }
 /* While the AI thinks: a line running along the capsule's bottom edge. */
 .hs-bar-thinking {
@@ -294,7 +306,11 @@
   bottom: 0;
   background: var(--ds-accent);
 }
-/* 停一手 / 重试 AI / 结束并复盘: segments with a line between them. */
+/* The actions keep their labels whole: the capsule goes on to the next line instead. */
+.hs-bar-actions {
+  flex: none;
+}
+/* 停一手 / 认输 / 重试 AI / 结束并复盘: segments with a line between the shown ones. */
 .hs-seg {
   height: auto;
   padding: 0 12px;
@@ -302,7 +318,7 @@
   border-radius: 0;
   background-color: transparent;
 }
-.hs-seg + .hs-seg {
+.hs-seg:not([hidden]) ~ .hs-seg {
   box-shadow: inset 1px 0 0 var(--ds-line);
 }
 .hs-seg:disabled {

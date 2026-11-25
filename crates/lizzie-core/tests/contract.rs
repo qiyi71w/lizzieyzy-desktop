@@ -113,7 +113,7 @@ fn generate() -> String {
         lizzie_core::settings::MatchTimeMode, lizzie_core::settings::MatchIdentity,
         lizzie_core::settings::MatchResignPolicy, lizzie_core::settings::MatchSettings,
         HumanSlCommand, HumanSlPhase, HumanSlStartupStage, HumanSlSide, HumanSlAnalysisDisplay,
-        HumanSlView, HumanSlNotice,
+        HumanSlView, HumanSlNotice, HumanSlResult,
         HumanSlContinuation,
         StrengthCommand, StrengthView, StrengthStatusView, StrengthManualView, StrengthManualOutcome,
         StrengthModelView, StrengthReport, StrengthSideReport, StrengthSegment, StrengthSummary,
