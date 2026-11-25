@@ -2726,12 +2726,11 @@ export function paintStat(g: CanvasRenderingContext2D, r: Rect, s: StatScene): S
   if (w < 10 || h < 5) return report;
   const p = stagePalette();
   const leadName = s.leadWithKomi ? t("LizzieFrame.scoreLeadWithKomi") : t("LizzieFrame.scoreLeadJustScore");
-  const lastName = `${t("LizzieFrame.display.lastMove")}${s.matched ? `(#${s.matched})` : "(#  )"}`;
+  const lastName = `${t("LizzieFrame.display.lastMove")}${s.matched ? `(#${s.matched})` : ""}`;
   let text = "";
   if (s.kata && s.lead !== null) text += `${leadName}${s.lead.toFixed(1)}`;
-  text += ` ${lastName}`;
   if (s.change !== null) {
-    text += `: ${javaSigned(s.change)}%`;
+    text += ` ${lastName}: ${javaSigned(s.change)}%`;
     if (s.kata && s.scoreChange !== null) text += ` ${javaSigned(s.scoreChange)}${t("LizzieFrame.pts")}`;
   }
   report.text = text;
@@ -2742,12 +2741,12 @@ export function paintStat(g: CanvasRenderingContext2D, r: Rect, s: StatScene): S
   const pad = sidePad(w);
   const room = w - 2 * pad;
   const lead: Figure[] = s.kata && s.lead !== null ? [{ name: nameOf(leadName), value: s.lead.toFixed(1) }] : [];
-  const last: Figure[] = [{ name: lastName, value: "" }];
-  if (s.change !== null) {
-    last[0].value = `${javaSigned(s.change)}%`;
-    if (s.change < 0) last[0].color = p.loss;
-    if (s.kata && s.scoreChange !== null)
-      last.push({ name: "", value: `${javaSigned(s.scoreChange)}${t("LizzieFrame.pts")}`, ...(s.scoreChange < 0 ? { color: p.loss } : {}) });
+  // The previous move's change only when the core has both positions analysed (B2
+  // `validLastWinrate && validWinrate`); its rank is left out when it was no candidate.
+  const last: Figure[] = s.change === null ? [] : [{ name: lastName, value: `${javaSigned(s.change)}%` }];
+  if (last.length && s.change !== null && s.change < 0) last[0].color = p.loss;
+  if (last.length && s.kata && s.scoreChange !== null) {
+    last.push({ name: "", value: `${javaSigned(s.scoreChange)}${t("LizzieFrame.pts")}`, ...(s.scoreChange < 0 ? { color: p.loss } : {}) });
   }
   const moveNumber: Figure[] = [{ name: nameOf(t("BottomToolbar.move")), value: String(s.moveNumber) }];
   // Headline row, 6 px, the bar, 8 px (the change marker), the note row; the scale follows the

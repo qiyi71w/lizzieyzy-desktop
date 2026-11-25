@@ -120,6 +120,9 @@ export function statScene(v: WorkbenchView, history: Map<number, HistoryPoint>, 
 const samples: ({ position: string; visits: number } | null)[] = [null, null, null, null];
 let sampleIndex = -1;
 let speedText = "";
+/** The position `speedText` was measured at: a position without analysis never shows the
+ *  previous position's speed (B2 clears `visitsString` when there is nothing to sample). */
+let speedPosition = "";
 let speedAt = 0;
 
 function sampleSpeed(): void {
@@ -143,17 +146,23 @@ function sampleSpeed(): void {
     const speed = Math.trunc((total - before) / seconds);
     if (speed >= 0) {
       speedText = ` ${speed} ${t("LizzieFrame.speedUnit")}`;
+      speedPosition = position;
       speedAt = now;
     }
-  } else if (now - speedAt > 5000) speedText = ` - ${t("LizzieFrame.speedUnit")}`;
+  } else if (now - speedAt > 5000) {
+    speedText = "";
+    speedPosition = "";
+  }
   sampleIndex = (sampleIndex + 1) % 4;
   if (total > 0) samples[sampleIndex] = { position, visits: total };
 }
 
-/** The analysing engine's measured speed ("746 搜索/秒"); empty before the first measure and once
- *  it went stale. */
+/** The analysing engine's measured speed ("746 搜索/秒"); empty before the first measure, once
+ *  it went stale, and when the shown position is not the one measured (B2 `visitsString`). */
 export function searchSpeed(): string {
-  return state.view?.engine.analysing && !speedText.startsWith(" -") ? speedText.trim() : "";
+  const v = state.view;
+  if (!v?.engine.analysing || !v.engine.foreground) return "";
+  return speedPosition === `${v.document.id}:${v.position.node}` ? speedText.trim() : "";
 }
 
 /** Starts the once-a-second title update (showPlayouts). */
@@ -165,12 +174,12 @@ export function startTitleUpdates(repaint: () => void): void {
 }
 
 /** LizzieFrame.updateTitle (LizzieFrame.java:10942-11052): the app name, the [Black win rate, Black
- *  lead, visits] of the current position (else of the previous one), the engine with its speed (or
- *  " - 搜索/秒" while paused) and the B11 speed notice (appendSpeedModelNotice), the players,
- *  result and file, then the Web 旁观 address (webBoardSuffix). A Genmove 引擎对战 game shows the
- *  thinking engine; the batch title (enginePkTitile) replaces the players and file. 试下 keeps
- *  LizzieFrame.tryTitle. That line is the system title; the window bar shows the same parts as
- *  the game and, quieter, the analysis, without the app name its mark already carries. */
+ *  lead, visits] of the current position (else of the previous one), the engine with the speed it
+ *  is measuring (none while no analysis runs) and the B11 speed notice (appendSpeedModelNotice),
+ *  the players, result and file, then the Web 旁观 address (webBoardSuffix). A Genmove 引擎对战
+ *  game shows the thinking engine; the batch title (enginePkTitile) replaces the players and file.
+ *  试下 keeps LizzieFrame.tryTitle. That line is the system title; the window bar shows the same
+ *  parts as the game and, quieter, the analysis, without the app name its mark already carries. */
 export function workbenchTitle(v: WorkbenchView, version: string, history: Map<number, HistoryPoint>, parent: number | undefined): WindowTitle {
   if (v.editing.trying) {
     const text = windowTitle(version);
@@ -220,9 +229,10 @@ function mainTitle(v: WorkbenchView, version: string, history: Map<number, Histo
   const prefix = values ? `[${numbers}] ` : shown && v.game ? "[ ---   ---   --- ] " : "";
   const foreground = v.engine.foreground;
   if (!foreground) return { text: `${stem}${prefix ? ` - ${prefix}` : ""} ${rest}`, game, detail: numbers ? [numbers] : [], detailTip };
-  const notice = foreground.b11 ? ` · ${t("B11SpeedNotice.title")} ` : "";
-  const detail = [numbers, `${foreground.name}${v.engine.analysing || pk !== null ? speedText : ""}`, foreground.b11 ? t("B11SpeedNotice.title") : ""].filter(Boolean);
-  if (pk !== null) return { text: `${pk} ${stem} - ${prefix}${foreground.name}${speedText} ${notice}`, game, detail, detailTip };
-  const speed = v.engine.analysing ? `${speedText} ` : ` - ${t("LizzieFrame.speedUnit")} `;
-  return { text: `${stem} - ${prefix}${foreground.name}${speed}${notice}${rest}`, game, detail, detailTip };
+  const speed = searchSpeed();
+  const notice = foreground.b11 ? t("B11SpeedNotice.title") : "";
+  const detail = [numbers, `${foreground.name}${speed ? ` ${speed}` : ""}`, notice].filter(Boolean);
+  if (pk !== null) return { text: `${pk} ${stem} - ${prefix}${foreground.name}${speed ? ` ${speed}` : ""}${notice ? ` · ${notice}` : ""} ${rest}`, game, detail, detailTip };
+  const tail = foreground.name + (speed ? ` ${speed}` : "") + (notice ? ` · ${notice}` : "");
+  return { text: `${stem} - ${prefix}${tail} ${rest}`, game, detail, detailTip };
 }

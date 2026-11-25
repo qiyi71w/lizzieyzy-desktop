@@ -250,6 +250,26 @@
 .ps-dash-assessment > .ps-two {
   flex: 1 0 auto;
 }
+
+/* A window at the 520 x 400 floor: the two sides stack and each figure keeps one line, so the
+   Japanese and Korean rank labels never overlap the next row. The body scrolls as usual. */
+@media (max-width: 700px) {
+  .ps-two {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ps-two > :first-child {
+    padding-right: 0;
+  }
+  .ps-two > :last-child {
+    padding-left: 0;
+    padding-top: 12px;
+    border-left: 0;
+    border-top: 1px solid var(--ds-line);
+  }
+  .ps-metric-value {
+    white-space: nowrap;
+  }
+}
 .ps-side-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
