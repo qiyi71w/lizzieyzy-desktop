@@ -14098,7 +14098,7 @@
    "PlayerStrengthEstimate.model": "รุ่นความแรง",
    "PlayerStrengthEstimate.model.tooltip": "โมเดลการประมาณค่าความแรง: รวม xgboost20tun บวกกับโมเดล XGBoost JSON/zip ที่นำเข้าพร้อมข้อมูลเมตา Feature_order",
    "PlayerStrengthEstimate.moveRank.best": "ดีที่สุด",
-   "PlayerStrengthEstimate.moveRank.blunder": "ความผิดพลาด",
+   "PlayerStrengthEstimate.moveRank.blunder": "ตาพลาด",
    "PlayerStrengthEstimate.moveRank.good": "ตาดี",
    "PlayerStrengthEstimate.moveRank.inaccuracy": "ความไม่ถูกต้อง",
    "PlayerStrengthEstimate.moveRank.mistake": "ความผิดพลาด",

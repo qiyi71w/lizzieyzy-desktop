@@ -2010,7 +2010,8 @@ binary with its output and exits non-zero, like `cargo test --no-fail-fast`.
   commit deleted keeps its text from the earlier reference commit until the feature using it
   follows the newer Java; the script lists these keys. `CORRECTIONS` in the script replaces the
   Java entries this product corrects (wrong score-lead wording, slang, a request phrased as a
-  button, the `Shif+X` typo, and the Thai, Korean, Japanese and Chinese entries that Java's bundles
+  button, the `Shif+X` typo, the Thai 恶手 move rating, which Java's Thai bundle names with the
+  same word as 差手 and which reads `ตาพลาด` here, and the Thai, Korean, Japanese and Chinese entries that Java's bundles
   escape twice, so that Java shows a stray backslash before `:`, `=`, `!`, `"`, a leading space or a
   `\uXXXX` sequence), and holds the earlier wording of entries the newer Java rewrote for behaviour
   this product does not have yet (the online-link prompt naming OGS links, the unavailable
