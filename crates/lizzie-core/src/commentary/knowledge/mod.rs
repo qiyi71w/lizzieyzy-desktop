@@ -1,4 +1,4 @@
-//! Grounded commentary knowledge matching from Java cb53acc's MatchEngine.
+//! Grounded commentary knowledge matching from Java 6a5c8d15's MatchEngine (next-2026-11-19.1).
 //!
 //! Only the two classpath catalogues reached by TeacherEvidence are embedded;
 //! the separate joseki recognizer, SGF dictionaries and training UI are not on
@@ -67,6 +67,16 @@ fn library() -> Option<Arc<data::Library>> {
 /// Parsing is process-wide and lazy; matching runs without holding the cache lock.
 pub fn match_text(query: &KnowledgeQuery) -> String {
     library().map_or_else(String::new, |library| engine::match_text(&library, query))
+}
+
+/// Same as `match_text`, over caller-supplied catalogues in the embedded files' JSON shape.
+pub fn match_text_with_catalogues(
+    training_catalog: &str,
+    pattern_cards: &str,
+    query: &KnowledgeQuery,
+) -> Result<String, serde_json::Error> {
+    let library = data::Library::from_sources(training_catalog, pattern_cards)?;
+    Ok(engine::match_text(&library, query))
 }
 
 /// Discard parsed knowledge; the next request lazily loads the embedded catalogues.

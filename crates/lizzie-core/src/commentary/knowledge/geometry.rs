@@ -182,6 +182,10 @@ impl Context {
         Self { size, anchors }
     }
     pub fn match_problem(&self, problem: &Problem) -> Option<Geometry> {
+        // Java #734: only a verified diagram is a real position; placeholders are never looked for on the board.
+        if !problem.position_verified {
+            return None;
+        }
         if self.anchors.is_empty() {
             return None;
         }

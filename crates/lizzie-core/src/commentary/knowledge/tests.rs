@@ -13,7 +13,7 @@ struct Golden {
 fn commentary_knowledge_matches_java_goldens_and_reloads() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/commentary/knowledge-golden.json");
     let fixture = std::fs::read_to_string(&path)
-        .expect("Generate knowledge-golden.json using the cb53acc GoldenKnowledge Java harness first");
+        .expect("Generate knowledge-golden.json using the Java 6a5c8d15 GoldenKnowledge harness first");
     let goldens: Vec<Golden> = serde_json::from_str(&fixture).expect("Java golden JSON");
     let names: BTreeSet<_> = goldens.iter().map(|g| g.name.as_str()).collect();
     for required in [

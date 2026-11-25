@@ -282,7 +282,13 @@ fn problem(
             r.push(format!("shape:{tag}"));
         }
     }
-    let answer_overlap = sequence(p.correct_moves.iter().filter_map(|mv| mv.point()), &f.points, &mut r);
+    // Java #734: a placeholder diagram's answer points say nothing about the board.
+    let answer_points: Vec<&str> = if p.position_verified {
+        p.correct_moves.iter().filter_map(|mv| mv.point()).collect()
+    } else {
+        Vec::new()
+    };
+    let answer_overlap = sequence(answer_points.iter().copied(), &f.points, &mut r);
     score += answer_overlap * 12.0;
     let geo = geometry.match_problem(p);
     if let Some(geo) = &geo {
@@ -297,7 +303,7 @@ fn problem(
             r.push("geometry-strong-local-shape".into());
         }
     }
-    let answer = |point: &str| p.correct_moves.iter().any(|mv| mv.point() == Some(point));
+    let answer = |point: &str| answer_points.contains(&point);
     if answer(&query.played_move) {
         score += 5.0;
         r.push("answer-played".into());

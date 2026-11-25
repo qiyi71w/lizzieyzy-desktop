@@ -1,0 +1,12 @@
+匹配类型: life_death
+名称: 角部 L 形：对杀分支
+置信度: exact
+匹配依据: region:corner, katago-loss, sequence-overlap:1, geometry:identity:same-color:4/4, liberties:14, geometry-strong-local-shape, answer-played, answer-candidate
+适用边界: 本局局部手顺、候选点和区域都高度一致，可以作为同型讲解。
+识别特征: 看到角部 L 形，先找眼形中心、断点和双方气数。
+正确思路: 先数气，再看眼，最后看紧气手筋。
+常见变化: E2: 正确第一手
+记忆法: 角部 L 形先找急所，不先补外围。
+常见误区: Q15: 只数外气不数公气，结论会错。
+训练建议: 角部 L 形：对杀分支(standard)
+老师使用边界: exact/strong 可以说“这是某某型”；partial 只能说“像某某型”；weak 不进入主讲。
