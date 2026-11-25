@@ -246,7 +246,7 @@
   gap: 4px 10px;
 }
 
-/* 测评: the five metrics with their bars, the 评分规则 scale beside them. */
+/* 测评: the five metrics with their bars, the 段位标尺 scale beside them. */
 .ps-dash-assessment > .ps-two {
   flex: 1 0 auto;
 }
@@ -499,7 +499,7 @@
   font-weight: 600;
 }
 
-/* 后台 HumanSL, 补算 HumanSL and the preparation status below the tabs. */
+/* 分析棋局时自动准备, 开始计算 and the preparation status below the tabs. */
 .ps-strip {
   flex: none;
   display: flex;

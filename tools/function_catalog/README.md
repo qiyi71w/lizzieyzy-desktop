@@ -12,3 +12,5 @@ java -cp "/tmp/function-catalog:$JAVA_JAR" DumpFunctionCatalog "$JAVA_JAR" crate
 ```
 
 The generator reads the real catalog classes and uses `ResourceBundle.Control.getNoFallbackControl(FORMAT_PROPERTIES)`, retaining Java's resource-parent lookup and actual bundle locale. The JSON records the source commit and SHA-256 of the supplied jar. `tools/extract_java_strings.py` consumes these keys when regenerating the UI translations.
+
+The UI translations come from the newer `6a5c8d1524f8bdfd9163162a38dcf64c23402a1b` (`next-2026-11-19.1`), while the entries above stay as extracted. Where that commit changed the text of a key the catalog's entries use, the catalog's bundles carry the newer text too, so that a function is found by the name the UI shows: `BottomToolbar.downloadWeight` (`Update weights`) and `BottomToolbar.gotomove` (`Go to`) in the base and English bundles, and `Menu.diagnosticsAndLogs` and `Menu.stopFullTrace` in the Japanese, Korean and Thai bundles, which the newer commit translates. `BottomToolbar.shareHistoryRemote`, the title of the withdrawn `share.public-history`, keeps its extracted text; the newer commit deleted it.

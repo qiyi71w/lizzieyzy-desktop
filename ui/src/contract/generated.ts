@@ -2598,7 +2598,7 @@ export type StrengthStatusView = { key: string, completed: number, total: number
 
 export type StrengthManualView = { 
 /**
- * Numbers each admitted 补算 HumanSL; a dialog only takes the outcome of the run it started
+ * Numbers each admitted 开始计算 (HumanSL 40); a dialog only takes the outcome of the run it started
  * (an earlier run's outcome stays visible until the next run is admitted).
  */
 run: number, running: boolean, outcome: StrengthManualOutcome | null, };
