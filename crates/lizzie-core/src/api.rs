@@ -2393,8 +2393,24 @@ pub struct ScoreView {
     pub komi: f64,
     pub black_total: f64,
     pub white_total: f64,
-    /// SGF result written by 确认结果 (`B+3.5`, `W+0.5`; Black wins ties like Java).
+    /// Who won and by how much, or a draw (`CountVerdict`).
+    pub verdict: ScoreVerdict,
+    /// SGF result written by 确认结果: `B+3.5`, `W+4`, `0` for a draw, `B+` / `W+` for a draw
+    /// the rules give to the first player to pass.
     pub result: String,
+}
+
+/// 终局点目's verdict (`CountVerdict`). Equal totals are a draw unless KataGo's button rules give
+/// a drawn count to the player who passed first on the way to the position.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum ScoreVerdict {
+    /// 和棋.
+    Draw,
+    /// 黑胜（和棋，黑方最先放弃着手）: equal totals given to `winner`, who passed first.
+    DrawToFirstPasser { winner: Stone },
+    /// 黑胜3.5目: `margin` without a trailing `.0` (`4`, `3.5`).
+    Win { winner: Stone, margin: String },
 }
 
 /// Analysis stored for a node (`BoardData.bestMoves` and summary).

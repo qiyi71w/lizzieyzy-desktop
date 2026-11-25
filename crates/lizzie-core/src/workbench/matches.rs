@@ -689,18 +689,7 @@ impl Workbench {
             })
             .unwrap_or_else(|| KataRules::preset("chinese").unwrap());
         let rules_prefill = prefill.to_gtp_argument();
-        let rules_choice = [
-            "chinese",
-            "stone-scoring",
-            "japanese",
-            "aga",
-            "new-zealand",
-            "tromp-taylor",
-            "goe",
-        ]
-        .iter()
-        .find(|name| KataRules::preset(name).is_some_and(|p| p == prefill))
-        .map(|s| s.to_string());
+        let rules_choice = prefill.match_option().map(|o| o.0.to_string());
         MatchSettingsView {
             rules_prefill,
             rules_choice,
@@ -1724,21 +1713,8 @@ impl Workbench {
     pub(super) fn match_view(&self) -> Option<MatchView> {
         let r = self.matches.run.as_ref()?;
         let thinking = matches!(r.phase, MatchPhase::Playing | MatchPhase::Paused).then(|| self.match_side());
-        let target = crate::engine::rules::KataRules::parse(&r.settings.rules);
-        let rules_target_choice = target.and_then(|target| {
-            [
-                "chinese",
-                "stone-scoring",
-                "japanese",
-                "aga",
-                "new-zealand",
-                "tromp-taylor",
-                "goe",
-            ]
-            .iter()
-            .find(|name| crate::engine::rules::KataRules::preset(name).is_some_and(|p| p == target))
-            .map(|s| s.to_string())
-        });
+        let rules_target_choice = crate::engine::rules::KataRules::parse(&r.settings.rules)
+            .and_then(|target| target.match_option().map(|o| o.0.to_string()));
         let rules_unverified = r
             .sides
             .iter()

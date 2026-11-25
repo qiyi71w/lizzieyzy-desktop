@@ -84,21 +84,6 @@ function javaInt(n: number): string {
 }
 
 // FoxRulesText.java: a built-in preset name, else each field as the rules dialog words it.
-type Preset = [name: string, key: string, ko: string, scoring: string, tax: string, suicide: boolean, hasButton: boolean, whiteHandicapBonus: string, friendlyPassOk: boolean];
-/** One entry per semantically distinct KataGo preset (KataGoRules.officialPresets fields). */
-const PRESETS: Preset[] = [
-  ["chinese", "Fox.rulesPreset.chinese", "SIMPLE", "AREA", "NONE", false, false, "N", true],
-  ["chinese-ogs", "Fox.rulesPreset.chineseOgs", "POSITIONAL", "AREA", "NONE", false, false, "N", true],
-  ["japanese", "Fox.rulesPreset.japaneseKorean", "SIMPLE", "TERRITORY", "SEKI", false, false, "0", true],
-  ["stone-scoring", "Fox.rulesPreset.stoneScoring", "SIMPLE", "AREA", "ALL", false, false, "0", true],
-  ["tromp-taylor", "Fox.rulesPreset.trompTaylor", "POSITIONAL", "AREA", "NONE", true, false, "0", false],
-  ["aga", "Fox.rulesPreset.agaBga", "SITUATIONAL", "AREA", "NONE", false, false, "N-1", true],
-  ["new-zealand", "Fox.rulesPreset.newZealand", "SITUATIONAL", "AREA", "NONE", true, false, "0", true],
-  ["aga-button", "Fox.rulesPreset.agaButton", "SITUATIONAL", "AREA", "NONE", false, true, "N-1", true],
-  ["goe", "LizzieFrame.currentRules.goe", "POSITIONAL", "AREA", "NONE", true, false, "0", true],
-  ["ancient-territory", "Fox.rulesPreset.ancientTerritory", "SIMPLE", "TERRITORY", "ALL", false, false, "0", false],
-];
-
 /** The preset's text; literal t() calls keep the keys in the Java string extraction. */
 function presetText(key: string): string {
   switch (key) {
@@ -128,17 +113,14 @@ function ruleFields(): [string, string, Record<string, string>][] {
   ];
 }
 
-/** FoxRulesText.describe of the core's rules JSON (`kata-set-rules` argument). */
-export function describeRules(json: string): string {
+/** FoxRulesText.describe of the core's rules JSON (`kata-set-rules` argument): the name of the
+ *  preset the core found them to be, else each field. */
+export function describeRules(json: string, presetKey: string | null): string {
+  if (presetKey !== null) return presetText(presetKey);
   let parsed: unknown;
   try { parsed = JSON.parse(json); } catch { return json; }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return json;
   const fields = new Map(Object.entries(parsed as Record<string, unknown>).filter(([, v]) => v !== null && v !== undefined));
-  for (const [, key, ko, scoring, tax, suicide, hasButton, bonus, friendly] of PRESETS) {
-    const preset: Record<string, unknown> = { ko, scoring, tax, suicide, hasButton, whiteHandicapBonus: bonus, friendlyPassOk: friendly };
-    const names = Object.keys(preset);
-    if (fields.size === names.length && names.every((n) => fields.has(n) && String(fields.get(n)) === String(preset[n]))) return presetText(key);
-  }
   // Dialog labels carry their own trailing colon; the item format supplies one per locale.
   const label = (text: string) => text.replace(/[:：]\s*$/, "");
   const item = (name: string, value: string) => format(t("Fox.rulesItem"), name, value);
@@ -317,7 +299,7 @@ function render(): void {
   visitsField.disabled = !editable;
   portField.disabled = v.listening || starting;
 
-  const rules = v.rules !== null ? describeRules(v.rules) : v.preparing ? t("SetKataRules.status.pending") : t("Fox.rulesUnavailable");
+  const rules = v.rules !== null ? describeRules(v.rules, v.rules_preset_key) : v.preparing ? t("SetKataRules.status.pending") : t("Fox.rulesUnavailable");
   if (rulesText.textContent !== rules) rulesText.textContent = rules;
 
   start.disabled = !v.can_start || starting;

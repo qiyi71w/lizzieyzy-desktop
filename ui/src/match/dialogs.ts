@@ -5,6 +5,7 @@
 import { run, state, subscribe } from "../app";
 import { openMatchOpenings } from "../contract/client";
 import { errorText } from "../errorText";
+import { MATCH_RULE_OPTIONS } from "../contract/generated";
 import type { MatchCommand, MatchIntervention, MatchSessionSettings, MatchSettings, MatchTimeMode } from "../contract/generated";
 import { icon } from "../design/icons";
 import { ask, closeBox, formPanel, message } from "../dialogs";
@@ -151,17 +152,9 @@ function helpButton(key: string, title: string, text: string): HTMLButtonElement
   return help;
 }
 
-/** MatchRuleOption.options() with their labels, in Java's order. */
+/** MatchRuleOption.options() with their labels, in Java's order, as the core defines them. */
 export function matchRuleOptions(): [string, string][] {
-  return [
-    ["chinese", t("LizzieFrame.currentRules.chinese")],
-    ["stone-scoring", t("LizzieFrame.currentRules.chn-ancient")],
-    ["japanese", t("MatchRules.option.japaneseKorean")],
-    ["aga", t("MatchRules.option.agaBga")],
-    ["new-zealand", t("MatchRules.option.newZealand")],
-    ["tromp-taylor", t("MatchRules.option.trompTaylor")],
-    ["goe", t("LizzieFrame.currentRules.goe")],
-  ];
+  return MATCH_RULE_OPTIONS.map(([preset, key]) => [preset, t(key)]);
 }
 
 /** MatchRulesPicker: the standard choices, then 自定义. A standard choice is sent as its preset

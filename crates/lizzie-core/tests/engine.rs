@@ -811,11 +811,12 @@ fn record_rules_are_applied_before_analysis() {
         let n = number(line);
         out(&mut wb, id, "");
         if line.ends_with("kata-get-rules") {
+            // KataGo reports friendlyPassOk false for Japanese rules (1.18.1).
             answer(
                 &mut wb,
                 id,
                 n,
-                r#"{"friendlyPassOk":true,"hasButton":false,"ko":"SIMPLE","scoring":"TERRITORY","suicide":false,"tax":"SEKI","whiteHandicapBonus":"0"}"#,
+                r#"{"friendlyPassOk":false,"hasButton":false,"ko":"SIMPLE","scoring":"TERRITORY","suicide":false,"tax":"SEKI","whiteHandicapBonus":"0"}"#,
             );
         } else {
             answer(&mut wb, id, n, "");

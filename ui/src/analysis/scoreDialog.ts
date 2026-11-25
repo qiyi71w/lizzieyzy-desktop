@@ -22,9 +22,8 @@ let wasScoring = false;
 let boardRect: () => DOMRect | null = () => null;
 
 /** ScoreResult.setScore's lines in Java's formats: the counts, komi as String.valueOf(double),
- *  the totals as doubles and the margin with one decimal. */
-export function scoreLines(s: ScoreView): { rule: string; black: string; white: string; result: string; blackWins: boolean } {
-  const blackWins = s.black_total >= s.white_total;
+ *  the totals as doubles and the core's verdict in CountVerdict's words. */
+export function scoreLines(s: ScoreView): { rule: string; black: string; white: string; result: string; winner: "black" | "white" | "draw" } {
   const komi = javaDouble(s.komi);
   const black = s.territory
     ? `${t("ScoreResult.lblBlackScore")}${s.black_points}-${s.white_captures}=${javaDouble(s.black_total)}`
@@ -32,9 +31,15 @@ export function scoreLines(s: ScoreView): { rule: string; black: string; white: 
   const white = s.territory
     ? `${t("ScoreResult.lblWhiteScore")}${s.white_points}-${s.black_captures}+${komi}=${javaDouble(s.white_total)}`
     : `${t("ScoreResult.lblWhiteScore")}${s.white_alive}+${s.white_points}+${komi}=${javaDouble(s.white_total)}`;
-  const result = `${blackWins ? t("ScoreResult.blackWin") : t("ScoreResult.whiteWin")}${Math.abs(s.black_total - s.white_total).toFixed(1)}${t("ScoreResult.points")}`;
+  const v = s.verdict;
+  const result = v.type === "Draw"
+    ? t("ScoreResult.draw")
+    : v.type === "DrawToFirstPasser"
+      ? v.winner === "Black" ? t("ScoreResult.blackWinsDraw") : t("ScoreResult.whiteWinsDraw")
+      : `${v.winner === "Black" ? t("ScoreResult.blackWin") : t("ScoreResult.whiteWin")}${v.margin}${t("ScoreResult.points")}`;
+  const winner = v.type === "Draw" ? "draw" : v.winner === "Black" ? "black" : "white";
   const rule = s.territory ? t("ScoreResult.lblUseTerritoryScoring") : t("ScoreResult.lblUseAreaScoring");
-  return { rule, black, white, result, blackWins };
+  return { rule, black, white, result, winner };
 }
 
 function line(cls: string, text = ""): HTMLElement {
@@ -123,8 +128,8 @@ function leave() {
   if (state.view?.score) void run({ type: "Score", op: { type: "Toggle" } });
 }
 
-/** 确定: the result goes into the game info (RE, written by the core as SGF B+3.5), Java's tip
- *  names it in the dialog's words, and the window hides while scoring goes on. */
+/** 确定: the result goes into the game info (RE, written by the core as SGF B+3.5 or 0 for a
+ *  draw), Java's tip names it in the dialog's words, and the window hides while scoring goes on. */
 async function confirmResult() {
   const score = state.view?.score;
   if (!score) return;
@@ -168,8 +173,8 @@ function refresh() {
   l.black.textContent = s.black;
   l.white.textContent = s.white;
   l.result.textContent = s.result;
-  // Black's win on a black ground, White's on a white one (scoreDialog.css).
-  l.result.dataset.winner = s.blackWins ? "black" : "white";
+  // Black's win on a black ground, White's on a white one, a draw on grey (scoreDialog.css).
+  l.result.dataset.winner = s.winner;
   toggleRules!.textContent = score.territory ? t("ScoreResult.btnToggleRulesArea") : t("ScoreResult.btnToggleRulesTerritory");
   if (!box.isConnected) document.body.append(box);
   if (!placed) {

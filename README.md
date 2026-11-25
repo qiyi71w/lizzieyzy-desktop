@@ -578,9 +578,15 @@ importing the matching LizzieYzy Next settings.
     remembers the boards for the next start.
   - 终局点目 (棋局 menu, `Ctrl+Q`, bottom bar when added): analysis pauses, clicks mark dead
     groups and 不计入 points, the 点目结果 window counts by area or territory (切换规则), 重新计算
-    starts over, 确定 writes the result (`RE`, as `B+3.5` / `W+0.5`) into the game info, and
-    leaving resumes analysis. Unlike Java, which put its localized wording (黑胜3.5目) into
-    `RE`, the result is written in SGF form so other programs can read it.
+    starts over, 确定 writes the result into the game info, and leaving resumes analysis. The
+    core decides the result once and the window only shows it: the winner and the margin, a
+    whole margin without `.0` (黑胜4目, 白胜0.5目), and 和棋 when the totals are equal, as they
+    can be with a whole-point komi such as 7. When the foreground KataGo reports rules with the
+    button (数子规则下收后方贴还0.5目: 是), equal totals go to the player who passed first on
+    the way to the position (黑胜（和棋，黑方最先放弃着手）); if nobody has passed, it stays 和棋.
+    Unlike Java, which put its localized wording (黑胜3.5目) into `RE`, the result is written in
+    SGF form so other programs can read it: `B+3.5`, `W+4`, `0` for a draw, and `B+` / `W+` for
+    a draw won by passing first.
   - 记录选点信息到评论中 (显示 > 主界面设置, on by default): while an engine runs, the comment pane
     shows the move's comment with its analysis summary, and saving writes those summaries into
     the move comments. Saving also writes the analysis itself (`LZ`, `LZOP`) and opening a record
@@ -1504,7 +1510,11 @@ importing the matching LizzieYzy Next settings.
   engine-game hint.
 - Rules: an SGF record's `RU` is applied to KataGo (`kata-set-rules`) before analysis. When the
   engine cannot confirm it, a dialog asks whether to continue with the engine's current rules
-  (no pauses analysis). `Shift+D` opens the KataGo rules editor.
+  (no pauses analysis). `Shift+D` opens the KataGo rules editor. The rules caption names the
+  rules KataGo reports. Its Japanese and Korean presets have 未提净死子时允许停一手 off, as KataGo
+  reports them; territory scoring does not use that field, so territory rules keep their name
+  (日本规则) whichever way it is set. The same comparison names the engine game's 本局规则 and the
+  野狐 rules, and the editor's 典型规则 buttons fill in the same presets.
 - GTP console (`E`) shows the engine traffic and sends commands; its title's close box or `Esc`
   (from any of its controls) hides it without stopping the engine. Like Java, `komi <v>` sets the
   game komi and `undo` steps back in the record; other commands that would change the engine's

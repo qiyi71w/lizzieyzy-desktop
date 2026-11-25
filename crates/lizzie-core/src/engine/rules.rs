@@ -30,14 +30,15 @@ type Preset = (
     bool,
 );
 
-/// Official presets in Java's order (`KataGoRules.officialPresets`).
+/// Official presets in Java's order (`KataGoRules.officialPresets`). KataGo reports
+/// `friendlyPassOk` false for its territory presets (`kata-get-rules`, 1.18.1).
 pub const PRESETS: [Preset; 13] = [
     ("tromp-taylor", "POSITIONAL", "AREA", "NONE", true, false, "0", false),
     ("chinese", "SIMPLE", "AREA", "NONE", false, false, "N", true),
     ("chinese-ogs", "POSITIONAL", "AREA", "NONE", false, false, "N", true),
     ("chinese-kgs", "POSITIONAL", "AREA", "NONE", false, false, "N", true),
-    ("japanese", "SIMPLE", "TERRITORY", "SEKI", false, false, "0", true),
-    ("korean", "SIMPLE", "TERRITORY", "SEKI", false, false, "0", true),
+    ("japanese", "SIMPLE", "TERRITORY", "SEKI", false, false, "0", false),
+    ("korean", "SIMPLE", "TERRITORY", "SEKI", false, false, "0", false),
     ("stone-scoring", "SIMPLE", "AREA", "ALL", false, false, "0", true),
     ("aga", "SITUATIONAL", "AREA", "NONE", false, false, "N-1", true),
     ("bga", "SITUATIONAL", "AREA", "NONE", false, false, "N-1", true),
@@ -72,6 +73,21 @@ const ALIASES: [(&str, &str); 15] = [
     ("newzealand", "new-zealand"),
     ("tromptaylor", "tromp-taylor"),
     ("ing", "goe"),
+];
+
+/// An engine-game rules choice: preset name and label key.
+pub type MatchRuleOption = (&'static str, &'static str);
+
+/// The engine game's standard rules choices in Java's order, each with its label
+/// (`MatchRuleOption`); anything else is 自定义.
+pub const MATCH_RULE_OPTIONS: [MatchRuleOption; 7] = [
+    ("chinese", "LizzieFrame.currentRules.chinese"),
+    ("stone-scoring", "LizzieFrame.currentRules.chn-ancient"),
+    ("japanese", "MatchRules.option.japaneseKorean"),
+    ("aga", "MatchRules.option.agaBga"),
+    ("new-zealand", "MatchRules.option.newZealand"),
+    ("tromp-taylor", "MatchRules.option.trompTaylor"),
+    ("goe", "LizzieFrame.currentRules.goe"),
 ];
 
 impl KataRules {
@@ -113,26 +129,51 @@ impl KataRules {
         KataRules::preset(&name)
     }
 
-    fn matches(&self, preset: &str) -> bool {
-        KataRules::preset(preset).is_some_and(|p| p == *self)
+    /// Whether these rules are preset `name`. Territory scoring does not use `friendlyPassOk`
+    /// (the rules editor disables it there), so a territory preset matches whatever that field
+    /// says (`matchesOfficialApartFromFriendlyPass`); other presets match field for field.
+    pub fn matches_preset(&self, name: &str) -> bool {
+        let Some(preset) = KataRules::preset(name) else {
+            return false;
+        };
+        if preset.0.get("scoring").and_then(Value::as_str) != Some("TERRITORY") {
+            return preset == *self;
+        }
+        let others = |m: &Map<String, Value>| m.iter().filter(|(k, _)| *k != "friendlyPassOk").count();
+        others(&self.0) == others(&preset.0)
+            && preset
+                .0
+                .iter()
+                .filter(|(k, _)| *k != "friendlyPassOk")
+                .all(|(k, v)| self.0.get(k) == Some(v))
+    }
+
+    /// The engine-game choice (`MatchRuleOption.matching`) these rules are, if any.
+    pub fn match_option(&self) -> Option<&'static MatchRuleOption> {
+        MATCH_RULE_OPTIONS.iter().find(|o| self.matches_preset(o.0))
+    }
+
+    /// KataGo's button: a drawn count goes to the first player to pass (`FirstPassDraw.applies`).
+    pub fn has_button(&self) -> bool {
+        self.0.get("hasButton").and_then(Value::as_bool).unwrap_or(false)
     }
 
     /// The official preset this value equals, if any.
     pub fn official_name(&self) -> Option<&'static str> {
-        PRESETS.iter().map(|p| p.0).find(|n| self.matches(n))
+        PRESETS.iter().map(|p| p.0).find(|n| self.matches_preset(n))
     }
 
     /// `KataGoRules.summary().labelKey()`: the captured-panel caption key.
     pub fn summary_key(&self) -> &'static str {
-        if self.matches("chinese") || self.matches("chinese-ogs") {
+        if self.matches_preset("chinese") || self.matches_preset("chinese-ogs") {
             "LizzieFrame.currentRules.chinese"
-        } else if self.matches("japanese") {
+        } else if self.matches_preset("japanese") {
             "LizzieFrame.currentRules.japanese"
-        } else if self.matches("stone-scoring") {
+        } else if self.matches_preset("stone-scoring") {
             "LizzieFrame.currentRules.chn-ancient"
-        } else if self.matches("tromp-taylor") {
+        } else if self.matches_preset("tromp-taylor") {
             "LizzieFrame.currentRules.tromp-taylor"
-        } else if self.matches("goe") {
+        } else if self.matches_preset("goe") {
             "LizzieFrame.currentRules.goe"
         } else {
             "LizzieFrame.currentRules.others"
