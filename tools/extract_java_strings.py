@@ -277,6 +277,10 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "Movelistframe.stdev": " stdev",
         "MovenumberDialog.lblChangeTo": "แสดงครั้งสุดท้าย:",
         "NewAnaGameDialog.noEngineHint": "กรุณาเลือกเครื่องยนต์!",
+        # 产品更正：B2 泰语 mistake/blunder 同词，按用户裁定。Java's Thai bundle names both 差手 and
+        # 恶手 ความผิดพลาด; 恶手 reads ตาพลาด, the word Java's coach panel uses for it, and 差手 keeps
+        # Java's word.
+        "PlayerStrengthEstimate.moveRank.blunder": "ตาพลาด",
         "SGFParse.leadJustScore": "คะแนนนำ:",
         "SGFParse.leadWithKomi": "คะแนนนำ:",
         "SGFParse.seconds": " วินาที",
