@@ -6,6 +6,7 @@ use lizzie_core::engine::{
     profile::{EngineProfile, EngineStartup},
     runtime::{EngineInput, EngineIo, InstanceId, KataParam, Launcher},
 };
+use lizzie_core::humansl::{CoachLevel, Pace};
 use lizzie_core::record::{Point, Stone, ROOT};
 use lizzie_core::settings::{self, Config, HumanSlTrainingSettings, PlayerColor, Storage, TrainingMode};
 use lizzie_core::workbench::Workbench;
@@ -158,7 +159,8 @@ fn answer(f: &mut Fixture, id: InstanceId, vertex: &str) {
             );
         }
     }
-    f.wb.engine_tick(Instant::now() + Duration::from_secs(5));
+    // Past the slowest pace's longest think time (慢, 14 s), so the chosen reply is played.
+    f.wb.engine_tick(Instant::now() + Duration::from_secs(15));
 }
 fn foreground(f: &mut Fixture) -> InstanceId {
     f.wb.save_engine_settings(
@@ -614,42 +616,273 @@ fn preparation_failure_restores_the_previously_running_foreground() {
     assert!(!f.wb.inspect().engine.paused);
 }
 
+fn level(level: CoachLevel, pace: Pace) -> HumanSlTrainingSettings {
+    HumanSlTrainingSettings {
+        level,
+        pace,
+        ..settings(PlayerColor::White)
+    }
+}
+
+/// The fixed Java's level table (`fixtures/coach/b2-coach.json`, written by running it).
+fn b2_level(level: CoachLevel) -> Value {
+    let b2: Value = serde_json::from_str(include_str!("fixtures/coach/b2-coach.json")).unwrap();
+    let rows = b2["levels"].as_array().unwrap();
+    rows.iter()
+        .find(|row| serde_json::from_value::<CoachLevel>(row["name"].clone()).ok() == Some(level))
+        .unwrap()
+        .clone()
+}
+
+fn same(a: &Value, b: &Value) -> bool {
+    match (a.as_f64(), b.as_f64()) {
+        (Some(x), Some(y)) => x == y,
+        _ => a == b,
+    }
+}
+
+/// `maxTime` of a request sent right away: the budget less the return reserve, at 85%.
+fn assert_budget(q: &Value, seconds: f64) {
+    let max_time = q["overrideSettings"]["maxTime"].as_f64().unwrap();
+    let full = (seconds - 0.45) * 0.85;
+    assert!(max_time <= full && max_time > full - 0.1, "{max_time} for {seconds} s");
+}
+
 #[test]
-fn opponent_profiles_and_verification_budgets_reach_the_real_protocol() {
-    for (opponent, dan_rank, rank, profile, visits, symmetries) in [
-        (settings::OpponentPreset::Rank, true, 3, "rank_3d", 64, 1),
-        (settings::OpponentPreset::Rank, false, 20, "rank_20k", 64, 1),
-        (settings::OpponentPreset::ModernPro, true, 3, "proyear_2023", 128, 2),
-        (settings::OpponentPreset::Online9d, true, 3, "rank_9d", 64, 1),
+fn each_level_asks_the_companion_what_java_asks() {
+    for level in [
+        CoachLevel::Kyu10,
+        CoachLevel::Kyu1,
+        CoachLevel::Dan1,
+        CoachLevel::StrongDan3,
+        CoachLevel::Dan9,
+        CoachLevel::StrongDan10,
+        CoachLevel::Dan11,
     ] {
+        let java = b2_level(level);
+        let play = &java["play"];
+        let profile = play["profile"].as_str().unwrap();
+        let elite = ["rank_7d", "rank_8d", "rank_9d"].contains(&profile);
         let mut f = fixture(true);
-        let id = start(
-            &mut f,
-            HumanSlTrainingSettings {
-                opponent,
-                dan_rank,
-                rank,
-                ..settings(PlayerColor::White)
-            },
-            false,
+        let id = start(&mut f, self::level(level, Pace::Natural), false);
+        let ready = f.world.query(id);
+        assert_eq!(
+            (ready["maxVisits"].as_u64(), &ready["includePolicy"]),
+            (Some(1), &json!(true)),
+            "{level:?}"
         );
+        let o = &ready["overrideSettings"];
+        assert_eq!(o["humanSLProfile"], profile);
+        assert_eq!(o["rootNumSymmetriesToSample"], 1);
+        assert_eq!(
+            o["humanSLRootExploreProbWeightless"].as_f64(),
+            Some(if elite { 0.8 } else { 0.5 }),
+            "{level:?}"
+        );
+        out(&mut f.wb, id, json!({"id":ready["id"],"humanPolicy":{"D4":1.0}}));
         let q = f.world.query(id);
-        assert_eq!(q["overrideSettings"]["humanSLProfile"], profile);
-        assert_eq!(q["maxVisits"], 1);
-        out(&mut f.wb, id, json!({"id":q["id"],"humanPolicy":{"D4":1.0}}));
+        assert!(
+            q.get("allowMoves").is_none(),
+            "{level:?}: no verification of candidates"
+        );
+        assert_eq!(q["includePolicy"], true);
+        let seconds = java["moveTimeoutSeconds"].as_f64().unwrap();
+        assert_budget(&q, seconds);
+        let o = &q["overrideSettings"];
+        if play["searches"] == true {
+            // One search with every setting of the level.
+            assert_eq!(q["maxVisits"], play["maxVisits"], "{level:?}");
+            for pair in java["searchOverrides"].as_array().unwrap() {
+                let key = pair[0].as_str().unwrap();
+                assert!(same(&o[key], &pair[1]), "{level:?} {key}: {} vs {}", o[key], pair[1]);
+            }
+            out(
+                &mut f.wb,
+                id,
+                json!({"id":q["id"],"humanPolicy":{"D4":0.5,"Q16":0.5},
+                "moveInfos":[{"move":"D4","order":0,"visits":30,"utility":0.1},{"move":"Q16","order":1,"visits":20,"utility":0.0}]}),
+            );
+        } else {
+            // The raw policy of the profile from one visit, sampled; no search per move.
+            assert_eq!(q["maxVisits"], 1, "{level:?}");
+            assert_eq!(o["humanSLProfile"], profile);
+            assert_eq!(o["rootNumSymmetriesToSample"], 2);
+            assert_eq!(o["humanSLRootExploreProbWeightless"].as_f64(), Some(0.5));
+            assert_eq!(o["ignorePreRootHistory"], false);
+            out(&mut f.wb, id, json!({"id":q["id"],"humanPolicy":{"D4":0.6,"Q16":0.4}}));
+        }
+        assert!(
+            f.world.take(id).is_empty(),
+            "{level:?}: nothing more is asked for the move"
+        );
+        f.wb.engine_tick(Instant::now() + Duration::from_secs(15));
+        assert_eq!(f.wb.inspect().position.move_number, 1, "{level:?}");
+    }
+}
+
+/// Ten seconds a move, twenty for 强10段 and 11段; AI 思考时间 and an old 用时 change nothing.
+#[test]
+fn the_search_budget_follows_the_level_alone() {
+    for (level, seconds) in [
+        (CoachLevel::Kyu5, 10),
+        (CoachLevel::Dan3, 10),
+        (CoachLevel::Dan10, 10),
+        (CoachLevel::StrongDan10, 20),
+        (CoachLevel::Dan11, 20),
+    ] {
+        for pace in [Pace::Natural, Pace::Fast, Pace::Slow] {
+            let mut f = fixture(true);
+            let id = start(&mut f, self::level(level, pace), false);
+            ready(&mut f, id);
+            assert_budget(&f.world.query(id), f64::from(seconds));
+            f.wb.engine_tick(Instant::now() + Duration::from_secs_f64(f64::from(seconds) - 0.5));
+            assert!(!f.world.dead(id), "{level:?} {pace:?}: within its budget");
+            f.wb.engine_tick(Instant::now() + Duration::from_secs_f64(f64::from(seconds) + 0.5));
+            assert!(
+                f.world.dead(id),
+                "{level:?} {pace:?}: past its budget the attempt is retried"
+            );
+            assert_ne!(f.world.worker(), id);
+        }
+    }
+    // A setting saved with 用时 无限制 reads as 慢 and searches no longer.
+    let old: HumanSlTrainingSettings =
+        serde_json::from_value(json!({"moveTimeSeconds": 86400, "rank": 3, "danRank": true})).unwrap();
+    assert_eq!(old.pace, Pace::Slow);
+    let mut f = fixture(true);
+    let id = start(
+        &mut f,
+        HumanSlTrainingSettings {
+            player_color: PlayerColor::White,
+            ..old
+        },
+        false,
+    );
+    ready(&mut f, id);
+    assert_budget(&f.world.query(id), 10.0);
+}
+
+#[test]
+fn policy_level_asks_katago_about_passing_only_when_it_may_pass() {
+    let mut f = fixture(true);
+    for _ in 0..200 {
+        f.wb.edit(EditCommand::Pass).unwrap();
+    }
+    let id = start(&mut f, level(CoachLevel::Kyu5, Pace::Natural), true);
+    ready(&mut f, id);
+    let probe = f.world.query(id);
+    assert_eq!(probe["maxVisits"], 1);
+    out(&mut f.wb, id, json!({"id":probe["id"],"humanPolicy":{"D4":1.0}}));
+    let check = f.world.query(id);
+    assert_eq!(check["maxVisits"], 40);
+    assert!(check.get("includePolicy").is_none() && check["overrideSettings"].get("humanSLProfile").is_none());
+    out(
+        &mut f.wb,
+        id,
+        json!({"id":check["id"],"moveInfos":[{"move":"pass","order":0,"visits":30},{"move":"D4","order":1,"visits":10}]}),
+    );
+    f.wb.engine_tick(Instant::now() + Duration::from_secs(15));
+    let view = f.wb.inspect();
+    assert_eq!(view.position.move_number, 201);
+    assert!(view.human_sl_notices.contains(&HumanSlNotice::AiPassed));
+}
+
+/// The reply is played no earlier than its think time after the AI's turn began.
+#[test]
+fn an_early_reply_waits_for_its_think_time() {
+    for (pace, longest) in [(Pace::Fast, 1.8), (Pace::Natural, 8.0), (Pace::Slow, 14.0)] {
+        let mut f = fixture(true);
+        let id = start(&mut f, level(CoachLevel::Dan3, pace), false);
+        ready(&mut f, id);
         let q = f.world.query(id);
-        assert_eq!(q["overrideSettings"]["humanSLProfile"], profile);
-        assert_eq!(q["overrideSettings"]["rootNumSymmetriesToSample"], symmetries);
         out(
             &mut f.wb,
             id,
-            json!({"id":q["id"],"humanPolicy":{"D4":1.0},"policy":[],"moveInfos":[{"move":"D4","order":0,"utility":0.0}]}),
+            json!({"id":q["id"],"humanPolicy":{"D4":1.0},"moveInfos":[{"move":"D4","order":0,"visits":60,"utility":0.0}]}),
         );
-        let verify = f.world.query(id);
-        assert_eq!(verify["maxVisits"], visits);
-        assert_eq!(verify["allowMoves"][0]["moves"], json!(["D4"]));
-        assert_eq!(verify["overrideSettings"]["humanSLCpuctPermanent"], 2.0);
-        assert!(verify["overrideSettings"]["maxTime"].as_f64().unwrap() > 0.0);
+        f.wb.engine_tick(Instant::now());
+        let view = f.wb.inspect();
+        assert_eq!(
+            view.position.move_number, 0,
+            "{pace:?}: not before the shortest think time"
+        );
+        assert!(view.human_sl.unwrap().ai_thinking);
+        f.wb.engine_tick(Instant::now() + Duration::from_secs_f64(longest + 0.01));
+        assert_eq!(
+            f.wb.inspect().position.move_number,
+            1,
+            "{pace:?}: by the longest think time"
+        );
+    }
+}
+
+#[test]
+fn a_late_reply_is_played_at_once() {
+    let mut f = fixture(true);
+    let id = start(&mut f, level(CoachLevel::Dan3, Pace::Fast), false);
+    ready(&mut f, id);
+    let q = f.world.query(id);
+    // 快 thinks at most 1.8 s; the engine answers later than that.
+    std::thread::sleep(Duration::from_millis(1_850));
+    out(
+        &mut f.wb,
+        id,
+        json!({"id":q["id"],"humanPolicy":{"D4":1.0},"moveInfos":[{"move":"D4","order":0,"visits":60,"utility":0.0}]}),
+    );
+    assert_eq!(f.wb.inspect().position.move_number, 1);
+}
+
+#[test]
+fn finishing_while_the_reply_waits_plays_nothing() {
+    let mut f = fixture(true);
+    let id = start(&mut f, level(CoachLevel::Kyu5, Pace::Slow), false);
+    ready(&mut f, id);
+    let q = f.world.query(id);
+    out(&mut f.wb, id, json!({"id":q["id"],"humanPolicy":{"D4":1.0}}));
+    assert!(f.wb.inspect().human_sl.unwrap().ai_thinking);
+    f.wb.human_sl(HumanSlCommand::Finish).unwrap();
+    f.wb.engine_tick(Instant::now() + Duration::from_secs(15));
+    let view = f.wb.inspect();
+    assert!(view.human_sl.is_none());
+    assert_eq!(view.position.move_number, 0);
+    assert!(f.wb.document().record.node(ROOT).children.is_empty());
+}
+
+/// AI 思考时间 only paces the reply: with the same random draws every pace plays the same moves.
+#[test]
+fn the_pace_does_not_change_the_chosen_moves() {
+    let policy = json!({"D4":0.3,"Q16":0.25,"C3":0.2,"R4":0.15,"K10":0.1});
+    for level in [CoachLevel::Kyu5, CoachLevel::Dan3] {
+        let games: Vec<Vec<Option<Stone>>> = [Pace::Natural, Pace::Fast, Pace::Slow]
+            .into_iter()
+            .map(|pace| {
+                let mut f = fixture(true);
+                let id = start(&mut f, self::level(level, pace), false);
+                ready(&mut f, id);
+                for human in [Point { x: 0, y: 0 }, Point { x: 18, y: 18 }, Point { x: 0, y: 18 }] {
+                    let q = f.world.query(id);
+                    let infos: Vec<Value> = ["D4", "Q16", "C3", "R4", "K10"]
+                        .iter()
+                        .enumerate()
+                        .map(|(i, v)| json!({"move":v,"order":i,"visits":10,"utility":-0.05 * i as f64}))
+                        .collect();
+                    out(
+                        &mut f.wb,
+                        id,
+                        json!({"id":q["id"],"humanPolicy":policy,"moveInfos":infos}),
+                    );
+                    f.wb.engine_tick(Instant::now() + Duration::from_secs(15));
+                    f.wb.edit(EditCommand::Play {
+                        point: human,
+                        color: None,
+                    })
+                    .unwrap();
+                }
+                f.wb.inspect().position.stones
+            })
+            .collect();
+        assert_eq!(games[0].iter().flatten().count(), 6, "{level:?}");
+        assert!(games.iter().all(|g| *g == games[0]), "{level:?}");
     }
 }
 
@@ -761,7 +994,7 @@ fn companion_exit_on_human_turn_restarts_for_the_next_ai_move() {
     assert_ne!(new, old);
     let query = f.world.query(new);
     assert_eq!(query["includePolicy"], true);
-    assert_eq!(query["overrideSettings"]["humanSLProfile"], "rank_3d");
+    assert_eq!(query["overrideSettings"]["humanSLProfile"], "rank_3k");
     out(&mut f.wb, old, json!({"id": query["id"], "error": "stale old process"}));
     f.wb.engine_input(old, EngineInput::Exited(Some(1)));
     out(
@@ -794,7 +1027,7 @@ fn failed_attempts_restart_the_companion_and_retry_ai_starts_fresh() {
         assert_ne!(second, first);
         let query = f.world.query(second);
         assert_eq!(query["includePolicy"], true);
-        assert_eq!(query["overrideSettings"]["humanSLProfile"], "rank_3d");
+        assert_eq!(query["overrideSettings"]["humanSLProfile"], "rank_3k");
         f.wb.engine_input(second, EngineInput::Exited(Some(1)));
         let view = f.wb.inspect();
         assert!(view.human_sl.unwrap().ai_failed);

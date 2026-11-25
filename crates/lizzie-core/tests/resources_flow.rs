@@ -571,7 +571,8 @@ fn humansl_download_uses_resource_busy_and_cancellation_contract() {
 
 #[test]
 fn humansl_settings_normalize_and_corrupt_fields_do_not_drop_the_config() {
-    use lizzie_core::settings::{Config, HumanSlTrainingSettings, OpponentPreset, PlayerColor, TrainingMode};
+    use lizzie_core::humansl::{CoachLevel, Pace};
+    use lizzie_core::settings::{Config, HumanSlTrainingSettings, PlayerColor, TrainingMode};
     let config: Config = serde_json::from_value(serde_json::json!({
         "humanSl": { "modelPath": 4, "advancedVisible": "broken", "training": {
             "mode": "FUTURE", "opponent": "UNKNOWN", "danRank": false, "rank": 99,
@@ -580,14 +581,11 @@ fn humansl_settings_normalize_and_corrupt_fields_do_not_drop_the_config() {
     })).unwrap();
     let settings = config.human_sl;
     let s = settings.training;
-    assert_eq!((s.mode, s.opponent, s.player_color), (TrainingMode::PostGameReview, OpponentPreset::Rank, PlayerColor::Random));
-    assert_eq!((s.rank, s.move_time_seconds, s.handicap, s.komi), (20, 10, 9, 7.5));
+    assert_eq!((s.mode, s.level, s.player_color), (TrainingMode::PostGameReview, CoachLevel::Kyu10, PlayerColor::Random));
+    assert_eq!((s.pace, s.handicap, s.komi), (Pace::Natural, 9, 7.5));
     assert!(!settings.advanced_visible && settings.model_path.is_none() && !config.record.read_komi);
-    let s = HumanSlTrainingSettings { rank: 0, handicap: 255, komi: f64::INFINITY, ..Default::default() }.normalized();
-    assert_eq!((s.rank, s.handicap, s.komi), (1, 9, 7.5));
-    for seconds in [10, 30, 60, 86400] {
-        assert_eq!(HumanSlTrainingSettings { move_time_seconds: seconds, ..Default::default() }.normalized().move_time_seconds, seconds);
-    }
+    let s = HumanSlTrainingSettings { handicap: 255, komi: f64::INFINITY, ..Default::default() }.normalized();
+    assert_eq!((s.handicap, s.komi), (9, 7.5));
     let config: Config = serde_json::from_value(serde_json::json!({"humanSl": "broken"})).unwrap();
     assert_eq!(config.human_sl, Default::default());
 }

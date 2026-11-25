@@ -50,18 +50,14 @@ LOCALES = {
 # The online-link prompt names OGS links, which this product does not open. 评估此点 keeps naming
 # the reason itself when it is unavailable (Java now keeps the item's name and adds the reason in
 # brackets) and its tooltip keeps the conditions this product checks. The AI 解说 address hints
-# would allow plain HTTP to literal private addresses. The AI 陪练 setup texts belong to Java's
-# redesigned setup sheet and its live move feedback. The Chinese strength match tooltip drops 棋
+# would allow plain HTTP to literal private addresses. The AI 陪练 subtitle describes Java's live
+# move feedback. The Chinese strength match tooltip drops 棋
 # because Java's dialog now passes 黑棋/白棋 where this product passes 黑/白.
 CORRECTIONS: dict[str, dict[str, str]] = {
     "ZhCn": {
         "ConfigDialog2.modern.proxy.subtitle": "控制程序自身网络请求使用的代理策略",
         "SetLeelaEngines.lblResign": "放弃胜利率(%,default -1,范围-1到30):",
         # Held (see above).
-        "HumanSlTraining.color.random": "随机执棋",
-        "HumanSlTraining.model.missing": "尚未下载 HumanSL 数据",
-        "HumanSlTraining.model.ready": "HumanSL 数据已就绪",
-        "HumanSlTraining.start": "开始训练",
         "HumanSlTraining.subtitle": "选择适合自己水平的人类棋风对手，在主棋盘实战并随时复盘",
         "OnlineDialog.lblPrompt1.text": "请输入一个有效的链接。",
         "PlayerStrengthEstimate.match.rankTooltip": "%1$s棋第 %2$d 手到第 %3$d 手下出了 %4$s 水平",
@@ -76,10 +72,6 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "SetLeelaEngines.lblResign": "放棄勝利率(%,default -1,範圍-1到30):",
         "YikeLiveDialog.syncFailed": "弈客同步失敗",
         # Held (see above).
-        "HumanSlTraining.color.random": "隨機執棋",
-        "HumanSlTraining.model.missing": "尚未下載 HumanSL 資料",
-        "HumanSlTraining.model.ready": "HumanSL 資料已就緒",
-        "HumanSlTraining.start": "開始訓練",
         "HumanSlTraining.subtitle": "選擇適合自己水平的人類棋風對手，在主棋盤實戰並隨時覆盤",
         "OnlineDialog.lblPrompt1.text": "請輸入一個有效的連結。",
         "PlayerStrengthEstimate.match.rankTooltip": "%1$s棋第 %2$d 手到第 %3$d 手下出了 %4$s 水平",
@@ -97,9 +89,6 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "Menu.leadJustScore": "Excluding komi",
         "Menu.leadWithKomi": "Including komi",
         # Held (see above).
-        "HumanSlTraining.model.missing": "HumanSL model not downloaded",
-        "HumanSlTraining.model.ready": "HumanSL model ready",
-        "HumanSlTraining.start": "Start training",
         "HumanSlTraining.subtitle": "Choose a fitting human-style opponent, play on the main board, and review the game there afterward.",
         "OnlineDialog.lblPrompt1.text": "Please input an available url.",
         "RightClickMenu.trackPoint.requiresCapability": "Move focus unavailable (local KataGo capability required)",
@@ -116,9 +105,6 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "WindowsUpdate.btnUpdate": "今すぐ更新",
         "YikeLiveDialog.syncFailed": "弈客の同期に失敗しました",
         # Held (see above).
-        "HumanSlTraining.model.missing": "HumanSL モデルが未ダウンロードです",
-        "HumanSlTraining.model.ready": "HumanSL モデルは準備済みです",
-        "HumanSlTraining.start": "トレーニング開始",
         "HumanSlTraining.subtitle": "自分の棋力に合う人間らしい相手とメイン盤面で対局し、そのまま振り返れます。",
         "OnlineDialog.lblPrompt1.text": "使用可能なurlを入力してください。",
         "RightClickMenu.trackPoint.requiresCapability": "move focus は利用不可（ローカル KataGo の対応が必要）",
@@ -183,9 +169,6 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "TencentKifuDownload.stones": " 돌",
         "YikeLiveDialog.syncFailed": "Yike 동기화 실패",
         # Held (see above).
-        "HumanSlTraining.model.missing": "HumanSL 모델을 아직 다운로드하지 않았습니다",
-        "HumanSlTraining.model.ready": "HumanSL 모델 준비 완료",
-        "HumanSlTraining.start": "훈련 시작",
         "HumanSlTraining.subtitle": "내 기력에 맞는 인간형 상대와 메인 바둑판에서 대국하고 그대로 복기합니다.",
         "OnlineDialog.lblPrompt1.text": "유효한 URL을 입력하세요.",
         "RightClickMenu.trackPoint.requiresCapability": "move focus 사용 불가 (로컬 KataGo 지원 필요)",
@@ -311,9 +294,6 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "TencentKifuDownload.stones": " หิน",
         "menu.setFrameSizeRestart": "ตั้งค่าสำเร็จ โปรดรีสตาร์ท Lizzie!",
         # Held (see above).
-        "HumanSlTraining.model.missing": "ยังไม่ได้ดาวน์โหลดโมเดล HumanSL",
-        "HumanSlTraining.model.ready": "โมเดล HumanSL พร้อมใช้งาน",
-        "HumanSlTraining.start": "เริ่มฝึก",
         "HumanSlTraining.subtitle": "เลือกคู่ต่อสู้สไตล์มนุษย์ที่เหมาะกับระดับ เล่นบนกระดานหลัก และทบทวนเกมต่อได้ทันที",
         "OnlineDialog.lblPrompt1.text": "โปรดป้อน url ที่มีอยู่",
         "RightClickMenu.trackPoint.requiresCapability": "ใช้ move focus ไม่ได้ (ต้องใช้ KataGo ภายในเครื่องที่รองรับ)",

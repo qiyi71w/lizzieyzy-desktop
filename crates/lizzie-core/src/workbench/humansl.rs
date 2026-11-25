@@ -1,13 +1,14 @@
 //! HumanSL owns a training session, not the user's committed display settings. The companion
 //! speaks analysis JSON; the foreground engine is only paused and later resynchronized.
 mod ai;
+use super::exporting::java_text;
 use super::Workbench;
 use crate::api::*;
 use crate::engine::{
     gtp,
     runtime::{InstanceId, LeaseAvailability, RuntimeEvent},
 };
-use crate::humansl::{self, protocol};
+use crate::humansl::{self, protocol, CoachLevelKind};
 use crate::record::{DocumentEdit, NodeId, Point, Stone};
 use crate::settings::{HumanSlTrainingSettings, PlayerColor, TrainingMode};
 use serde_json::Value;
@@ -62,23 +63,27 @@ struct Request {
     node: NodeId,
     stamp: u64,
     position_context: u64,
-    sent: Instant,
+    /// When the AI's turn began: the think time counts from here, across a retry.
+    started: Instant,
     deadline: Instant,
-    pace: Instant,
     attempt: u8,
     phase: Search,
+    /// A policy level's legal moves from its probe, the pass left out.
     candidates: Vec<humansl::Candidate>,
-    allowed: Vec<String>,
-    visits: u32,
-    rounds: u8,
-    evidence: Option<Value>,
+    /// The human policy's share on its most popular move, which paces the reply.
+    top_share: Option<f64>,
     selected: Option<String>,
+    /// The earliest the selected move is played.
+    pace: Instant,
 }
+/// What the companion is asked: readiness, a policy level's one-visit probe and, when the AI may
+/// pass, KataGo's own pass check, or a search level's search; then the reply waits for its pace.
 #[derive(PartialEq)]
 enum Search {
     Ready,
-    Policy,
-    Verify,
+    Probe,
+    PassCheck,
+    Play,
     Pacing,
 }
 
@@ -266,7 +271,7 @@ impl Workbench {
             started_game: false,
             diagnostics: Default::default(),
         });
-        self.human_sl_request(Search::Ready, now);
+        self.human_sl_request(true, now);
         Ok(CommandResult::Done)
     }
 
@@ -343,27 +348,23 @@ impl Workbench {
                 }
                 let _ = self.apply_edit(DocumentEdit::SetupSideToPlay { color: Stone::White });
             }
-            let me = super::exporting::java_text(self.active_language, "HumanSlGame.humanPlayer");
-            let label = match settings.opponent {
-                crate::settings::OpponentPreset::ModernPro => {
-                    super::exporting::java_text(self.active_language, "HumanSlTraining.pro.modern")
-                }
-                crate::settings::OpponentPreset::Online9d => {
-                    super::exporting::java_text(self.active_language, "HumanSlTraining.pro.online9d")
-                }
-                crate::settings::OpponentPreset::Rank => {
-                    let pattern = if settings.dan_rank {
-                        super::exporting::java_text(self.active_language, "HumanSlTraining.rank.danValue")
-                    } else {
-                        super::exporting::java_text(self.active_language, "HumanSlTraining.rank.kyuValue")
-                    };
-                    pattern.replace("{0}", &settings.rank.to_string())
-                }
+            // Literal keys keep them in the Java string extraction.
+            let lang = self.active_language;
+            let me = java_text(lang, "HumanSlGame.humanPlayer");
+            // configurePlayerNames: "HumanSL AI (野狐 3D, KataGo 强3段)".
+            let level = settings.level;
+            let fox = java_text(lang, "HumanSlTraining.level.fox").replace("{0}", level.fox());
+            let plain = match level.kind() {
+                CoachLevelKind::Kyu => java_text(lang, "HumanSlTraining.rank.kyuValue"),
+                CoachLevelKind::Dan | CoachLevelKind::StrongDan => java_text(lang, "HumanSlTraining.rank.danValue"),
+            }
+            .replace("{0}", &level.rank().to_string());
+            let kata_go = if level.kind() == CoachLevelKind::StrongDan {
+                java_text(lang, "HumanSlTraining.rankTable.strong").replace("{0}", &plain)
+            } else {
+                plain
             };
-            let ai = format!(
-                "{} ({label})",
-                super::exporting::java_text(self.active_language, "HumanSlGame.aiPlayer")
-            );
+            let ai = format!("{} ({fox}, KataGo {kata_go})", java_text(lang, "HumanSlGame.aiPlayer"));
             let (black, white) = if human == Stone::Black { (me, ai) } else { (ai, me) };
             let _ = self.apply_edit(DocumentEdit::SetPlayers { black, white });
         }
@@ -561,9 +562,7 @@ impl Workbench {
             stage: (s.phase == HumanSlPhase::Preparing).then_some(s.stage),
             preparing_secs: s.start.elapsed().as_secs().min(u64::from(u32::MAX)) as u32,
             mode: s.settings.mode,
-            opponent: s.settings.opponent,
-            rank: s.settings.rank,
-            dan_rank: s.settings.dan_rank,
+            level: s.settings.level,
             human_is_black: s.human == Stone::Black,
             human_ms: s.human_ms,
             ai_ms: s.ai_ms,

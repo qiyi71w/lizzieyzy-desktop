@@ -219,7 +219,8 @@ impl Bench {
                 self.out(id, &reply.to_string());
             }
         }
-        self.wb.engine_tick(Instant::now() + Duration::from_secs(5));
+        // Past the slowest AI 思考时间 (14 s), so the chosen reply is played.
+        self.wb.engine_tick(Instant::now() + Duration::from_secs(15));
     }
     /// The open queries of AI 陪练's worker, unanswered.
     fn worker_queries(&mut self, id: InstanceId) -> Vec<Value> {

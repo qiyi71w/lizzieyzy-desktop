@@ -2002,9 +2002,11 @@ impl Reader<'_> {
             handled.push(("ui", "human-sl-training-last-settings"));
             if raw.is_object() {
                 let mut training = serde_json::Map::new();
+                // `level` and `pace` are the newer Java's; the preset, the numbered rank and the
+                // move time are what older ones saved, read as older settings of this product.
                 for (java, product) in [
-                    ("mode", "mode"), ("opponent-preset", "opponent"),
-                    ("dan-rank", "danRank"), ("rank", "rank"),
+                    ("mode", "mode"), ("level", "level"), ("pace", "pace"),
+                    ("opponent-preset", "opponent"), ("dan-rank", "danRank"), ("rank", "rank"),
                     ("player-color", "playerColor"), ("move-time-seconds", "moveTimeSeconds"),
                     ("handicap", "handicap"), ("komi", "komi"),
                 ] {

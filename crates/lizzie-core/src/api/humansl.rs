@@ -1,4 +1,5 @@
-use crate::settings::{HumanSlTrainingSettings, OpponentPreset, TrainingMode};
+use crate::humansl::CoachLevel;
+use crate::settings::{HumanSlTrainingSettings, TrainingMode};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -60,9 +61,7 @@ pub struct HumanSlView {
     pub stage: Option<HumanSlStartupStage>,
     pub preparing_secs: u32,
     pub mode: TrainingMode,
-    pub opponent: OpponentPreset,
-    pub rank: u8,
-    pub dan_rank: bool,
+    pub level: CoachLevel,
     pub human_is_black: bool,
     pub human_ms: u64,
     pub ai_ms: u64,

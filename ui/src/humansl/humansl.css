@@ -39,26 +39,27 @@
   margin: 0 0 12px;
   color: var(--ds-text-2);
 }
+/* 更多设置 with the arrow that shows whether its group is open. */
+.hs-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.hs-more-icon {
+  display: inline-flex;
+}
+.hs-more-icon .icon {
+  width: 14px;
+  height: 14px;
+}
 .hs-more[aria-expanded="true"] {
   border-color: var(--ds-accent-soft-line);
   background-color: var(--ds-accent-soft);
   color: var(--ds-accent-text);
 }
 
-/* AI 对手: 按段位 / 职业风格, then the rank (级 / 段 and the number) or the style. */
-.hs-rank-panel {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-.hs-rank {
-  width: calc(var(--ds-size) * 5);
-  text-align: right;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-/* The model's state and the summary or the run's status. */
+/* The model's state and the run's status. */
 .hs-summary {
   display: flex;
   flex-wrap: wrap;

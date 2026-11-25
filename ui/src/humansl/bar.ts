@@ -5,7 +5,7 @@
 import { run } from "../app";
 import type { HumanSlCommand, HumanSlView } from "../contract/generated";
 import { t } from "../i18n";
-import { humanSlGameActive, humanSlSession, humanSlUi, opponentLabel } from "./state";
+import { coachLevel, humanSlGameActive, humanSlSession, humanSlUi, levelFox } from "./state";
 import "./humansl.css";
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", text = ""): HTMLElementTagNameMap[K] {
@@ -80,7 +80,9 @@ export function mountTrainingBar(): void {
   let ticker: number | undefined;
 
   const paint = (s: HumanSlView) => {
-    opponent.textContent = opponentLabel(s.opponent, s.dan_rank, s.rank);
+    // HumanSlGameController.opponentLabel: the opponent's Fox / Tygem rank.
+    const level = coachLevel(s.level);
+    opponent.textContent = level ? levelFox(level) : "";
     const key = `${s.id}:${s.human_ms}:${s.ai_ms}:${s.clock}`;
     if (key !== base.key) base = { key, at: performance.now() };
     const live = performance.now() - base.at;
