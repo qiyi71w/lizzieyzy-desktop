@@ -1315,8 +1315,8 @@ importing the matching LizzieYzy Next settings.
   AI also passes when that gives up at most a point, and where most players of a kyu level would
   pass but KataGo still sees a point that matters, the AI plays KataGo's move. Browsing earlier
   moves does not end the game: the AI's reply is played on the game's position and the board goes
-  back there; on a browsed position a click only brings the board back (saying so), and 停一手
-  brings it back and passes there (Java only brings it back). If the game's moves are deleted,
+  back there; on a browsed position a click or 停一手 only brings the board back (saying so), and
+  the next one plays there. If the game's moves are deleted,
   the session ends with a message; an AI answer for a game that has ended or been replaced, or
   whose position changed, is dropped without touching the record. A companion process that exits is
   started again for the next move; two failed attempts show 重试 AI. The bar under the board

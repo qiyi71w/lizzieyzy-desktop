@@ -1006,9 +1006,9 @@ fn failed_attempts_restart_the_companion_and_retry_ai_starts_fresh() {
     }
 }
 
-/// Browsing back to where a game from the current position started, a stone there only brings
-/// the board back, and a pass is played on the game's position: neither the record's line nor a
-/// new variation at the start gets the move.
+/// Browsing back to where a game from the current position started, a stone or a pass there only
+/// brings the board back: neither the record's line nor a new variation at the start gets the
+/// move, and nothing is played on the game's position.
 #[test]
 fn a_move_at_the_training_start_while_browsing_never_branches_there() {
     for pass in [false, true] {
@@ -1035,12 +1035,9 @@ fn a_move_at_the_training_start_while_browsing_never_branches_there() {
         assert_eq!(record.node(ROOT).children.len(), 2);
         assert_eq!(record.node(ROOT).children[0], original);
         assert!(record.node(original).children.is_empty());
-        if pass {
-            assert_eq!(record.parent(f.wb.cursor()), Some(live));
-        } else {
-            assert_eq!(f.wb.cursor(), live);
-            assert!(record.node(live).children.is_empty());
-        }
+        assert_eq!(f.wb.cursor(), live);
+        assert!(record.node(live).children.is_empty());
+        assert!(f.wb.inspect().human_sl_notices.contains(&HumanSlNotice::BackToLiveGame));
     }
 }
 
@@ -1310,9 +1307,10 @@ fn a_click_on_an_earlier_position_brings_the_board_back_and_the_next_click_plays
     assert!(f.wb.inspect().human_sl.unwrap().ai_thinking);
 }
 
-/// 停一手 on an earlier position brings the board back to the game's position and passes there.
+/// 停一手 on an earlier position only brings the board back to the game's position, saying so;
+/// the next 停一手 passes there (B2 `humanPass` → `atLiveGame`).
 #[test]
-fn pass_on_an_earlier_position_brings_the_board_back_then_passes() {
+fn pass_on_an_earlier_position_brings_the_board_back_and_the_next_pass_passes() {
     for keyboard in [false, true] {
         let mut f = fixture(true);
         let id = start(&mut f, settings(PlayerColor::Black), false);
@@ -1320,14 +1318,23 @@ fn pass_on_an_earlier_position_brings_the_board_back_then_passes() {
         click(&mut f, 3, 3);
         answer(&mut f, id, "Q16");
         let live = f.wb.cursor();
+        let revision = f.wb.document().revision;
         assert!(f.wb.navigate(Navigation::Back(2)));
-        let result = if keyboard {
-            f.wb.edit(EditCommand::Pass).unwrap()
-        } else {
-            f.wb.human_sl(HumanSlCommand::Pass).unwrap()
+        let pass = |f: &mut Fixture| {
+            if keyboard {
+                f.wb.edit(EditCommand::Pass).unwrap()
+            } else {
+                f.wb.human_sl(HumanSlCommand::Pass).unwrap()
+            }
         };
-        assert_eq!(result, CommandResult::Done);
-        assert!(f.wb.inspect().human_sl_notices.contains(&HumanSlNotice::BackToLiveGame));
+        assert_eq!(pass(&mut f), CommandResult::Done);
+        assert_eq!(f.wb.cursor(), live);
+        assert_eq!(f.wb.document().revision, revision);
+        assert!(f.wb.document().record.node(live).children.is_empty());
+        let view = f.wb.inspect();
+        assert!(view.human_sl_notices.contains(&HumanSlNotice::BackToLiveGame));
+        assert!(view.human_sl.unwrap().human_turn);
+        assert_eq!(pass(&mut f), CommandResult::Done);
         assert_eq!(f.wb.document().record.parent(f.wb.cursor()), Some(live));
         assert_eq!(kind(&f, f.wb.cursor()), NodeKind::Pass { color: Stone::Black });
         assert!(f.wb.inspect().human_sl.unwrap().ai_thinking);

@@ -419,8 +419,8 @@ impl Workbench {
         self.human_sl_exit(false);
     }
 
-    /// The player's stone at `point`, or pass. While the player browses, the board first goes
-    /// back to the game's position: a click does only that, a pass is then played there.
+    /// The player's stone at `point`, or pass. While the player browses, the board only goes back
+    /// to the game's position, saying so; the move or pass is not played (Java `atLiveGame`).
     pub(super) fn human_sl_human_move(&mut self, point: Option<Point>) -> CommandResult {
         if !self
             .human_sl
@@ -430,24 +430,17 @@ impl Workbench {
         {
             return CommandResult::Unchanged;
         }
-        let returned = match self.human_sl_to_game() {
+        match self.human_sl_to_game() {
             GameShown::Ended => return CommandResult::Done,
-            GameShown::Already => false,
             GameShown::Returned => {
                 self.human_sl.notices.push(HumanSlNotice::BackToLiveGame);
-                if point.is_some() {
-                    return CommandResult::Done;
-                }
-                true
+                return CommandResult::Done;
             }
-        };
+            GameShown::Already => {}
+        }
         let s = self.human_sl.session.as_ref().unwrap();
         if s.request.is_some() || self.doc.record.node(s.live).to_play != s.human || !self.human_sl_commit(point) {
-            return if returned {
-                CommandResult::Done
-            } else {
-                CommandResult::Unchanged
-            };
+            return CommandResult::Unchanged;
         }
         let now = Instant::now();
         let s = self.human_sl.session.as_mut().unwrap();
