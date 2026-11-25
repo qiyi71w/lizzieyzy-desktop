@@ -632,7 +632,7 @@ importing the matching LizzieYzy Next settings.
   variation tree and the list shares that column (the list keeps at least 36 px); a drag is
   saved when the button is released and `Esc` cancels it. Without an arrangement, where 编辑面板布局…
   is available, the line between any other two neighbouring panels of a column can be dragged
-  too; doing so saves a panel arrangement (see [Panel arrangement](#panel-arrangement)). `[` / `]` (界面 > 主棋盘位置) move the
+  too; doing so saves a panel arrangement (see [Panel arrangement](#panel-arrangement)). `[` / `]` (显示 > 主棋盘/界面位置) move the
   board one eighth of the free width; 面板 > 恢复默认面板尺寸 restores the default sizes. In a small
   window or at a large interface font the list keeps each column wide enough for its header and
   figures and scrolls sideways, and the win-rate graph scales a readout down to fit its plot
