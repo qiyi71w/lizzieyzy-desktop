@@ -1,13 +1,15 @@
 //! A remote engine's SSH connection through the process launcher against an in-process SSH
-//! server: a server that offers only SHA-1 key exchange, or only a SHA-1 MAC with a cipher that
-//! needs one, is still reached, and a host key other than the trusted one is refused before any
-//! credential is sent, until the user trusts it. A file of trusted keys that cannot be read
-//! refuses every key and is left as it is.
+//! server: a server that also supports SHA-1 key exchange and MACs agrees on modern ones, a server
+//! that offers only SHA-1 key exchange, or only a SHA-1 MAC with a cipher that needs one, is still
+//! reached, and a host key other than the trusted one is refused before any credential is sent,
+//! until the user trusts it. A file of trusted keys that cannot be read refuses every key and is
+//! left as it is.
 
 use std::borrow::Cow;
 use std::net::TcpListener;
 use std::sync::mpsc::{channel, Receiver};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Once};
+use std::thread::ThreadId;
 use std::time::Duration;
 
 use lizzie_core::engine::gtp::LaunchSpec;
@@ -27,6 +29,49 @@ struct Seen {
     /// Passwords and public keys offered, in order.
     credentials: Vec<String>,
     commands: Vec<String>,
+    /// The thread the server ran on, whose reports [`negotiated`] reads.
+    thread: Option<ThreadId>,
+}
+
+/// The algorithms russh's server reports it agreed on (`negotiated: Names { .. }`), by the
+/// server's thread.
+static NEGOTIATED: Mutex<Vec<(ThreadId, String)>> = Mutex::new(Vec::new());
+
+struct ServerReports;
+
+impl log::Log for ServerReports {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        metadata.target().starts_with("russh::server")
+    }
+
+    fn log(&self, record: &log::Record) {
+        if self.enabled(record.metadata()) {
+            let text = record.args().to_string();
+            if text.starts_with("negotiated:") {
+                NEGOTIATED
+                    .lock()
+                    .unwrap()
+                    .push((std::thread::current().id(), text));
+            }
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+/// The key exchange and the MACs both ways the server agreed on for the connection it saw.
+fn negotiated(seen: &Seen) -> (String, String, String) {
+    let thread = seen.thread.expect("the server ran");
+    let reports = NEGOTIATED.lock().unwrap();
+    let (_, text) = reports
+        .iter()
+        .find(|(t, _)| *t == thread)
+        .expect("the server reported what it negotiated");
+    let name = |field: &str| {
+        let start = text.find(&format!("{field}: Name(\"")).expect(field) + field.len() + 8;
+        text[start..start + text[start..].find('"').unwrap()].to_string()
+    };
+    (name("kex"), name("client_mac"), name("server_mac"))
 }
 
 struct Server {
@@ -86,6 +131,11 @@ fn host_key(seed: u8) -> PrivateKey {
 /// Serves the next connection to `listener` on its own thread, with `key` and only the algorithms
 /// `preferred`.
 fn serve(listener: &TcpListener, key: PrivateKey, preferred: Preferred) -> Arc<Mutex<Seen>> {
+    static REPORTS: Once = Once::new();
+    REPORTS.call_once(|| {
+        log::set_logger(&ServerReports).unwrap();
+        log::set_max_level(log::LevelFilter::Debug);
+    });
     let seen = Arc::new(Mutex::new(Seen::default()));
     let handler = Server {
         seen: seen.clone(),
@@ -98,7 +148,9 @@ fn serve(listener: &TcpListener, key: PrivateKey, preferred: Preferred) -> Arc<M
         ..Default::default()
     });
     let listener = listener.try_clone().unwrap();
+    let thread_seen = seen.clone();
     std::thread::spawn(move || {
+        thread_seen.lock().unwrap().thread = Some(std::thread::current().id());
         let (stream, _) = listener.accept().unwrap();
         stream.set_nonblocking(true).unwrap();
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -183,6 +235,35 @@ fn only_mac(mac: &'static [mac::Name]) -> Preferred {
         mac: Cow::Borrowed(mac),
         ..Preferred::default()
     }
+}
+
+/// A server that supports SHA-1 key exchange and MACs besides the modern ones, and lists SHA-1
+/// first, still agrees on a modern key exchange and modern MACs: SHA-1 is only the last resort.
+#[test]
+fn a_server_that_also_supports_sha1_agrees_on_modern_algorithms() {
+    let legacy_kex = [kex::DH_G14_SHA1, kex::DH_GEX_SHA1];
+    let legacy_mac = [mac::HMAC_SHA1_ETM, mac::HMAC_SHA1];
+    let both = Preferred {
+        kex: Cow::Owned(legacy_kex.iter().chain(Preferred::DEFAULT.kex.iter()).copied().collect()),
+        cipher: Cow::Borrowed(&[cipher::AES_128_CTR]),
+        mac: Cow::Owned(legacy_mac.iter().chain(Preferred::DEFAULT.mac.iter()).copied().collect()),
+        ..Preferred::default()
+    };
+    let (listener, port, dir) = listen();
+    let remote = Remote::new(dir.path(), port);
+    let seen = serve(&listener, host_key(1), both);
+    assert_eq!(remote.start(1), EngineInput::Stdout("= ready".into()));
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.commands, [COMMAND]);
+    let (kex, client_mac, server_mac) = negotiated(&seen);
+    let modern_kex = |name: &str| {
+        !legacy_kex.iter().any(|k| k.as_ref() == name) && Preferred::DEFAULT.kex.iter().any(|k| k.as_ref() == name)
+    };
+    let modern_mac = |name: &str| {
+        !legacy_mac.iter().any(|m| m.as_ref() == name) && Preferred::DEFAULT.mac.iter().any(|m| m.as_ref() == name)
+    };
+    assert!(modern_kex(&kex), "{kex}");
+    assert!(modern_mac(&client_mac) && modern_mac(&server_mac), "{client_mac} {server_mac}");
 }
 
 #[test]

@@ -639,34 +639,6 @@ async fn run(
 mod tests {
     use super::*;
 
-    /// The defaults keep their order and come first, so a server that supports one of them agrees
-    /// on what it did before; the SHA-1 fallbacks follow (key exchanges before the extension names).
-    #[test]
-    fn sha1_fallbacks_come_after_every_default_algorithm() {
-        fn names<N: AsRef<str>>(list: &[N]) -> Vec<String> {
-            list.iter().map(|n| n.as_ref().to_string()).collect()
-        }
-        let mut expected = names(&Preferred::DEFAULT.kex);
-        let extensions = expected.iter().position(|n| n == "ext-info-c").unwrap();
-        expected.splice(
-            extensions..extensions,
-            [
-                "diffie-hellman-group14-sha1".to_string(),
-                "diffie-hellman-group-exchange-sha1".to_string(),
-            ],
-        );
-        assert_eq!(names(&KEY_EXCHANGES), expected);
-        assert!(!expected.iter().any(|n| n == "diffie-hellman-group1-sha1"));
-
-        let mut expected = names(&Preferred::DEFAULT.mac);
-        assert!(
-            !expected.iter().any(|n| n.contains("sha1")),
-            "russh's defaults changed: {expected:?}"
-        );
-        expected.extend(["hmac-sha1-etm@openssh.com".to_string(), "hmac-sha1".to_string()]);
-        assert_eq!(names(&MACS), expected);
-    }
-
     #[test]
     fn a_port_that_is_not_a_number_is_22() {
         let mut s = SshSettings {
