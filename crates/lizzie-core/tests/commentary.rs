@@ -391,6 +391,91 @@ fn completion_checkbox_is_live_follow_up_question_restores_once_and_notes_are_di
     );
     assert!(wb.view(false).commentary.restore_question.is_none());
 }
+/// Java `TeacherSettingsTest` (acceptsLocalAndLiteralPrivateNetworkHttpServices,
+/// refusesHttpPublicSpecialAmbiguousOrDnsAddresses), as `http://<host>:1234/v1`.
+const PLAIN_HTTP_ACCEPTED: [&str; 11] = [
+    "localhost",
+    "127.0.0.1",
+    "10.0.0.1",
+    "10.255.255.254",
+    "172.16.0.1",
+    "172.31.255.254",
+    "192.168.1.3",
+    "[::1]",
+    "[0:0:0:0:0:0:0:1]",
+    "[fc00::1]",
+    "[fd12:3456:789a::1234]",
+];
+const PLAIN_HTTP_REFUSED: [&str; 24] = [
+    "8.8.8.8",
+    "172.15.255.255",
+    "172.32.0.1",
+    "192.167.255.255",
+    "192.169.0.1",
+    "169.254.169.254",
+    "100.64.0.1",
+    "0.0.0.0",
+    "224.0.0.1",
+    "10.0.0.256",
+    "010.0.0.1",
+    "10.1",
+    "167772161",
+    "0x0a000001",
+    "nas.local",
+    "192.168.1.3.example.com",
+    "localhost.example.com",
+    "[::]",
+    "[fe80::1]",
+    "[ff02::1]",
+    "[2001:db8::1]",
+    "[::ffff:192.168.1.3]",
+    "[::ffff:c0a8:103]",
+    "[fd00::1%25eth0]",
+];
+#[test]
+fn plain_http_is_accepted_for_this_computer_and_literal_private_addresses_only() {
+    use commentary::settings::validate_base_url;
+    for host in PLAIN_HTTP_ACCEPTED {
+        let base = format!("http://{host}:1234/v1");
+        assert_eq!(validate_base_url(&format!("{base}/")).unwrap(), base);
+    }
+    for host in PLAIN_HTTP_REFUSED {
+        assert!(validate_base_url(&format!("http://{host}:1234/v1")).is_err(), "{host}");
+    }
+    // Host names need HTTPS, even ones that may resolve to a private address. Other spellings of
+    // a private address, user information and loopback addresses besides 127.0.0.1 stay refused.
+    for base in [
+        "https://nas.local/v1",
+        "https://example.com",
+        "https://192.168.1.3.example.com",
+    ] {
+        assert!(validate_base_url(base).is_ok(), "{base}");
+    }
+    for base in [
+        "http://192.168.1.5:8080",
+        "http://10.0.0.2",
+        "http://[fd00::1]",
+        "http://LOCALHOST",
+    ] {
+        assert!(validate_base_url(base).is_ok(), "{base}");
+    }
+    for base in [
+        "http://example.com",
+        "http://3232235781",
+        "http://0300.0250.1.5",
+        "http://0xc0.0xa8.1.5",
+        "http://192.168.1.5.",
+        "http://user@192.168.1.5",
+        "http://example.com@192.168.1.5",
+        "http://192.168.1.5@example.com",
+        "http://127.0.0.2",
+        "http://[::ffff:7f00:1]",
+        "http://+10.0.0.2",
+        "http://10.0.0.+2",
+    ] {
+        assert!(validate_base_url(base).is_err(), "{base}");
+    }
+}
 #[test]
 fn settings_validation_clamping_and_persistence_are_nonsecret() {
     use commentary::settings::*;

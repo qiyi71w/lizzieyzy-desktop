@@ -981,7 +981,14 @@ importing the matching LizzieYzy Next settings.
   `ssh-known-hosts.json` beside `config.json`; a different key is refused before anything is
   sent, and the failure dialog shows both SHA-256 fingerprints with 信任新密钥并重试, which trusts
   only the key shown there and starts the engine again in the seat it failed in (in 双引擎模式 a
-  secondary engine stays the secondary one). Passwords never go into `config.json`: they are kept
+  secondary engine stays the secondary one). The connection offers the SSH library's modern
+  algorithms first and, after all of them, the SHA-1 ones older servers may be limited to: the key
+  exchanges `diffie-hellman-group14-sha1` and `diffie-hellman-group-exchange-sha1`, and the message
+  authentication codes `hmac-sha1-etm@openssh.com` and `hmac-sha1`, as Java offers them. A current
+  server still agrees on the same algorithms as before; `diffie-hellman-group1-sha1` is not offered.
+  Unlike Java, CBC-mode ciphers (`aes128-cbc` and the like) are not offered, because SSH's CBC mode
+  is open to known plaintext-recovery attacks; a host set up to offer only CBC ciphers cannot be
+  reached. Passwords never go into `config.json`: they are kept
   by the system credential store (Windows DPAPI, macOS Keychain, Linux Secret Service), or only
   until quitting when that store is unavailable; the password field shows which and is left empty
   to keep it. A typed password replaces the saved one only when its settings are saved. Remote
@@ -1397,7 +1404,13 @@ importing the matching LizzieYzy Next settings.
   设置 > 连接服务 offers Java's two connections. **API Key** works with any OpenAI-compatible
   service: service address (`/v1` is added to an address without a path), key and model; 获取模型
   lists `/models`; requests stream from `/chat/completions` and fall back to `/responses` only when
-  the service answers 404 or 405; HTTPS is required except for a service on this computer. The
+  the service answers 404 or 405. HTTPS is required, except that `http://` is accepted for
+  `localhost`, `127.0.0.1`, the IPv6 loopback `[::1]` and a private network address written as
+  such: IPv4 `10.x.x.x`, `172.16.x.x`–`172.31.x.x` or `192.168.x.x` in plain dotted decimal, or an
+  IPv6 unique local address (`fc00::/7`, for example `http://[fd00::1]:8080`). A name is never
+  looked up to decide this, so a host name needs HTTPS even when it resolves to a private address,
+  and other spellings of an address (one number, octal or hexadecimal parts, IPv4 inside IPv6) are
+  refused. Plain HTTP is unencrypted: use it only on networks you trust. The
   key filled in from this session belongs to the saved address: changing the address empties the
   field, so 获取模型 never sends it to another service, and a model list still loading when the
   address or key changes is dropped (Java sent the filled key to the new address and offered the
@@ -1671,9 +1684,14 @@ importing the matching LizzieYzy Next settings.
   confirmation; experimental packages (Windows DirectML, OpenVINO, ROCm) are never recommended and
   ask first. Downloads resume and can be stopped (the partial file is kept for a later resume).
   Engine packages and the three Java models are checked against pinned SHA-256 digests and sizes,
-  the NVIDIA runtime against the digests in NVIDIA's release manifests (TensorRT and NVRTC are
-  pinned), and the strongest network against the digest katagotraining.org reports; other weights
-  from the online list are only checked against their download size (at least 1 MiB). A mismatch
+  the NVIDIA runtime against versions and digests built into the program (CUDA runtime, cuBLAS,
+  nvJitLink, NVRTC, cuDNN and TensorRT): NVIDIA's release manifests only say where to download,
+  and a manifest naming another version or digest is refused with the expected values. The
+  strongest network is checked against the digest katagotraining.org reports; other weights
+  from the online list are only checked against their download size (at least 1 MiB). The online
+  list keeps only rows whose download link is `https://` on katagotraining.org or one of its
+  subdomains and ends in a plain weight file name (`.bin.gz` or `.txt.gz`, no folders); other
+  rows are left out, as in Java. A mismatch
   deletes the partial file and is reported. An engine package can also be imported from a zip
   obtained elsewhere (accepted only when it is the same trusted package), a weight file
   (`.bin.gz`/`.txt.gz`) can be imported,
@@ -2064,8 +2082,8 @@ binary with its output and exits non-zero, like `cargo test --no-fail-fast`.
   escape twice, so that Java shows a stray backslash before `:`, `=`, `!`, `"`, a leading space or a
   `\uXXXX` sequence), and holds the earlier wording of entries the newer Java rewrote for behaviour
   this product does not have yet (the online-link prompt naming OGS links, the unavailable
-  评估此点 labels and tooltip, the AI 解说 address hints, the AI 陪练 subtitle and the Chinese
-  strength match tooltip). The function catalog keeps the same texts
+  评估此点 labels and tooltip, the AI 陪练 subtitle and the Chinese strength match tooltip).
+  The function catalog keeps the same texts
   (`tools/function_catalog/README.md`). Strings this product adds to Java's menus and catalog are kept by hand, in all six
   languages, in `ui/src/i18n/productStrings.json`; the script does not touch that file.
 
@@ -2264,8 +2282,9 @@ Official Linux executables are AppImages and require `/dev/fuse` plus `fusermoun
 library versions the system loader actually selects (read from its cache and soname links),
 minimum NVIDIA driver and CPU AVX2/FMA requirements. Unknown facts remain
 unknown and explicit verification reports runtime failures. Windows NVIDIA runtime components
-come from NVIDIA's redistributable archives: CUDA 12.8, cuDNN 9.8.0, NVRTC 12.8.61 and TensorRT
-10.9.0.34 are pinned, with license files kept next to the installed libraries.
+come from NVIDIA's redistributable archives: CUDA runtime 12.8.57, cuBLAS 12.8.3.14, nvJitLink
+12.8.61, NVRTC 12.8.61, cuDNN 9.8.0.87 and TensorRT 10.9.0.34 are pinned by version and SHA-256,
+with license files kept next to the installed libraries.
 
 Analysis is supported. Point evaluation (选点重点研究) is not supported by these releases. Official
 non-ONNX builds include upstream distributed support and are offered to 跑谱贡献 as not verified

@@ -36,24 +36,13 @@ const RANKS: { mode: "k" | "d"; num: number }[] = [
   ...Array.from({ length: 9 }, (_, k) => ({ mode: "d" as const, num: k + 1 })),
 ];
 
-/** TeacherSettings.validateBaseUrl, reporting with the dialog's messages (validateAddressInput). */
-function addressProblem(value: string): string | null {
-  let candidate = value.trim();
-  if (!candidate) return t("Teacher.settings.enterAddress");
-  while (candidate.endsWith("/")) candidate = candidate.slice(0, -1);
-  const invalid = t("Teacher.settings.invalidAddress");
-  if (/[?#]/.test(candidate)) return invalid;
-  let url: URL;
-  try {
-    url = new URL(candidate);
-  } catch {
-    return invalid;
-  }
-  const scheme = url.protocol.toLowerCase();
-  if ((scheme !== "https:" && scheme !== "http:") || !url.hostname || url.username || url.password) return invalid;
-  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (scheme === "http:" && !["localhost", "127.0.0.1", "::1", "0:0:0:0:0:0:0:1"].includes(host)) return invalid;
-  return null;
+/** validateAddressInput: the address is checked by the rule the connection itself uses
+ *  (TeacherSettings.validateBaseUrl, kept in the core); an empty one is asked for, any other refusal
+ *  says what an address must look like. */
+async function addressProblem(value: string): Promise<string | null> {
+  const checked = await connection({ type: "CheckApiAddress", base_url: value });
+  if (checked.ok) return null;
+  return value.trim() ? t("Teacher.settings.invalidAddress") : t("Teacher.settings.enterAddress");
 }
 
 /** TeacherSettings.validateModel. */
@@ -457,7 +446,10 @@ export function openSettings(host: Host): SettingsDialog {
   }
 
   getModels.onclick = async () => {
-    const problem = addressProblem(baseUrl.value);
+    const request = generation;
+    const ticket = ++listRequest;
+    const problem = await addressProblem(baseUrl.value);
+    if (closed || request !== generation || ticket !== listRequest) return;
     if (problem) {
       setStatus(problem);
       baseUrl.focus();
@@ -467,8 +459,6 @@ export function openSettings(host: Host): SettingsDialog {
       setStatus(t("Teacher.settings.enterKey"));
       return;
     }
-    const request = generation;
-    const ticket = ++listRequest;
     listing = true;
     setStatus(t("Teacher.settings.loadingModels"));
     render();
@@ -571,7 +561,10 @@ export function openSettings(host: Host): SettingsDialog {
       return;
     }
     if (!preferencesOnly && provider === "apiKey") {
-      const address = addressProblem(baseUrl.value);
+      saving = true;
+      const address = await addressProblem(baseUrl.value);
+      if (closed) return;
+      saving = false;
       if (address) {
         setStatus(address);
         baseUrl.focus();
