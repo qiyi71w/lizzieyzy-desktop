@@ -1380,6 +1380,7 @@ impl Workbench {
             game_outcome: None,
             game_notices: Vec::new(),
             engine_match: self.match_view(),
+            match_rules_caption: self.match_rules_caption(),
             pk_board: self.pk_board_view(),
             match_outcome: None,
             match_notices: Vec::new(),

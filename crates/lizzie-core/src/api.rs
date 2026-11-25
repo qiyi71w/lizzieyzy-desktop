@@ -648,6 +648,9 @@ pub enum Command {
     },
     /// 引擎对战.
     Match { op: MatchCommand },
+    /// 本局规则详情 (a click on the rules caption, Shift+D): the text of the rules the caption
+    /// shows; `Unchanged` when it shows no 本局规则. Only reads the frozen record.
+    InspectMatchRules,
     HumanSl { op: HumanSlCommand },
     /// 抓取死活题 参数设置 确定 (`CaptureTsumeGoSettings.saveSettings`).
     SetCaptureSettings {
@@ -1061,6 +1064,9 @@ pub enum CommandResult {
     /// Answer to [`Command::ClickReview`]; `None` when no move on the current line, the current
     /// node included, was played at the point.
     ClickReview { review: Option<ClickReviewView> },
+    /// Answer to [`Command::InspectMatchRules`]: the 本局规则详情 text, as the saved record's
+    /// 本局规则 block has it.
+    MatchRulesDetails { text: String },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
@@ -1671,6 +1677,10 @@ pub struct WorkbenchView {
     /// 人机对弈 messages, once each, in order.
     pub game_notices: Vec<GameNotice>,
     pub engine_match: Option<MatchView>,
+    /// The rules caption's 本局规则 summary (`EngineGamePresentation.matchRulesCaption`): while the
+    /// open document has a game's 本局规则 record, a match runs, or the last start is preparing or
+    /// failed. It replaces the foreground engine's rules caption; `None` otherwise.
+    pub match_rules_caption: Option<String>,
     /// The open document is an engine game (Java `Board.isPkBoard` with `isPkBoardKataB` /
     /// `isPkBoardKataW`; `WinrateGraph.isEngineOrPkGraphMode`): always while a match exists, its
     /// score side from the match's engines; else a document a match game was played on
