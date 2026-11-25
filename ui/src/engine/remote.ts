@@ -14,6 +14,7 @@ registerProduct({
     sshPasswordSession: "本次运行已记住；留空保持不变",
     sshPasswordMissing: "{0} 没有已保存的密码。输入密码并保存后再连接。",
     sshHostKeyChanged: "{0} 提供的主机密钥与之前信任的不同，连接已中止，未发送登录信息。\n之前信任：{1}\n本次提供：{2}\n只有确认服务器确实更换了密钥时，才信任新密钥。",
+    sshKnownHostsUnreadable: "无法读取已信任的主机密钥文件，已在发送登录信息前中止与 {0} 的连接，文件未作改动。\n文件：{1}\n请修复或恢复该文件。如果把它移走，下次连接时会直接信任各服务器提供的密钥。",
     sshTrustAndRetry: "信任新密钥并重试",
     sshTrust: "信任新密钥",
     sshEndedStatus: "远程引擎进程已在服务器上结束（退出码 {0}）。",
@@ -26,6 +27,7 @@ registerProduct({
     sshPasswordSession: "本次執行已記住；留空保持不變",
     sshPasswordMissing: "{0} 沒有已儲存的密碼。輸入密碼並儲存後再連線。",
     sshHostKeyChanged: "{0} 提供的主機金鑰與之前信任的不同，連線已中止，未傳送登入資訊。\n之前信任：{1}\n本次提供：{2}\n只有確認伺服器確實更換了金鑰時，才信任新金鑰。",
+    sshKnownHostsUnreadable: "無法讀取已信任的主機金鑰檔案，已在傳送登入資訊前中止與 {0} 的連線，檔案未作變更。\n檔案：{1}\n請修復或還原該檔案。如果把它移走，下次連線時會直接信任各伺服器提供的金鑰。",
     sshTrustAndRetry: "信任新金鑰並重試",
     sshTrust: "信任新金鑰",
     sshEndedStatus: "遠端引擎行程已在伺服器上結束（結束代碼 {0}）。",
@@ -38,6 +40,7 @@ registerProduct({
     sshPasswordSession: "Kept until you quit; leave empty to keep it",
     sshPasswordMissing: "No password is saved for {0}. Enter the password, save, then connect again.",
     sshHostKeyChanged: "{0} offered a host key other than the trusted one. The connection was stopped before any login was sent.\nTrusted: {1}\nOffered: {2}\nTrust the new key only if you know the server's key was changed.",
+    sshKnownHostsUnreadable: "The file of trusted host keys could not be read, so the connection to {0} was stopped before any login was sent. The file was left unchanged.\nFile: {1}\nRepair or restore the file. If you move it away instead, the next connection trusts whatever key each server offers.",
     sshTrustAndRetry: "Trust new key and retry",
     sshTrust: "Trust new key",
     sshEndedStatus: "The remote engine process ended on the server (exit code {0}).",
@@ -50,6 +53,7 @@ registerProduct({
     sshPasswordSession: "今回の実行中のみ保持。空欄のままなら変更なし",
     sshPasswordMissing: "{0} には保存済みのパスワードがありません。パスワードを入力して保存してから接続してください。",
     sshHostKeyChanged: "{0} が提示したホストキーが、以前に信頼したものと異なります。接続を中止しました。ログイン情報は送信していません。\n以前に信頼したキー：{1}\n今回提示されたキー：{2}\nサーバーのキーが実際に変更されたと確認できた場合のみ、新しいキーを信頼してください。",
+    sshKnownHostsUnreadable: "信頼済みホストキーのファイルを読み込めないため、ログイン情報を送信する前に {0} への接続を中止しました。ファイルは変更していません。\nファイル：{1}\nファイルを修復するか元に戻してください。ファイルを移動した場合、次回の接続では各サーバーが提示したキーをそのまま信頼します。",
     sshTrustAndRetry: "新しいキーを信頼して再試行",
     sshTrust: "新しいキーを信頼",
     sshEndedStatus: "リモートエンジンのプロセスがサーバー上で終了しました（終了コード {0}）。",
@@ -62,6 +66,7 @@ registerProduct({
     sshPasswordSession: "이번 실행 동안 기억됨. 비워 두면 그대로 유지",
     sshPasswordMissing: "{0}에 저장된 비밀번호가 없습니다. 비밀번호를 입력해 저장한 뒤 다시 연결하세요.",
     sshHostKeyChanged: "{0}이(가) 제시한 호스트 키가 이전에 신뢰한 키와 다릅니다. 연결을 중단했으며 로그인 정보는 보내지 않았습니다.\n이전에 신뢰한 키: {1}\n이번에 제시된 키: {2}\n서버의 키가 실제로 바뀐 것을 확인한 경우에만 새 키를 신뢰하세요.",
+    sshKnownHostsUnreadable: "신뢰한 호스트 키 파일을 읽을 수 없어 로그인 정보를 보내기 전에 {0} 연결을 중단했습니다. 파일은 변경하지 않았습니다.\n파일: {1}\n파일을 복구하거나 이전 상태로 되돌리세요. 파일을 다른 곳으로 옮기면 다음 연결 때 각 서버가 제시한 키를 그대로 신뢰합니다.",
     sshTrustAndRetry: "새 키 신뢰 후 다시 시도",
     sshTrust: "새 키 신뢰",
     sshEndedStatus: "원격 엔진 프로세스가 서버에서 종료되었습니다(종료 코드 {0}).",
@@ -74,6 +79,7 @@ registerProduct({
     sshPasswordSession: "จำไว้จนกว่าจะปิดโปรแกรม เว้นว่างไว้เพื่อคงเดิม",
     sshPasswordMissing: "ไม่มีรหัสผ่านที่บันทึกไว้สำหรับ {0} โปรดป้อนรหัสผ่านและบันทึก แล้วเชื่อมต่ออีกครั้ง",
     sshHostKeyChanged: "คีย์โฮสต์ที่ {0} ส่งมาไม่ตรงกับคีย์ที่เชื่อถือไว้ก่อนหน้า จึงหยุดการเชื่อมต่อแล้ว และยังไม่ได้ส่งข้อมูลเข้าสู่ระบบ\nคีย์ที่เชื่อถือ: {1}\nคีย์ที่ได้รับครั้งนี้: {2}\nเชื่อถือคีย์ใหม่เฉพาะเมื่อแน่ใจว่าเซิร์ฟเวอร์เปลี่ยนคีย์จริง",
+    sshKnownHostsUnreadable: "อ่านไฟล์คีย์โฮสต์ที่เชื่อถือไม่ได้ จึงหยุดการเชื่อมต่อกับ {0} ก่อนส่งข้อมูลเข้าสู่ระบบ และไม่ได้แก้ไขไฟล์\nไฟล์: {1}\nโปรดซ่อมแซมหรือกู้คืนไฟล์ หากย้ายไฟล์ออกไป การเชื่อมต่อครั้งถัดไปจะเชื่อถือคีย์ที่แต่ละเซิร์ฟเวอร์ส่งมาทันที",
     sshTrustAndRetry: "เชื่อถือคีย์ใหม่และลองอีกครั้ง",
     sshTrust: "เชื่อถือคีย์ใหม่",
     sshEndedStatus: "โปรเซสเอนจินระยะไกลบนเซิร์ฟเวอร์สิ้นสุดแล้ว (รหัสออก {0})",
@@ -90,6 +96,7 @@ export function remoteFailureText(r: RemoteFailure): string {
     case "Connect": return `${t("SSHController.engineFailed")}: ${r.detail || t("Leelaz.engineStartNoExceptionMessage")}`;
     case "PasswordMissing": return product("sshPasswordMissing", r.account);
     case "HostKeyChanged": return product("sshHostKeyChanged", `${r.host}:${r.port}`, r.trusted, r.offered);
+    case "KnownHostsUnreadable": return product("sshKnownHostsUnreadable", `${r.host}:${r.port}`, r.path);
     case "Ended":
       if (r.status !== null) return product("sshEndedStatus", r.status);
       if (r.signal !== null) return product("sshEndedSignal", r.signal);

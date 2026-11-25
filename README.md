@@ -975,7 +975,11 @@ importing the matching LizzieYzy Next settings.
   `ssh-known-hosts.json` beside `config.json`; a different key is refused before anything is
   sent, and the failure dialog shows both SHA-256 fingerprints with 信任新密钥并重试, which trusts
   only the key shown there and starts the engine again in the seat it failed in (in 双引擎模式 a
-  secondary engine stays the secondary one). The connection offers the SSH library's modern
+  secondary engine stays the secondary one). When `ssh-known-hosts.json` exists but cannot be read
+  or is not valid, every connection is refused before anything is sent, as in Java, and the file
+  is left as it is (信任新密钥并重试 does not rewrite it either); the failure names the file so it
+  can be repaired or restored. Moving it away makes the next connection to each host trust the key
+  that host offers. The connection offers the SSH library's modern
   algorithms first and, after all of them, the SHA-1 ones older servers may be limited to: the key
   exchanges `diffie-hellman-group14-sha1` and `diffie-hellman-group-exchange-sha1`, and the message
   authentication codes `hmac-sha1-etm@openssh.com` and `hmac-sha1`, as Java offers them. A current

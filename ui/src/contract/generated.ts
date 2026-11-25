@@ -3269,7 +3269,7 @@ port: string, user: string,
  */
 useKey: boolean, keyPath: string, };
 
-export type RemoteFailure = { "type": "Connect", detail: string, } | { "type": "Authentication" } | { "type": "PasswordMissing", account: string, } | { "type": "HostKeyChanged", host: string, port: number, trusted: string, offered: string, } | { "type": "Ended", status: number | null, signal: string | null, } | { "type": "Lost", detail: string, };
+export type RemoteFailure = { "type": "Connect", detail: string, } | { "type": "Authentication" } | { "type": "PasswordMissing", account: string, } | { "type": "HostKeyChanged", host: string, port: number, trusted: string, offered: string, } | { "type": "KnownHostsUnreadable", host: string, port: number, path: string, detail: string, } | { "type": "Ended", status: number | null, signal: string | null, } | { "type": "Lost", detail: string, };
 
 export type CloudStartFailure = { "type": "Token", key: string, } | { "type": "Unreachable" } | { "type": "Refused", detail: string, } | { "type": "Disconnected" } | { "type": "NotReady" };
 
