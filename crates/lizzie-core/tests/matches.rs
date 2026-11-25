@@ -162,14 +162,7 @@ impl Match {
                         }
                         continue;
                     }
-                    let text = match cmd.split(' ').next().unwrap() {
-                        "name" => "KataGo",
-                        "version" => "1.18.2",
-                        "list_commands" => COMMANDS,
-                        "kata-get-rules" => RULES,
-                        "kata-get-param" => "1.5",
-                        _ => "",
-                    };
+                    let text = usual_answer(cmd);
                     if cmd.starts_with("kata-analyze") {
                         self.out(instance, &format!("={id}"));
                         self.streams.insert(instance);
@@ -207,6 +200,17 @@ impl Match {
     fn successor(&mut self) {
         self.wb.engine_tick(Instant::now() + Duration::from_secs(1));
         self.serve(&|_, _| None);
+    }
+}
+/// What a controlled participant answers when a test does not say otherwise.
+fn usual_answer(command: &str) -> &'static str {
+    match command.split(' ').next().unwrap() {
+        "name" => "KataGo",
+        "version" => "1.18.2",
+        "list_commands" => COMMANDS,
+        "kata-get-rules" => RULES,
+        "kata-get-param" => "1.5",
+        _ => "",
     }
 }
 fn genmove() -> MatchSessionSettings {
@@ -1791,4 +1795,183 @@ fn a_start_stopped_before_any_rules_answer_leaves_no_match_rules() {
     assert_eq!(m.phase(), None);
     assert_eq!(caption(&m), None);
     assert_eq!(details(&m), None);
+}
+
+// A start that ends while the rules are being prepared. The controlled KataGo keeps the rules it
+// is given (Japanese at first), so the rules each engine holds after its handback can be read.
+const JAPANESE_FIELDS: &str = "Japanese / Korean (ko=SIMPLE, scoring=TERRITORY, tax=SEKI, suicide=false, hasButton=false, whiteHandicapBonus=0, friendlyPassOk=true)";
+
+#[derive(Default)]
+struct KeptRules(std::cell::RefCell<std::collections::HashMap<InstanceId, String>>);
+impl KeptRules {
+    fn of(&self, instance: InstanceId) -> lizzie_core::engine::rules::KataRules {
+        let rules = self.0.borrow().get(&instance).cloned();
+        lizzie_core::engine::rules::KataRules::parse(rules.as_deref().unwrap_or(JAPANESE_RULES)).unwrap()
+    }
+    /// `kata-set-rules` changes the engine's rules; `kata-get-rules` reads them.
+    fn run(&self, instance: InstanceId, command: &str) -> Option<String> {
+        if let Some(rules) = command.strip_prefix("kata-set-rules ") {
+            let rules = if rules == "chinese" { RULES } else { rules };
+            self.0.borrow_mut().insert(instance, rules.into());
+            return Some(String::new());
+        }
+        (command == "kata-get-rules").then(|| {
+            let rules = self.0.borrow().get(&instance).cloned();
+            rules.unwrap_or_else(|| JAPANESE_RULES.into())
+        })
+    }
+}
+
+fn japanese() -> lizzie_core::engine::rules::KataRules {
+    lizzie_core::engine::rules::KataRules::parse(JAPANESE_RULES).unwrap()
+}
+
+/// Serves `kept` engines; `instance` answers in order, so from its match's own `kata-get-rules`
+/// (its second, after the start-up one) on it keeps every command waiting. `refuse_query`
+/// refuses that match query instead of answering it.
+fn serve_holding_from_match_query(m: &mut Match, kept: &KeptRules, instance: InstanceId, refuse_query: bool) {
+    let queries = std::cell::Cell::new(0);
+    m.serve(&|i, command| {
+        if i == instance && command == "kata-get-rules" {
+            queries.set(queries.get() + 1);
+        }
+        if i == instance && queries.get() >= 2 {
+            return Some("HOLD".into());
+        }
+        kept.run(i, command)
+    });
+    // The held match query is refused when it is answered.
+    if refuse_query {
+        let at = m.held.iter().position(|(i, _, c)| *i == instance && c == "kata-get-rules").unwrap();
+        m.held[at].2 = "refuse".into();
+    }
+}
+
+/// `instance` now answers what it kept waiting, in order; everything after is served at once.
+fn answer_held(m: &mut Match, kept: &KeptRules, instance: InstanceId) -> Vec<(InstanceId, String)> {
+    let held = std::mem::take(&mut m.held);
+    let (mine, rest): (Vec<_>, Vec<_>) = held
+        .into_iter()
+        .partition(|(i, _, c)| *i == instance && !c.starts_with("genmove"));
+    m.held = rest;
+    for (_, id, command) in mine {
+        let text = if command == "refuse" {
+            "?rules query refused".to_string()
+        } else {
+            kept.run(instance, &command).unwrap_or_else(|| usual_answer(&command).into())
+        };
+        m.reply(instance, &id, &text);
+    }
+    m.serve(&|i, command| kept.run(i, command))
+}
+
+#[test]
+fn a_start_stopped_after_its_rules_were_sent_gives_each_engine_its_own_rules_back() {
+    let kept = KeptRules::default();
+    let mut m = Match::with_locale(Some("en-US"));
+    m.start(genmove());
+    let [first, second] = [m.world.ids()[0], m.world.ids()[1]];
+    // First is sent the match's query, the Chinese rules and their readback, and has answered
+    // none of them when the start is stopped.
+    serve_holding_from_match_query(&mut m, &kept, first, false);
+    assert_eq!(m.phase(), Some(MatchPhase::Starting));
+    m.command(MatchCommand::Stop);
+    m.serve(&|i, command| kept.run(i, command));
+    // It then answers them in order, taking the Chinese rules.
+    let handback = answer_held(&mut m, &kept, first);
+    assert_eq!(m.phase(), None);
+    let view = m.wb.view(false);
+    assert!(view.match_outcome.unwrap().unrestored.is_empty());
+    assert_eq!(view.engine.unrestored, None);
+    // The handback puts the rules the engine reported before back and reads them again.
+    assert_eq!(kept.of(first), japanese(), "{handback:?}");
+    let restore = handback
+        .iter()
+        .position(|(i, c)| *i == first && c.starts_with("kata-set-rules {"));
+    assert!(
+        restore.is_some_and(|at| handback[at..].iter().any(|(i, c)| *i == first && c == "kata-get-rules")),
+        "{handback:?}"
+    );
+    // Second, which had answered everything, is given back the same way.
+    assert_eq!(kept.of(second), japanese());
+}
+
+#[test]
+fn an_engine_whose_rules_before_the_match_are_unknown_is_not_given_back_as_usable() {
+    // The match's rules query is refused but the overlay is taken; with or without a stop, the
+    // engine cannot be put back to its own rules.
+    for stop in [false, true] {
+        let kept = KeptRules::default();
+        let mut m = Match::with_locale(Some("en-US"));
+        m.start(genmove());
+        let [first, second] = [m.world.ids()[0], m.world.ids()[1]];
+        serve_holding_from_match_query(&mut m, &kept, first, true);
+        if stop {
+            m.command(MatchCommand::Stop);
+            m.serve(&|i, command| kept.run(i, command));
+        }
+        answer_held(&mut m, &kept, first);
+        assert_eq!(m.phase(), None, "stop {stop}");
+        assert_ne!(kept.of(first), japanese(), "the overlay changed the engine (stop {stop})");
+        let view = m.wb.view(false);
+        assert_eq!(
+            view.match_outcome.unwrap().unrestored,
+            [UnrestoredReason::Restore],
+            "stop {stop}"
+        );
+        assert_eq!(view.engine.unrestored, Some(UnrestoredReason::Restore), "stop {stop}");
+        assert_eq!(kept.of(second), japanese(), "stop {stop}");
+    }
+}
+
+#[test]
+fn a_start_ending_after_a_rules_answer_keeps_it_as_the_last_observation() {
+    // First answers the match's rules query and has the Chinese rules and their readback still
+    // open; Second has its match query open. Then First's process ends, or the start is stopped.
+    for disconnect in [true, false] {
+        let kept = KeptRules::default();
+        let mut m = Match::with_locale(Some("en-US"));
+        m.start(genmove());
+        let [first, second] = [m.world.ids()[0], m.world.ids()[1]];
+        let queries = std::cell::RefCell::new(std::collections::HashMap::<InstanceId, usize>::new());
+        m.serve(&|i, command| {
+            let mut queries = queries.borrow_mut();
+            let asked = queries.entry(i).or_default();
+            *asked += usize::from(command == "kata-get-rules");
+            let first_match_query = i == first && *asked == 2 && command == "kata-get-rules";
+            (*asked >= 2 && !first_match_query)
+                .then(|| "HOLD".to_string())
+                .or_else(|| kept.run(i, command))
+        });
+        assert_eq!(m.phase(), Some(MatchPhase::Starting));
+        assert_eq!(caption(&m).as_deref(), Some("Checking match rules"));
+        if disconnect {
+            m.wb.engine_input(first, EngineInput::Exited(Some(1)));
+        } else {
+            m.command(MatchCommand::Stop);
+        }
+        m.serve(&|i, command| kept.run(i, command));
+        let expected_caption = "Black: Japanese / Korean / White: Japanese / Korean";
+        let expected = format!(
+            "Target: Chinese\nMatch rules could not be prepared.\nBlack: First (/opt/katago gtp)\nStatus: pending\nEffective rules unavailable: pending\nLast observed (not current): {JAPANESE_FIELDS}\nWhite: Second (/opt/katago gtp)\nStatus: pending\nEffective rules unavailable: pending\nLast observed (not current): {JAPANESE_FIELDS}"
+        );
+        assert_eq!(caption(&m).as_deref(), Some(expected_caption), "disconnect {disconnect}");
+        assert_eq!(details(&m).as_deref(), Some(expected.as_str()), "disconnect {disconnect}");
+        // Retired: the snapshot stays, and inspecting it asks no engine anything.
+        if !disconnect {
+            answer_held(&mut m, &kept, first);
+        }
+        answer_held(&mut m, &kept, second);
+        m.wb.engine_tick(Instant::now() + Duration::from_secs(120));
+        m.serve(&|i, command| kept.run(i, command));
+        assert_eq!(m.phase(), None);
+        for id in m.world.ids() {
+            m.world.take(id);
+        }
+        assert_eq!(caption(&m).as_deref(), Some(expected_caption), "disconnect {disconnect}");
+        assert_eq!(details(&m).as_deref(), Some(expected.as_str()), "disconnect {disconnect}");
+        for id in m.world.ids() {
+            assert!(m.world.take(id).is_empty());
+        }
+    }
 }

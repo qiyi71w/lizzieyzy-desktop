@@ -49,19 +49,35 @@ impl RulesReason {
 pub(super) struct SideRules {
     pub(super) can_set: bool,
     pub(super) can_query: bool,
+    /// The game's own `kata-get-rules` answer, before the overlay.
     pub(super) original: Option<KataRules>,
+    /// `Side.modifiedOrUncertain`: the game's rules were sent to the engine.
+    pub(super) modified: bool,
     pub(super) observed: Option<KataRules>,
     pub(super) status: RulesStatus,
     pub(super) reason: RulesReason,
 }
 
+/// What giving a participant back does about its rules (`EngineManager.restoreMatchRulesSide`).
+pub(super) enum RulesHandback<'a> {
+    /// The game's rules were never sent: nothing to undo.
+    Untouched,
+    /// Set these rules again and read them back.
+    Restore(&'a KataRules),
+    /// The game's rules were sent, but the rules before them are unknown or incomplete: the
+    /// engine cannot be put back and is left unrestored.
+    Unknown,
+}
+
 impl SideRules {
     /// A side about to be prepared: an engine without `kata-get-rules` cannot confirm any rules
-    /// (and is not given them, as in Java); `last_known` is what the engine reported before.
-    pub(super) fn prepare(can_query: bool, can_set: bool, last_known: Option<KataRules>) -> Self {
+    /// (and is not given them, as in Java); `last_known` is what the engine reported before;
+    /// `modified` whether the game's rules were sent to it.
+    pub(super) fn prepare(can_query: bool, can_set: bool, modified: bool, last_known: Option<KataRules>) -> Self {
         let mut side = SideRules {
             can_set,
             can_query,
+            modified,
             observed: last_known,
             ..SideRules::default()
         };
@@ -82,18 +98,30 @@ impl SideRules {
     }
 
     /// The engine answered `kata-get-rules` with `rules`. `original` marks the answer before the
-    /// overlay; with a setter the side stays pending until the overlay is read back.
+    /// overlay (the caller keeps it as `original`); with a setter the side stays pending until
+    /// the overlay is read back.
     pub(super) fn report(&mut self, rules: KataRules, original: bool) {
         if self.status != RulesStatus::Pending {
             return;
         }
         let complete = rules.has_required_fields();
-        if original {
-            self.original = Some(rules.clone());
-        }
         self.observed = Some(rules);
         if !original || !self.can_set || !complete {
             self.status = RulesStatus::Confirmed;
+        }
+    }
+
+    /// Whether the side settled, or answered the game's rules query, during the preparation.
+    pub(super) fn answered(&self) -> bool {
+        self.status != RulesStatus::Pending || self.original.is_some()
+    }
+
+    /// What its handback has to do about the engine's rules.
+    pub(super) fn handback(&self) -> RulesHandback<'_> {
+        match &self.original {
+            _ if !self.modified => RulesHandback::Untouched,
+            Some(original) if original.has_required_fields() => RulesHandback::Restore(original),
+            _ => RulesHandback::Unknown,
         }
     }
 
@@ -324,10 +352,14 @@ impl Workbench {
                     lines.push(
                         text("MatchRules.details.unavailable").replace("{0}", &text(rules.reason_or_status_key())),
                     );
-                    if let Some(observed) = observed
-                        .as_ref()
-                        .filter(|_| matches!(rules.status, RulesStatus::SetFailed | RulesStatus::QueryFailed))
-                    {
+                    // A failed operation's earlier report; in a failed preparation, a side still
+                    // pending had its operation cut off, so its report is not current either.
+                    let failed = match rules.status {
+                        RulesStatus::SetFailed | RulesStatus::QueryFailed => true,
+                        RulesStatus::Pending => snapshot.phase == RulesPhase::Failed,
+                        _ => false,
+                    };
+                    if let Some(observed) = observed.as_ref().filter(|_| failed) {
                         lines.push(
                             text("MatchRules.details.lastObserved")
                                 .replace("{0}", &self.match_rules_named_fields(observed)),
