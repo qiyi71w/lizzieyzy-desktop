@@ -61,14 +61,17 @@ body {
   color: var(--ds-accent-text);
 }
 
-/* ---- buttons */
+/* ---- buttons. A button or field is the dialog control height, taller once a line of the
+   interface size (the 1.4 line height, the border and 2px around it) no longer fits: at a larger
+   界面字体大小 scripts with marks above and below the line (Thai) stay inside the edge. Up to the
+   default size (12) it stays the control height. */
 :where(button, input, select, textarea) {
   margin: 0;
   font: inherit;
   color: inherit;
 }
 :where(button) {
-  height: var(--ds-control-h-l);
+  height: max(var(--ds-control-h-l), calc(var(--ds-size) * 1.4 + 6px));
   padding: 0 12px;
   border: 1px solid var(--ds-line-strong);
   border-radius: var(--ds-radius);
@@ -132,7 +135,7 @@ body {
 
 /* ---- text fields and menus */
 :where(input:not([type]), input[type="text"], input[type="number"], input[type="password"], input[type="search"], input[type="url"], select, textarea) {
-  height: var(--ds-control-h-l);
+  height: max(var(--ds-control-h-l), calc(var(--ds-size) * 1.4 + 6px));
   padding: 0 8px;
   border: 1px solid var(--ds-line-strong);
   border-radius: var(--ds-radius);
