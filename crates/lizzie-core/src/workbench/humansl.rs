@@ -22,7 +22,6 @@ pub(super) struct HumanSlFlow {
     continuation: Option<ExitContinuation>,
     ready_continuation: Option<HumanSlContinuation>,
     random: u64,
-    position_context: u64,
 }
 
 enum ExitContinuation {
@@ -49,6 +48,10 @@ struct Session {
     ai_ms: u64,
     failed: bool,
     request: Option<Request>,
+    /// The game's document and its position (Java `liveNode`): where the game stands, whatever
+    /// the board shows while the player browses. Moves and the AI's replies are played there.
+    doc: u64,
+    live: NodeId,
     generation: u64,
     training_start_node: Option<NodeId>,
     restore: Option<u64>,
@@ -59,10 +62,8 @@ struct Session {
 struct Request {
     id: String,
     generation: u64,
-    doc: u64,
     node: NodeId,
     stamp: u64,
-    position_context: u64,
     /// When the AI's turn began: the think time counts from here, across a retry.
     started: Instant,
     deadline: Instant,
@@ -70,6 +71,8 @@ struct Request {
     phase: Search,
     /// A policy level's legal moves from its probe, the pass left out.
     candidates: Vec<humansl::Candidate>,
+    /// Where the AI may pass, whether players of a policy level would mostly pass here.
+    human_pass: bool,
     /// The human policy's share on its most popular move, which paces the reply.
     top_share: Option<f64>,
     selected: Option<String>,
@@ -86,6 +89,13 @@ enum Search {
     Play,
     Pacing,
 }
+/// Where the board stood for an action on the game: on the game's position, brought back to it
+/// from a browsed one, or nowhere, the game being gone.
+enum GameShown {
+    Already,
+    Returned,
+    Ended,
+}
 
 fn refused(key: &str) -> CommandResult {
     CommandResult::Refused {
@@ -93,9 +103,6 @@ fn refused(key: &str) -> CommandResult {
     }
 }
 impl Workbench {
-    pub(super) fn human_sl_position_changed(&mut self) {
-        self.human_sl.position_context = self.human_sl.position_context.wrapping_add(1);
-    }
     pub fn human_sl_active(&self) -> bool {
         self.human_sl.session.is_some()
     }
@@ -264,6 +271,8 @@ impl Workbench {
             ai_ms: 0,
             failed: false,
             request: None,
+            doc: self.doc.id,
+            live: self.cursor,
             generation: 0,
             training_start_node: None,
             restore: None,
@@ -374,6 +383,8 @@ impl Workbench {
         s.stage = HumanSlStartupStage::Ready;
         s.request = None;
         s.turn = now;
+        s.doc = self.doc.id;
+        s.live = self.cursor;
         if current {
             s.training_start_node = Some(self.cursor);
         }
@@ -408,17 +419,27 @@ impl Workbench {
         self.human_sl_exit(false);
     }
 
+    /// The player's stone at `point`, or pass. While the player browses, the board only goes back
+    /// to the game's position, saying so; the move or pass is not played (Java `atLiveGame`).
     pub(super) fn human_sl_human_move(&mut self, point: Option<Point>) -> CommandResult {
-        let Some(s) = self.human_sl.session.as_ref() else {
-            return CommandResult::Unchanged;
-        };
-        if s.phase != HumanSlPhase::Playing
-            || s.request.is_some()
-            || self.doc.record.node(self.cursor).to_play != s.human
+        if !self
+            .human_sl
+            .session
+            .as_ref()
+            .is_some_and(|s| s.phase == HumanSlPhase::Playing)
         {
             return CommandResult::Unchanged;
         }
-        if !self.human_sl_commit(point) {
+        match self.human_sl_to_game() {
+            GameShown::Ended => return CommandResult::Done,
+            GameShown::Returned => {
+                self.human_sl.notices.push(HumanSlNotice::BackToLiveGame);
+                return CommandResult::Done;
+            }
+            GameShown::Already => {}
+        }
+        let s = self.human_sl.session.as_ref().unwrap();
+        if s.request.is_some() || self.doc.record.node(s.live).to_play != s.human || !self.human_sl_commit(point) {
             return CommandResult::Unchanged;
         }
         let now = Instant::now();
@@ -429,36 +450,73 @@ impl Workbench {
         CommandResult::Done
     }
 
-    fn human_sl_commit(&mut self, point: Option<Point>) -> bool {
-        let color = self.doc.record.node(self.cursor).to_play;
-        let force = self
+    /// Shows the game's position again after the player browsed (Java `returnToGamePosition`).
+    /// The session ends instead when the game's document was replaced or its moves deleted.
+    fn human_sl_to_game(&mut self) -> GameShown {
+        let Some(s) = self.human_sl.session.as_ref() else {
+            return GameShown::Ended;
+        };
+        let live = s.live;
+        if s.doc != self.doc.id || !self.doc.record.contains(live) {
+            self.human_sl_lost_game();
+            return GameShown::Ended;
+        }
+        if self.browse_to(live) {
+            GameShown::Returned
+        } else {
+            GameShown::Already
+        }
+    }
+
+    /// The game's position is gone or changed: the session ends, saying so when the game's moves
+    /// were deleted (Java `gameMovesDeleted`); a replaced document ends it silently.
+    fn human_sl_lost_game(&mut self) {
+        if self
             .human_sl
             .session
             .as_ref()
-            .is_some_and(|s| s.training_start_node == Some(self.cursor));
+            .is_some_and(|s| s.doc == self.doc.id && !self.doc.record.contains(s.live))
+        {
+            self.human_sl.notices.push(HumanSlNotice::GameMovesDeleted);
+        }
+        self.human_sl_exit(true);
+    }
+
+    /// Plays `point` (`None` a pass) for the side to move at the game's position, which the board
+    /// shows, and moves the game on to it.
+    fn human_sl_commit(&mut self, point: Option<Point>) -> bool {
+        let Some(s) = self.human_sl.session.as_ref() else {
+            return false;
+        };
+        let at = s.live;
+        let force = s.training_start_node == Some(at);
+        let color = self.doc.record.node(at).to_play;
         let rules = self.play_rules();
         let edit = match (point, force) {
             (Some(point), true) => DocumentEdit::PlayBranch {
-                at: self.cursor,
+                at,
                 color,
                 point,
                 rules,
             },
             (Some(point), false) => DocumentEdit::Play {
-                at: self.cursor,
+                at,
                 color,
                 point,
                 alternate: false,
                 rules,
             },
-            (None, true) => DocumentEdit::PassBranch { at: self.cursor, color },
-            (None, false) => DocumentEdit::Pass { at: self.cursor, color },
+            (None, true) => DocumentEdit::PassBranch { at, color },
+            (None, false) => DocumentEdit::Pass { at, color },
         };
         let Ok(applied) = self.apply_edit(edit) else {
             return false;
         };
         let Some(node) = applied.node else { return false };
         self.move_to(node);
+        if let Some(s) = self.human_sl.session.as_mut() {
+            s.live = node;
+        }
         true
     }
 
@@ -555,7 +613,7 @@ impl Workbench {
     pub(super) fn human_sl_view(&self) -> Option<HumanSlView> {
         let s = self.human_sl.session.as_ref()?;
         let playing = s.phase == HumanSlPhase::Playing;
-        let human_turn = playing && self.doc.record.node(self.cursor).to_play == s.human;
+        let human_turn = playing && self.doc.record.node(s.live).to_play == s.human;
         Some(HumanSlView {
             id: s.id,
             phase: s.phase,

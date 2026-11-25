@@ -7,7 +7,7 @@ use lizzie_core::engine::{
     runtime::{EngineInput, EngineIo, InstanceId, KataParam, Launcher},
 };
 use lizzie_core::humansl::{CoachLevel, Pace};
-use lizzie_core::record::{Point, Stone, ROOT};
+use lizzie_core::record::{DocumentEdit, NodeId, NodeKind, Point, Stone, ROOT};
 use lizzie_core::settings::{self, Config, HumanSlTrainingSettings, PlayerColor, Storage, TrainingMode};
 use lizzie_core::workbench::Workbench;
 use serde_json::{json, Value};
@@ -314,29 +314,6 @@ fn from_current_forces_a_new_variation_for_stone_and_pass() {
     }
 }
 #[test]
-fn stale_ai_result_ends_session_without_moving_the_navigated_position() {
-    let mut f = fixture(true);
-    let id = start(&mut f, settings(PlayerColor::Black), false);
-    ready(&mut f, id);
-    f.wb.edit(EditCommand::Play {
-        point: Point { x: 0, y: 0 },
-        color: None,
-    })
-    .unwrap();
-    let q = f.world.query(id);
-    f.wb.navigate(Navigation::First);
-    let before = f.wb.cursor();
-    out(
-        &mut f.wb,
-        id,
-        json!({"id":q["id"],"humanPolicy":{"D4":1.0},"moveInfos":[]}),
-    );
-    assert_eq!(f.wb.cursor(), before);
-    assert_eq!(before, ROOT);
-    assert!(f.wb.inspect().human_sl.is_none());
-    assert!(f.world.dead(id));
-}
-#[test]
 fn early_ai_pass_is_retried_then_reported_and_retry_ai_recovers() {
     let mut f = fixture(true);
     let id = start(&mut f, settings(PlayerColor::White), false);
@@ -518,20 +495,6 @@ fn active_t20_game_refuses_humansl_start() {
         matches!(f.wb.human_sl(HumanSlCommand::Start {settings:settings(PlayerColor::Black),from_current:false,advanced_visible:false,stop_batch:false}).unwrap(),CommandResult::Refused {message_key} if message_key=="LizzieFrame.engineGameStopFirstHint")
     );
     assert!(f.wb.inspect().human_sl.is_none());
-}
-
-#[test]
-fn ai_pass_after_move_200_is_committed_and_announced() {
-    let mut f = fixture(true);
-    for _ in 0..200 {
-        f.wb.edit(EditCommand::Pass).unwrap();
-    }
-    let id = start(&mut f, settings(PlayerColor::White), true);
-    ready(&mut f, id);
-    answer(&mut f, id, "pass");
-    let view = f.wb.inspect();
-    assert_eq!(view.position.move_number, 201);
-    assert!(view.human_sl_notices.contains(&HumanSlNotice::AiPassed));
 }
 
 #[test]
@@ -1043,8 +1006,11 @@ fn failed_attempts_restart_the_companion_and_retry_ai_starts_fresh() {
     }
 }
 
+/// Browsing back to where a game from the current position started, a stone or a pass there only
+/// brings the board back: neither the record's line nor a new variation at the start gets the
+/// move, and nothing is played on the game's position.
 #[test]
-fn returning_to_training_start_always_creates_a_fresh_variation() {
+fn a_move_at_the_training_start_while_browsing_never_branches_there() {
     for pass in [false, true] {
         let mut f = fixture(true);
         let original_move = if pass {
@@ -1061,46 +1027,18 @@ fn returning_to_training_start_always_creates_a_fresh_variation() {
         let worker = start(&mut f, settings(PlayerColor::Black), true);
         ready(&mut f, worker);
         f.wb.edit(original_move.clone()).unwrap();
-        let first_training_child = f.wb.cursor();
         answer(&mut f, worker, "Q16");
+        let live = f.wb.cursor();
         f.wb.navigate(Navigation::First);
-        f.wb.edit(original_move).unwrap();
-        let replayed = f.wb.cursor();
-        assert_ne!(replayed, original);
-        assert_ne!(replayed, first_training_child);
-        assert_eq!(f.wb.document().record.node(ROOT).children.len(), 3);
-        assert_eq!(f.wb.document().record.node(ROOT).children[0], original);
-        assert!(f.wb.document().record.node(original).children.is_empty());
+        assert_eq!(f.wb.edit(original_move).unwrap(), CommandResult::Done);
+        let record = &f.wb.document().record;
+        assert_eq!(record.node(ROOT).children.len(), 2);
+        assert_eq!(record.node(ROOT).children[0], original);
+        assert!(record.node(original).children.is_empty());
+        assert_eq!(f.wb.cursor(), live);
+        assert!(record.node(live).children.is_empty());
+        assert!(f.wb.inspect().human_sl_notices.contains(&HumanSlNotice::BackToLiveGame));
     }
-}
-
-#[test]
-fn navigating_away_and_back_invalidates_the_in_flight_ai_request() {
-    let mut f = fixture(true);
-    let worker = start(&mut f, settings(PlayerColor::Black), false);
-    ready(&mut f, worker);
-    f.wb.edit(EditCommand::Play {
-        point: Point { x: 0, y: 0 },
-        color: None,
-    })
-    .unwrap();
-    let requested_node = f.wb.cursor();
-    let revision = f.wb.document().revision;
-    let query = f.world.query(worker);
-    assert!(f.wb.navigate(Navigation::First));
-    assert!(f.wb.navigate(Navigation::Forward(1)));
-    assert_eq!(f.wb.cursor(), requested_node);
-    out(
-        &mut f.wb,
-        worker,
-        json!({"id": query["id"], "humanPolicy": {"D4": 1.0},
-            "moveInfos": [{"move": "D4", "order": 0, "utility": 0.0}]}),
-    );
-    answer(&mut f, worker, "D4");
-    assert!(f.wb.inspect().human_sl.is_none());
-    assert_eq!(f.wb.cursor(), requested_node);
-    assert_eq!(f.wb.document().revision, revision);
-    assert!(f.wb.document().record.node(requested_node).children.is_empty());
 }
 
 #[test]
@@ -1300,4 +1238,322 @@ fn abort_then_during_preparation_restores_without_setting_up_the_game() {
     assert_eq!(f.wb.document().revision, revision);
     assert_eq!(published_continuation(&mut f), "NewGame");
     assert_eq!(published_continuation(&mut f), Value::Null);
+}
+
+fn click(f: &mut Fixture, x: u16, y: u16) -> CommandResult {
+    f.wb.edit(EditCommand::Play {
+        point: Point { x, y },
+        color: None,
+    })
+    .unwrap()
+}
+fn kind(f: &Fixture, node: NodeId) -> NodeKind {
+    f.wb.document().record.node(node).kind
+}
+
+/// The board is browsed back two moves while the AI thinks: the game goes on, and the reply is
+/// played on the game's position with the board back on it (B2 `applyAiMoveIfCurrent`).
+#[test]
+fn browsing_back_while_the_ai_thinks_keeps_the_game_and_the_reply_brings_the_board_back() {
+    let mut f = fixture(true);
+    let id = start(&mut f, settings(PlayerColor::Black), false);
+    ready(&mut f, id);
+    click(&mut f, 3, 3);
+    answer(&mut f, id, "Q16");
+    click(&mut f, 15, 15);
+    let live = f.wb.cursor();
+    assert!(f.wb.inspect().human_sl.unwrap().ai_thinking);
+    assert!(f.wb.navigate(Navigation::Back(1)));
+    assert!(f.wb.navigate(Navigation::Back(1)));
+    assert_eq!(f.wb.inspect().position.move_number, 1);
+    answer(&mut f, id, "D4");
+    let view = f.wb.inspect();
+    let session = view.human_sl.expect("the game goes on");
+    assert_eq!(session.phase, HumanSlPhase::Playing);
+    assert!(session.human_turn && !session.ai_thinking);
+    assert_eq!(view.position.move_number, 4);
+    assert_eq!(f.wb.document().record.parent(f.wb.cursor()), Some(live));
+    assert!(matches!(
+        kind(&f, f.wb.cursor()),
+        NodeKind::Move {
+            color: Stone::White,
+            point: Point { x: 3, y: 15 }
+        }
+    ));
+}
+
+/// On the player's turn a click on an earlier position only brings the board back; the next
+/// click plays (B2 `onBoardClicked` → `atLiveGame`).
+#[test]
+fn a_click_on_an_earlier_position_brings_the_board_back_and_the_next_click_plays() {
+    let mut f = fixture(true);
+    let id = start(&mut f, settings(PlayerColor::Black), false);
+    ready(&mut f, id);
+    click(&mut f, 3, 3);
+    answer(&mut f, id, "Q16");
+    let live = f.wb.cursor();
+    let revision = f.wb.document().revision;
+    assert!(f.wb.navigate(Navigation::First));
+    assert_eq!(click(&mut f, 15, 15), CommandResult::Done);
+    assert_eq!(f.wb.cursor(), live);
+    assert_eq!(f.wb.document().revision, revision);
+    assert!(f.wb.document().record.node(live).children.is_empty());
+    let view = f.wb.inspect();
+    assert!(view.human_sl.unwrap().human_turn);
+    assert!(view.human_sl_notices.contains(&HumanSlNotice::BackToLiveGame));
+    assert_eq!(click(&mut f, 15, 15), CommandResult::Done);
+    assert_eq!(f.wb.document().record.parent(f.wb.cursor()), Some(live));
+    assert_eq!(f.wb.inspect().position.move_number, 3);
+    assert!(f.wb.inspect().human_sl.unwrap().ai_thinking);
+}
+
+/// 停一手 on an earlier position only brings the board back to the game's position, saying so;
+/// the next 停一手 passes there (B2 `humanPass` → `atLiveGame`).
+#[test]
+fn pass_on_an_earlier_position_brings_the_board_back_and_the_next_pass_passes() {
+    for keyboard in [false, true] {
+        let mut f = fixture(true);
+        let id = start(&mut f, settings(PlayerColor::Black), false);
+        ready(&mut f, id);
+        click(&mut f, 3, 3);
+        answer(&mut f, id, "Q16");
+        let live = f.wb.cursor();
+        let revision = f.wb.document().revision;
+        assert!(f.wb.navigate(Navigation::Back(2)));
+        let pass = |f: &mut Fixture| {
+            if keyboard {
+                f.wb.edit(EditCommand::Pass).unwrap()
+            } else {
+                f.wb.human_sl(HumanSlCommand::Pass).unwrap()
+            }
+        };
+        assert_eq!(pass(&mut f), CommandResult::Done);
+        assert_eq!(f.wb.cursor(), live);
+        assert_eq!(f.wb.document().revision, revision);
+        assert!(f.wb.document().record.node(live).children.is_empty());
+        let view = f.wb.inspect();
+        assert!(view.human_sl_notices.contains(&HumanSlNotice::BackToLiveGame));
+        assert!(view.human_sl.unwrap().human_turn);
+        assert_eq!(pass(&mut f), CommandResult::Done);
+        assert_eq!(f.wb.document().record.parent(f.wb.cursor()), Some(live));
+        assert_eq!(kind(&f, f.wb.cursor()), NodeKind::Pass { color: Stone::Black });
+        assert!(f.wb.inspect().human_sl.unwrap().ai_thinking);
+    }
+}
+
+/// A reply that arrives after the game was ended is dropped and never reaches the record.
+#[test]
+fn a_reply_arriving_after_the_game_ended_is_dropped() {
+    let mut f = fixture(true);
+    let id = start(&mut f, settings(PlayerColor::Black), false);
+    ready(&mut f, id);
+    click(&mut f, 3, 3);
+    let live = f.wb.cursor();
+    assert!(f.wb.navigate(Navigation::First));
+    f.wb.human_sl(HumanSlCommand::Finish).unwrap();
+    let revision = f.wb.document().revision;
+    answer(&mut f, id, "Q16");
+    assert!(f.wb.inspect().human_sl.is_none());
+    assert_eq!(f.wb.cursor(), ROOT);
+    assert_eq!(f.wb.document().revision, revision);
+    assert!(f.wb.document().record.node(live).children.is_empty());
+}
+
+/// Deleting the moves at the game's position ends the session with a message, when the AI's
+/// reply arrives or the player next acts (B2 `returnToGamePosition`, `gameMovesDeleted`).
+#[test]
+fn deleting_the_games_moves_ends_the_session_with_a_message() {
+    for ai_thinking in [true, false] {
+        let mut f = fixture(true);
+        let id = start(&mut f, settings(PlayerColor::Black), false);
+        ready(&mut f, id);
+        click(&mut f, 3, 3);
+        if !ai_thinking {
+            answer(&mut f, id, "Q16");
+        }
+        let live = f.wb.cursor();
+        assert!(f.wb.navigate(Navigation::First));
+        assert!(f.wb.edit_document(DocumentEdit::Remove { node: live }).unwrap());
+        let revision = f.wb.document().revision;
+        if ai_thinking {
+            answer(&mut f, id, "Q16");
+        } else {
+            assert_eq!(click(&mut f, 15, 15), CommandResult::Done);
+        }
+        let view = f.wb.inspect();
+        assert!(view.human_sl.is_none(), "ai thinking: {ai_thinking}");
+        assert!(view.human_sl_notices.contains(&HumanSlNotice::GameMovesDeleted));
+        assert!(f.world.dead(id));
+        assert_eq!(f.wb.cursor(), ROOT);
+        assert_eq!(f.wb.document().revision, revision);
+        assert_eq!(f.wb.document().record.nodes().count(), if ai_thinking { 1 } else { 2 });
+    }
+}
+
+/// `n` stones, Black from the top rows down and White from the bottom rows up, none captured.
+fn fill(f: &mut Fixture, n: u16) {
+    for i in 0..n {
+        let k = i / 2;
+        let (x, y) = (k % 19, k / 19);
+        click(f, x, if i % 2 == 0 { y } else { 18 - y });
+    }
+}
+/// The AI's turn after `stones` stones of an earlier game, continued from there; with none, the
+/// player's pass that opens a new game.
+fn ai_turn(level: CoachLevel, stones: u16) -> (Fixture, InstanceId) {
+    let mut f = fixture(true);
+    fill(&mut f, stones);
+    // The AI has the side to play after the stones; the player passes first in a new game.
+    let human = if stones > 0 && stones % 2 == 0 {
+        PlayerColor::White
+    } else {
+        PlayerColor::Black
+    };
+    let s = HumanSlTrainingSettings {
+        player_color: human,
+        ..self::level(level, Pace::Fast)
+    };
+    let id = start(&mut f, s, stones > 0);
+    ready(&mut f, id);
+    if stones == 0 {
+        assert_eq!(f.wb.human_sl(HumanSlCommand::Pass).unwrap(), CommandResult::Done);
+    }
+    (f, id)
+}
+/// KataGo's search: `top` first, then `second`, with their score leads.
+fn infos(top: (&str, f64), second: (&str, f64)) -> Value {
+    json!([
+        {"move":top.0,"order":0,"visits":50,"utility":0.1,"scoreLead":top.1},
+        {"move":second.0,"order":1,"visits":10,"utility":0.0,"scoreLead":second.1}
+    ])
+}
+/// Answers the companion's queries with `policy` and the search's `infos` until it asks no more,
+/// then lets the reply's think time pass; returns the visits each query asked for.
+fn respond(f: &mut Fixture, id: InstanceId, policy: Value, infos: Value) -> Vec<u64> {
+    let mut visits = Vec::new();
+    for _ in 0..6 {
+        let pending = f.world.take(id);
+        if pending.is_empty() {
+            break;
+        }
+        for text in pending {
+            let q: Value = serde_json::from_str(&text).unwrap();
+            if q.get("action").is_some() {
+                continue;
+            }
+            visits.push(q["maxVisits"].as_u64().unwrap());
+            out(
+                &mut f.wb,
+                id,
+                json!({"id":q["id"],"humanPolicy":policy,"moveInfos":infos}),
+            );
+        }
+    }
+    f.wb.engine_tick(Instant::now() + Duration::from_secs(15));
+    visits
+}
+fn ai_move(f: &Fixture) -> NodeKind {
+    let view = f.wb.inspect();
+    assert!(view.human_sl.unwrap().human_turn, "the AI has moved");
+    kind(f, f.wb.cursor())
+}
+/// A policy level, which asks KataGo separately whether to pass, and a search level.
+const LEVELS: [CoachLevel; 2] = [CoachLevel::Kyu5, CoachLevel::Dan3];
+
+/// From 40% of the board on (move 145 of 361 points), well before move 200, the AI passes when
+/// KataGo's search says so (B2 `HumanSlAnalysisRunner.mayPass`, `PASS_BOARD_SHARE`).
+#[test]
+fn the_ai_passes_when_katago_says_so_once_forty_percent_of_the_board_is_played() {
+    for level in LEVELS {
+        let (mut f, id) = ai_turn(level, 145);
+        let visits = respond(
+            &mut f,
+            id,
+            json!({"K10":0.7,"pass":0.3}),
+            infos(("pass", 0.5), ("K10", 0.4)),
+        );
+        assert_eq!(ai_move(&f), NodeKind::Pass { color: Stone::White }, "{level:?}");
+        assert_eq!(f.wb.inspect().position.move_number, 146);
+        assert!(f.wb.inspect().human_sl_notices.contains(&HumanSlNotice::AiPassed));
+        if level == CoachLevel::Kyu5 {
+            assert_eq!(visits, [1, 40], "the policy level checks with KataGo's own search");
+        }
+    }
+}
+
+/// Below 40% (move 144 < 0.4 × 361) and without the player's pass the AI plays on although
+/// KataGo would pass; a policy level does not ask.
+#[test]
+fn before_forty_percent_the_ai_does_not_pass_unless_the_player_just_passed() {
+    for level in LEVELS {
+        let (mut f, id) = ai_turn(level, 144);
+        let visits = respond(
+            &mut f,
+            id,
+            json!({"K10":0.7,"pass":0.3}),
+            infos(("pass", 0.5), ("K10", 0.4)),
+        );
+        assert_eq!(
+            ai_move(&f),
+            NodeKind::Move {
+                color: Stone::Black,
+                point: Point { x: 9, y: 9 }
+            },
+            "{level:?}"
+        );
+        if level == CoachLevel::Kyu5 {
+            assert_eq!(visits, [1]);
+        }
+    }
+}
+
+/// Right after the player's pass the AI may pass on the first move: when KataGo's top move is a
+/// pass, and when passing too gives up at most a point (B2 `SearchView.passEnds`,
+/// `PASS_TOLERANCE_POINTS`).
+#[test]
+fn after_the_players_pass_the_ai_may_pass_early() {
+    for level in LEVELS {
+        for top in [("pass", 0.5), ("K10", 0.8), ("K10", 1.0)] {
+            let second = if top.0 == "pass" { ("K10", 0.4) } else { ("pass", 0.0) };
+            let (mut f, id) = ai_turn(level, 0);
+            respond(&mut f, id, json!({"K10":0.7,"pass":0.3}), infos(top, second));
+            assert_eq!(ai_move(&f), NodeKind::Pass { color: Stone::White }, "{level:?} {top:?}");
+            assert_eq!(f.wb.inspect().position.move_number, 2);
+        }
+    }
+    // Passing would cost 1.5 points: the AI plays on.
+    let (mut f, id) = ai_turn(CoachLevel::Kyu5, 0);
+    respond(
+        &mut f,
+        id,
+        json!({"K10":0.7,"pass":0.3}),
+        infos(("K10", 1.5), ("pass", 0.0)),
+    );
+    assert!(matches!(
+        ai_move(&f),
+        NodeKind::Move {
+            color: Stone::White,
+            ..
+        }
+    ));
+}
+
+/// When most players of a policy level would pass but KataGo still sees a point that matters, the
+/// AI plays KataGo's move rather than what is left of the human policy (B2 `HUMAN_PASS_SHARE`).
+#[test]
+fn a_policy_level_that_would_pass_plays_katagos_point_instead() {
+    let (mut f, id) = ai_turn(CoachLevel::Kyu5, 0);
+    respond(
+        &mut f,
+        id,
+        json!({"K10":0.4,"pass":0.6}),
+        infos(("Q16", 3.0), ("pass", 0.0)),
+    );
+    assert_eq!(
+        ai_move(&f),
+        NodeKind::Move {
+            color: Stone::White,
+            point: Point { x: 15, y: 3 }
+        }
+    );
 }

@@ -76,6 +76,11 @@ pub struct HumanSlView {
 pub enum HumanSlNotice {
     AiPassed,
     AiMoveFailed,
+    /// The player acted on a position browsed back to: the board shows the game's position again
+    /// (`HumanSlGame.backToLiveGame`).
+    BackToLiveGame,
+    /// The game's moves were deleted, which ended the session (`HumanSlGame.gameMovesDeleted`).
+    GameMovesDeleted,
     StartFailed { reason: String, detail: Option<String> },
     ExitRecoveryFailed,
     Ended,

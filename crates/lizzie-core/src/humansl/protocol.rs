@@ -201,12 +201,3 @@ pub fn policy(response: &Value, record: &GameRecord, node: NodeId, allow_pass: b
     }
     moves
 }
-
-/// Whether the search's top move is a pass.
-pub fn prefers_pass(response: &Value) -> bool {
-    response["moveInfos"]
-        .as_array()
-        .and_then(|infos| infos.iter().min_by_key(|m| m["order"].as_u64().unwrap_or(u64::MAX)))
-        .and_then(|m| m["move"].as_str())
-        .is_some_and(|v| v.trim().eq_ignore_ascii_case("pass"))
-}

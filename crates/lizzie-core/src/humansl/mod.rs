@@ -2,6 +2,7 @@
 //! long the AI appears to think, and the analysis protocol. No application or process state.
 pub mod choose;
 mod level;
+pub mod passing;
 pub mod protocol;
 mod think_time;
 
