@@ -324,7 +324,9 @@ function circle(g: CanvasRenderingContext2D, x: number, y: number, r: number) {
   g.arc(x, y, r, 0, Math.PI * 2);
 }
 
-const patterns = new WeakMap<CanvasRenderingContext2D, Map<HTMLImageElement, CanvasPattern>>();
+/** Each context's pattern of the texture it tiles last (a context tiles one texture: its board's or
+ *  its wallpaper), so that a texture replaced is not kept. */
+const patterns = new WeakMap<CanvasRenderingContext2D, { img: HTMLImageElement; pattern: CanvasPattern }>();
 
 /** Tile `img` over the rect with the texture anchored at (ax, ay) (TexturePaint semantics). */
 function drawTexture(g: CanvasRenderingContext2D, img: HTMLImageElement | undefined, x: number, y: number, w: number, h: number, ax = x, ay = y) {
@@ -333,12 +335,10 @@ function drawTexture(g: CanvasRenderingContext2D, img: HTMLImageElement | undefi
     g.fillRect(x, y, w, h);
     return;
   }
-  let byImage = patterns.get(g);
-  if (!byImage) patterns.set(g, (byImage = new Map()));
-  let pattern = byImage.get(img);
-  if (!pattern) byImage.set(img, (pattern = g.createPattern(img, "repeat")!));
-  pattern.setTransform(new DOMMatrix([1, 0, 0, 1, ax, ay]));
-  g.fillStyle = pattern;
+  let tiled = patterns.get(g);
+  if (tiled?.img !== img) patterns.set(g, (tiled = { img, pattern: g.createPattern(img, "repeat")! }));
+  tiled.pattern.setTransform(new DOMMatrix([1, 0, 0, 1, ax, ay]));
+  g.fillStyle = tiled.pattern;
   g.fillRect(x, y, w, h);
 }
 
@@ -365,11 +365,16 @@ function boardFill(g: CanvasRenderingContext2D, x: number, y: number, w: number,
 
 /** jhlabs GaussianFilter(radius) on an opaque region: makeKernel (sigma = radius / 3, taps beyond
  * the radius zeroed, normalised), then two convolveAndTranspose passes with CLAMP_EDGES, each
- * rounding to (int)(v + 0.5). Canvas `filter` is not used: WebKitGTK ignores it. */
-function blurRegion(g: CanvasRenderingContext2D, r: Rect, radius: number) {
-  const dpr = window.devicePixelRatio || 1;
-  const rad = radius * dpr;
-  const [x, y, w, h] = [Math.round(r.x * dpr), Math.round(r.y * dpr), Math.round(r.w * dpr), Math.round(r.h * dpr)];
+ * rounding to (int)(v + 0.5). Canvas `filter` is not used: WebKitGTK ignores it. The kernel works
+ * in device pixels. */
+interface Kernel {
+  rad: number;
+  reach: number;
+  weights: number[];
+}
+
+function blurKernel(radius: number): Kernel {
+  const rad = radius * (window.devicePixelRatio || 1);
   const reach = Math.ceil(rad);
   const sigma = rad / 3;
   const kernel = Array.from({ length: reach * 2 + 1 }, (_, k) => {
@@ -377,7 +382,80 @@ function blurRegion(g: CanvasRenderingContext2D, r: Rect, radius: number) {
     return d > rad * rad ? 0 : Math.exp(-d / (2 * sigma * sigma)) / Math.sqrt(2 * Math.PI * sigma);
   });
   const total = kernel.reduce((a, b) => a + b, 0);
-  const weights = kernel.map((v) => v / total);
+  return { rad, reach, weights: kernel.map((v) => v / total) };
+}
+
+/** A blurred region of the stage in device pixels: its rectangle, its kernel and its pixels. */
+interface Frosted {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  k: Kernel;
+  img: ImageData;
+}
+
+/** The regions a static background blurred. */
+export type FrostRegions = Frosted[];
+
+/** Rows [from, to) of column `X` of the region [x, x + w) x [y, y + h) blurred as blurRegion blurs it
+ *  (the same sums in the same order), written as column `X - x` of `img` (the region's picture): the
+ *  horizontal pass, clamped to the region's columns, over the rows the vertical one reads (into
+ *  `across`, h * 3 values), then the vertical pass, clamped to its rows. `src` holds the unblurred
+ *  pixels with its top-left pixel at the origin. */
+function frostRows(src: ImageData, x: number, y: number, w: number, h: number, k: Kernel, X: number, from: number, to: number, img: ImageData, across: Uint8ClampedArray) {
+  const { reach, weights } = k;
+  const px = src.data;
+  const lo = Math.max(0, from - reach);
+  const hi = Math.min(h, to + reach);
+  for (let l = lo; l < hi; l++) {
+    let r0 = 0;
+    let g0 = 0;
+    let b0 = 0;
+    for (let s = -reach; s <= reach; s++) {
+      const wt = weights[s + reach];
+      if (!wt) continue;
+      const o = ((y + l) * src.width + Math.min(x + w - 1, Math.max(x, X + s))) * 4;
+      r0 += px[o] * wt;
+      g0 += px[o + 1] * wt;
+      b0 += px[o + 2] * wt;
+    }
+    across[l * 3] = i(r0 + 0.5);
+    across[l * 3 + 1] = i(g0 + 0.5);
+    across[l * 3 + 2] = i(b0 + 0.5);
+  }
+  const d = img.data;
+  for (let a = from; a < to; a++) {
+    let r0 = 0;
+    let g0 = 0;
+    let b0 = 0;
+    for (let s = -reach; s <= reach; s++) {
+      const wt = weights[s + reach];
+      if (!wt) continue;
+      const o = Math.min(h - 1, Math.max(0, a + s)) * 3;
+      r0 += across[o] * wt;
+      g0 += across[o + 1] * wt;
+      b0 += across[o + 2] * wt;
+    }
+    const o = (a * w + X - x) * 4;
+    d[o] = i(r0 + 0.5);
+    d[o + 1] = i(g0 + 0.5);
+    d[o + 2] = i(b0 + 0.5);
+    d[o + 3] = 255;
+  }
+}
+
+/** The device rectangle of a stage rectangle. */
+function deviceRect(r: Rect): [number, number, number, number] {
+  const dpr = window.devicePixelRatio || 1;
+  return [Math.round(r.x * dpr), Math.round(r.y * dpr), Math.round(r.w * dpr), Math.round(r.h * dpr)];
+}
+
+/** Blurs region `r` of what `g` holds; the result is kept in `frost`. */
+function blurRegion(g: CanvasRenderingContext2D, r: Rect, radius: number, frost: FrostRegions) {
+  const k = blurKernel(radius);
+  const { reach, weights } = k;
+  const [x, y, w, h] = deviceRect(r);
   const img = g.getImageData(x, y, w, h);
   const px = img.data;
   const tmp = new Uint8ClampedArray(px.length);
@@ -407,12 +485,14 @@ function blurRegion(g: CanvasRenderingContext2D, r: Rect, radius: number) {
   pass(px, tmp, true);
   pass(tmp, px, false);
   g.putImageData(img, x, y);
+  frost.push({ x, y, w, h, k, img });
 }
 
-/** GlassEffectRenderer.drawLiquidEffects (GlassEffectRenderer.java:226-266) at the moment the
- *  background is painted: the moving highlight (6 s cycle) and the top / bottom inner shadows. */
-function liquidEffects(g: CanvasRenderingContext2D, r: Rect) {
-  const phase = (Date.now() % 6000) / 6000;
+/** GlassEffectRenderer.drawLiquidEffects (GlassEffectRenderer.java:226-266) at the moment `at`
+ *  (ms) the background is painted: the moving highlight (6 s cycle) and the top / bottom inner
+ *  shadows. */
+function liquidEffects(g: CanvasRenderingContext2D, r: Rect, at: number) {
+  const phase = (at % 6000) / 6000;
   const cx = r.x + r.w * (0.5 + 0.3 * Math.sin(phase * Math.PI * 2));
   const cy = r.y + r.h * (0.5 + 0.3 * Math.cos(phase * Math.PI * 2 * 0.7));
   const highlight = g.createRadialGradient(cx, cy, 0, cx, cy, Math.max(r.w, r.h) * 0.5);
@@ -491,16 +571,30 @@ function drawCard(g: CanvasRenderingContext2D, r: Rect, p: StagePalette, w: numb
  * FROSTED (glass-blur-radius 10) or, from level 2, LIQUID (liquid-blur-radius 15 plus its
  * highlight and inner shadows) with the theme's overlay, border and highlight; at level 0 only
  * the region blurred by the theme's background-filter.
- * Painted once per size into a detached canvas and returned as a PNG blob: a live full-window canvas
- * layer would be recomposited every frame by WebKitGTK. */
-export function paintBackground(w: number, h: number, stage: StageCards): Promise<Blob | null> {
-  const p = stagePalette();
+ * Painted once per size and layout into a detached canvas and returned as a PNG blob: a live
+ * full-window canvas layer would be recomposited every frame by WebKitGTK. `at` is the moment of
+ * the liquid highlight; the regions blurred are kept in `frost`. */
+export function paintBackground(w: number, h: number, stage: StageCards, at: number, frost: FrostRegions): Promise<Blob | null> {
   const canvas = document.createElement("canvas");
   const g = prepare(canvas, { x: 0, y: 0, w, h });
+  paintWallpaper(g, w, h);
+  paintCards(g, w, h, stage, at, (r, radius) => blurRegion(g, r, radius, frost));
+  const { promise, resolve } = Promise.withResolvers<Blob | null>();
+  canvas.toBlob(resolve);
+  return promise;
+}
+
+function paintWallpaper(g: CanvasRenderingContext2D, w: number, h: number) {
+  const p = stagePalette();
   if (look.pureBackground && !p.builtin) {
     g.fillStyle = look.pureBackground;
     g.fillRect(0, 0, w, h);
   } else drawTexture(g, p.builtin ? stageWallpaper() : look.background, 0, 0, w, h, 0, 0);
+}
+
+/** The stage over its wallpaper: `blur` frosts a card's region of the wallpaper. */
+function paintCards(g: CanvasRenderingContext2D, w: number, h: number, stage: StageCards, at: number, blur: (r: Rect, radius: number) => void) {
+  const p = stagePalette();
   // The glass setting acts only on a stage the user chose: the program's own stage never frosts
   // its cards (DESIGN.md: 卡片不模糊背后的壁纸), whatever glass-effect-level says.
   const glass = p.builtin || look.pureBackground ? [] : stage.cards;
@@ -510,11 +604,11 @@ export function paintBackground(w: number, h: number, stage: StageCards): Promis
     if (r.w <= 0 || r.h <= 0 || r.x < 0 || r.y < 0 || r.x + r.w > w || r.y + r.h > h) continue;
     if (!glassy) {
       // GaussianFilter(0) leaves the region as it is.
-      if (look.backgroundFilter > 0) blurRegion(g, r, look.backgroundFilter);
+      if (look.backgroundFilter > 0) blur(r, look.backgroundFilter);
       continue;
     }
     const radius = liquid ? look.liquidBlur : look.glassBlur;
-    if (radius > 0) blurRegion(g, r, radius);
+    if (radius > 0) blur(r, radius);
     g.fillStyle = look.glassOverlay;
     g.beginPath();
     g.roundRect(r.x, r.y, r.w, r.h, CARD_RADIUS);
@@ -531,14 +625,116 @@ export function paintBackground(w: number, h: number, stage: StageCards): Promis
     g.beginPath();
     g.roundRect(r.x + 1, r.y + 1, r.w - 2, i(r.h / 3), CARD_RADIUS);
     g.fill();
-    if (liquid) liquidEffects(g, r);
+    if (liquid) liquidEffects(g, r, at);
   }
   for (const r of stage.cards) drawCard(g, r, p, w, h);
   g.fillStyle = p.line;
   for (const d of stage.dividers) g.fillRect(d.x, d.y, d.w, d.h);
-  const { promise, resolve } = Promise.withResolvers<Blob | null>();
-  canvas.toBlob(resolve);
-  return promise;
+}
+
+/** The stage painted on a live canvas instead of being encoded, while the static background shows
+ *  another stage (a separator held, a window resized, a panel shown or hidden): the wallpaper and
+ *  the cards painted as paintBackground paints them, the liquid highlight at the moment of the
+ *  background shown, and the frosted regions. The wallpaper is tiled from the origin, so its pixels
+ *  hold whatever the workbench's size, and a frosted pixel depends only on the wallpaper and on how
+ *  far it is from its region's sides: one whose distance to each side is at least `reach` in two
+ *  regions, or the same side in both, is blurred alike in both. A region is copied from the frosted
+ *  region it overlaps most (the static background's, or the last live paint's) wherever that
+ *  holds, so only the bands near a moved side are computed each frame. */
+export interface LiveStage {
+  at: number;
+  /** The frosted regions of the static background shown at the start, and of the last live paint. */
+  shown: Frosted[];
+  last: Frosted[];
+  /** The wallpaper's pixels, read once a frosted pixel is computed, over every region computed so
+   *  far rounded up to 512 device pixels, so that a window resized reads them again only every 512
+   *  pixels it grows. */
+  src: ImageData | null;
+}
+
+/** A live stage of the appearance whose static background shown was painted at `at` and blurred
+ *  `frost` (empty when that background is for another appearance). */
+export function beginLiveStage(at: number, frost: FrostRegions): LiveStage {
+  return { at, shown: frost, last: [], src: null };
+}
+
+/** The wallpaper's pixels over at least `w` x `h` device pixels, rounded up to 512. */
+function wallpaperPixels(w: number, h: number): ImageData {
+  const dpr = window.devicePixelRatio || 1;
+  const canvas = document.createElement("canvas");
+  const ww = Math.ceil(w / 512) * 512;
+  const wh = Math.ceil(h / 512) * 512;
+  const g = prepare(canvas, { x: 0, y: 0, w: ww / dpr, h: wh / dpr });
+  paintWallpaper(g, ww / dpr, wh / dpr);
+  return g.getImageData(0, 0, canvas.width, canvas.height);
+}
+
+/** The span [lo, hi) of offsets into a region's side of length `n` at `at` blurred alike in the
+ *  region of the same side at `fromAt` with length `fromN`. */
+function alikeSpan(at: number, n: number, fromAt: number, fromN: number, reach: number): [number, number] {
+  const lo = fromAt === at ? 0 : Math.max(reach, fromAt + reach - at);
+  const hi = fromAt + fromN === at + n ? n : Math.min(n - reach, fromAt + fromN - reach - at);
+  return [lo, hi];
+}
+
+/** The region [x, x + w) x [y, y + h) of `live`'s wallpaper frosted with `k`. */
+function frostLive(live: LiveStage, x: number, y: number, w: number, h: number, k: Kernel): Frosted {
+  const r = k.reach;
+  let from: Frosted | null = null;
+  let most = 0;
+  for (const frosted of [live.last, live.shown])
+    for (const f of frosted) {
+      if (f.k.rad !== k.rad) continue;
+      if (f.x === x && f.y === y && f.w === w && f.h === h) return f;
+      const area = Math.max(0, Math.min(x + w, f.x + f.w) - Math.max(x, f.x)) * Math.max(0, Math.min(y + h, f.y + f.h) - Math.max(y, f.y));
+      if (area > most) {
+        most = area;
+        from = f;
+      }
+    }
+  const img = new ImageData(w, h);
+  const [top, bottom] = from ? alikeSpan(y, h, from.y, from.h, r) : [0, 0];
+  const [left, right] = from ? alikeSpan(x, w, from.x, from.w, r) : [0, 0];
+  let across: Uint8ClampedArray | null = null;
+  for (let a = 0; a < w; a++) {
+    const X = x + a;
+    const alike = from !== null && top < bottom && a >= left && a < right;
+    if (alike) {
+      const d = img.data;
+      const s = from!.img.data;
+      for (let l = top; l < bottom; l++) {
+        const o = (l * w + a) * 4;
+        const p = ((y + l - from!.y) * from!.w + X - from!.x) * 4;
+        d[o] = s[p];
+        d[o + 1] = s[p + 1];
+        d[o + 2] = s[p + 2];
+        d[o + 3] = 255;
+      }
+      if (top === 0 && bottom === h) continue;
+    }
+    const had = live.src;
+    const src = had && had.width >= x + w && had.height >= y + h ? had : (live.src = wallpaperPixels(Math.max(had?.width ?? 0, x + w), Math.max(had?.height ?? 0, y + h)));
+    across ??= new Uint8ClampedArray(h * 3);
+    if (!alike) frostRows(src, x, y, w, h, k, X, 0, h, img, across);
+    else {
+      if (top > 0) frostRows(src, x, y, w, h, k, X, 0, top, img, across);
+      if (bottom < h) frostRows(src, x, y, w, h, k, X, bottom, h, img, across);
+    }
+  }
+  return { x, y, w, h, k, img };
+}
+
+/** The stage of `live` with the cards `stage` into `g` (prepared for the `w` x `h` workbench). */
+export function paintLiveStage(g: CanvasRenderingContext2D, live: LiveStage, w: number, h: number, stage: StageCards): void {
+  paintWallpaper(g, w, h);
+  const painted: Frosted[] = [];
+  paintCards(g, w, h, stage, live.at, (r, radius) => {
+    const [x, y, rw, rh] = deviceRect(r);
+    const f = frostLive(live, x, y, rw, rh, blurKernel(radius));
+    painted.push(f);
+    g.putImageData(f.img, x, y);
+  });
+  live.last = painted;
 }
 
 /** BoardRenderer.drawShadow with show-stone-shadow and shadow-size (BoardRenderer.java:3796-3860):

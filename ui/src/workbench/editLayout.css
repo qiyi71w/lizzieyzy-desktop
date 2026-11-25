@@ -1,0 +1,224 @@
+/* 布局编辑模式 (editLayout.ts). The edit bar is a strip between the toolbar and the workbench, in
+   the toolbar's grammar: the --ds-chrome ground, controls as segments of capsules, no solid accent.
+   Over the workbench: a pane that takes the pointer from the panels' content, each shown panel's
+   outline and named grip, the dragged panel's ghost, the insertion line, and the dashed drop zone
+   of an empty column. The workbench (#main) carries its stage's data-theme, so the --ds-* values
+   there are the dark ones over a dark stage (Java 经典, the user's own wallpaper). */
+
+.edit-bar {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 6px 8px;
+  background: var(--ds-chrome);
+  border-bottom: 1px solid var(--ds-line);
+}
+.edit-bar[hidden] {
+  display: none;
+}
+/* Measured at the window's width while hidden, outside the flow (editLayout.ts barHeight). */
+.edit-bar.measuring {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  visibility: hidden;
+}
+/* The sentence takes the room the controls leave and wraps there; it is never cut. */
+.edit-bar-hint {
+  flex: 1 1 16em;
+  min-width: 0;
+  color: var(--ds-text-2);
+}
+/* The hidden panels' tags: one capsule while they fit on a line, else one capsule per line
+   (editLayout.ts fitTags), so each tag shows whole; a tags line is never wider than the bar, and a
+   tag wider than the bar by itself wraps its name inside a taller capsule. */
+.edit-bar-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+.edit-bar-tags .tb-cap {
+  height: auto;
+  min-height: var(--ds-cap-h);
+  max-width: 100%;
+  white-space: normal;
+}
+.edit-bar-tags[hidden] {
+  display: none;
+}
+/* Where a keyboard move put a panel, or why it did not move: for screen readers, not drawn. */
+.edit-bar-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.edit-bar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  margin-left: auto;
+}
+/* Native buttons as capsule segments: the segment look of .tb-pill, not the dialog button's. */
+.edit-bar button.tb-pill {
+  height: auto;
+  padding: 0 11px;
+  border: 0;
+  border-radius: 0;
+  background-color: transparent;
+  background-image: none;
+}
+.edit-bar button.tb-pill:hover {
+  background-color: var(--ds-hover);
+}
+.edit-bar button.tb-pill:active {
+  background-color: var(--ds-pressed);
+}
+.edit-bar-tags button.tb-pill {
+  flex: 0 1 auto;
+  min-width: 0;
+  gap: 5px;
+  padding: 3px 11px 3px 9px;
+  white-space: normal;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+.edit-bar-tags button.tb-pill > span {
+  min-width: 0;
+}
+/* fitTags reads each tag's one-line width. */
+.edit-bar-tags.measuring button.tb-pill {
+  flex: none;
+  white-space: nowrap;
+}
+.edit-bar-tags .icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--ds-text-2);
+}
+/* 完成 ends the session: the accent ink at 600, without a fill. */
+.edit-bar button.edit-bar-done {
+  color: var(--ds-accent-text);
+  font-weight: 600;
+}
+
+/* ---- over the workbench */
+.edit-layer {
+  inset: 0;
+  z-index: 2;
+  cursor: default;
+}
+/* Inset 3px in the panel's rectangle (editLayout.ts), clear of the hairline and the divider's
+   zone between panels. */
+.panel-outline {
+  z-index: 2;
+  pointer-events: none;
+  border: 1px solid var(--ds-line-strong);
+  border-radius: var(--ds-radius-cap);
+}
+/* The grip: a capsule at the panel's top left with the move icon and the panel's name. */
+#main > .panel-grip {
+  position: absolute;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: auto;
+  min-height: calc(var(--ds-cap-h) - 4px);
+  padding: 2px 9px 2px 7px;
+  border: 0;
+  border-radius: var(--ds-radius-cap);
+  background-color: var(--ds-raised);
+  box-shadow: var(--ds-shadow-cap);
+  color: var(--ds-text);
+  font-size: var(--ds-size-s);
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: left;
+  white-space: nowrap;
+  box-sizing: border-box;
+  cursor: grab;
+  touch-action: none;
+}
+/* A narrow column shortens the name with an ellipsis; the grip's tooltip carries it whole. */
+.panel-grip > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#main > .panel-grip:hover {
+  background-image: linear-gradient(var(--ds-hover), var(--ds-hover));
+}
+#main > .panel-grip.held {
+  background-image: linear-gradient(var(--ds-pressed), var(--ds-pressed));
+  cursor: grabbing;
+}
+/* The keyboard on a grip: an accent-ink edge inside the usual focus ring, as a field's focus, so it
+   reads over the panel's content (lines, text) in either theme. */
+#main > .panel-grip:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--ds-accent-text), var(--ds-shadow-cap);
+}
+.panel-grip .icon,
+.panel-ghost .icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--ds-text-2);
+}
+/* The dragged panel follows the pointer as a translucent ghost of its rectangle. */
+.panel-ghost {
+  z-index: 6;
+  pointer-events: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 10px 12px;
+  border-radius: var(--ds-radius-l);
+  background-color: var(--ds-raised);
+  box-shadow: var(--ds-shadow-pop);
+  color: var(--ds-text);
+  font-size: var(--ds-size-s);
+  font-weight: 600;
+  opacity: 0.72;
+}
+/* Where the panel goes: a line in the accent ink with a dot at each end. */
+.panel-insert {
+  z-index: 5;
+  pointer-events: none;
+  border-radius: 1px;
+  background-color: var(--ds-accent-text);
+}
+.panel-insert::before,
+.panel-insert::after {
+  content: "";
+  position: absolute;
+  top: -2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--ds-accent-text);
+}
+.panel-insert::before {
+  left: -3px;
+}
+.panel-insert::after {
+  right: -3px;
+}
+/* An empty column takes a panel anywhere inside its dashed zone. */
+.panel-drop {
+  z-index: 2;
+  pointer-events: none;
+  border: 1px dashed var(--ds-line-strong);
+  border-radius: var(--ds-radius-l);
+}
+.panel-drop.target {
+  border-color: var(--ds-accent-text);
+  background-color: var(--ds-accent-soft);
+}

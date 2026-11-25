@@ -240,6 +240,13 @@ function schedule(): void {
   });
 }
 
+/** Brings the installed menu bar up to date (nothing before it is installed): for page state an
+ *  item shows that changes without a view or input, such as 编辑面板布局…'s availability after a
+ *  resize (main.ts render). */
+export function refreshNativeMenu(): void {
+  schedule();
+}
+
 /** macOS: puts the menus in the system menu bar in place of the start-up one (src-tauri
  *  install_macos_quit) and keeps them current. The application menu comes first: 关于 (帮助 >
  *  关于's), the system's items, and 退出. */

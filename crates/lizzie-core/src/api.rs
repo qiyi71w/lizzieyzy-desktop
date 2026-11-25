@@ -514,6 +514,9 @@ pub enum Command {
     SetPanelSizes { sizes: crate::settings::PanelSizes },
     NudgeBoardPosition { delta: i32 },
     RestoreDefaultPanelSizes,
+    /// The panel 排列 to show beside the board, `None` for the Java layout. A divider drag or an
+    /// edit session commits its finished draft once.
+    SetPanelArrangement { arrangement: Option<crate::settings::PanelArrangement> },
     SetBottomToolbar { mode: crate::settings::BottomToolbar },
     /// 纯网络 (H): Off → Policy → Ownership → Off for KataGo, Off ↔ Policy otherwise.
     ToggleRawNet,
@@ -1262,6 +1265,8 @@ pub struct SettingsView {
     /// The top toolbar's groups (自定义内容) and 自动换行.
     pub top_toolbar: crate::settings::TopToolbarSettings,
     pub panel_sizes: crate::settings::PanelSizes,
+    /// The committed 排列, or none for the Java layout.
+    pub panel_arrangement: Option<crate::settings::PanelArrangement>,
     pub bottom_toolbar: crate::settings::BottomToolbar,
     /// The bottom toolbar's buttons (自定义内容).
     pub bottom_buttons: crate::settings::BottomButtonSettings,

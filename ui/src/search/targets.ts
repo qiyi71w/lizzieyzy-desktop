@@ -298,8 +298,11 @@ function unavailableReason(m: FunctionMatch, kind: DestinationKind | null, absen
   if (kind === "menu" && menuItemState(m.id) === "hidden") return CONTEXT;
   // The engine menu, disabled while an engine game runs (its only disabled state on the bar).
   if (kind === "menu" && menuItemState(m.id) === "disabled") return ENGINE_GAME;
-  // A registered command its owner reports disabled or hidden, whatever the destination.
+  // A registered command its owner reports disabled or hidden, whatever the destination: with the
+  // reason its menu item shows as the tooltip when it has one.
   const entry = COMMANDS[m.id];
+  const why = entry?.disabledReason?.();
+  if (why) return { key: why, product: true };
   if (entry && ((entry.visible && !entry.visible()) || (entry.enabled && !entry.enabled()))) return CONTEXT;
   return null;
 }

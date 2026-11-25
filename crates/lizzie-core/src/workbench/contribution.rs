@@ -1698,7 +1698,8 @@ impl Workbench {
             | Command::SetKataEstimate { .. }
             | Command::TogglePanel { .. }
             | Command::SetPanelSettings { .. }
-            | Command::SetPanelSizes { .. } => None,
+            | Command::SetPanelSizes { .. }
+            | Command::SetPanelArrangement { .. } => None,
             Command::Edit { op } => self.contribution_edit_refusal(op),
             Command::ChooseAndOpenRecord
             | Command::OpenRecord { .. }

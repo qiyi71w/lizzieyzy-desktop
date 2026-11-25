@@ -1156,8 +1156,9 @@ impl Workbench {
     }
 
     /// View > "重置界面位置" (`Config.deletePersist(true)` + `Lizzie.resetAllHints`): deletes the
-    /// persist file, so window placement and last folder return to defaults at the next start, and
-    /// turns the prompts a user switched off back on.
+    /// persist file, so window placement and last folder return to defaults at the next start, the
+    /// panel sizes and 排列 at once (the Java layout), and turns the prompts a user switched off
+    /// back on.
     pub fn reset_ui_position(&mut self) -> Result<(), ApiError> {
         match std::fs::remove_file(&self.storage.persist_file) {
             Ok(()) => {}
@@ -1166,6 +1167,7 @@ impl Workbench {
         }
         self.persist_reset = Some(Persisted::default());
         self.persisted.panel_sizes = crate::settings::PanelSizes::default();
+        self.persisted.panel_arrangement = None;
         self.persisted.bottom_toolbar = crate::settings::BottomToolbar::default();
         self.persisted.independent_main_board = None;
         self.persisted.independent_sub_board = None;
@@ -1303,6 +1305,7 @@ impl Workbench {
                 panels: self.config.panels.clone(),
                 top_toolbar: self.config.top_toolbar,
                 panel_sizes: self.persisted.panel_sizes,
+                panel_arrangement: self.persisted.panel_arrangement.clone(),
                 bottom_toolbar: self.persisted.bottom_toolbar,
                 bottom_buttons: self.config.bottom_buttons,
                 comment_panel_auto_hidden: self.config.ui.extra_mode.hides_comment(),

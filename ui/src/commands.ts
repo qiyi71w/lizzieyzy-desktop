@@ -26,6 +26,10 @@ export interface CommandEntry {
   checked?: () => boolean;
   /** A Java-faithful disabled state (not "unimplemented"). */
   enabled?: () => boolean;
+  /** Why the item cannot be used now, as this product's message key (`product(key)`), or null when
+   *  it can. A reason disables the item; the window's menus show it as the item's tooltip and
+   *  function search gives the same text. The system menu bar only greys the item. */
+  disabledReason?: () => string | null;
   /** Java items hidden by a menu-open listener (setVisible(false)) while this is false. */
   visible?: () => boolean;
   /** Java items whose text a menu-open listener sets (启动/停止 Web 旁观, Menu.java:4301-4309). */

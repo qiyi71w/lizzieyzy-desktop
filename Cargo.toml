@@ -10,7 +10,9 @@ publish = false
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# float_roundtrip: a float the UI sends (JSON's shortest round-trip decimal) parses to the same
+# f64, so a value echoed back in a view equals what was sent.
+serde_json = { version = "1", features = ["float_roundtrip"] }
 # Serde-only attributes (aliases kept for reading Java-written values) do not affect TypeScript.
 ts-rs = { version = "12", features = ["no-serde-warnings"] }
 

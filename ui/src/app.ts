@@ -1,7 +1,7 @@
 // UI controller: holds the latest projection from Rust and sends commands. Commands are sent one
 // at a time in the order the user issued them (like Swing's event queue), so a quick Down/Up pair
 // can never be applied in the opposite order.
-import { dispatch } from "./contract/client";
+import { dispatch, nativeDialog } from "./contract/client";
 import type { Command, CommandResult, CommentLabels, ExportKind, Navigation, StoneSound, TreeNodeView, WorkbenchView } from "./contract/generated";
 import { ask, confirm, message, timedMessage } from "./dialogs";
 import { product, t } from "./i18n";
@@ -207,8 +207,11 @@ async function followSave(r: CommandResult | null): Promise<void> {
   }
 }
 
-/** "保存(Ctrl+S)" (LizzieFrame.saveOriFile). */
+/** "保存(Ctrl+S)" (LizzieFrame.saveOriFile). A record without a file of its own, or read from a
+ *  GIB file, is saved through the chooser (Workbench::save_plan). */
 export async function saveRecord(): Promise<void> {
+  const path = state.view?.document.path;
+  if (!path || path.toLowerCase().endsWith(".gib")) nativeDialog();
   await followSave(await run({ type: "SaveRecord", confirmed: null, suggested_name: suggestedSaveName() }));
 }
 

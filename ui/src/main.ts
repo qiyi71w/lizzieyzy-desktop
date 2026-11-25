@@ -9,19 +9,21 @@ import { COMMANDS } from "./commands";
 import { buildBottomBar, layoutBottomBar } from "./chrome/bottombar";
 import { buildMenubar, menuOpen } from "./chrome/menubar";
 import { secondaryMenuTitle } from "./chrome/menuModel";
-import { installNativeMenu, menuModelReport, nativeMenuReport } from "./chrome/nativeMenu";
+import { installNativeMenu, menuModelReport, nativeMenuReport, refreshNativeMenu } from "./chrome/nativeMenu";
 import { os } from "./design/theme";
 import { mountWindowBar, setWindowTitle } from "./chrome/windowBar";
 import { buildToolbar, renderToolbar, topToolbarReport } from "./chrome/toolbar";
 import { onUnavailable, onView, snapshot } from "./contract/client";
-import type { BoardOverlayView, FloatSceneView, HistoryPoint, NodeAnalysisView, Point, SubBoardMode, WorkbenchView } from "./contract/generated";
+import type { ArrangeablePanel, BoardOverlayView, FloatSceneView, HistoryPoint, NodeAnalysisView, PanelArrangement, Point, SubBoardMode, WorkbenchView } from "./contract/generated";
 import { dialogOpen, message } from "./dialogs";
 import { errorText } from "./errorText";
 import { format, product, setLanguage, t } from "./i18n";
 import { openJavaImport } from "./javaImport";
 import { boardGeom, cardLayout, doubleEngineLayout, floatBoardLayout, mainMarginRatio, selectRange, sideLayout, SUB_MARGIN_RATIO, workbenchLayout, type BoardGeom, type DualPanels, type PanelId, type Panels, type Rect, type SidePanels } from "./workbench/layout";
+import { arrangedLayout, type ArrangementFallback } from "./workbench/arrangement";
+import { bindEditLayout, dividerOwner, editArrangement, editing as layoutEditing, editReport, editUnavailable, handleEditLayoutKey, javaLayoutDividers, javaPreview, placeEdit } from "./workbench/editLayout";
 import { handleLayoutKey } from "./workbench/extraMode";
-import { bindPanels, controlsShowing, handlePanelKey, layoutRequest, placeHandles } from "./workbench/panels";
+import { bindPanels, controlsShowing, dividerDraft, dragHeld, handlePanelKey, layoutRequest, placeHandles } from "./workbench/panels";
 import { onPresentationChange, presentation } from "./workbench/presentation";
 import { independentReport, relayIndependent, startIndependent } from "./workbench/independent";
 import type { IndependentInput } from "./workbench/independentModel";
@@ -88,6 +90,7 @@ import { humanSlDisplay } from "./humansl/state";
 import {
   aiScoreText,
   loadImages,
+  beginLiveStage,
   paintBackground,
   paintBoard,
   paintCaptured,
@@ -95,6 +98,7 @@ import {
   paintPlayStat,
   paintStatus,
   paintDualStrip,
+  paintLiveStage,
   playouts,
   paintSubBoard,
   paintTree,
@@ -105,6 +109,8 @@ import {
   type BoardReport,
   type OwnershipLayer,
   type BoardScene,
+  type FrostRegions,
+  type LiveStage,
   type StageCards,
   type PreviewVariation,
   type StatReport,
@@ -117,8 +123,14 @@ import {
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const PANEL_IDS: PanelId[] = ["captured", "stat", "graph", "comment", "status", "tree", "table", "sub"];
+/** The panels holding X hides (Input.java:616-623): no divider beside them is placed meanwhile. */
+const X_HIDES: Partial<Record<ArrangeablePanel, true>> = { VariationGraph: true, CandidateList: true, Comment: true };
 
 let panels: Panels | null = null;
+/** The panel arrangement the workbench was last laid out with, or why it shows the Java layout
+ *  (null without an arrangement). */
+let arrangement: { applied: PanelArrangement | null; fallback: ArrangementFallback | null } = { applied: null, fallback: null };
+let stageCards: StageCards = { cards: [], dividers: [] };
 let treeHits = new Map<string, number>();
 let treeView: TreeViewport | null = null;
 /** The tree panel shows the whole tree without scroll bars (shouldShowSimpleVariation). */
@@ -520,7 +532,8 @@ document.addEventListener("keydown", (e) => {
   }
   // The 存档与读档 controls keep their keys, like the Swing components holding the focus there.
   if (e.target instanceof Element && e.target.closest("#recovery")) return;
-  if (handleLayoutKey(e) || handlePanelKey(e) || handleReadBoardKey(e) || handleEngineKey(e) || handleEditKey(e) || handleMatchKey(e) || handleTsumegoKey(e) || handleGameKey(e) || handleDisplayKey(e) || handleInfoKey(e) || handleTableKey(e) || handleHawkeyeKey(e) || handleBatchKey(e) || handleOnlineKey(e)) {
+  // 布局编辑模式 takes its keys first: Alt+arrows on a grip move the panel and browse nothing.
+  if (handleEditLayoutKey(e) || handleLayoutKey(e) || handlePanelKey(e) || handleReadBoardKey(e) || handleEngineKey(e) || handleEditKey(e) || handleMatchKey(e) || handleTsumegoKey(e) || handleGameKey(e) || handleDisplayKey(e) || handleInfoKey(e) || handleTableKey(e) || handleHawkeyeKey(e) || handleBatchKey(e) || handleOnlineKey(e)) {
     e.preventDefault();
     return;
   }
@@ -939,16 +952,172 @@ function changed(panel: string, sig: string): boolean {
   return true;
 }
 
-/** The wallpaper with its cards is a static background of #main, one per size and layout. */
+/** The wallpaper with its cards is a static background of #main, one per size and layout: its
+ *  object URL and what it was painted for (`sig` the render's background signature, `look` its
+ *  appearance part), when (`at`, the liquid highlight's moment) and the regions it frosted. `image`
+ *  keeps the decoded picture alive while it is shown. */
 let backgroundUrl: string | null = null;
-async function installBackground(size: string, w: number, h: number, stage: StageCards) {
-  const blob = await paintBackground(w, h, stage);
-  if (!blob || lastSig.bg !== size) return;
+let installed: { sig: string; look: string; at: number; frost: FrostRegions; image: HTMLImageElement } | null = null;
+/** The stages whose background is being painted, encoded or decoded, and the last one whose
+ *  picture could not be made (not tried again until another stage is shown). */
+const encoding = new Set<string>();
+let failed: string | null = null;
+async function installBackground(sig: string, look: string, w: number, h: number, stage: StageCards) {
+  encoding.add(sig);
+  const at = Date.now();
+  const frost: FrostRegions = [];
+  const blob = await paintBackground(w, h, stage, at, frost);
+  // A background swapped in before its picture is decoded is drawn as nothing for a frame or more
+  // (the wallpaper and every card vanish): it replaces the shown one only once decoded.
+  const url = blob && URL.createObjectURL(blob);
+  const image = new Image();
+  if (url) image.src = url;
+  const decoded = url !== null && (await image.decode().then(() => true, () => false));
+  encoding.delete(sig);
+  if (!decoded || current?.sig !== sig) {
+    if (url) URL.revokeObjectURL(url);
+    if (!decoded && current?.sig === sig) failed = sig;
+    return;
+  }
   if (backgroundUrl) URL.revokeObjectURL(backgroundUrl);
-  backgroundUrl = URL.createObjectURL(blob);
+  backgroundUrl = url;
   const main = $("main");
-  main.style.backgroundImage = `url(${backgroundUrl})`;
+  main.style.backgroundImage = `url(${url})`;
   main.style.backgroundSize = `${w}px ${h}px`;
+  const first = !installed;
+  installed = { sig, look, at, frost, image };
+  handOffLiveStage();
+  if (first) whenIdle(warmLiveStage, 2000);
+}
+
+/** Encoding the stage takes from a tenth of a second to over a second, and a background swapped
+ *  in shows a frame late; until the static background shows the stage of the last render, that
+ *  stage is painted instead, in the same render as the panels, into this canvas under them (a
+ *  separator drag held or a window resized changes it every frame, a panel shown or hidden, a mode
+ *  or a zoom once). It goes two frames after a background swapped in for that stage, so that it
+ *  has been drawn, and at once when the stage comes back to the background shown all along. It
+ *  shows over the stage colour of #main as the static background does (not over that background,
+ *  which a wallpaper not opaque everywhere would let through). */
+const stageLive = document.createElement("canvas");
+stageLive.id = "stageLive";
+stageLive.style.display = "none";
+stageLive.style.pointerEvents = "none";
+stageLive.style.backgroundColor = "inherit";
+let liveStage: { look: string; stage: LiveStage } | null = null;
+/** A background swapped in has not been drawn yet: the live stage stays until it has. */
+let handOff = 0;
+
+/** The stage of the last render: its background signature, appearance part, size and cards. */
+let current: { sig: string; look: string; w: number; h: number; stage: StageCards } | null = null;
+/** A resized window changes the stage every frame and each encode would be superseded before it
+ *  lands: none starts until the workbench has kept its size this long (ms). */
+const RESIZE_SETTLE = 150;
+let sizedAt = 0;
+let settleTimer = 0;
+let encodeAsked = false;
+
+/** Shows the stage of this render: the live stage covers while the background shown is another
+ *  one (or one swapped in is not drawn yet), and the static background follows the stage once it
+ *  rests. Before the first background there is nothing to cover. */
+function showStage(sig: string, look: string, w: number, h: number, stage: StageCards) {
+  if (current && (current.w !== w || current.h !== h)) sizedAt = performance.now();
+  current = { sig, look, w, h, stage };
+  if (sig !== failed) failed = null;
+  if (installed && (installed.sig !== sig || handOff)) paintStageLive(sig, look, w, h, stage);
+  else hideLiveStage();
+  askEncode();
+}
+
+/** Whether the background of the last render's stage is still to be made and that stage rests (no
+ *  separator drag held, the size kept for RESIZE_SETTLE; a render follows once it has). */
+function encodeDue(): boolean {
+  if (!current || current.sig === installed?.sig || current.sig === failed || encoding.has(current.sig) || dragHeld()) return false;
+  const wait = RESIZE_SETTLE - (performance.now() - sizedAt);
+  if (wait <= 0) return true;
+  window.clearTimeout(settleTimer);
+  settleTimer = window.setTimeout(schedule, wait + 1);
+  return false;
+}
+
+/** Encodes the stage of the last render once it rests, after the frame this render paints: that
+ *  frame shows the stage live, and the encode would take it again. */
+function askEncode() {
+  if (encodeAsked || !encodeDue()) return;
+  encodeAsked = true;
+  whenIdle(() => {
+    encodeAsked = false;
+    if (current && encodeDue()) installBackground(current.sig, current.look, current.w, current.h, current.stage);
+  }, 300);
+}
+
+/** Paints the stage `stage` live (`sig` its background signature, `look` its appearance part). */
+function paintStageLive(sig: string, look: string, w: number, h: number, stage: StageCards) {
+  if (liveStage?.look !== look) {
+    const shown = installed?.look === look ? installed : null;
+    liveStage = { look, stage: beginLiveStage(shown?.at ?? Date.now(), shown?.frost ?? []) };
+    delete lastSig.live;
+  }
+  if (!changed("live", sig)) return;
+  if (!stageLive.isConnected) $("main").prepend(stageLive);
+  paintLiveStage(liveContext(w, h), liveStage.stage, w, h, stage);
+  stageLive.style.display = "";
+}
+
+/** The live canvas prepared for the `w` x `h` workbench. It only grows, in steps of 512 device
+ *  pixels, from the corner of #main, which clips it, so that a window resized keeps its size most
+ *  frames: WebView2 draws a canvas resized every frame without the GPU and reads each picture drawn
+ *  into it back from the GPU first. */
+function liveContext(w: number, h: number): CanvasRenderingContext2D {
+  const dpr = window.devicePixelRatio || 1;
+  const grow = (need: number, have: number) => (need <= have ? have : Math.ceil(need / 512) * 512);
+  const cw = grow(Math.round(w * dpr), stageLive.width);
+  const ch = grow(Math.round(h * dpr), stageLive.height);
+  if (stageLive.width !== cw || stageLive.height !== ch) {
+    stageLive.width = cw;
+    stageLive.height = ch;
+  }
+  place(stageLive, { x: 0, y: 0, w: cw / dpr, h: ch / dpr });
+  const g = stageLive.getContext("2d")!;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  return g;
+}
+
+function hideLiveStage() {
+  if (stageLive.style.display === "none") return;
+  stageLive.style.display = "none";
+  stageLive.width = stageLive.height = 1;
+  liveStage = null;
+  delete lastSig.live;
+}
+
+/** Takes the live stage away two frames after the static background swapped in, so that it has
+ *  been drawn; a stage changed again meanwhile keeps it. */
+function handOffLiveStage() {
+  if (stageLive.style.display === "none") return;
+  const mine = ++handOff;
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    if (mine !== handOff) return;
+    handOff = 0;
+    if (installed?.sig === current?.sig) hideLiveStage();
+  }));
+}
+
+/** The first live paint makes the GPU compile its programs (ANGLE on Windows: 60-100 ms in that
+ *  frame, the first move of a drag or of a resize); once the first background is installed, the
+ *  live stage is painted at rest over the same stage, while nothing moves, and taken away as a
+ *  live stage is after a swap. */
+function warmLiveStage() {
+  if (!current || installed?.sig !== current.sig) return;
+  paintStageLive(current.sig, current.look, current.w, current.h, current.stage);
+  handOffLiveStage();
+}
+
+/** Runs `f` once the page is idle, within `timeout` ms (WebKitGTK may lack requestIdleCallback:
+ *  then in a task of its own, after the frame being rendered). */
+function whenIdle(f: () => void, timeout: number) {
+  if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(f, { timeout });
+  else window.setTimeout(f, 0);
 }
 
 /** LizzieFrame.drawPonderingState: only ambient status depends on active pondering. An engine left
@@ -1098,22 +1267,43 @@ function render() {
   dual = mode === "DoubleEngine" ? doubleEngineLayout(W, H, cols, rows) : null;
   side = mode === "FourSub" || mode === "Thinking" ? sideLayout(W, H, request) : null;
   const floating = mode === "FloatBoard";
-  const normal = side ?? (floating ? floatBoardLayout(W, H, request) : workbenchLayout(W, H, request, mode === "Normal"));
+  // A panel arrangement (a divider drag's draft while one is held, the edit session's draft in
+  // 布局编辑模式) replaces the in-frame layout wherever it applies and fits; otherwise the Java
+  // layout shows and the reason is reported. An edit session the layout no longer allows ends
+  // first, and the workbench is laid out again without its edit bar. One that has changed nothing
+  // without a committed arrangement shows the Java layout itself with its arrangement's dividers.
+  const edit = editArrangement(v, W, H, request, mode);
+  if (edit.exited) return schedule();
+  const held = dividerDraft();
+  const shownArrangement = held ?? edit.arrangement;
+  const arranged = shownArrangement ? arrangedLayout(W, H, request, mode, shownArrangement) : null;
+  arrangement = { applied: arranged?.panels ? shownArrangement : null, fallback: arranged?.fallback ?? null };
+  const preview = edit.java && !held ? arranged?.panels ?? null : null;
+  const normal = side ?? (floating ? floatBoardLayout(W, H, request) : (!preview && arranged?.panels) || workbenchLayout(W, H, request, mode === "Normal"));
   // The cards (DESIGN.md 工作台卡片): every panel rectangle below is clipped to its card. 双引擎模式
   // has no side panels and no cards.
   const carded = dual ? null : cardLayout(normal, H);
-  panels = carded ? carded.panels : { ...normal, board: dual!.left, glass: [], handles: null };
+  // Without an arrangement the Java layout gets its extra dividers where edit mode could start.
+  const extra = carded && !shownArrangement && !layoutEditing() && (mode === "Normal" || mode === "Min") ? javaLayoutDividers(v, W, H, request, mode, normal) : null;
+  const withDividers = carded ? (preview ? javaPreview(normal, carded.panels, preview) : extra ? { ...carded.panels, arranged: { dividers: extra.dividers } } : carded.panels) : { ...normal, board: dual!.left, glass: [], handles: null };
+  // 界面 > 面板 flags; holding X hides the tree, the list and the comment (Input.java:616-623), and
+  // with them the dividers beside them (Java's own zones stay, as InFrameLeftoverDragHandles keeps
+  // them while the key list shows).
+  const controls = controlsShowing();
+  panels = controls && withDividers.arranged
+    ? { ...withDividers, arranged: { dividers: withDividers.arranged.dividers.filter((d) => !X_HIDES[d.upper] && !X_HIDES[d.lower]) } }
+    : withDividers;
   const P = panels;
   const stage: StageCards = { cards: carded?.cards ?? [], dividers: carded?.dividers ?? [] };
+  stageCards = stage;
   // A committed appearance repaints every themed panel and the wallpaper (Config.readThemeVaule);
   // so does a change of the colour mode or of the stage.
-  const size = `${W}x${H}:${window.devicePixelRatio}:${appearanceRevision()}:${stageRevision()}`;
+  const look = `${window.devicePixelRatio}:${appearanceRevision()}:${stageRevision()}`;
+  const size = `${W}x${H}:${look}`;
   // Edits change a node's position, marks or side to play in place: the revision moves on.
   const docSig = `${v.document.id}:${v.document.revision}:${pos.node}:${pos.to_play}`;
   const background = `${size}:${mode}:${JSON.stringify(stage)}`;
-  if (changed("bg", background)) installBackground(background, W, H, stage);
-  // 界面 > 面板 flags; holding X hides the tree, the list and the comment (Input.java:616-623).
-  const controls = controlsShowing();
+  showStage(background, look, W, H, stage);
   for (const id of PANEL_IDS) {
     const shown = !dual && P.shown[id] && !(controls && (id === "tree" || id === "table" || id === "comment"));
     const display = shown ? "" : "none";
@@ -1131,7 +1321,17 @@ function render() {
     delete lastSig.board2;
     delete lastSig.raw;
   }
-  placeHandles(P.handles);
+  // 布局编辑模式 leaves only the arrangement's dividers: the Java zones would commit panel sizes.
+  // The Java layout's extra dividers sit beside its zones. A drag held on one of them (the draft
+  // shown, nothing committed) ends once they no longer apply to the Java layout.
+  const extraGone = held && !edit.arrangement && !layoutEditing() && ((mode !== "Normal" && mode !== "Min") || editUnavailable() !== null);
+  placeHandles(layoutEditing() ? null : P.handles, extraGone ? null : P.arranged?.dividers ?? null, shownArrangement && P.arranged ? dividerOwner(W, H, request, mode, shownArrangement) : extra?.owner ?? null);
+  placeEdit(P, stage.cards, W, H, request, mode, P.arranged ? shownArrangement : null);
+  // The system menu bar (macOS) holds whether 编辑面板布局… can start (its disabled reason); a resize
+  // or a layout change alone publishes no view and takes no input, so the bar is brought up to date
+  // whenever that availability changes.
+  if (os === "mac" && changed("editInputs", JSON.stringify([W, H, request, mode, v.settings.panel_arrangement, layoutEditing()]))
+    && changed("editUnavailable", `${editUnavailable()}`)) refreshNativeMenu();
 
   // AI 陪练's 实战后复盘 (configureAnalysisVisuals): no candidates, winrate in the suggestions,
   // Kata形势, policy or heat map for the game; the committed display settings stay as they are.
@@ -1144,7 +1344,8 @@ function render() {
   const previewSig = scene.preview ? `${scene.preview.order}:${scene.preview.length}:${scene.preview.pv.length}` : "";
   const scoreSig = v.score ? JSON.stringify(v.score) : "";
   const searchSig = JSON.stringify([v.region, scene.selecting, v.focus, v.settings.tracking, scene.priority]);
-  if (!floating && changed("board", `${background}:${P.board.x},${P.board.y},${P.board.w}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("main", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}:${searchSig}:${JSON.stringify(scene.moveRect)}:${reviewSig}`))
+  // The board draws nothing of the stage: only its size and appearance (and the mode) repaint it.
+  if (!floating && changed("board", `${size}:${mode}:${P.board.x},${P.board.y},${P.board.w},${P.board.h}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("main", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}:${searchSig}:${JSON.stringify(scene.moveRect)}:${reviewSig}`))
     boardReport = paintBoard(prepare($("board"), P.board), mainGeom(v, P.board), P.board, scene);
   if (dual) renderDual(v, dual, W, H, size, docSig, ui, scoreSig, scene);
   // The sub boards and panels follow the current position, never a review.
@@ -1543,6 +1744,16 @@ function uiReport() {
       controls: controlsShowing(),
       topToolbar: $("toolbar").offsetHeight,
       bottomToolbar: $("bottombar").offsetHeight,
+      /** The panel arrangement in effect, else null with why it does not apply (null fallback:
+       *  there is no arrangement). */
+      arrangement,
+      /** The arrangement's in-column dividers (panel coordinates; `zone` is the pointer's area). */
+      dividers: panels.arranged?.dividers ?? [],
+      /** The workbench cards as painted. */
+      cards: stageCards,
+      /** 布局编辑模式: whether it is on, its draft (null: the Java layout), the Java layout's
+       *  rectangles at this size, why it cannot start, and a held panel drag. */
+      edit: editReport(),
     },
     /** The control or row function search located last (its 2.4 s highlight), if still shown. */
     located: (() => {
@@ -1714,6 +1925,7 @@ async function boot() {
   bindProblemPanel();
   bindPointer();
   bindPanels(schedule);
+  bindEditLayout(schedule);
   bindCommentEditor($("commentText"));
   bindCaptureSurface(() => panels && { panels, width: $("main").clientWidth, height: $("main").clientHeight, background: backgroundUrl }, render);
   await Promise.all([

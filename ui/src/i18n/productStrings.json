@@ -2,45 +2,57 @@
  "strings": {
   "EnUs": {
    "FunctionSearch.description.menu.appearanceMode": "Choose a light or dark interface, or match the system setting.",
+   "FunctionSearch.description.menu.editPanelLayout": "Drag panels to any place in the columns beside the board and change their heights.",
    "Menu.appearanceMode": "Appearance",
    "Menu.appearanceModeDark": "Dark",
    "Menu.appearanceModeLight": "Light",
-   "Menu.appearanceModeSystem": "Match System"
+   "Menu.appearanceModeSystem": "Match System",
+   "Menu.editPanelLayout": "Edit panel layout…"
   },
   "JaJp": {
    "FunctionSearch.description.menu.appearanceMode": "インターフェイスをライト、ダーク、またはシステム設定に合わせて表示します。",
+   "FunctionSearch.description.menu.editPanelLayout": "パネルを碁盤の左右の列の好きな位置へドラッグし、列内の高さを調整します。",
    "Menu.appearanceMode": "外観モード",
    "Menu.appearanceModeDark": "ダーク",
    "Menu.appearanceModeLight": "ライト",
-   "Menu.appearanceModeSystem": "システムに合わせる"
+   "Menu.appearanceModeSystem": "システムに合わせる",
+   "Menu.editPanelLayout": "パネルのレイアウトを編集…"
   },
   "KoKr": {
    "FunctionSearch.description.menu.appearanceMode": "인터페이스를 라이트, 다크 또는 시스템 설정에 맞춰 표시합니다.",
+   "FunctionSearch.description.menu.editPanelLayout": "패널을 바둑판 양옆 열의 원하는 위치로 끌어 놓고, 열 안의 높이를 조정합니다.",
    "Menu.appearanceMode": "화면 모드",
    "Menu.appearanceModeDark": "다크",
    "Menu.appearanceModeLight": "라이트",
-   "Menu.appearanceModeSystem": "시스템 설정과 일치"
+   "Menu.appearanceModeSystem": "시스템 설정과 일치",
+   "Menu.editPanelLayout": "패널 레이아웃 편집…"
   },
   "ThTh": {
    "FunctionSearch.description.menu.appearanceMode": "เลือกหน้าตาแบบสว่าง แบบมืด หรือตามการตั้งค่าระบบ",
+   "FunctionSearch.description.menu.editPanelLayout": "ลากแผงไปไว้ที่ใดก็ได้ในคอลัมน์ข้างกระดาน และปรับความสูงของแผงในคอลัมน์",
    "Menu.appearanceMode": "โหมดการแสดงผล",
    "Menu.appearanceModeDark": "มืด",
    "Menu.appearanceModeLight": "สว่าง",
-   "Menu.appearanceModeSystem": "ตามระบบ"
+   "Menu.appearanceModeSystem": "ตามระบบ",
+   "Menu.editPanelLayout": "แก้ไขเค้าโครงแผง…"
   },
   "ZhCn": {
    "FunctionSearch.description.menu.appearanceMode": "选择界面使用浅色、深色，或跟随系统设置。",
+   "FunctionSearch.description.menu.editPanelLayout": "把面板拖到棋盘左右两栏的任意位置，并调整栏内面板的高度。",
    "Menu.appearanceMode": "外观模式",
    "Menu.appearanceModeDark": "深色",
    "Menu.appearanceModeLight": "浅色",
-   "Menu.appearanceModeSystem": "跟随系统"
+   "Menu.appearanceModeSystem": "跟随系统",
+   "Menu.editPanelLayout": "编辑面板布局…"
   },
   "ZhTw": {
    "FunctionSearch.description.menu.appearanceMode": "選擇介面使用淺色、深色，或跟隨系統設定。",
+   "FunctionSearch.description.menu.editPanelLayout": "把面板拖到棋盤左右兩欄的任意位置，並調整欄內面板的高度。",
    "Menu.appearanceMode": "外觀模式",
    "Menu.appearanceModeDark": "深色",
    "Menu.appearanceModeLight": "淺色",
-   "Menu.appearanceModeSystem": "跟隨系統"
+   "Menu.appearanceModeSystem": "跟隨系統",
+   "Menu.editPanelLayout": "編輯面板佈局…"
   }
  }
 }

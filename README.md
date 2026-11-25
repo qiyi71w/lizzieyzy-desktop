@@ -642,10 +642,13 @@ importing the matching LizzieYzy Next settings.
   shown, the sub board until it is left again), 总在最前 (`Ctrl+Z`) keeps the main window on top.
   On macOS `Command` also works for `Ctrl+W` / `Ctrl+F`; `Ctrl+Z` takes the Control key only, as in
   Java. The panels sit where Java's fixed in-frame layout puts them for
-  each combination. Dragging the board's left or right edge moves the board, dragging the
+  each combination, until a panel arrangement says otherwise (显示 > 面板 > 编辑面板布局…, see
+  [Panel arrangement](#panel-arrangement)). Dragging the board's left or right edge moves the board, dragging the
   comment's top edge changes its height (at least 68 px) and dragging the line between the
   variation tree and the list shares that column (the list keeps at least 36 px); a drag is
-  saved when the button is released and `Esc` cancels it. `[` / `]` (界面 > 主棋盘位置) move the
+  saved when the button is released and `Esc` cancels it. Without an arrangement, where 编辑面板布局…
+  is available, the line between any other two neighbouring panels of a column can be dragged
+  too; doing so saves a panel arrangement (see [Panel arrangement](#panel-arrangement)). `[` / `]` (显示 > 主棋盘/界面位置) move the
   board one eighth of the free width; 面板 > 恢复默认面板尺寸 restores the default sizes. In a small
   window or at a large interface font the list keeps each column wide enough for its header and
   figures and scrolls sideways, and the win-rate graph scales a readout down to fit its plot
@@ -855,7 +858,8 @@ importing the matching LizzieYzy Next settings.
   `Enter` or `Space`. Closing the floating main board in 浮动双棋盘 restores 默认; closing the floating sub
   board brings back the in-frame sub board. 自定义布局 1 / 2 (`Alt+8` / `Alt+9`) save and apply
   Java's panel flags, board position, main-window bounds/maximization and floating-window
-  choices/bounds, independently of themes, toolbars and analysis settings. As in Java, applying
+  choices/bounds, and the panel arrangement (see [Panel arrangement](#panel-arrangement)),
+  independently of themes, toolbars and analysis settings. As in Java, applying
   a saved layout chooses 浮动棋盘 when its main board is floating, otherwise 普通布局; it does
   not restore a former 思考 / 四方图 / 双引擎 mode; a board position dragged by hand moves to the
   saved position. Their 设置 dialog and 面板 > 可视化面板设置 preview each change at once; 确定
@@ -1784,6 +1788,117 @@ acceptance-identity packages signed with a separate test key and a local release
 
 Not verified yet: Windows 10, macOS 15, Intel Macs, Ubuntu 26.04 GNOME, the Windows SmartScreen
 prompt, and full input-method coverage on Windows and macOS.
+
+### Panel arrangement
+
+#### Editing the panel layout
+
+- 显示 > 面板 > 编辑面板布局… (also found by function search; no default shortcut; on macOS in the
+  system menu bar too) starts the panel layout edit mode. A row above the workbench says what to
+  do and holds 恢复 Java 布局, 取消 and 完成; the workbench gives it the room, so nothing is covered.
+  Every shown panel gets an outline and a grip with its name, and the board and the panels take no
+  pointer input meanwhile (no move is played, the tree does not scroll, no list row or comment
+  text is picked); keyboard shortcuts work as usual.
+- Dragging a grip moves its panel to the top, the bottom or between two panels of either column
+  beside the board; an accent line shows where it goes, and an empty column shows a dashed drop
+  zone. A place where the panels would not fit at the current window size shows no line, and
+  dropping there leaves the panel where it was. `Esc` during a drag cancels that drag only.
+  Dragging the line between two panels of a column changes their heights (down to each panel's
+  minimum); double-clicking it shares their heights evenly.
+- By keyboard: entering edit mode puts the focus on the first grip (the top panel of the left
+  column). `Tab` / `Shift+Tab` go round the grips (the left column top to bottom, then the right
+  one) and the row's tags and buttons. On a grip, `Alt+↑` / `Alt+↓` move its panel one place up or
+  down in its column, and `Alt+←` / `Alt+→` move it into the left or right column at the same
+  place where there is one (else at its end); the focus stays on the grip and a screen reader
+  hears the panel's new column and place. A move that would not fit the window is not made, and a
+  screen reader hears why. `Enter` on a grip is 完成 and `Esc` (outside a pointer drag) is 取消;
+  the row's buttons keep their own `Enter` and `Space`. On macOS `Alt` is `Option`. Heights are
+  changed with the pointer only. Outside edit mode `Alt` + arrows browse the record as before.
+- Each hidden panel has a tag in the row; choosing it is the same as ticking the panel in 显示 >
+  面板 (it is shown and remembered at once, and 取消 does not hide it again); the panel appears
+  at its place in the arrangement (a tag chosen by keyboard hands the focus to that panel's grip).
+- Changes to the arrangement are not saved while editing; showing a hidden panel from its tag is
+  the one exception and is saved at once, as above. 完成 saves the arrangement (nothing when it did
+  not change; 完成 right after entering, without an arrangement, leaves the Java layout), 取消
+  drops every change to the arrangement, and 恢复 Java 布局 shows the Java layout at once and, with
+  完成, removes the arrangement.
+- Without an arrangement, editing starts from the Java layout's own placement: each panel's column,
+  order and height as Java draws it at that size, a hidden panel where Java would put it when
+  shown.
+- Edit mode is available only where an arrangement can apply and fits the workbench left below
+  the row: 默认, 经典 or 精简 mode, neither 放大小棋盘 nor 放大胜率图 on, a landscape window, and
+  every shown panel at least its minimum height. Otherwise the item is disabled; in the window's
+  menus its tooltip, and in function search its result, says which of the four it is and what to
+  do (the macOS system menu only greys it). Switching the layout mode or turning on an enlarged
+  view, opening a dialog (function search included), or making the window too small for the
+  draft ends edit mode without saving, with a notice saying so for a few seconds; a resize that
+  still fits lays the draft out again and keeps editing.
+- Where an arrangement applies: 默认, 经典 and 精简 mode in a landscape window, without 放大小棋盘
+  or 放大胜率图 (经典 turns 放大小棋盘 on when it is entered, so the arrangement applies there once
+  that is off again). 四方图, 思考, 双引擎 and 浮动棋盘 mode, the enlarged views and a portrait
+  window show the Java layout and keep the arrangement for later; so does a window too small for
+  it (a shown panel would get less than its minimum height), until the window is large enough again,
+  and a board moved so far to one side (`[` / `]` or its edge zone) that a column holding a shown
+  panel has no width left, until the board moves back.
+- While an arrangement applies, the line between two neighbouring panels of a column can also be
+  dragged outside edit mode; releasing it saves the two heights (the next press waits until that
+  is saved), `Esc` cancels. A divider stops where any panel of its column would get less than its
+  minimum height, the others included when a sub board at the column's width hands them its spare
+  height, where the sub board would grow past the column's width, and outside edit mode also where
+  the arrangement would no longer fit with the edit row shown, so a drag never makes 编辑面板布局…
+  unavailable (an arrangement that already did not fit, as after shrinking the window, is held to
+  the minimum heights only); double-clicking it in edit mode shares the heights as evenly as these
+  limits allow. A drag also ends unsaved when the window loses the focus or the divider loses the
+  pointer capture, when its divider is no longer placed (another mode, one of its panels hidden)
+  and, for the Java layout's extra dividers below, when they no longer apply. No divider is placed
+  beside the variation tree, the list or the comment while `X` hides them, nor in a column too
+  narrow for its drag strip.
+- Without an arrangement, where edit mode could start, the Java layout has a divider between
+  every two neighbouring panels of a column that Java's zones leave fixed, for example 信息面板 /
+  胜率图, 胜率图 / 小棋盘 with the comment hidden, and the variation tree or the list / 小棋盘 with
+  it shown; in 精简 mode, which has no Java zones, between every two neighbouring panels. Java's
+  four zones stay and work as before. Pressing or moving sideways changes nothing; once a drag
+  really changes a height the workbench switches to the arrangement the Java layout gives (with
+  the room Java leaves around a hidden panel given to the others, so other panels may move), and
+  releasing saves it, with a notice for 8 seconds on how to return. `Esc`, the window losing the
+  focus, a lost pointer capture or a release with no change saves nothing. To return to the Java layout:
+  显示 > 面板 > 编辑面板布局…, 恢复 Java 布局, then 完成.
+- Differences from LizzieYzy Next: the 编辑面板布局… item and the edit mode are new; with an
+  arrangement the panels' columns and order follow it, each column has a divider between every
+  two neighbouring panels instead of Java's comment-top and tree/list zones, and the comment no
+  longer trades places with the sub board; without one, the Java layout's other neighbouring
+  panels have dividers too, and dragging one saves an arrangement; the window's menus explain a
+  disabled 编辑面板布局… in its tooltip (Java's menus have no such reasons).
+- Known limitation: an older LizzieYzy Tauri without panel arrangements drops the arrangement the
+  next time it writes its window state, so after a downgrade the Java layout returns.
+
+#### Layout slots, default sizes, reset and Java import
+
+The arrangement (which side column each panel is in, the order and the height shares; without
+one, the Java layout) is stored with the panel sizes in the window state.
+
+- 自定义布局 1 / 2 keep the arrangement too. 确定 in a slot's 设置 dialog saves the committed
+  arrangement (the one last saved) with the rest of the snapshot, also while the window shows the
+  Java layout in its place (another layout mode, an enlarged view, a portrait window or one too
+  small for it). Applying the slot (`Alt+8` / `Alt+9`) makes the slot's arrangement the current
+  one, in the same save as the rest. A slot holds no arrangement only when none was committed when
+  it was saved (or it was saved by a version without arrangements, or imported from LizzieYzy
+  Next); applying it shows the Java layout. The menu items and the dialog are the
+  same as before. A version without arrangements drops them from the slots the next time it
+  saves the settings.
+- 面板 > 恢复默认面板尺寸 restores the default panel sizes and gives every panel of the arrangement
+  its default weight, keeping the columns and the order. The default weights are the panels'
+  heights in the Java layout of a 1500×900 window with the default sizes: 信息 93, 胜率 323,
+  评论 256, 小棋盘 365, 分支 191 and 选点列表 191; each column shares its height among its shown
+  panels by these weights.
+- 重置界面位置 clears the arrangement with the other interface positions, and the Java layout shows
+  at once.
+- A LizzieYzy Next settings import that brings Java panel sizes (the board position or the dragged
+  shares) clears the arrangement, so the imported Java layout shows; like other chosen settings, an
+  arrangement is replaced only after confirmation. An import without panel sizes leaves the
+  arrangement as it is.
+- Difference from Java: Java's layout slots have no arrangement; saving it in 自定义布局 1 / 2 is
+  an addition of this client.
 
 ## Layout
 

@@ -5,6 +5,7 @@
 //  - BoardRenderer.calculatePixelMargins (BoardRenderer.java:3678-3746) and re-centering (:743)
 //  - SubBoardRenderer.calculatePixelMargins (SubBoardRenderer.java:1353-1422)
 import type { Point } from "../contract/generated";
+import type { ArrangementDivider } from "./arrangement";
 
 export interface Rect {
   x: number;
@@ -36,6 +37,9 @@ export interface Panels {
   status?: Rect;
   /** drawCaptured's isSmallCap: 四方图模式 and 思考模式 draw the captured panel in its small form. */
   smallCaptured?: boolean;
+  /** Set when a panel arrangement placed the panels (arrangement.ts): its in-column dividers.
+   *  The sub board's rectangle is then already its section. */
+  arranged?: { dividers: ArrangementDivider[] };
 }
 
 /** What the layout depends on (LizzieFrame.java:7164-7228). */
@@ -93,7 +97,22 @@ export function workbenchLayout(width: number, height: number, r: LayoutRequest,
   return inFrameLayout(width, height, r, width >= height);
 }
 
-function inFrameLayout(width: number, height: number, r: LayoutRequest, handles: boolean): Panels {
+/** The in-frame layout's board and the two columns beside it (InFrameLayout.java:262-300): what an
+ *  arrangement keeps of the Java geometry. The left column ends at the status lines
+ *  (`ponderingY`); `statH` is the statistics strip's height. */
+export interface InFrame {
+  maxBound: number;
+  maxSize: number;
+  panelMargin: number;
+  leftoverWidth: number;
+  board: Rect;
+  left: Rect;
+  right: Rect;
+  ponderingY: number;
+  statH: number;
+}
+
+export function inFrame(width: number, height: number, r: LayoutRequest): InFrame {
   const maxBound = Math.max(width, height);
   const maxSize = Math.max(Math.min(width, height), Math.max(r.cols, r.rows) + 5);
   const panelMargin = i(maxSize * 0.02);
@@ -106,22 +125,41 @@ function inFrameLayout(width: number, height: number, r: LayoutRequest, handles:
     if (minBoardX <= maxBoardX) boardX = Math.max(minBoardX, Math.min(maxBoardX, raw));
   }
   const boardY = i((height - maxSize) / 2);
+  const vx = boardX + maxSize + panelMargin;
+  let ponderingY = Math.max(0, height);
+  if (r.showStatus) ponderingY = ponderingY - i(maxSize * 0.023) - i(maxBound * 0.04);
+  return {
+    maxBound,
+    maxSize,
+    panelMargin,
+    leftoverWidth,
+    board: { x: boardX, y: boardY, w: maxSize, h: maxSize },
+    left: { x: 0, y: 0, w: boardX - panelMargin, h: ponderingY },
+    right: { x: vx, y: 0, w: width - vx, h: height },
+    ponderingY,
+    statH: i(maxSize / 10),
+  };
+}
+
+function inFrameLayout(width: number, height: number, r: LayoutRequest, handles: boolean): Panels {
+  const frame = inFrame(width, height, r);
+  const { maxSize, leftoverWidth, ponderingY } = frame;
+  const boardX = frame.board.x;
+  const boardY = frame.board.y;
   const capx = 0;
   const capy = 0;
-  const capw = boardX - panelMargin;
+  const capw = frame.left.w;
   let caph = boardY + i(maxSize / 8);
   const statx = capx;
   let staty = capy + caph;
   const statw = capw;
-  let stath = i(maxSize / 10);
+  let stath = frame.statH;
   let gry = staty + stath;
   let grh = i(maxSize / 3);
-  const vx = boardX + maxSize + panelMargin;
+  const vx = frame.right.x;
   const vy = capy;
-  const vw = width - vx;
+  const vw = frame.right.w;
   const vh = height - vy;
-  let ponderingY = Math.max(0, height);
-  if (r.showStatus) ponderingY = ponderingY - i(maxSize * 0.023) - i(maxBound * 0.04);
 
   let subBoardY = gry + grh;
   const subBoardWidth = statw;
@@ -226,25 +264,28 @@ function inFrameLayout(width: number, height: number, r: LayoutRequest, handles:
   };
 }
 
+/** One of the two zones on the board's sides (InFrameLeftoverDragHandles.place at zoom 1), present
+ *  while its column holds a shown panel. */
+export function edgeZone(present: boolean, leftEdge: boolean, column: Rect, board: Rect, leftoverWidth: number): Rect | null {
+  if (!present || leftoverWidth <= 0) return null;
+  let x: number;
+  let w: number;
+  if (leftEdge) {
+    const hot = Math.max(6, board.x - (column.x + column.w) + 4);
+    x = Math.max(column.x, board.x - hot);
+    w = board.x - x;
+  } else {
+    const boardRight = board.x + board.w;
+    x = boardRight;
+    w = Math.min(Math.max(6, column.x - boardRight + 4), column.x + column.w - x);
+  }
+  return w < 1 || board.h < 1 ? null : { x, y: board.y, w, h: board.h };
+}
+
 /** InFrameLeftoverDragHandles.update / place / placeHorizontal at zoom 1, in panel coordinates. */
 function dragHandles(r: LayoutRequest, board: Rect, leftColumn: Rect, rightColumn: Rect, comment: Rect, tree: Rect, table: Rect, captured: Rect, leftoverWidth: number): Handles {
   const leftOccupied = r.showCaptured || r.showWinrateGraph || r.showComment || r.showSubBoard;
   const rightOccupied = r.showVariationGraph || r.showListPane || (r.showSubBoard && r.showComment);
-  const edge = (present: boolean, leftEdge: boolean, column: Rect): Rect | null => {
-    if (!present || leftoverWidth <= 0) return null;
-    let x: number;
-    let w: number;
-    if (leftEdge) {
-      const hot = Math.max(6, board.x - (column.x + column.w) + 4);
-      x = Math.max(column.x, board.x - hot);
-      w = board.x - x;
-    } else {
-      const boardRight = board.x + board.w;
-      x = boardRight;
-      w = Math.min(Math.max(6, column.x - boardRight + 4), column.x + column.w - x);
-    }
-    return w < 1 || board.h < 1 ? null : { x, y: board.y, w, h: board.h };
-  };
   const seam = (dividerY: number | null, along: Rect): Rect | null => {
     if (dividerY === null || along.w < 1) return null;
     let y = dividerY - 2;
@@ -256,8 +297,8 @@ function dragHandles(r: LayoutRequest, board: Rect, leftColumn: Rect, rightColum
     return h < 1 ? null : { x: along.x, y, w: along.w, h };
   };
   return {
-    left: edge(leftOccupied, true, leftColumn),
-    right: edge(rightOccupied, false, rightColumn),
+    left: edgeZone(leftOccupied, true, leftColumn, board, leftoverWidth),
+    right: edgeZone(rightOccupied, false, rightColumn, board, leftoverWidth),
     commentTop: seam(comment.h > 0 ? comment.y : null, comment),
     variationList: seam(r.showVariationGraph && r.showListPane ? table.y : null, table),
     leftoverWidth,
@@ -722,7 +763,8 @@ export interface CardLayout {
 
 export const CARD_INSET = 8;
 export const CARD_RADIUS = 10;
-const SUB_CLEAR = 12;
+/** The clear space around the sub board inside its section. */
+export const SUB_CLEAR = 12;
 
 const near = (a: number, b: number) => Math.abs(a - b) <= 1;
 const overlapX = (a: Rect, b: Rect) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
@@ -739,8 +781,8 @@ function intersect(a: Rect, b: Rect): Rect {
  *  CARD_INSET from their bounds; every panel is clipped to its card. Before grouping, the status
  *  strip takes the width of the panel it continues, and the sub board's section spans the panels
  *  it continues and reaches down to the next panel below it, wherever that overlaps no other
- *  panel. The layout functions above stay Java's geometry; this is the one place the inset
- *  applies. */
+ *  panel. An arrangement places the sub board's section itself, so it is left as it is. The
+ *  layout functions above stay Java's geometry; this is the one place the inset applies. */
 export function cardLayout(p: Panels, height: number): CardLayout {
   const raw = (id: PanelId): Rect =>
     id === "status" ? p.status ?? { x: 0, y: p.ponderingY, w: p.board.x, h: height - p.ponderingY } : p[id];
@@ -751,7 +793,7 @@ export function cardLayout(p: Panels, height: number): CardLayout {
   }
   const others = (id: PanelId) => [...slots].filter(([k]) => k !== id).map(([, r]) => r);
   const sub = slots.get("sub");
-  if (sub) {
+  if (sub && !p.arranged) {
     const rest = others("sub");
     const free = (r: Rect) => rest.every((q) => overlapX(q, r) <= 0 || overlapY(q, r) <= 0);
     let touching = rest.filter((q) => near(q.y + q.h, sub.y) && overlapX(q, sub) > 0);
@@ -811,6 +853,16 @@ export function cardLayout(p: Panels, height: number): CardLayout {
   for (const [id, r] of slots) {
     const card = cardOf.get(id);
     clipped.set(id, card ? intersect(r, card) : r);
+  }
+  // Under an arrangement the statistics strip keeps its height wherever 胜率 is in its column: an
+  // inset at the card's top comes out of the graph below it.
+  const stat = clipped.get("stat");
+  const graph = clipped.get("graph");
+  if (p.arranged && stat && graph && stat.h < p.stat.h) {
+    const bottom = graph.y + graph.h;
+    const h = Math.min(p.stat.h, bottom - stat.y);
+    clipped.set("stat", { ...stat, h });
+    clipped.set("graph", { ...graph, y: stat.y + h, h: bottom - stat.y - h });
   }
 
   const dividers: Rect[] = [];
