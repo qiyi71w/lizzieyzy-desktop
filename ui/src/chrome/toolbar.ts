@@ -425,6 +425,9 @@ function kataGroup(param: KataParam): HTMLElement {
   kataToolbarUse[param] = use;
   kataToolbarState[param] = () => ({ enabled: box.checked, text: value.value });
   const send = (enabled: boolean) => {
+    // OrdinaryBreadth.validDraft: a checked 广度 takes only a number in 0..2. An invalid draft
+    // stays here (the field turns red) and reaches neither the engine nor the result cache.
+    if (param === "Wrn" && enabled && kataValueInvalid(param, value.value)) return;
     const v = enabled ? (parseJavaDouble(value.value) ?? 0) : 0;
     void run({ type: "SetKataParam", param, enabled, value: v });
   };
