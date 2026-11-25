@@ -1123,6 +1123,14 @@ impl Engines {
         self.foreground.is_some_and(|id| self.analysing_by(id, doc, node))
     }
 
+    /// Whether the foreground engine is told to analyse this node (the latest
+    /// [`want`](Self::want)), whether or not the engine has answered yet.
+    pub fn wants_analysis(&self, doc: u64, node: NodeId) -> bool {
+        self.wish
+            .as_ref()
+            .is_some_and(|(target, analyse)| *analyse && target.doc == doc && target.node == node)
+    }
+
     /// Whether instance `id` is analysing this node: its stream is this node's, or its seat wishes
     /// to analyse this node and the batch it sent before is still unanswered (stepping through the
     /// moves quickly), so the next batch starts the stream here.

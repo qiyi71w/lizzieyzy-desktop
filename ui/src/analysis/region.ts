@@ -5,7 +5,7 @@
 // selection mode and the rectangle being dragged are window state, like Java's.
 import { run, state } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
-import type { FocusCapability, Point, RegionCommand, RegionSettings, TrackingCommand } from "../contract/generated";
+import type { Point, RegionCommand, RegionSettings, TrackingCommand, TrackingUnavailable } from "../contract/generated";
 import { parseJavaInt } from "../display/dialogs";
 import type { ContextEntry } from "../editing/contextMenu";
 import { product, registerProduct, t } from "../i18n";
@@ -222,15 +222,17 @@ function same(a: Point, b: Point): boolean {
   return a.x === b.x && a.y === b.y;
 }
 
-/** The label and tooltip of 评估此点 when it cannot be chosen (trackingUnavailableKey); a failed
- *  probe has its own wording (Java had no such state). */
-function unavailableTracking(capability: FocusCapability): { label: string; title: string } {
-  switch (capability) {
-    case "Unsupported":
+/** The label and tooltip of 评估此点 when the core takes no point (trackingUnavailableKey): the
+ *  label names the reason itself; a failed probe has its own wording (Java had no such state). */
+function unavailableTracking(reason: TrackingUnavailable): { label: string; title: string } {
+  switch (reason) {
+    case "EngineUnsupported":
       return { label: t("RightClickMenu.trackPoint.upgradeRequired"), title: product("trackPointUnsupportedTooltip") };
-    case "Failed":
+    case "ProbeFailed":
       return { label: product("trackPointProbeFailed"), title: product("trackPointProbeFailedTooltip") };
-    default:
+    case "AnalysisPaused":
+      return { label: t("RightClickMenu.trackPoint.analysisPaused"), title: t("RightClickMenu.trackPoint.pausedTooltip") };
+    case "Unavailable":
       return { label: t("RightClickMenu.trackPoint.requiresCapability"), title: t("RightClickMenu.trackPoint.unavailableTooltip") };
   }
 }
@@ -255,7 +257,7 @@ export function regionMenuEntries(point: Point): ContextEntry[] {
     { key: "RightClickMenu.avoid2", label: t("RightClickMenu.avoid2"), checked: r.keep_forcing, run: () => region({ type: "ToggleKeepForcing" }) },
   );
   if (!tracked) {
-    const off = focus.available ? null : unavailableTracking(focus.capability);
+    const off = focus.unavailable ? unavailableTracking(focus.unavailable) : null;
     entries.push({
       key: "RightClickMenu.trackPoint",
       label: off?.label ?? t("RightClickMenu.trackPoint"),

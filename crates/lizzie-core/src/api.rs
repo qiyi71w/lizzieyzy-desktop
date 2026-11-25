@@ -598,8 +598,8 @@ pub enum Command {
         settings: crate::settings::RegionSettings,
     },
     /// 选点重点研究 (right-click 评估此点 / 取消评估 / 清除所有评估选点) on the current position. A
-    /// point that cannot be tracked now (engine without `focus`, occupied, outside a kept region,
-    /// already tracked) answers `Unchanged`.
+    /// point that cannot be tracked now (engine without `focus`, analysis paused or stopped by a
+    /// limit, occupied, outside a kept region, already tracked) answers `Unchanged`.
     Tracking {
         op: TrackingCommand,
     },
@@ -912,14 +912,29 @@ pub struct RegionView {
 pub struct FocusView {
     /// What the foreground engine's own start-up probe found (`Unknown` without one).
     pub capability: crate::engine::runtime::FocusCapability,
-    /// A point can be tracked now (`canStartTrackingAnalysis`).
-    pub available: bool,
+    /// Why no point can be tracked now; `None` when one can (`canStartTrackingAnalysis`).
+    pub unavailable: Option<TrackingUnavailable>,
     pub target_visits: u32,
     /// Tracked points, in the order they were chosen.
     pub points: Vec<TrackedPointView>,
     /// The engine still searches focus points the user no longer tracks (the change is sent,
     /// not yet accepted).
     pub cancellation_pending: bool,
+}
+
+/// Why 评估此点 takes no point now (`RightClickMenu.trackingUnavailableKey`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub enum TrackingUnavailable {
+    /// The foreground KataGo rejected the `focus` option.
+    EngineUnsupported,
+    /// Checking the foreground KataGo for `focus` failed.
+    ProbeFailed,
+    /// Only the user's pause, an analysis limit's stop or 分析 黑／白 keeps the foreground engine
+    /// from analysing this position; resuming the analysis makes points trackable.
+    AnalysisPaused,
+    /// No local KataGo that supports `focus` analyses this position for the user: still
+    /// starting, lent to a background task, 双引擎模式, the pure network or 摆子.
+    Unavailable,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]

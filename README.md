@@ -1110,14 +1110,25 @@ importing the matching LizzieYzy Next settings.
   draws a dashed outline in the move-rank colour of the point's candidate against the best one
   (综合设置 > 主题 > 关注点质量外框, with its opacity) and a blue progress ring while it is searched.
   Tracked points belong to one position, engine and setting: browsing, editing, komi/rules
-  changes or another engine end them, and pausing ends the extra search. Support is decided by
-  each engine instance's own probe (`kata-analyze … focus pass 0`, then `stop`) when it starts,
+  changes or another engine end them, and pausing ends the extra search. A point is taken only
+  while the foreground engine analyses the position: while analysis is paused, stopped by a time
+  or visit limit or waiting under 分析 黑 / 白, the menu item is disabled as 分析已暂停，不能评估此点
+  and its tooltip says to press `Space` to resume first; points already tracked stay. A background
+  task borrowing the foreground engine (整盘精析, 闪电分析, automatic quick analysis) interrupts
+  the extra search; when the engine comes back to the same position, the interrupted points are
+  searched extra again, counted from that search, and an engine still searching the position
+  (整盘精析 on its own process after `Space` resumed the foreground engine) is sent nothing new.
+  Whether analysis goes on after the hand-back is still up to the user's pause. Support is decided
+  by each engine instance's own probe (`kata-analyze … focus pass 0`, then `stop`) when it starts,
   restarts or becomes the foreground engine, paused or not; the probe's output is never shown as
   analysis and never resumes a paused engine. An engine that rejects `focus` (for example the
   official v1.18.1 release build, or a 自建算力 link, whose adapter rejects the probe without a
   remote query) keeps ordinary analysis, and the menu item is disabled as
-  选点评估需要升级引擎; a failed probe says so and is repeated by restarting the engine. This
-  client does not ship a KataGo build with `focus`.
+  选点评估需要升级引擎; a failed probe says so and is repeated by restarting the engine. Unlike
+  Java, which keeps the item's name and adds the reason in brackets (评估此点（分析已暂停）), a
+  disabled item names only the reason. Java keeps tracked points after 整盘精析 only when the engine
+  is still searching the position and otherwise sends the position again, which ends them; here the
+  interrupted points are searched again. This client does not ship a KataGo build with `focus`.
 - 自动分析 (`A`, 分析 > 自动分析, or the bottom bar 自动分析 popup) opens Java's single-record
   settings: start/end move, per-position time, total visits or first-candidate visits (any limit
   advances), Black/White, all branches, stronger analysis on large fluctuations, pause-exit and
