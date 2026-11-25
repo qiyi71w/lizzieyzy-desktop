@@ -318,7 +318,9 @@ function circle(g: CanvasRenderingContext2D, x: number, y: number, r: number) {
   g.arc(x, y, r, 0, Math.PI * 2);
 }
 
-const patterns = new WeakMap<CanvasRenderingContext2D, Map<HTMLImageElement, CanvasPattern>>();
+/** Each context's pattern of the texture it tiles last (a context tiles one texture: its board's or
+ *  its wallpaper), so that a texture replaced is not kept. */
+const patterns = new WeakMap<CanvasRenderingContext2D, { img: HTMLImageElement; pattern: CanvasPattern }>();
 
 /** Tile `img` over the rect with the texture anchored at (ax, ay) (TexturePaint semantics). */
 function drawTexture(g: CanvasRenderingContext2D, img: HTMLImageElement | undefined, x: number, y: number, w: number, h: number, ax = x, ay = y) {
@@ -327,12 +329,10 @@ function drawTexture(g: CanvasRenderingContext2D, img: HTMLImageElement | undefi
     g.fillRect(x, y, w, h);
     return;
   }
-  let byImage = patterns.get(g);
-  if (!byImage) patterns.set(g, (byImage = new Map()));
-  let pattern = byImage.get(img);
-  if (!pattern) byImage.set(img, (pattern = g.createPattern(img, "repeat")!));
-  pattern.setTransform(new DOMMatrix([1, 0, 0, 1, ax, ay]));
-  g.fillStyle = pattern;
+  let tiled = patterns.get(g);
+  if (tiled?.img !== img) patterns.set(g, (tiled = { img, pattern: g.createPattern(img, "repeat")! }));
+  tiled.pattern.setTransform(new DOMMatrix([1, 0, 0, 1, ax, ay]));
+  g.fillStyle = tiled.pattern;
   g.fillRect(x, y, w, h);
 }
 
@@ -389,22 +389,19 @@ interface Frosted {
   img: ImageData;
 }
 
-/** The regions a static background blurred, by rectangle and kernel (`frostKey`). */
-export type FrostRegions = Map<string, Frosted>;
-
-const frostKey = (x: number, y: number, w: number, h: number, k: Kernel) => `${x},${y},${w},${h},${k.rad}`;
+/** The regions a static background blurred. */
+export type FrostRegions = Frosted[];
 
 /** Rows [from, to) of column `X` of the region [x, x + w) x [y, y + h) blurred as blurRegion blurs it
  *  (the same sums in the same order), written as column `X - x` of `img` (the region's picture): the
- *  horizontal pass, clamped to the region's columns, over the rows the vertical one reads, then the
- *  vertical pass, clamped to its rows. `src` holds the unblurred pixels with its top-left pixel at
- *  the origin. */
-function frostRows(src: ImageData, x: number, y: number, w: number, h: number, k: Kernel, X: number, from: number, to: number, img: ImageData) {
+ *  horizontal pass, clamped to the region's columns, over the rows the vertical one reads (into
+ *  `across`, h * 3 values), then the vertical pass, clamped to its rows. `src` holds the unblurred
+ *  pixels with its top-left pixel at the origin. */
+function frostRows(src: ImageData, x: number, y: number, w: number, h: number, k: Kernel, X: number, from: number, to: number, img: ImageData, across: Uint8ClampedArray) {
   const { reach, weights } = k;
   const px = src.data;
   const lo = Math.max(0, from - reach);
   const hi = Math.min(h, to + reach);
-  const across = new Uint8ClampedArray(h * 3);
   for (let l = lo; l < hi; l++) {
     let r0 = 0;
     let g0 = 0;
@@ -482,7 +479,7 @@ function blurRegion(g: CanvasRenderingContext2D, r: Rect, radius: number, frost:
   pass(px, tmp, true);
   pass(tmp, px, false);
   g.putImageData(img, x, y);
-  frost.set(frostKey(x, y, w, h, k), { x, y, w, h, k, img });
+  frost.push({ x, y, w, h, k, img });
 }
 
 /** GlassEffectRenderer.drawLiquidEffects (GlassEffectRenderer.java:226-266) at the moment `at`
@@ -634,25 +631,25 @@ function paintCards(g: CanvasRenderingContext2D, w: number, h: number, stage: St
  *  the cards painted as paintBackground paints them, the liquid highlight at the moment of the
  *  background shown, and the frosted regions. The wallpaper is tiled from the origin, so its pixels
  *  hold whatever the workbench's size, and a frosted pixel depends only on the wallpaper and on how
- *  far it is from its region's sides: one at least `reach` from the left and right sides of two
- *  regions (or whose two regions share their columns) and at least `reach` from their tops and
- *  bottoms (or whose regions share their rows) is blurred alike in both. A region is copied from the
- *  frosted region it overlaps most (the static background's, or the last live paint's) wherever
- *  that holds, so only the bands near a moved side are computed each frame. */
+ *  far it is from its region's sides: one whose distance to each side is at least `reach` in two
+ *  regions, or the same side in both, is blurred alike in both. A region is copied from the frosted
+ *  region it overlaps most (the static background's, or the last live paint's) wherever that
+ *  holds, so only the bands near a moved side are computed each frame. */
 export interface LiveStage {
   at: number;
   /** The frosted regions of the static background shown at the start, and of the last live paint. */
   shown: Frosted[];
   last: Frosted[];
-  /** The wallpaper's pixels, read once a frosted pixel is computed, over the workbench rounded up
-   *  to 512 device pixels so that a window resized reads them again only every 512 pixels it grows. */
+  /** The wallpaper's pixels, read once a frosted pixel is computed, over every region computed so
+   *  far rounded up to 512 device pixels, so that a window resized reads them again only every 512
+   *  pixels it grows. */
   src: ImageData | null;
 }
 
 /** A live stage of the appearance whose static background shown was painted at `at` and blurred
  *  `frost` (empty when that background is for another appearance). */
 export function beginLiveStage(at: number, frost: FrostRegions): LiveStage {
-  return { at, shown: [...frost.values()], last: [], src: null };
+  return { at, shown: frost, last: [], src: null };
 }
 
 /** The wallpaper's pixels over at least `w` x `h` device pixels, rounded up to 512. */
@@ -666,28 +663,36 @@ function wallpaperPixels(w: number, h: number): ImageData {
   return g.getImageData(0, 0, canvas.width, canvas.height);
 }
 
+/** The span [lo, hi) of offsets into a region's side of length `n` at `at` blurred alike in the
+ *  region of the same side at `fromAt` with length `fromN`. */
+function alikeSpan(at: number, n: number, fromAt: number, fromN: number, reach: number): [number, number] {
+  const lo = fromAt === at ? 0 : Math.max(reach, fromAt + reach - at);
+  const hi = fromAt + fromN === at + n ? n : Math.min(n - reach, fromAt + fromN - reach - at);
+  return [lo, hi];
+}
+
 /** The region [x, x + w) x [y, y + h) of `live`'s wallpaper frosted with `k`. */
 function frostLive(live: LiveStage, x: number, y: number, w: number, h: number, k: Kernel): Frosted {
   const r = k.reach;
   let from: Frosted | null = null;
   let most = 0;
-  for (const f of [...live.last, ...live.shown]) {
-    if (f.k.rad !== k.rad) continue;
-    if (f.x === x && f.y === y && f.w === w && f.h === h) return f;
-    const area = Math.max(0, Math.min(x + w, f.x + f.w) - Math.max(x, f.x)) * Math.max(0, Math.min(y + h, f.y + f.h) - Math.max(y, f.y));
-    if (area > most) {
-      most = area;
-      from = f;
+  for (const frosted of [live.last, live.shown])
+    for (const f of frosted) {
+      if (f.k.rad !== k.rad) continue;
+      if (f.x === x && f.y === y && f.w === w && f.h === h) return f;
+      const area = Math.max(0, Math.min(x + w, f.x + f.w) - Math.max(x, f.x)) * Math.max(0, Math.min(y + h, f.y + f.h) - Math.max(y, f.y));
+      if (area > most) {
+        most = area;
+        from = f;
+      }
     }
-  }
   const img = new ImageData(w, h);
-  // The rows blurred alike in `from`: all where the two share their rows, else those at least
-  // `reach` inside both.
-  const [top, bottom] = !from ? [0, 0] : from.y === y && from.h === h ? [0, h] : [Math.max(r, from.y + r - y), Math.min(h - r, from.y + from.h - r - y)];
-  const shareColumns = from?.x === x && from.w === w;
+  const [top, bottom] = from ? alikeSpan(y, h, from.y, from.h, r) : [0, 0];
+  const [left, right] = from ? alikeSpan(x, w, from.x, from.w, r) : [0, 0];
+  let across: Uint8ClampedArray | null = null;
   for (let a = 0; a < w; a++) {
     const X = x + a;
-    const alike = from !== null && top < bottom && (shareColumns || (a >= r && a < w - r && X - from.x >= r && X - from.x < from.w - r));
+    const alike = from !== null && top < bottom && a >= left && a < right;
     if (alike) {
       const d = img.data;
       const s = from!.img.data;
@@ -699,13 +704,15 @@ function frostLive(live: LiveStage, x: number, y: number, w: number, h: number, 
         d[o + 2] = s[p + 2];
         d[o + 3] = 255;
       }
+      if (top === 0 && bottom === h) continue;
     }
-    if (alike && top === 0 && bottom === h) continue;
-    if (!live.src || live.src.width < x + w || live.src.height < y + h) live.src = wallpaperPixels(x + w, y + h);
-    if (!alike) frostRows(live.src, x, y, w, h, k, X, 0, h, img);
+    const had = live.src;
+    const src = had && had.width >= x + w && had.height >= y + h ? had : (live.src = wallpaperPixels(Math.max(had?.width ?? 0, x + w), Math.max(had?.height ?? 0, y + h)));
+    across ??= new Uint8ClampedArray(h * 3);
+    if (!alike) frostRows(src, x, y, w, h, k, X, 0, h, img, across);
     else {
-      if (top > 0) frostRows(live.src, x, y, w, h, k, X, 0, top, img);
-      if (bottom < h) frostRows(live.src, x, y, w, h, k, X, bottom, h, img);
+      if (top > 0) frostRows(src, x, y, w, h, k, X, 0, top, img, across);
+      if (bottom < h) frostRows(src, x, y, w, h, k, X, bottom, h, img, across);
     }
   }
   return { x, y, w, h, k, img };

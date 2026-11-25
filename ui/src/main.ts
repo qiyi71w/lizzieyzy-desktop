@@ -949,19 +949,25 @@ function changed(panel: string, sig: string): boolean {
  *  keeps the decoded picture alive while it is shown. */
 let backgroundUrl: string | null = null;
 let installed: { sig: string; look: string; at: number; frost: FrostRegions; image: HTMLImageElement } | null = null;
+/** The stages whose background is being painted, encoded or decoded, and the last one whose
+ *  picture could not be made (not tried again until another stage is shown). */
+const encoding = new Set<string>();
+let failed: string | null = null;
 async function installBackground(sig: string, look: string, w: number, h: number, stage: StageCards) {
+  encoding.add(sig);
   const at = Date.now();
-  const frost: FrostRegions = new Map();
+  const frost: FrostRegions = [];
   const blob = await paintBackground(w, h, stage, at, frost);
-  if (!blob || !stillShown(sig)) return;
   // A background swapped in before its picture is decoded is drawn as nothing for a frame or more
   // (the wallpaper and every card vanish): it replaces the shown one only once decoded.
-  const url = URL.createObjectURL(blob);
+  const url = blob && URL.createObjectURL(blob);
   const image = new Image();
-  image.src = url;
-  await image.decode().catch(() => undefined);
-  if (!stillShown(sig)) {
-    URL.revokeObjectURL(url);
+  if (url) image.src = url;
+  const decoded = url !== null && (await image.decode().then(() => true, () => false));
+  encoding.delete(sig);
+  if (!decoded || current?.sig !== sig) {
+    if (url) URL.revokeObjectURL(url);
+    if (!decoded && current?.sig === sig) failed = sig;
     return;
   }
   if (backgroundUrl) URL.revokeObjectURL(backgroundUrl);
@@ -971,33 +977,26 @@ async function installBackground(sig: string, look: string, w: number, h: number
   main.style.backgroundSize = `${w}px ${h}px`;
   const first = !installed;
   installed = { sig, look, at, frost, image };
-  endLiveStage();
-  if (first) whenIdle(warmLiveStage);
-}
-
-/** Whether a background painted for the stage `sig` is still the one to show: the stage of the
- *  last render. Encodes wait while the stage moves (a drag held, a window resized), so the last one
- *  started can be for a stage left since; one superseded so is started again once its stage
- *  comes back. */
-function stillShown(sig: string): boolean {
-  if (current?.sig === sig) return true;
-  if (lastSig.bg === sig) delete lastSig.bg;
-  return false;
+  handOffLiveStage();
+  if (first) whenIdle(warmLiveStage, 2000);
 }
 
 /** Encoding the stage takes from a tenth of a second to over a second, and a background swapped
  *  in shows a frame late; until the static background shows the stage of the last render, that
  *  stage is painted instead, in the same render as the panels, into this canvas under them (a
  *  separator drag held or a window resized changes it every frame, a panel shown or hidden, a mode
- *  or a zoom once). It goes two frames after the static background shows that stage, so that it
- *  has been drawn. It shows over the stage colour of #main as the static background does (not over
- *  that background, which a wallpaper not opaque everywhere would let through). */
+ *  or a zoom once). It goes two frames after a background swapped in for that stage, so that it
+ *  has been drawn, and at once when the stage comes back to the background shown all along. It
+ *  shows over the stage colour of #main as the static background does (not over that background,
+ *  which a wallpaper not opaque everywhere would let through). */
 const stageLive = document.createElement("canvas");
 stageLive.id = "stageLive";
 stageLive.style.display = "none";
 stageLive.style.pointerEvents = "none";
 stageLive.style.backgroundColor = "inherit";
 let liveStage: { look: string; stage: LiveStage } | null = null;
+/** A background swapped in has not been drawn yet: the live stage stays until it has. */
+let handOff = 0;
 
 /** The stage of the last render: its background signature, appearance part, size and cards. */
 let current: { sig: string; look: string; w: number; h: number; stage: StageCards } | null = null;
@@ -1006,28 +1005,47 @@ let current: { sig: string; look: string; w: number; h: number; stage: StageCard
 const RESIZE_SETTLE = 150;
 let sizedAt = 0;
 let settleTimer = 0;
+let encodeAsked = false;
 
-/** Shows the stage of this render: the static background follows it once it rests (no separator
- *  drag held, the size kept for RESIZE_SETTLE), and the live stage covers while the background
- *  shown is another one. Before the first background there is nothing to cover. */
+/** Shows the stage of this render: the live stage covers while the background shown is another
+ *  one (or one swapped in is not drawn yet), and the static background follows the stage once it
+ *  rests. Before the first background there is nothing to cover. */
 function showStage(sig: string, look: string, w: number, h: number, stage: StageCards) {
-  const now = performance.now();
-  if (current?.w !== w || current.h !== h) sizedAt = now;
+  if (current && (current.w !== w || current.h !== h)) sizedAt = performance.now();
   current = { sig, look, w, h, stage };
-  const resizing = installed !== null && now - sizedAt < RESIZE_SETTLE;
-  if (resizing) {
-    window.clearTimeout(settleTimer);
-    settleTimer = window.setTimeout(schedule, RESIZE_SETTLE - (now - sizedAt) + 1);
-  } else if (!dragHeld() && changed("bg", sig)) installBackground(sig, look, w, h, stage);
-  if (installed && installed.sig !== sig) paintStageLive(sig, look, w, h, stage);
-  else endLiveStage();
+  if (sig !== failed) failed = null;
+  if (installed && (installed.sig !== sig || handOff)) paintStageLive(sig, look, w, h, stage);
+  else hideLiveStage();
+  askEncode();
+}
+
+/** Whether the background of the last render's stage is still to be made and that stage rests (no
+ *  separator drag held, the size kept for RESIZE_SETTLE; a render follows once it has). */
+function encodeDue(): boolean {
+  if (!current || current.sig === installed?.sig || current.sig === failed || encoding.has(current.sig) || dragHeld()) return false;
+  const wait = RESIZE_SETTLE - (performance.now() - sizedAt);
+  if (wait <= 0) return true;
+  window.clearTimeout(settleTimer);
+  settleTimer = window.setTimeout(schedule, wait + 1);
+  return false;
+}
+
+/** Encodes the stage of the last render once it rests, after the frame this render paints: that
+ *  frame shows the stage live, and the encode would take it again. */
+function askEncode() {
+  if (encodeAsked || !encodeDue()) return;
+  encodeAsked = true;
+  whenIdle(() => {
+    encodeAsked = false;
+    if (current && encodeDue()) installBackground(current.sig, current.look, current.w, current.h, current.stage);
+  }, 300);
 }
 
 /** Paints the stage `stage` live (`sig` its background signature, `look` its appearance part). */
 function paintStageLive(sig: string, look: string, w: number, h: number, stage: StageCards) {
   if (liveStage?.look !== look) {
     const shown = installed?.look === look ? installed : null;
-    liveStage = { look, stage: beginLiveStage(shown?.at ?? Date.now(), shown?.frost ?? new Map()) };
+    liveStage = { look, stage: beginLiveStage(shown?.at ?? Date.now(), shown?.frost ?? []) };
     delete lastSig.live;
   }
   if (!changed("live", sig)) return;
@@ -1056,33 +1074,41 @@ function liveContext(w: number, h: number): CanvasRenderingContext2D {
   return g;
 }
 
-/** Takes the live stage away two frames after the static background shows the current stage, so
- *  that it has been drawn; a stage changed again meanwhile keeps it. */
-function endLiveStage() {
+function hideLiveStage() {
   if (stageLive.style.display === "none") return;
+  stageLive.style.display = "none";
+  stageLive.width = stageLive.height = 1;
+  liveStage = null;
+  delete lastSig.live;
+}
+
+/** Takes the live stage away two frames after the static background swapped in, so that it has
+ *  been drawn; a stage changed again meanwhile keeps it. */
+function handOffLiveStage() {
+  if (stageLive.style.display === "none") return;
+  const mine = ++handOff;
   requestAnimationFrame(() => requestAnimationFrame(() => {
-    if (!installed || installed.sig !== current?.sig || stageLive.style.display === "none") return;
-    stageLive.style.display = "none";
-    stageLive.width = stageLive.height = 1;
-    liveStage = null;
-    delete lastSig.live;
+    if (mine !== handOff) return;
+    handOff = 0;
+    if (installed?.sig === current?.sig) hideLiveStage();
   }));
 }
 
 /** The first live paint makes the GPU compile its programs (ANGLE on Windows: 60-100 ms in that
  *  frame, the first move of a drag or of a resize); once the first background is installed, the
- *  live stage is painted at rest over the same stage, while nothing moves, and taken away as any
- *  live stage is. */
+ *  live stage is painted at rest over the same stage, while nothing moves, and taken away as a
+ *  live stage is after a swap. */
 function warmLiveStage() {
   if (!current || installed?.sig !== current.sig) return;
   paintStageLive(current.sig, current.look, current.w, current.h, current.stage);
-  endLiveStage();
+  handOffLiveStage();
 }
 
-/** Runs `f` once the page is idle (WebKitGTK may lack requestIdleCallback: then shortly after). */
-function whenIdle(f: () => void) {
-  if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(f, { timeout: 2000 });
-  else window.setTimeout(f, 200);
+/** Runs `f` once the page is idle, within `timeout` ms (WebKitGTK may lack requestIdleCallback:
+ *  then in a task of its own, after the frame being rendered). */
+function whenIdle(f: () => void, timeout: number) {
+  if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(f, { timeout });
+  else window.setTimeout(f, 0);
 }
 
 /** LizzieFrame.drawPonderingState: only ambient status depends on active pondering. An engine left
