@@ -1928,19 +1928,37 @@ playoutsThreshold: number,
  */
 hideControlPane: boolean, };
 
-export type HumanSlSettingsView = { model: HumanSlModelView, training: HumanSlTrainingSettings, advanced_visible: boolean, };
+export type HumanSlSettingsView = { model: HumanSlModelView, training: HumanSlTrainingSettings, advanced_visible: boolean, 
+/**
+ * Every opponent, weakest first.
+ */
+levels: Array<CoachLevelView>, };
 
 export type HumanSlModelView = { status: HumanSlModelStatus, path: string | null, };
 
 export type HumanSlModelStatus = "Missing" | "Installed";
 
+export type CoachLevelView = { level: CoachLevel, fox: string, kind: CoachLevelKind, rank: number, };
+
 export type HumanSlSettings = { modelPath: string | null, training: HumanSlTrainingSettings, advancedVisible: boolean, };
 
-export type HumanSlTrainingSettings = { mode: TrainingMode, opponent: OpponentPreset, danRank: boolean, rank: number, playerColor: PlayerColor, moveTimeSeconds: number, handicap: number, komi: number, };
+export type HumanSlTrainingSettings = { mode: TrainingMode, 
+/**
+ * The opponent; it alone decides how the AI picks its moves and its search budget.
+ */
+level: CoachLevel, playerColor: PlayerColor, 
+/**
+ * AI 思考时间: paces the AI's replies, nothing else.
+ */
+pace: Pace, handicap: number, komi: number, };
 
 export type TrainingMode = "PostGameReview" | "LiveAnalysis";
 
-export type OpponentPreset = "Rank" | "ModernPro" | "Online9d";
+export type CoachLevel = "Kyu10" | "Kyu9" | "Kyu8" | "Kyu7" | "Kyu6" | "Kyu5" | "Kyu4" | "Kyu3" | "Kyu2" | "Kyu1" | "Dan1" | "StrongDan1" | "Dan2" | "StrongDan2" | "Dan3" | "StrongDan3" | "Dan4" | "StrongDan4" | "Dan5" | "StrongDan5" | "Dan6" | "StrongDan6" | "Dan7" | "StrongDan7" | "Dan8" | "StrongDan8" | "Dan9" | "StrongDan9" | "Dan10" | "StrongDan10" | "Dan11";
+
+export type CoachLevelKind = "Kyu" | "Dan" | "StrongDan";
+
+export type Pace = "Natural" | "Fast" | "Slow";
 
 export type PlayerColor = "Random" | "Black" | "White";
 
@@ -2597,7 +2615,7 @@ export type HumanSlSide = "Human" | "Ai";
 
 export type HumanSlAnalysisDisplay = "Suppress" | "Show";
 
-export type HumanSlView = { id: number, phase: HumanSlPhase, stage: HumanSlStartupStage | null, preparing_secs: number, mode: TrainingMode, opponent: OpponentPreset, rank: number, dan_rank: boolean, human_is_black: boolean, human_ms: number, ai_ms: number, clock: HumanSlSide | null, human_turn: boolean, ai_thinking: boolean, ai_failed: boolean, analysis_display: HumanSlAnalysisDisplay, };
+export type HumanSlView = { id: number, phase: HumanSlPhase, stage: HumanSlStartupStage | null, preparing_secs: number, mode: TrainingMode, level: CoachLevel, human_is_black: boolean, human_ms: number, ai_ms: number, clock: HumanSlSide | null, human_turn: boolean, ai_thinking: boolean, ai_failed: boolean, analysis_display: HumanSlAnalysisDisplay, };
 
 export type HumanSlNotice = { "type": "AiPassed" } | { "type": "AiMoveFailed" } | { "type": "StartFailed", reason: string, detail: string | null, } | { "type": "ExitRecoveryFailed" } | { "type": "Ended" };
 

@@ -2,7 +2,7 @@
 // model (Java keeps the session PREPARING then, so the strip button reads 准备中…) and how the
 // dialog is brought to the front. The session itself is the core's `human_sl` view.
 import { registerViewHandler, run, state } from "../app";
-import type { HumanSlAnalysisDisplay, HumanSlContinuation, HumanSlView, OpponentPreset, WorkbenchView } from "../contract/generated";
+import type { CoachLevel, CoachLevelView, HumanSlAnalysisDisplay, HumanSlContinuation, HumanSlView, WorkbenchView } from "../contract/generated";
 import { format, t } from "../i18n";
 import { matchPlaying } from "../match/state";
 
@@ -50,11 +50,20 @@ export function aiCoachBlockedByGame(v: WorkbenchView | null = state.view): bool
   return matchPlaying(v) || !!v?.game;
 }
 
-/** HumanSlGameController.opponentLabel: the rank as 3段 / 12级, or the pro style's name. */
-export function opponentLabel(opponent: OpponentPreset, danRank: boolean, rank: number): string {
-  if (opponent === "ModernPro") return t("HumanSlTraining.pro.modern");
-  if (opponent === "Online9d") return t("HumanSlTraining.pro.online9d");
-  return format(danRank ? t("HumanSlTraining.rank.danValue") : t("HumanSlTraining.rank.kyuValue"), rank);
+/** CoachLevelText.fox: the opponent by its Fox / Tygem rank, "野狐 3D". */
+export function levelFox(level: CoachLevelView): string {
+  return format(t("HumanSlTraining.level.fox"), level.fox);
+}
+
+/** CoachLevelText.kataGo: the KataGo level, "3段", "强3段" or "10级". */
+export function levelKataGo(level: CoachLevelView): string {
+  const plain = format(level.kind === "Kyu" ? t("HumanSlTraining.rank.kyuValue") : t("HumanSlTraining.rank.danValue"), level.rank);
+  return level.kind === "StrongDan" ? format(t("HumanSlTraining.rankTable.strong"), plain) : plain;
+}
+
+/** The core's description of `level`. */
+export function coachLevel(level: CoachLevel, v: WorkbenchView | null = state.view): CoachLevelView | undefined {
+  return v?.settings.human_sl.levels.find((l) => l.level === level);
 }
 
 /** The dialogs a session's exit may open afterwards, registered by their owners. */

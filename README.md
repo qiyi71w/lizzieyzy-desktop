@@ -1289,23 +1289,46 @@ importing the matching LizzieYzy Next settings.
   follows Java: 训练方式 (实战后复盘 hides candidates, the winrate graph, Kata形势, policy and
   heat map and pauses the foreground analysis during the game; 边下边分析 keeps the foreground
   analysing with both sides' candidates shown; neither changes the saved display settings),
-  AI 对手 (by rank, 20 kyu to 9 dan, or 职业棋风: 现代职业棋风 `proyear_2023` / 网络 9 段), colour
-  (random, black or white), the AI's time per move (10 s, 30 s, 1 min, unlimited), and under 更多
+  对手棋力 (31 opponents named by their Fox / Tygem rank, 野狐 17-18K to 野狐 10D, each followed by
+  its KataGo level, 10 级 to 11 段 with the 强 half steps between dan levels; 野狐 3D, KataGo 3段 by
+  default), colour (random, black or white), AI 思考时间 (自然, 快, 慢), and under 更多
   设置 handicap and komi; 从当前局面开始 (only when the current position has moves) continues the
   current record in a new variation, otherwise a new record is started. The last started
   settings are remembered. The AI's moves come from a separate `katago analysis` process with
   `-human-model`, started from the 精析设置 analysis command (a Windows TensorRT engine uses the
   installed CUDA package instead); the game starts only after that process answered a real
-  HumanSL request, with Java's loading stages shown meanwhile. Moves follow Java's human-like
-  selection (HumanSL policy candidates checked by a short search; no AI pass before move 200,
-  800–4000 ms thinking pace); an AI answer for a position that is no longer current ends the
-  session without touching the record. A companion process that exits is started again for the
-  next move; two failed attempts show 重试 AI. The bar under the board shows the opponent, both
+  HumanSL request, with Java's loading stages shown meanwhile. Each opponent plays with the
+  HumanSL settings its rank was measured with (the community comparison of KataGo's human-style
+  levels with Fox / Tygem ranks that Java follows): up to 1 kyu the AI samples the raw HumanSL
+  policy of a pre-AlphaZero profile (`preaz_20k` … `preaz_7k`) from one visit, damping only moves
+  under 1% of the policy, and does not search; from 1 dan it runs one KataGo search with the
+  level's `rank_` profile, visits and PiKL settings and plays the move KataGo's genmove would
+  choose from that search. The search budget is 10 s a move, 20 s for 强10段 and 11段 (200 and
+  400 visits); no setting changes it. AI 思考时间 only paces the replies, never the strength: the
+  AI takes about as long as a player of its level would over the move, quick when nearly everyone
+  at that level plays the same move, longer when the choice is open, a little quicker in the
+  opening (自然 0.4–8 s, 快 0.25–1.8 s, 慢 0.8–14 s, counted from the start of the AI's turn); an
+  engine answer that arrives later is played at once, and ending the game while the AI waits plays
+  nothing. The AI does not pass before move 200; an AI answer for a position that is no longer
+  current ends the session without touching the record. A companion process that exits is
+  started again for the next move; two failed attempts show 重试 AI. The bar under the board
+  shows the opponent's Fox / Tygem rank, both
   clocks and the turn, with 停一手 (`P`) and 结束并复盘. Ending, cancelling or a failed start stops
   the companion and gives the foreground engine back as it was (after 实战后复盘 analysis resumes
   on the finished game); a failed restore offers 重试清理. Opening a record, a new board or another
   game during a session first ends the session, then proceeds. The training report and live
   correction strings present in Java are not reachable there and are not shown here.
+  Strength change from earlier versions: every rank used to pick among human-style candidates
+  and then check them with a deeper search, which made the opponents far stronger than their
+  names (upstream measured the old 3 dan losing fewer points a move than its 9 dan model); each
+  opponent now plays with the settings its rank was measured with (this product has not measured
+  the levels' strength itself). The 职业棋风 presets (现代职业棋风 and 网络 9 段) are gone, and
+  用时 (10 s, 30 s, 1 min, unlimited) is replaced by AI 思考时间. Settings
+  saved before keep working: a numbered rank becomes the plain level of that number (kyu ranks
+  weaker than 10 kyu become 野狐 17-18K), the two retired presets become 9 段, 1 min and unlimited
+  become 慢 and shorter times 自然; values that cannot be read fall back to 3 段 and 自然. Unlike
+  Java's setup sheet, the opponent is picked from a list in the dialog's existing rows, and the
+  rank table and the real-world grade beside the level are not shown.
 - Switching between 人机对弈, 引擎对战 and AI 陪练: two of them never run together. During a game
   a match or AI 陪练 is refused and a new game ends the running game first; during a match a
   game or AI 陪练 is refused; a new game or match asked during AI 陪练 ends the session first
@@ -1567,7 +1590,9 @@ importing the matching LizzieYzy Next settings.
   Java's list position), the 引擎对战 dialog and 引擎对局设置 values (`engine-pk-*`,
   `new-engine-game-*`, `engine-game-match-rules`, per-side time modes and resignation thresholds)
   and the 自动落子 and 引擎对战 toolbar values in `toolbar-parameter`, and the AI 陪练 settings
-  (`human-sl-training-last-settings`; Java's retired `LIVE_CORRECTION` becomes 边下边分析),
+  (`human-sl-training-last-settings`: the opponent `level` and AI 思考时间 `pace` the newer Java
+  saves, or an older Java's rank, preset and move time read as described under AI 陪练; Java's
+  retired `LIVE_CORRECTION` becomes 边下边分析),
   HumanSL model path (`katago-human-sl-model-path`), 后台 HumanSL for 棋力评估
   (`strength-humansl-background-enabled`; the models in Java's `strength-models/` folder are
   copied into this client's, once, keeping their names), the 死活题 choices (`tsume-go-to-play`,
@@ -2039,7 +2064,7 @@ binary with its output and exits non-zero, like `cargo test --no-fail-fast`.
   escape twice, so that Java shows a stray backslash before `:`, `=`, `!`, `"`, a leading space or a
   `\uXXXX` sequence), and holds the earlier wording of entries the newer Java rewrote for behaviour
   this product does not have yet (the online-link prompt naming OGS links, the unavailable
-  评估此点 labels and tooltip, the AI 解说 address hints, the AI 陪练 setup texts and the Chinese
+  评估此点 labels and tooltip, the AI 解说 address hints, the AI 陪练 subtitle and the Chinese
   strength match tooltip). The function catalog keeps the same texts
   (`tools/function_catalog/README.md`). Strings this product adds to Java's menus and catalog are kept by hand, in all six
   languages, in `ui/src/i18n/productStrings.json`; the script does not touch that file.

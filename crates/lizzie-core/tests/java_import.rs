@@ -3194,7 +3194,8 @@ fn engine_match_imports_dialog_and_toolbar_values_with_one_shared_wrn_owner() {
 
 #[test]
 fn humansl_training_and_model_import_preserve_java_files_and_migrate_live_correction() {
-    use lizzie_core::settings::{OpponentPreset, PlayerColor, TrainingMode};
+    use lizzie_core::humansl::{CoachLevel, Pace};
+    use lizzie_core::settings::{PlayerColor, TrainingMode};
     let tmp = tempfile::tempdir().unwrap();
     let java = tmp.path().join("java");
     let model = java.join("human-sl-models/custom.bin.gz");
@@ -3219,9 +3220,13 @@ fn humansl_training_and_model_import_preserve_java_files_and_migrate_live_correc
     let h = &wb.config().human_sl;
     assert_eq!(h.model_path.as_deref().map(Path::new), Some(model.as_path()));
     let s = &h.training;
-    assert_eq!((s.mode, s.opponent, s.player_color), (TrainingMode::LiveAnalysis, OpponentPreset::Online9d, PlayerColor::White));
-    assert_eq!((s.rank, s.move_time_seconds, s.handicap, s.komi), (18, 86400, 2, 0.5));
-    assert!(!s.dan_rank && h.advanced_visible);
+    // 网络 9 段 is retired: the opponent becomes 9 段; 用时 无限制 becomes 慢.
+    assert_eq!(
+        (s.mode, s.level, s.player_color),
+        (TrainingMode::LiveAnalysis, CoachLevel::Dan9, PlayerColor::White)
+    );
+    assert_eq!((s.pace, s.handicap, s.komi), (Pace::Slow, 2, 0.5));
+    assert!(h.advanced_visible);
     assert_eq!(wb.view(false).settings.human_sl.model.status, lizzie_core::api::HumanSlModelStatus::Installed);
     assert_eq!(saved_config(&product).human_sl, wb.config().human_sl);
     assert_eq!(std::fs::read_to_string(java.join("config.txt")).unwrap(), source);
@@ -3230,7 +3235,8 @@ fn humansl_training_and_model_import_preserve_java_files_and_migrate_live_correc
 
 #[test]
 fn humansl_java_corrupt_or_future_fields_fall_back_independently() {
-    use lizzie_core::settings::{OpponentPreset, PlayerColor, TrainingMode};
+    use lizzie_core::humansl::{CoachLevel, Pace};
+    use lizzie_core::settings::{PlayerColor, TrainingMode};
     let tmp = tempfile::tempdir().unwrap();
     let java = tmp.path().join("java");
     std::fs::create_dir_all(&java).unwrap();
@@ -3246,9 +3252,49 @@ fn humansl_java_corrupt_or_future_fields_fall_back_independently() {
     let p = preview(&mut wb, &java);
     wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
     let s = &wb.config().human_sl.training;
-    assert_eq!((s.mode, s.opponent, s.player_color), (TrainingMode::PostGameReview, OpponentPreset::Rank, PlayerColor::Random));
-    assert_eq!((s.rank, s.move_time_seconds, s.handicap, s.komi), (9, 10, 9, 7.5));
+    assert_eq!(
+        (s.mode, s.level, s.player_color),
+        (TrainingMode::PostGameReview, CoachLevel::Dan11, PlayerColor::Random)
+    );
+    assert_eq!((s.pace, s.handicap, s.komi), (Pace::Natural, 9, 7.5));
     assert!(wb.config().human_sl.advanced_visible);
+}
+
+/// The newer Java saves the level and AI 思考时间 by name; older ones the preset, the numbered rank
+/// and 用时. Each reads as the fixed Java reads it (`HumanSlTrainingPreferences.load`, run on these
+/// files in `fixtures/coach/b2-coach.json`).
+#[test]
+fn humansl_java_levels_and_paces_import_as_java_reads_them() {
+    use lizzie_core::humansl::{CoachLevel, Pace};
+    let b2: serde_json::Value = serde_json::from_str(include_str!("fixtures/coach/b2-coach.json")).unwrap();
+    for row in b2["saved"].as_array().unwrap() {
+        let saved = &row["saved"];
+        let tmp = tempfile::tempdir().unwrap();
+        let java = tmp.path().join("java");
+        std::fs::create_dir_all(&java).unwrap();
+        std::fs::write(
+            java.join("config.txt"),
+            json!({"ui": {"human-sl-training-last-settings": saved}}).to_string(),
+        )
+        .unwrap();
+        let product = tmp.path().join("product");
+        let mut wb = workbench(&product, Recorder::default());
+        let p = preview(&mut wb, &java);
+        wb.apply_java_import(p.id, &[], false, false, true, None)
+            .unwrap()
+            .unwrap();
+        let s = &wb.config().human_sl.training;
+        // An unreadable number gives the default 3 段 (Java keeps its fallback's number and reads
+        // 3 级 when 级 is chosen).
+        let level = if saved["rank"] == "x" {
+            CoachLevel::Dan3
+        } else {
+            serde_json::from_value(row["level"].clone()).unwrap()
+        };
+        let pace: Pace = serde_json::from_value(row["pace"].clone()).unwrap();
+        assert_eq!((s.level, s.pace), (level, pace), "{saved}");
+        assert_eq!(saved_config(&product).human_sl.training, *s);
+    }
 }
 
 #[test]
@@ -3421,7 +3467,9 @@ fn painting_color_imports_by_value() {
         let p = preview(&mut wb, &java);
         let row = item(&p.items, "ui.last-painting-color");
         assert_eq!((row.status, row.target), (ImportStatus::Imported, Some(ImportTarget::PaintingColor)), "{value}");
-        wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+        wb.apply_java_import(p.id, &[], false, false, true, None)
+            .unwrap()
+            .unwrap();
         assert_eq!(saved_config(&product).edit.painting_color, expected, "last-painting-color {value}");
     }
 }

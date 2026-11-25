@@ -1,5 +1,9 @@
 use super::*;
+use crate::humansl::choose;
 use serde_json::json;
+
+/// The readiness check may take as long as the engine's first GPU compilation.
+const READY_SECONDS: u64 = 180;
 
 impl Workbench {
     /// Seed the session's random source for reproducible controlled-engine scenarios.
@@ -31,44 +35,54 @@ impl Workbench {
         {
             return;
         }
-        self.human_sl_request(Search::Policy, now);
+        self.human_sl_request(false, now);
     }
-    pub(super) fn human_sl_request(&mut self, phase: Search, now: Instant) {
-        let pace = Duration::from_millis(800 + (self.human_sl_random() * 3200.0) as u64);
+    /// The level's first question: a search level searches, a policy level probes its policy.
+    fn human_sl_first_phase(settings: &HumanSlTrainingSettings) -> Search {
+        if settings.level.play().searches {
+            Search::Play
+        } else {
+            Search::Probe
+        }
+    }
+    fn human_sl_request_id(s: &Session, phase: &Search) -> String {
+        let kind = match phase {
+            Search::Ready => "ready",
+            Search::Probe => "policy",
+            Search::PassCheck => "pass",
+            Search::Play | Search::Pacing => "play",
+        };
+        format!("humansl-{kind}-{}-{}", s.id, s.generation)
+    }
+    pub(super) fn human_sl_request(&mut self, readiness: bool, now: Instant) {
         let Some(s) = self.human_sl.session.as_mut() else {
             return;
         };
         s.generation += 1;
         s.failed = false;
-        let seconds = if phase == Search::Ready {
-            180
+        let (phase, budget) = if readiness {
+            (Search::Ready, Duration::from_secs(READY_SECONDS))
         } else {
-            s.settings.move_time_seconds.max(2)
+            (
+                Self::human_sl_first_phase(&s.settings),
+                s.settings.level.play().move_budget(),
+            )
         };
-        let id = format!(
-            "humansl-{}-{}-{}",
-            if phase == Search::Ready { "ready" } else { "policy" },
-            s.id,
-            s.generation
-        );
         s.request = Some(Request {
-            id,
+            id: Self::human_sl_request_id(s, &phase),
             generation: s.generation,
             doc: self.doc.id,
             node: self.cursor,
             stamp: self.doc.record.node(self.cursor).stamp,
             position_context: self.human_sl.position_context,
-            sent: now,
-            deadline: now + Duration::from_secs(u64::from(seconds)),
-            pace: now + pace,
+            started: now,
+            deadline: now + budget,
             attempt: 0,
             phase,
             candidates: Vec::new(),
-            allowed: Vec::new(),
-            visits: 1,
-            rounds: 0,
-            evidence: None,
+            top_share: None,
             selected: None,
+            pace: now,
         });
         self.human_sl_send(now);
     }
@@ -88,25 +102,25 @@ impl Workbench {
             return;
         };
         let rules = self.quick_rules();
-        let Some(s) = self.human_sl.session.as_mut() else {
+        let Some(s) = self.human_sl.session.as_ref() else {
             return;
         };
-        let Some(r) = s.request.as_mut() else { return };
-        r.sent = now;
-        let line = protocol::query(
-            &r.id,
-            &self.doc.record,
-            r.node,
-            &s.settings,
-            self.komi,
+        let Some(r) = s.request.as_ref() else { return };
+        let at = protocol::Position {
+            record: &self.doc.record,
+            node: r.node,
+            komi: self.komi,
             rules,
-            protocol::QueryBudget {
-                visits: r.visits,
-                allowed: &r.allowed,
-                seconds: r.deadline.saturating_duration_since(now).as_secs_f64(),
-                readiness: r.phase == Search::Ready,
-            },
-        );
+            seconds: r.deadline.saturating_duration_since(now).as_secs_f64(),
+        };
+        let play = s.settings.level.play();
+        let line = match r.phase {
+            Search::Ready => protocol::policy_query(&r.id, at, play.profile, 1),
+            Search::Probe => protocol::policy_query(&r.id, at, play.profile, protocol::ROOT_SYMMETRIES),
+            Search::PassCheck => protocol::pass_check_query(&r.id, at),
+            Search::Play => protocol::play_query(&r.id, at, play),
+            Search::Pacing => return,
+        };
         if !self.engines.worker_send(worker, &line) {
             self.human_sl_request_failed(now);
         }
@@ -130,25 +144,25 @@ impl Workbench {
             self.human_sl_start_failed("HumanSL readiness request failed".into());
             return;
         }
-        let Some(r) = s.request.as_mut() else { return };
-        if r.evidence.is_some() {
-            self.human_sl_choose(now);
+        if s.request.is_none() {
             return;
         }
         if let Some(worker) = s.worker.take() {
             self.engines.terminate(worker);
         }
-        if r.attempt == 0 {
-            r.attempt = 1;
+        let first = Self::human_sl_first_phase(&s.settings);
+        let budget = s.settings.level.play().move_budget();
+        if s.request.as_ref().is_some_and(|r| r.attempt == 0) {
             s.generation += 1;
+            let id = Self::human_sl_request_id(s, &first);
+            let r = s.request.as_mut().unwrap();
+            r.attempt = 1;
             r.generation = s.generation;
-            r.id = format!("humansl-policy-{}-{}", s.id, s.generation);
-            r.phase = Search::Policy;
-            r.visits = 1;
-            r.allowed.clear();
+            r.phase = first;
+            r.id = id;
             r.candidates.clear();
-            r.rounds = 0;
-            r.deadline = now + Duration::from_secs(u64::from(s.settings.move_time_seconds.max(2)));
+            r.top_share = None;
+            r.deadline = now + budget;
             self.human_sl_send(now);
         } else {
             s.request = None;
@@ -158,29 +172,101 @@ impl Workbench {
             self.human_sl.notices.push(HumanSlNotice::AiMoveFailed);
         }
     }
-    fn human_sl_choose(&mut self, now: Instant) {
-        let random = self.human_sl_random();
-        let Some(s) = self.human_sl.session.as_mut() else {
+    /// Whether the AI may pass at the request's position: from move 200 on.
+    fn human_sl_may_pass(&self, node: NodeId) -> bool {
+        self.doc.record.node(node).move_number >= 200
+    }
+    /// A policy level's probe answered: its legal moves and, when the AI may pass, KataGo's own
+    /// pass check next.
+    fn human_sl_probed(&mut self, response: &Value, now: Instant) {
+        let Some(node) = self
+            .human_sl
+            .session
+            .as_ref()
+            .and_then(|s| s.request.as_ref())
+            .map(|r| r.node)
+        else {
             return;
         };
-        let Some(r) = s.request.as_mut() else { return };
-        let Some(evidence) = r.evidence.as_ref() else {
-            self.human_sl_request_failed(now);
-            return;
-        };
-        let infos = evidence["moveInfos"].as_array().map(Vec::as_slice).unwrap_or_default();
-        let number = self.doc.record.node(r.node).move_number;
-        let selected = if number >= 200 && protocol::top(evidence).is_some_and(|v| v.eq_ignore_ascii_case("pass")) {
-            Some("pass".into())
-        } else {
-            humansl::select(&r.candidates, infos, number, &protocol::profile(&s.settings), random)
-                .filter(|v| number >= 200 || !v.eq_ignore_ascii_case("pass"))
-        };
-        if selected.is_none() {
-            r.evidence = None;
+        if protocol::human_policy(response).is_none() {
             self.human_sl_request_failed(now);
             return;
         }
+        let candidates = protocol::policy(response, &self.doc.record, node, false);
+        let may_pass = self.human_sl_may_pass(node);
+        let s = self.human_sl.session.as_mut().unwrap();
+        let id = Self::human_sl_request_id(s, &Search::PassCheck);
+        let r = s.request.as_mut().unwrap();
+        r.top_share = choose::top_share(&candidates);
+        r.candidates = candidates;
+        if may_pass {
+            r.phase = Search::PassCheck;
+            r.id = id;
+            self.human_sl_send(now);
+        } else {
+            self.human_sl_sample_policy(now);
+        }
+    }
+    /// A policy level's move, sampled from its probe's human policy.
+    fn human_sl_sample_policy(&mut self, now: Instant) {
+        let random = self.human_sl_random();
+        let Some(r) = self.human_sl.session.as_ref().and_then(|s| s.request.as_ref()) else {
+            return;
+        };
+        let number = self.doc.record.node(r.node).move_number;
+        let size = self.doc.record.size;
+        let selected = choose::policy_move(&r.candidates, number, size.width, size.height, random).map(str::to_string);
+        self.human_sl_chosen(selected, now);
+    }
+    /// A search level's search answered: the move genmove would have chosen from it.
+    fn human_sl_searched(&mut self, response: &Value, now: Instant) {
+        let Some(s) = self.human_sl.session.as_ref() else {
+            return;
+        };
+        let Some(r) = s.request.as_ref() else { return };
+        let (node, play) = (r.node, s.settings.level.play());
+        if protocol::human_policy(response).is_none() {
+            self.human_sl_request_failed(now);
+            return;
+        }
+        let human = protocol::policy(response, &self.doc.record, node, false);
+        let top_share = choose::top_share(&human);
+        let may_pass = self.human_sl_may_pass(node);
+        let selected = if may_pass && protocol::prefers_pass(response) {
+            Some("pass".to_string())
+        } else {
+            let human = if may_pass {
+                protocol::policy(response, &self.doc.record, node, true)
+            } else {
+                human
+            };
+            let infos = response["moveInfos"].as_array().map(Vec::as_slice).unwrap_or_default();
+            let number = self.doc.record.node(node).move_number;
+            let size = self.doc.record.size;
+            let random = self.human_sl_random();
+            choose::searched_move(infos, &human, play, number, (size.width, size.height), may_pass, random)
+        };
+        if let Some(r) = self.human_sl.session.as_mut().and_then(|s| s.request.as_mut()) {
+            r.top_share = top_share;
+        }
+        self.human_sl_chosen(selected, now);
+    }
+    /// The move is chosen; it is played once the AI has "thought" for as long as a player of the
+    /// level would over it, at the chosen pace, counted from the start of its turn.
+    fn human_sl_chosen(&mut self, selected: Option<String>, now: Instant) {
+        if selected.is_none() {
+            self.human_sl_request_failed(now);
+            return;
+        }
+        let random = self.human_sl_random();
+        let area = self.doc.record.size.area();
+        let Some(s) = self.human_sl.session.as_mut() else {
+            return;
+        };
+        let pace = s.settings.pace;
+        let Some(r) = s.request.as_mut() else { return };
+        let number = self.doc.record.node(r.node).move_number;
+        r.pace = r.started + humansl::think_time(r.top_share, number, area, random, pace);
         r.selected = selected;
         r.phase = Search::Pacing;
         if now >= r.pace {
@@ -254,117 +340,16 @@ impl Workbench {
             }
             return;
         }
-        if r.phase == Search::Ready {
-            if response
-                .get("humanPolicy")
-                .or_else(|| response.get("rootInfo").and_then(|v| v.get("humanPolicy")))
-                .is_none()
-            {
-                self.human_sl_start_failed("HumanSL model did not return humanPolicy".into());
-            } else {
-                self.human_sl_prepared(now);
+        match r.phase {
+            Search::Ready if protocol::human_policy(&response).is_none() => {
+                self.human_sl_start_failed("HumanSL model did not return humanPolicy".into())
             }
-            return;
-        }
-        let phase = &r.phase;
-        if *phase == Search::Policy {
-            let number = self.doc.record.node(r.node).move_number;
-            let candidates = protocol::policy(&response, &self.doc.record, r.node, false);
-            let mut allowed: Vec<_> =
-                humansl::candidate_pool(&protocol::policy(&response, &self.doc.record, r.node, number >= 200))
-                    .into_iter()
-                    .map(|m| m.vertex)
-                    .collect();
-            for m in humansl::candidate_pool(&candidates) {
-                if !allowed.contains(&m.vertex) {
-                    allowed.push(m.vertex);
-                }
-            }
-            if let Some(top) = protocol::top(&response).filter(|v| number >= 200 || !v.eq_ignore_ascii_case("pass")) {
-                if !allowed.iter().any(|v| v == top) {
-                    allowed.push(top.into());
-                }
-            }
-            // Include the ordinary policy argmax as an additional tactical verification candidate.
-            if let Some(policy) = response["policy"].as_array() {
-                if let Some((i, _)) = policy
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, v)| v.as_f64().map(|p| (i, p)))
-                    .max_by(|a, b| a.1.total_cmp(&b.1))
-                {
-                    if i < self.doc.record.size.area() {
-                        let size = self.doc.record.size;
-                        let vertex = gtp::vertex(
-                            size,
-                            Point {
-                                x: (i % usize::from(size.width)) as u16,
-                                y: (i / usize::from(size.width)) as u16,
-                            },
-                        );
-                        if !allowed.contains(&vertex) {
-                            allowed.push(vertex);
-                        }
-                    }
-                }
-            }
-            if allowed.is_empty() {
-                self.human_sl_request_failed(now);
-                return;
-            }
-            let s = self.human_sl.session.as_mut().unwrap();
-            let r = s.request.as_mut().unwrap();
-            r.candidates = candidates;
-            r.allowed = allowed;
-            r.visits = protocol::visits(&s.settings);
-            r.phase = Search::Verify;
-            r.id = format!("humansl-verify-{}-{}", s.id, s.generation);
-            self.human_sl_send(now);
-            return;
-        }
-        if *phase != Search::Verify {
-            return;
-        }
-        let s = self.human_sl.session.as_mut().unwrap();
-        let r = s.request.as_mut().unwrap();
-        let infos = response["moveInfos"].as_array().map(Vec::as_slice).unwrap_or_default();
-        if infos.is_empty() {
-            self.human_sl_request_failed(now);
-            return;
-        }
-        let visits = |value: &Value| {
-            value["moveInfos"].as_array().map_or(0, |moves| {
-                moves.iter().filter_map(|m| m["visits"].as_u64()).sum::<u64>()
-            })
-        };
-        if r.evidence.as_ref().is_some_and(|old| visits(&response) < visits(old)) {
-            self.human_sl_choose(now);
-            return;
-        }
-        let profile = protocol::profile(&s.settings);
-        let deepen = protocol::elite(&profile) || humansl::needs_deep_verification(&r.candidates, infos, &profile);
-        r.evidence = Some(response);
-        if self.doc.record.node(r.node).move_number >= 200
-            && r.evidence
-                .as_ref()
-                .and_then(protocol::top)
-                .is_some_and(|v| v.eq_ignore_ascii_case("pass"))
-        {
-            self.human_sl_choose(now);
-            return;
-        }
-        let next = humansl::adaptive_visits(
-            r.visits,
-            now.duration_since(r.sent),
-            r.deadline.saturating_duration_since(now),
-        );
-        if deepen && r.rounds < 4 && next > r.visits {
-            r.rounds += 1;
-            r.visits = next;
-            r.id = format!("humansl-tactical-{}-{}-{}", s.id, s.generation, r.rounds);
-            self.human_sl_send(now);
-        } else {
-            self.human_sl_choose(now);
+            Search::Ready => self.human_sl_prepared(now),
+            Search::Probe => self.human_sl_probed(&response, now),
+            Search::PassCheck if protocol::prefers_pass(&response) => self.human_sl_chosen(Some("pass".into()), now),
+            Search::PassCheck => self.human_sl_sample_policy(now),
+            Search::Play => self.human_sl_searched(&response, now),
+            Search::Pacing => {}
         }
     }
     pub(in crate::workbench) fn human_sl_deadline(&self) -> Option<Instant> {
@@ -390,9 +375,12 @@ impl Workbench {
             s.tick = now + Duration::from_secs(1);
         }
         let Some(r) = s.request.as_ref() else { return changed };
-        if r.phase == Search::Pacing && now >= r.pace {
-            self.human_sl_apply_ai(now);
-            return true;
+        if r.phase == Search::Pacing {
+            if now >= r.pace {
+                self.human_sl_apply_ai(now);
+                return true;
+            }
+            return changed;
         }
         if now >= r.deadline {
             if let Some(worker) = s.worker {
@@ -402,7 +390,7 @@ impl Workbench {
                 );
             }
             if r.phase == Search::Ready {
-                self.human_sl_start_failed("HumanSL readiness timed out after 180 seconds".into());
+                self.human_sl_start_failed(format!("HumanSL readiness timed out after {READY_SECONDS} seconds"));
             } else {
                 self.human_sl_request_failed(now);
             }
@@ -435,8 +423,7 @@ impl Workbench {
                 } else if s.phase == HumanSlPhase::Playing {
                     let s = self.human_sl.session.as_mut().unwrap();
                     s.worker = None;
-                    if let Some(request) = s.request.as_mut().filter(|r| r.phase != Search::Pacing) {
-                        request.evidence = None;
+                    if s.request.as_ref().is_some_and(|r| r.phase != Search::Pacing) {
                         self.human_sl_request_failed(Instant::now());
                     }
                 }
