@@ -1938,6 +1938,7 @@ impl Workbench {
             let (gtp_name, version, _) = self.engines.identity(f)?;
             Some(ForegroundEngineView {
                 index,
+                instance: f,
                 name: self.engines.display_name(f)?,
                 gtp_name,
                 version,

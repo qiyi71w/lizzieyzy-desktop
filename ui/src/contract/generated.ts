@@ -385,6 +385,11 @@ export type ForegroundEngineView = {
  */
 index: number, 
 /**
+ * The running engine process: another start, also of the same engine, is another instance.
+ * The title measures the search speed of one instance only.
+ */
+instance: number, 
+/**
  * The configured name, else the GTP name.
  */
 name: string, gtp_name: string, version: string, katago: boolean, 
