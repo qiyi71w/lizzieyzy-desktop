@@ -97,7 +97,13 @@ importing the matching LizzieYzy Next settings.
   discards the edits. A dialog opens with the focus on its first control, or on the chosen
   option when that control is a group of choices.
 - The main window's title shows the game in the middle and the current position's win rate,
-  score lead and visits at its right end; hovering those values names each of them.
+  score lead and visits at its right end, then the foreground engine, with its search speed
+  (搜索/秒) while it analyses; hovering those values names each of them. The speed is measured
+  once a second against the visits the same engine process added on the shown position. It
+  goes at once when the analysis is paused, the position has no analysis, its analysis is
+  cleared or another engine process (also a restart of the same engine) takes over, and comes
+  back with the next measure; Java kept the previous speed for up to 5 seconds on a position
+  without analysis and measured across a cleared analysis or an engine switch.
 - The board shows setup stones, moves, passes, captures, comments, SGF markup (TR/SQ/CR/MA/LB),
   next-move rings, player names, the sub board, the variation tree and the empty winrate graph.
 - A failed or cancelled open keeps the current record. Opening a 9x9 record after a 19x19 one (or
@@ -443,9 +449,12 @@ importing the matching LizzieYzy Next settings.
   below, `KataGoPda` builds their own parameters):
   - Top toolbar 激进度 (`playoutDoublingAdvantage`) and 广度 (`analysisWideRootNoise`): ticking the
     box or each edit of the value sends `kata-set-param` at once and the analysis searches again;
-    unticking sends 0. A value outside -3..3 (激进度) or 0..2 (广度) only turns the field red and is
-    still sent, like Java; text that is not a number sends 0. A 广度 change lets every stored
-    result give way to the next one. After an engine starts, both values are read back with
+    unticking sends 0. 激进度 follows Java: a value outside -3..3 only turns the field red and is
+    still sent, and text that is not a number sends 0. 广度 follows the newer Java: while ticked,
+    text that is not a number in 0..2 (an empty field too) only turns the field red; nothing is
+    sent, the engine keeps the value in effect and the stored results stay, and the next valid
+    value is sent as usual. A 广度 change lets every stored result give way to the next one.
+    After an engine starts, both values are read back with
     `kata-get-param` and the toolbar shows what the engine holds (it keeps the user's own
     entries otherwise). The groups show only while the foreground engine is KataGo and no
     engine match runs. In a 人机对弈 game both reach the playing engine, except 广度 in a Genmove
@@ -916,8 +925,10 @@ importing the matching LizzieYzy Next settings.
 - 自动棋谱快析 (综合设置 > 棋谱加载 > 打开棋谱后自动快速分析, on by default): after a record is opened,
   every main-trunk move without analysis is analysed in the background. Which engine does it
   follows Java: a KataGo `analysis` process started for the task, or the foreground engine
-  itself when 精析设置 > 复用当前前台引擎 is on, the foreground engine is a cloud engine or this
-  client's Windows NVIDIA (CUDA/TensorRT) KataGo, or the analysis command's program no longer
+  itself. 精析设置 > 复用当前前台引擎 borrows the foreground engine whatever it is; otherwise it is
+  borrowed when it is a cloud engine, when it is this client's managed Windows NVIDIA KataGo with
+  TensorRT, when it is the managed CUDA build and the lightweight model is off or cannot run (for
+  example its model is not installed), or when the analysis command's program no longer
   exists. That last check covers a program named by a path (not one found on `PATH`, nor a
   command on 精析设置's SSH host) while the lightweight model is not in use; the application log
   says so once per run of the program instead of every record failing quietly. A record that
@@ -1332,8 +1343,10 @@ importing the matching LizzieYzy Next settings.
   设置 handicap (0–9); 从当前局面开始 (only when the current position has moves) continues the
   current record in a new variation, otherwise a new record is started. The komi is not a choice:
   an even game takes the even-game komi of the rules the foreground KataGo plays (7 under the 2027
-  rules, 6.5 under Japanese rules, the current komi when KataGo has reported no rules), and a
-  handicap game gives the player Black with komi 0.5; the dialog shows the komi and the colour as
+  rules, 6.5 under Japanese rules); when KataGo has reported no rules of a known rule set, it
+  takes the komi new games start with (7.5) if the current record is a handicap game, and the
+  current komi otherwise. A coach game with handicap stones of its own gives the player Black
+  with komi 0.5. The dialog shows the komi and the colour as
   fixed, with the reason. The last started settings are remembered (a komi saved by earlier
   versions is ignored, and saved settings with a handicap come back with Black). The AI's moves
   come from a separate `katago analysis` process with
@@ -1412,7 +1425,9 @@ importing the matching LizzieYzy Next settings.
   side's playing strength from the analysis already stored on the main line (it starts no
   computation; analyse the game first, for example with 闪电分析整局). The dashboard follows
   Java: 测评 (rank, confidence and per-side metrics), 吻合度 (overall match and the per-move hit
-  map), 发挥水准 (move quality distribution), and 详细数据. A side without analysed moves shows
+  map), 发挥水准 (move quality distribution), and 详细数据. Ranks and rank ranges (职业, 一线职业,
+  AI and the 级 / 段 ranges) are written in the interface language, from the newer Java's language
+  bundles. A side without analysed moves shows
   Java's 暂无可展示的选点样本 note instead of empty gauges. The default model is Java's bundled
   XGBoost 20TUN with its residual calibrator; on the same analysed game it gives exactly the
   fixed Java build's numbers. 导入 adds another XGBoost rank-value booster (`.json`, with a
@@ -2134,7 +2149,10 @@ binary with its output and exits non-zero, like `cargo test --no-fail-fast`.
   follows the newer Java; the script lists these keys. `CORRECTIONS` in the script replaces the
   Java entries this product corrects (wrong score-lead wording, slang, a request phrased as a
   button, the `Shif+X` typo, the Thai 恶手 move rating, which Java's Thai bundle names with the
-  same word as 差手 and which reads `ตาพลาด` here, and the Thai, Korean, Japanese and Chinese entries that Java's bundles
+  same word as 差手 and which reads `ตาพลาด` here, the Japanese and Korean AI 陪练 认输 button, which
+  Java words as resigning from an office (`辞任`, `사임`) and which uses the usual Go terms for
+  resigning a game here (`投了`, `기권`, as the game's own resign button does), and the Thai,
+  Korean, Japanese and Chinese entries that Java's bundles
   escape twice, so that Java shows a stray backslash before `:`, `=`, `!`, `"`, a leading space or a
   `\uXXXX` sequence), and holds the earlier wording of entries the newer Java rewrote for behaviour
   this product does not have yet (the online-link prompt naming OGS links, the unavailable
