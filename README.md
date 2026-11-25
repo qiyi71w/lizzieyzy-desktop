@@ -1616,7 +1616,10 @@ importing the matching LizzieYzy Next settings.
   ended (`quit`, then killed after 3 s) when the application exits, including application Quit.
 - Logs, the full-log files, failure details and exported diagnostics pass through a port of
   Java's credential sanitizer (`--password …`, `token=…`, JSON credential keys, authorization
-  headers, URL user info, encoded forms); the live console shows raw traffic like Java.
+  headers, URL user info, encoded forms); the live console shows raw traffic like Java. Text
+  around the masked values stays as written: Java also decoded `\\`, `\"` and `\u…` escapes
+  in any text holding one, turning `\\server\share` into `\server\share`. Only a credential
+  that escapes hid (`passw\u006frd=…`) is written in the decoded text, masked.
 - Importing LizzieYzy Next settings: offered at the first start (no settings of this client
   yet) and in Help > 从 LizzieYzy Next 导入设置…. Choose the Java settings folder (the one with
   `config.txt`; Java's per-user folders such as `~/.lizzieyzy-next` and, on Windows, the shared

@@ -1412,6 +1412,39 @@ fn saved_match_records_and_summaries_mask_credentials_in_engine_commands() {
     assert!(summary.text.contains(&format!("\r\nCommand:{plain}")), "{}", summary.text);
 }
 
+/// Windows and UNC paths in engine commands are shown and saved as typed (`\\`, `\U`, `\u0041`
+/// included); only the credential values beside them are masked.
+#[test]
+fn match_rules_keep_windows_and_unc_paths_in_engine_commands_as_typed() {
+    const MARK: &str = "UNCMARK";
+    let first = r"C:\Users\a\katago.exe gtp -override-config logDir=\\wsl.localhost\Ubuntu\logs";
+    let second = format!(r"\\server\share\u0041\katago.exe gtp --token {MARK}tok");
+    let masked = r"\\server\share\u0041\katago.exe gtp --token <redacted>";
+    let mut m = Match::with_profiles(
+        Some("en-US"),
+        vec![
+            EngineProfile { id: "one".into(), name: "First".into(), command: first.into(), ..EngineProfile::default() },
+            EngineProfile { id: "two".into(), name: "Second".into(), command: second, ..EngineProfile::default() },
+        ],
+    );
+    m.start(batch());
+    m.serve(&|_, _| None);
+    let shown = details(&m).unwrap();
+    assert!(shown.contains(&format!("Black: First ({first})\nStatus: confirmed\n")), "{shown}");
+    assert!(shown.contains(&format!("White: Second ({masked})\nStatus: confirmed\n")), "{shown}");
+    assert!(!shown.contains(MARK), "{shown}");
+    m.finish_turn("resign");
+    let jobs = m.wb.take_background_saves();
+    let sgf = jobs.iter().find(|j| j.path.extension().is_some_and(|e| e == "sgf")).unwrap();
+    let summary = jobs.iter().find(|j| j.path.extension().is_some_and(|e| e == "txt")).unwrap();
+    let record = lizzie_core::formats::parse(lizzie_core::record::RecordFormat::Sgf, &sgf.text, false).unwrap();
+    let root = &record.node(ROOT).comment;
+    assert!(root.contains(&shown), "the saved block is the details text: {root}");
+    assert!(!sgf.text.contains(MARK) && !summary.text.contains(MARK));
+    assert!(summary.text.contains(&format!("\r\nCommand:{first}")), "{}", summary.text);
+    assert!(summary.text.contains(&format!("\r\nCommand:{masked}")), "{}", summary.text);
+}
+
 #[test]
 fn spec_08_query_only_rules_are_checked_instead_of_offered_as_unverified() {
     // MatchRulesAdmission.java:36–40,167–180,202–210: a queryable side must return

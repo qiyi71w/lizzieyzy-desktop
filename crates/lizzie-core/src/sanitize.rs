@@ -4,6 +4,10 @@
 //! Percent decoding is only a bounded view of names and delimiters: decoded secret
 //! bytes are never copied to the result. Exhausted scan/canonicalization bounds or
 //! regex matching errors fail closed rather than returning partially sanitized text.
+//!
+//! Unlike Java, canonicalization only rewrites the result when it exposes a credential
+//! the text as written hid behind escapes. Otherwise the first pass's result is kept,
+//! so `\\server\share`, `\u0041` and `\"` stay as typed instead of being decoded.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -123,29 +127,51 @@ fn compile(pattern: &str) -> Regex {
     Regex::new(&expanded).expect("static Java credential pattern must compile")
 }
 
-/// Masks credentials before text is persisted, retaining non-secret context.
+/// Masks credentials before text is persisted, retaining non-secret context as written.
 ///
 /// Empty input remains empty. Encoded structural syntax is canonicalized only
-/// after masking; unsafe scan depth or regex evaluation returns [`FAILURE_MARKER`].
+/// after masking, and the canonical form is returned only when masking it found a
+/// credential the written form hid; unsafe scan depth or regex evaluation returns
+/// [`FAILURE_MARKER`].
 pub fn sanitize(text: &str) -> String {
     if text.is_empty() {
         return String::new();
     }
-    let mut safe = Cow::Borrowed(text);
-    for _ in 0..MAX_CANONICALIZATION_PASSES {
-        if sanitize_canonical(&mut safe).is_err() {
-            return FAILURE_MARKER.to_owned();
-        }
-        if !contains_encoded_syntax(&safe) {
-            return safe.into_owned();
-        }
+    let mut written = Cow::Borrowed(text);
+    if sanitize_canonical(&mut written).is_err() {
+        return FAILURE_MARKER.to_owned();
+    }
+    let mut safe = Cow::Borrowed(written.as_ref());
+    let mut hidden_credential = false;
+    let mut passes = 1;
+    while contains_encoded_syntax(&safe) {
         let canonical = canonicalize_encoded_syntax(&safe);
         if canonical == safe {
-            return safe.into_owned();
+            break;
         }
-        safe = Cow::Owned(canonical);
+        if passes == MAX_CANONICALIZATION_PASSES {
+            return FAILURE_MARKER.to_owned();
+        }
+        passes += 1;
+        let mut masked = Cow::Borrowed(canonical.as_str());
+        if sanitize_canonical(&mut masked).is_err() {
+            return FAILURE_MARKER.to_owned();
+        }
+        safe = match masked {
+            Cow::Owned(masked) => {
+                hidden_credential |= masked != canonical;
+                Cow::Owned(masked)
+            }
+            Cow::Borrowed(_) => Cow::Owned(canonical),
+        };
     }
-    FAILURE_MARKER.to_owned()
+    // Without a hidden credential the canonical text holds the same secrets as the
+    // written one, so the written form, already masked, is as safe.
+    if hidden_credential {
+        safe.into_owned()
+    } else {
+        written.into_owned()
+    }
 }
 
 fn sanitize_canonical(safe: &mut Cow<'_, str>) -> Result<(), ()> {
