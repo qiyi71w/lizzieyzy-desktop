@@ -334,12 +334,52 @@ fn shipped_boards_and_stones_list_each_picture_once() {
     // Every bundled theme's own board and stones are among them.
     let boards:Vec<String>=boards.into_iter().flat_map(|b|b.addresses).collect();
     let stones:Vec<String>=stones.into_iter().flat_map(|s|s.pairs.into_iter().flat_map(|(b,w)|[b,w])).collect();
-    for theme in ["sabaki","yasnaya","Megapack","Custom","Fast"] {
+    for theme in ["sabaki","yasnaya","Megapack","Custom","Fast","kaya","walnut","yunzi"] {
         let raw:serde_json::Value=serde_json::from_slice(&std::fs::read(public.join("themes").join(theme).join("theme.txt")).unwrap()).unwrap();
         let address=|key:&str| format!("/themes/{theme}/{}",raw[key].as_str().unwrap());
         assert!(boards.contains(&address("board-image")), "{theme}");
         assert!(stones.contains(&address("black-stone-image")) && stones.contains(&address("white-stone-image")), "{theme}");
     }
+}
+
+/// 立体棋子's other pictures of a stone: `<name>1`, `<name>2` ... beside a `<name>0` picture, in a
+/// bundled theme (also when another theme names its stone by address) or in the user's own folder,
+/// up to the first missing one. Other names and the program's own stones have none.
+#[test]
+fn a_numbered_stone_picture_brings_the_pictures_beside_it() {
+    let dir=tempfile::tempdir().unwrap(); let mut wb=workbench(dir.path());
+    let kaya=AppearanceSettings { theme:"kaya".into(), ..Default::default() };
+    let shown=appearance::images(wb.storage(),&kaya,&appearance::load_theme(wb.storage(),"kaya",&ThemeSettings::default()));
+    assert_eq!(shown.black,"/themes/kaya/black0.png");
+    assert_eq!(shown.black_variants,["/themes/kaya/black1.png","/themes/kaya/black2.png","/themes/kaya/black3.png"]);
+    assert_eq!(shown.white_variants.len(),7);
+    let borrowed=ThemeSettings { white_stone_image:"/themes/yunzi/white0.png".into(), black_stone_image:"/themes/Fast/black0.png".into(), ..Default::default() };
+    let shown=appearance::images(wb.storage(),&AppearanceSettings::default(),&borrowed);
+    assert_eq!(shown.white_variants.first().map(String::as_str),Some("/themes/yunzi/white1.png"));
+    assert!(shown.black_variants.is_empty());
+    let plain=appearance::images(wb.storage(),&AppearanceSettings::default(),&ThemeSettings::default());
+    assert!(plain.black_variants.is_empty() && plain.white_variants.is_empty());
+    wb.add_theme("Mine").unwrap();
+    let folder=appearance::themes_dir(wb.storage()).join("Mine");
+    let stone=include_bytes!("../../../ui/public/themes/kaya/black1.png");
+    for file in ["black0.png","black1.png","black2.png","black4.png","white10.png","white11.png"] { std::fs::write(folder.join(file),stone).unwrap(); }
+    let mine=AppearanceSettings { theme:"Mine".into(), ..Default::default() };
+    let values=ThemeSettings { black_stone_image:"black0.png".into(), white_stone_image:"white10.png".into(), ..appearance::load_theme(wb.storage(),"Mine",&ThemeSettings::default()) };
+    let shown=appearance::images(wb.storage(),&mine,&values);
+    assert_eq!(shown.black_variants.len(),2);
+    assert!(shown.black_variants.iter().all(|url| url.starts_with("data:image/png;base64,")));
+    assert!(shown.white_variants.is_empty());
+}
+
+/// 立体棋子 is on by default, belongs to the appearance rather than a theme, and survives a restart.
+#[test]
+fn enhanced_stones_default_on_and_persist() {
+    let dir=tempfile::tempdir().unwrap(); let mut wb=workbench(dir.path());
+    let settings=wb.view(true).settings;
+    assert!(settings.appearance.enhanced_stones);
+    wb.set_appearance_settings(AppearanceSettings { enhanced_stones:false, theme:"kaya".into(), ..settings.appearance },settings.theme).unwrap();
+    let reopened=workbench(dir.path()).view(true).settings.appearance;
+    assert_eq!((reopened.enhanced_stones,reopened.theme.as_str()),(false,"kaya"));
 }
 
 #[test]

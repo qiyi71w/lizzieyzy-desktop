@@ -312,7 +312,7 @@ pub enum Command {
     SwitchSecondaryEngine {
         index: u32,
     },
-    /// Secondary engine menu > "重启当前引擎" (`EngineManager.restartEngine2`).
+    /// Secondary engine menu > "重启当前引擎" (`EngineManager.reStartEngine2`).
     RestartSecondaryEngine,
     /// Secondary engine menu > "关闭当前引擎" (`EngineManager.killThisEngines2`).
     ShutdownSecondaryEngine,
@@ -1123,8 +1123,6 @@ pub struct TreeNodeView {
     pub kind: TreeNodeKind,
     pub pass: bool,
     pub move_number: u32,
-    /// Display numbering, including branch restarts, SGF MN and passes; 0 for no number.
-    pub number: u32,
     pub has_comment: bool,
 }
 

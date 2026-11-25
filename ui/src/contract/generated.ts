@@ -192,11 +192,7 @@ export type TreeNodeView = { id: number, parent: number | null,
 /**
  * Children in order, without dummy placeholders.
  */
-children: Array<number>, kind: TreeNodeKind, pass: boolean, move_number: number, 
-/**
- * Display numbering, including branch restarts, SGF MN and passes; 0 for no number.
- */
-number: number, has_comment: boolean, };
+children: Array<number>, kind: TreeNodeKind, pass: boolean, move_number: number, has_comment: boolean, };
 
 export type TreeView = { document: number, nodes: Array<TreeNodeView>, };
 
@@ -3068,7 +3064,13 @@ export type AppearanceSettings = { theme: string, boardStyle: BoardStyle, mode: 
 /**
  * Config.java:1809; no Java UI changes it. Legacy level 0 uses the theme's background blur.
  */
-glassEffectLevel: number, };
+glassEffectLevel: number, 
+/**
+ * 立体棋子, this product's own (no Java key), for every theme: stones cast a contact shadow
+ * and a soft one, and a stone picture with others beside it ([`ThemeImages::black_variants`])
+ * shows one of them per point. Off draws the stones as Java does.
+ */
+enhancedStones: boolean, };
 
 export type BoardStyle = "Japanese" | "ChineseClassic";
 
@@ -3087,7 +3089,7 @@ export type ThemeEntry = { name: string, values: ThemeSettings, replaced_images:
 
 export type AppearanceCatalog = { themes: Array<ThemeEntry>, fonts: Array<string>, boards: Array<ShippedBoard>, stones: Array<ShippedStones>, };
 
-export type ThemeImages = { board: string, background: string, black: string, white: string, customBoard: boolean, customBackground: boolean, };
+export type ThemeImages = { board: string, background: string, black: string, white: string, customBoard: boolean, customBackground: boolean, blackVariants: Array<string>, whiteVariants: Array<string>, };
 
 export type ShippedBoard = { theme: string, addresses: Array<string>, };
 

@@ -33,7 +33,7 @@ export function setCandidates(black: boolean, white: boolean): void {
 }
 
 /** Whether the candidates of `toPlay`'s side are shown. An AI 陪练 game overrides the check boxes
- *  without changing them (HumanSlGameController.applyTrainingModeVisualState): 实战后复盘 hides
+ *  without changing them (HumanSlGameController.configureAnalysisVisuals): 实战后复盘 hides
  *  both colours' candidates, 边下边分析 shows both. */
 export function candidatesShownFor(toPlay: Stone): boolean {
   const training = humanSlDisplay();

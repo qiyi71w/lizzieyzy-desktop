@@ -1,6 +1,6 @@
 // Ports of the fixed Java geometry (cb53acc):
 //  - InFrameLayout.layout with every panel flag and the persisted shares (InFrameLayout.java:262-472)
-//  - the 放大小棋盘 / 放大胜率图 landscape layout of LizzieFrame.paintMainPanel (LizzieFrame.java:7255-7692)
+//  - the 放大小棋盘 / 放大胜率图 landscape layout of LizzieFrame.paintMianPanel (LizzieFrame.java:7255-7692)
 //  - InFrameLeftoverDragHandles' hot zones (InFrameLeftoverDragHandles.java:61-162)
 //  - BoardRenderer.calculatePixelMargins (BoardRenderer.java:3678-3746) and re-centering (:743)
 //  - SubBoardRenderer.calculatePixelMargins (SubBoardRenderer.java:1353-1422)

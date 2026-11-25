@@ -79,7 +79,7 @@ export const COMMANDS: Record<string, CommandEntry> = {
   // An engine that ended and was not started again is still the current engine (Java `reStartEngine`).
   "menu.restartCurrentEngine": { run: () => run({ type: "RestartEngine" }), enabled: () => !!state.view?.engine.foreground || !!state.view?.engine.down },
   "menu.shutdownCurrentEngine": { run: () => run({ type: "ShutdownEngines", scope: "Current" }), enabled: () => !!state.view?.engine.foreground },
-  // 双引擎模式's engine menu (Menu.java:5857-5876): restartEngine2 / killThisEngines2.
+  // 双引擎模式's engine menu (Menu.java:5857-5876): reStartEngine2 / killThisEngines2.
   "menu.restartCurrentEngine2": { run: () => run({ type: "RestartSecondaryEngine" }), enabled: () => !!state.view?.engine.secondary },
   "menu.shutdownCurrentEngine2": { run: () => run({ type: "ShutdownSecondaryEngine" }), enabled: () => !!state.view?.engine.secondary },
   "menu.shutdownOtherEngine": { run: () => run({ type: "ShutdownEngines", scope: "Others" }) },

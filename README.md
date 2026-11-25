@@ -21,7 +21,7 @@ importing the matching LizzieYzy Next settings.
   comment), `B` (back to the main branch), the mouse wheel, the bottom bar navigation buttons and
   move-number field, and clicks in the variation tree. The variation tree scrolls with its own
   scroll bars and mouse wheel; it re-centres on the current node when the position changes.
-  界面 > 面板 > 分支面板设置 chooses how it fits: unticking 使用滚动面板拓展宽度 lays the tree out
+  显示 > 面板 > 分支面板设置 chooses how it fits: unticking 使用滚动面板拓展宽度 lays the tree out
   inside the panel without scroll bars, with the current node in the middle row and the wheel
   stepping through the moves as over the board (the other two items are then disabled).
   设置最大宽度 (10000 by default) cuts a scrolled tree at that width; a tree that reaches it is
@@ -30,14 +30,22 @@ importing the matching LizzieYzy Next settings.
   another record opens or the maximum width is confirmed again. All three settings are saved and
   imported from LizzieYzy Next.
 - While a candidate's variation shows on the board (a clicked candidate-list row, or the
-  candidate under the pointer), the browsing keys step the variation instead of the record, as in
-  Java: `Up`/`Down` and `PageUp`/`PageDown` show one move less/more; `Ctrl+Down` shows 10 more
-  moves and `Ctrl+Shift+Down` as many more as the next comment is away; `Ctrl+Up` and
-  `Ctrl+Shift+Up` show one move less. The board menu's 回退一手 and the control panel's buttons
-  do the same (`>`/`>>` one/five more moves, `<`/`<<` one less). The record stays on its move;
-  without a shown variation these entries browse as usual. The bottom bar buttons always browse.
+  candidate under the pointer), the browsing keys and the mouse wheel step the variation instead
+  of the record, as in Java: the wheel, `Up`/`Down` and `PageUp`/`PageDown` show one move
+  less/more, starting from the whole variation with its first two moves (down) or all but its
+  last move (up); `Ctrl+Down` shows 10 more moves and `Ctrl+Shift+Down` as many more as the next
+  comment is away; `Ctrl+Up` and `Ctrl+Shift+Up` show one move less. The board menu's 回退一手
+  and the control panel's buttons do the same (`>`/`>>` one/five more moves, `<`/`<<` one
+  less). The record stays on its move; without a shown variation these entries browse as usual.
+  The bottom bar buttons always browse.
   In 双引擎模式 `Ctrl+Down`, `Ctrl+Shift+Down` and the panel's `>`/`>>` grow the main board's
-  variation only (the right board's when only it shows one); the other entries step both boards.
+  variation only (the right board's when only it shows one), and the wheel over the floating
+  main board steps the main board's variation only (without one it browses); the other entries
+  step both boards, the right board keeping its whole variation at the first step back from it
+  and showing one move less from the next one.
+  When only the right board shows one, `PageDown` grows it by 10 moves (from its whole variation
+  to its first two moves) and `PageUp` steps it back like the other entries, as Java's redo /
+  undo of 10 do.
   A variation that auto-replays (自动回放变化图) is stepped from the length it shows, and the
   replay goes on from the new length. During an `R` replay (回放变化图) these keys and the wheel
   step from the length the replay shows and end the replay, as in Java.
@@ -387,7 +395,9 @@ importing the matching LizzieYzy Next settings.
   play with the helper's fixed time and visit limits, 不再提示 is saved; closing the notice leaves
   GMA waiting until the helper arms it again.
 - Analysis: candidates on the board (win rate, visits, score lead), the variation shown when
-  hovering a candidate (captures are worked out by the core), the sub board cycling through
+  the pointer is anywhere in a candidate's square, as in Java, so moving between adjacent
+  candidates goes straight from one variation to the next (captures are worked out by the
+  core), the sub board cycling through
   candidates on click, the candidate tables, the win-rate graph, 统计 and Kata形势 (below), and
   the status and title lines. Candidates use
   Java's wood-backed allocation colours and row layout, including the separate visits font.
@@ -522,11 +532,11 @@ importing the matching LizzieYzy Next settings.
     Gaps without analysis are bridged by a dashed line that is never filled, an analysed move
     with no analysed neighbour shows as a dot, and a branch shows the main line dashed from the
     fork. The current move carries its markers and a readout of its win rate and score lead;
-    hovering shows the hovered move's number and values. A graph without analysis says so (or
-    that analysis is running) instead of staying blank, and a large graph sets its text a step
-    up. Click or drag navigates (a click on a branch may jump to the main line through the
-    fork), the wheel steps through moves, and a right click clears a selected table row or
-    steps back.
+    hovering shows the hovered move's number and values. A graph without analysis, whether or
+    not analysis is running, shows its grid and scales with no caption, as in Java, and a large
+    graph sets its text a step up. Click or drag navigates (a click on a branch may jump to the
+    main line through the fork), the wheel steps through moves, and a right click clears a
+    selected table row or steps back.
     During an 引擎对局, and afterwards on that board, on a saved engine game (its root `DZ` tag)
     and on a watched 跑谱贡献 rating game, the graph is Java's engine-game graph: each engine's
     win rate as its own unfilled curve (Black's engine in the win-rate colour, White's in the
@@ -554,7 +564,8 @@ importing the matching LizzieYzy Next settings.
     at their content's width (序号 only as wide as its labels), the actual move's row shows its
     rank with a small 实战 under it and each change in small type before its value (Java's
     "15(实战)" / "↓-4.6(50.4)" stay in the row's tooltip), and a narrow list puts the change
-    above the value instead of cutting it.
+    above the value instead of cutting it. The pointer's row is shaded across every column,
+    占比 included (the actual move's row keeps its loss-level colour).
     独立选点列表 (`U`) opens it in its own window with 7 or 9 columns (sortable by header,
     also from the keyboard: `Tab` to the header, `←`/`→` to a column, `Enter` or `Space`),
     列表 / 柱状图 / 当前手 / 鼠标悬停, 总计算量 / 最高计算量 / 集中度, 总在最前 (`Q`) and a
@@ -613,13 +624,18 @@ importing the matching LizzieYzy Next settings.
     asked for.
   - 小棋盘设置: the sub board shows its own candidate's variation (click / right click / wheel,
     paused while the pointer rests on it with 小棋盘不刷新), the first-instinct (prior) or
-    after-calculation (visits) heat map, or the stones only. The variation tree shows each
-    node's move number (分支面板上的手数) as the board numbers it.
+    after-calculation (visits) heat map, or the stones only.
+  - 分支面板上的手数 writes the variation tree's move numbers in a column at the panel's left,
+    one per row (every node of a row is the same move), the current node's row in bold; the
+    column stays in place when the tree scrolls sideways or the whole-tree layout moves left.
+    A change from Java, whose number beside every node ran into the next branch's nodes: the
+    numbers count the record's moves, without 分支内从1开始 or an SGF `MN` renumbering (the
+    board still follows them).
   - Two changes from Java: a pass inside a branch keeps the branch's count, and setup stones
     right after the root no longer start the count at 2; 纯网络形势 > 小方块 has its own effect
     (Java read the KataGo-estimate setting there); 设置自动播放's 落子最佳选点 shows its own setting
     (Java filled it from the other check box).
-- Workbench panels (界面 > 面板, Java shortcuts): 小棋盘 (`Alt+Z`), 胜率图 (`Alt+W`), 评论/问题手面板
+- Workbench panels (显示 > 面板, Java shortcuts): 小棋盘 (`Alt+Z`), 胜率图 (`Alt+W`), 评论/问题手面板
   (`Alt+T`; disabled in 四方图 and 双引擎模式), 分支面板 (`Shift+G`), 选点列表面板 (`Alt+G`), 信息面板 and 状态面板
   show or hide their panels and are remembered; 放大小棋盘 (`Ctrl+F`) and 放大胜率图 (`Ctrl+W`) use
   Java's enlarged layouts (the large win-rate graph hides the list and, with the variation tree
@@ -726,7 +742,8 @@ importing the matching LizzieYzy Next settings.
   by itself on first start.
 - Appearance (Java defaults; saved and taken over by the LizzieYzy Next import):
   - 设置 > 主题 opens 综合设置 > 主题外观: the theme (默认 plus the bundled Java 经典, Java 柔和,
-    sabaki, yasnaya, Megapack, Custom and Fast, and the user's own), a preview of the edited background, board and
+    sabaki, yasnaya, Megapack, Custom and Fast, this program's 日式榧木, 胡桃木 and 云子 (below),
+    and the user's own), a preview of the edited background, board and
     stones, line widths, the stone shadow (its size a percentage of the stone radius), the three fonts (计算量及其他字体, UI 字体, 胜率目数字体;
     Lizzie默认, 系统默认 or a system font), the board and the stones (below), pure-colour
     background / board / stones and the image files of every theme, 默认 included (Java fixes the
@@ -741,7 +758,7 @@ importing the matching LizzieYzy Next settings.
     reopens it, and 添加 (a new theme) and 删除 take effect at once and reopen the dialog,
     dropping unsaved edits on the other pages; the 当前主题 row and 删除's confirmation say so
     first, and 删除 is in red. A new theme's name must differ from every listed theme, including
-    默认, Java 经典 and Java 柔和 in any interface language. Saving a named theme writes the page's values
+    默认 and the bundled themes (Java 经典, Java 柔和, 日式榧木, 胡桃木, 云子) in any interface language. Saving a named theme writes the page's values
     over that theme's `theme.txt` and keeps the keys the page does not edit, as Java does.
     Bundled themes are read-only: deleting one hides it, and edits are kept as the user's copy.
     The live preview shows the background the workbench would draw (the linen wallpaper for the
@@ -758,8 +775,25 @@ importing the matching LizzieYzy Next settings.
     the move-rank marks on the board, the candidate list's loss levels and the region selection.
     Like Java's Morandi palette it keeps Java 经典's teal accent, its status colours (the danger
     red included) and its dark workbench with the win-rate graph and variation tree.
+  - 日式榧木 (`kaya`), 胡桃木 (`walnut`) and 云子 (`yunzi`) are bundled themes of this program,
+    not Java's: a pale straight-grained board with matte slate black stones and clam-shell white
+    stones; a mid-brown walnut board with matte stones; a bamboo board with yunzi stones (a green
+    rim on the black, a warm white). Their boards are Poly Haven veneer textures (CC0) and their
+    stones are drawn by `tools/textured_themes.py`, which regenerates the folders. Each stone has
+    several pictures (`black0.png` to `black3.png`, `white0.png` to `white7.png`), which 立体棋子
+    spreads over the board. Their other values are Java 经典's, so they keep the program's own
+    interface colours.
+  - 立体棋子 on 主题外观 (not in Java; on by default) applies to every theme and is not stored with
+    one. With the stone shadow on, each stone casts a dark contact shadow and a soft shadow to the
+    lower right instead of Java's shadow; all shadows go under all stones, and the shadow size
+    scales both. A stone picture named `<name>0.<ext>` with `<name>1.<ext>`, `<name>2.<ext>` ... beside
+    it (in a theme folder, or a bundled theme's) has those as other pictures, read up to the
+    first missing one and at most 16 in all; each point keeps the same picture as moves are
+    played. A theme with one picture per stone only changes its shadow. Off, stones and shadows
+    are drawn as in Java. The preview on the page follows the switch; the small board, which
+    draws plain stones as in Java, does not change.
   - 棋盘 and 棋子 on 主题外观 are chosen from thumbnails: every board and stone set the program
-    ships (默认, sabaki, yasnaya, Megapack, Custom and Fast; a picture two bundled themes share
+    ships (默认, sabaki, yasnaya, Megapack, Custom, Fast, 日式榧木, 胡桃木 and 云子; a picture two bundled themes share
     shows once), 纯色, and 其他图片…, which opens the file chooser; the paths stay editable for
     typing one. A choice belongs to the theme being edited. A shipped picture is saved by its
     address (`/themes/<theme>/<file>`, `/assets/board.png`), or by its file name in its own
@@ -1367,7 +1401,8 @@ importing the matching LizzieYzy Next settings.
   console, switching, restarting or closing the foreground engine (also through 远程算力 or
   applying a settings import), saving the engine list and modes that take the engine (人机对弈,
   AI 陪练, 引擎对战, flash/automatic/whole-game analysis, batch, tracking, benchmark, 跑谱贡献,
-  GMA) are refused; an engine that ends meanwhile is not restarted automatically. It ends at the
+  GMA) are refused; in 双引擎模式 restarting or replacing the secondary engine is refused too,
+  closing it is not; an engine that ends meanwhile is not restarted automatically. It ends at the
   viewer's 退出试下, after five idle minutes, by
   强制结束试下, when the share stops or when another record opens; browsing then returns to where
   it started. 自动落子 does not play while a 试下 runs, as desktop moves are refused; it plays
@@ -1376,7 +1411,8 @@ importing the matching LizzieYzy Next settings.
   Since Java placed only the first placeholder, a 试下 continued past the record's last move could
   extend the main line there; here it stays a branch.
   A 试下 needs a free foreground engine that has finished starting, so none starts while the
-  desktop switches or restarts the engine, nor while 野狐 AI 直连 owns the record, from 开始 on,
+  desktop switches or restarts the engine or, in 双引擎模式, the secondary engine, nor while
+  野狐 AI 直连 owns the record, from 开始 on,
   before its first position arrives; the viewer gets the engine-busy answer (Java admitted the
   试下 while Fox only listened). 停止 Web 旁观 or quitting closes both ports and disconnects
   every viewer; messages of a stopped share never reach a later one. A firewall between viewer and

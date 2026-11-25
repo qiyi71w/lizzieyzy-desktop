@@ -361,16 +361,18 @@ function setDisplayedLength(shown: ShownVariation, length: number): void {
 /** doBranch (LizzieFrame.java:12036-12073) on both boards at once: forward from the left board's
  *  whole variation shows 2 moves on each board, then one more on each with room; back, the left
  *  board shows all but the last, then one less, and the right board goes from its whole variation
- *  to its replay length (Java's getReplayBranch), then one less. */
+ *  to its replay length (Java's getReplayBranch), then one less. With no variation on the left
+ *  board the right board's own length decides the first step forward, as Java's left cursor only
+ *  leaves SHOW_NORMAL_BOARD at that step. */
 function doBranch(left: ShownVariation | null, right: ShownVariation | null, down: boolean): void {
   const leftLength = left ? displayedLength(left) : null;
   const rightLength = right ? displayedLength(right) : null;
   if (down) {
-    if (leftLength === null) {
+    if (left ? leftLength === null : rightLength === null) {
       if (left) setDisplayedLength(left, 2);
       if (right) setDisplayedLength(right, 2);
     } else {
-      if (left && left.steps > leftLength) setDisplayedLength(left, leftLength + 1);
+      if (left && leftLength !== null && left.steps > leftLength) setDisplayedLength(left, leftLength + 1);
       if (right && rightLength !== null && right.steps > rightLength) setDisplayedLength(right, rightLength + 1);
     }
   } else {
@@ -403,20 +405,24 @@ function wheel(table: Table, down: boolean): boolean {
   return true;
 }
 
-/** The workbench wheel (Input.mouseWheelMoved, Input.java:873-893): with a main-table row
- *  clicked and a variation shown (hasSelectedVariation) it steps the variation instead of
- *  browsing. Returns whether it did. */
-export function boardWheel(down: boolean): boolean {
-  const shown = host?.variations();
-  return selection.main.click !== -1 && !!(shown?.left || shown?.right) && wheel("main", down);
-}
-
-/** Up / Down (Input.java:374-429): with a variation shown on either board one step of it
- *  (doBranch), else one move of the record (navigateHistoryNoRefresh). */
-export function stepVariationOrMove(down: boolean): void {
-  const { left, right } = shownVariations();
+/** Shows one step of the given boards' variations (doBranch), else one move of the record
+ *  (navigateHistoryNoRefresh). */
+function stepOrMove(left: ShownVariation | null, right: ShownVariation | null, down: boolean): void {
   if (left || right) doBranch(left, right, down);
   else navigate({ op: down ? "Forward" : "Back", count: 1 });
+}
+
+/** Up / Down and the workbench wheel (Input.java:374-429, 863-893): either board's variation
+ *  (hasSelectedVariation: a clicked row's or the hovered candidate's). */
+export function stepVariationOrMove(down: boolean): void {
+  const { left, right } = shownVariations();
+  stepOrMove(left, right, down);
+}
+
+/** The 浮动主棋盘's wheel (IndependentMainBoard.processMouseWheelMoved and doBranch,
+ *  IndependentMainBoard.java:649-688): its own board only, the main board's variation. */
+export function stepMainVariationOrMove(down: boolean): void {
+  stepOrMove(shownVariations().left, null, down);
 }
 
 /** PageDown / PageUp (Input.java:398-406, 503-511): with the main board's variation shown one
@@ -674,7 +680,7 @@ export function renderMainTable(host: HTMLElement, v: WorkbenchView): void {
       cell.title = r.actual ? c.text : "";
       cell.style.color = c.fg;
       // 占比: its share underline over the row's own tint (cellBackground).
-      cell.style.background = cellBackground(c, cells[0].bg);
+      Object.assign(cell.style, cellBackground(c, cells[0].bg));
     });
   });
 }

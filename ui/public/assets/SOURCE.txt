@@ -31,3 +31,11 @@ The workbench wallpapers stage-light.jpg and stage-dark.jpg are made by tools/st
 from the diffuse map of Poly Haven's `rough_linen` texture (https://polyhaven.com/a/rough_linen,
 CC0, by colormass and Rico Cilliers): its lighting is flattened and its fine detail graded to one
 colour per tile. Each carries a provenance note (a JPEG comment) naming that source.
+The three theme folders ../themes/kaya, ../themes/walnut and ../themes/yunzi are made for this
+product by tools/textured_themes.py. Their board.jpg tiles come from the diffuse maps of Poly
+Haven's `ash_veneer`, `walnut_veneer` and `bamboo_veneer` textures (https://polyhaven.com/a/ash_veneer,
+https://polyhaven.com/a/walnut_veneer, https://polyhaven.com/a/bamboo_veneer; CC0, by Jenelle van
+Heerden): their lighting is flattened and their grain recoloured. The stone pictures
+(black0-3.png, white0-7.png) are computed by that script from a lighting model; no outside
+picture is used for them. Each theme.txt is java-classic's with these images. Every file carries a
+provenance note (a JPEG comment or a PNG text chunk) naming the script.

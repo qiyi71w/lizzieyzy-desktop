@@ -53,7 +53,7 @@ export function layoutRequest(v: WorkbenchView): LayoutRequest {
     showStatus: statusShown(shown.mode, p),
     showCaptured: p.showCaptured,
     // An AI 陪练 game in 实战后复盘 hides the win-rate graph for the game only
-    // (HumanSlGameController.applyTrainingModeVisualState: showWinrateGraph = false).
+    // (HumanSlGameController.configureAnalysisVisuals: showWinrateGraph = false).
     showWinrateGraph: p.showWinrateGraph && humanSlDisplay(v) !== "Suppress",
     largeSubBoard: p.largeSubBoard,
     largeWinrateGraph: p.largeWinrateGraph,
