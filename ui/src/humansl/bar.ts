@@ -80,7 +80,12 @@ export function mountTrainingBar(): void {
     actions.append(b);
     return b;
   };
-  // The labels are set when the bar is painted, in the interface language of then.
+  // The labels are set when the bar is painted, in the interface language of then. The bar paints
+  // with every view and every 500 ms; replacing a label's text node between the press and the
+  // release of its button cancels that click, so a label changes only with its text.
+  const label = (b: HTMLButtonElement, text: string) => {
+    if (b.textContent !== text) b.textContent = text;
+  };
   const pass = make("pass", "", () => send({ type: "Pass" }));
   const resign = make("resign", "", () => send({ type: "Resign" }));
   const retry = make("retryAi", "", () => send({ type: "RetryAi" }));
@@ -119,16 +124,16 @@ export function mountTrainingBar(): void {
       : s.ai_thinking ? t("HumanSlTraining.bar.aiThinking")
       : t("HumanSlTraining.bar.yourTurn");
     thinking.classList.toggle("on", s.ai_thinking || s.counting || stopping);
-    pass.textContent = t("HumanSlGame.btn.pass");
-    resign.textContent = t("HumanSlGame.btn.resign");
-    retry.textContent = t("HumanSlTraining.retryAi");
+    label(pass, t("HumanSlGame.btn.pass"));
+    label(resign, t("HumanSlGame.btn.resign"));
+    label(retry, t("HumanSlTraining.retryAi"));
     // After the game its buttons are done (CoachPanel: the grid hides); 结束并复盘 stays.
     pass.hidden = resign.hidden = over;
     retry.hidden = !(s.phase === "Playing" && s.ai_failed);
     pass.disabled = !(s.phase === "Playing" && s.human_turn);
     // canResign: also while the AI thinks, not while KataGo counts.
     resign.disabled = !(s.phase === "Playing" && !s.counting && !over);
-    finish.textContent = cleanup ? t("HumanSlTraining.retryCleanup") : stopping ? t("HumanSlTraining.stopping") : t("HumanSlTraining.finishReview");
+    label(finish, cleanup ? t("HumanSlTraining.retryCleanup") : stopping ? t("HumanSlTraining.stopping") : t("HumanSlTraining.finishReview"));
     finish.disabled = stopping;
   };
 

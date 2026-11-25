@@ -345,10 +345,14 @@ export function openHumanSlDialog(): void {
     startButton.classList.toggle("danger", cleanup);
     startButton.classList.toggle("primary", !cleanup);
     startIcon.toggleAttribute("hidden", cleanup || repair);
-    startLabel.textContent = cleanup ? t("HumanSlTraining.retryCleanup")
+    // Every view update renders the dialog, several times a second while the engine analyses.
+    // Replacing the label's text node between the press and the release of 开始对局 cancels that
+    // click, so the label changes only with its text.
+    const startText = cleanup ? t("HumanSlTraining.retryCleanup")
       : repair ? t("EngineFailedMessage.openTensorRtRepair")
       : paused ? t("HumanSlTraining.download.resume")
       : installed ? t("HumanSlTraining.start") : t("HumanSlTraining.downloadAndStart");
+    if (startLabel.textContent !== startText) startLabel.textContent = startText;
     if (repair && !cleanup) {
       startButton.setAttribute("aria-label", t("EngineFailedMessage.openTensorRtRepairAccessibleName"));
       startButton.setAttribute("aria-description", t("EngineFailedMessage.openTensorRtRepairAccessibleDescription"));
