@@ -243,6 +243,16 @@ body {
 #toolbarOverflow > * {
   flex: none;
 }
+/* A capsule wider than the panel (the minimum window at a large font) continues its segments on a
+   further line inside the same capsule, so no parameter is cut off at the panel's edge. */
+#toolbarOverflow > .tb-cap {
+  flex-wrap: wrap;
+  max-width: 100%;
+  height: auto;
+}
+#toolbarOverflow > .tb-cap > * {
+  min-height: var(--ds-cap-h);
+}
 
 /* A capsule: one raised surface holding a group of related controls as segments. A segment that
    starts a new part of the group carries the dividing line on its left edge; the first segment's
