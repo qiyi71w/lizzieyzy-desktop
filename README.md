@@ -1332,7 +1332,10 @@ importing the matching LizzieYzy Next settings.
   moves apart, by score loss (then win-rate loss, then visits), and 继续追问 asks about the current
   explanation with the same evidence. 分析依据 shows exactly what was sent: candidates and losses,
   stone groups and liberties, the replayed continuation and candidate lines, and up to two grounded
-  matches from the bundled common-pattern teaching catalogue. A reply that names a coordinate
+  matches from the bundled common-pattern teaching catalogue. Its life-and-death and tesuji problems
+  take part in board matching only once their diagram is marked as a verified position (none of the
+  bundled problems carries the mark yet); until then they are never matched against the board, so their
+  diagram coordinates are not sent. A reply that names a coordinate
   outside that evidence is sent back once for correction; a second unsupported reply is reported
   as unverified and not saved. Verifier notes on an accepted reply are shown, never saved. With
   将解说加入棋谱评论 checked (the default), the answer goes into the node's comment as a separate
