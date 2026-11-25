@@ -180,6 +180,19 @@
 .humansl-dialog > .ds-footer button {
   min-width: 76px;
 }
+/* Too narrow for 更多设置 and the two actions on one line (the minimum window with a large font
+   or a long language): the actions go to a second line at the end, and no button gets narrower
+   than its label. */
+.humansl-dialog > .ds-footer {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.humansl-dialog > .ds-footer > .ds-footer-start {
+  min-width: min-content;
+}
+.humansl-dialog > .ds-footer > .ds-footer-end {
+  margin-left: auto;
+}
 .hs-start {
   display: inline-flex;
   align-items: center;
