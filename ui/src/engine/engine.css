@@ -493,6 +493,11 @@
 .modal-box:has(> .modal-body > .engine-failure) {
   max-width: min(760px, 94vw);
 }
+/* Its buttons keep 26px until 界面字体大小's text on a 1.5 line needs more (from 16), so the
+   labels' descenders stay inside them. */
+.modal-box:has(.engine-failure) {
+  --ds-control-h-l: max(26px, calc(var(--ds-size) * 1.5 + 4px));
+}
 .engine-failure {
   width: min(720px, calc(94vw - 40px));
   max-width: 100%;
@@ -510,9 +515,13 @@
   overflow-wrap: anywhere;
   user-select: text;
 }
+/* The message reads in one piece: a long one scrolls with the dialog's body, not in a box of its
+   own inside that scrolling body. */
 .engine-failure pre.engine-failure-summary {
+  max-height: none;
   margin: 0;
   padding: 0;
+  overflow: visible;
   background: none;
   font: inherit;
 }
