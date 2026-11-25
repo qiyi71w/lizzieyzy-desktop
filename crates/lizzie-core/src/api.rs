@@ -2225,7 +2225,8 @@ pub struct EngineView {
     /// 分析 黑 / 白: ordinary analysis goes on for these sides (session only, both at start).
     pub analyze_black: bool,
     pub analyze_white: bool,
-    /// Captured-panel rules caption key (`KataGoRules.Summary`), when KataGo reported its rules.
+    /// Captured-panel rules caption key (`RulePreset.captionKey`): the rule set the reported
+    /// rules and the game's komi are, else the rules' summary; when KataGo reported its rules.
     pub rules_key: Option<String>,
     /// Rules the foreground KataGo reported (JSON), for the rules dialog.
     pub rules: Option<String>,

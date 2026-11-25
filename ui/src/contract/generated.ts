@@ -432,7 +432,8 @@ stopped_by_limit: boolean,
  */
 analyze_black: boolean, analyze_white: boolean, 
 /**
- * Captured-panel rules caption key (`KataGoRules.Summary`), when KataGo reported its rules.
+ * Captured-panel rules caption key (`RulePreset.captionKey`): the rule set the reported
+ * rules and the game's komi are, else the rules' summary; when KataGo reported its rules.
  */
 rules_key: string | null, 
 /**
