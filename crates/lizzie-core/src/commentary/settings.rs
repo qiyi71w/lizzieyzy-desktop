@@ -110,13 +110,9 @@ pub fn validate_base_url(value: &str) -> Result<String, CommentaryFailure> {
     if !port.is_empty() && port.parse::<u16>().is_err() {
         return Err(bad());
     }
-    if scheme.eq_ignore_ascii_case("http")
-        && !["localhost", "127.0.0.1", "::1", "0:0:0:0:0:0:0:1"]
-            .iter()
-            .any(|h| host.eq_ignore_ascii_case(h))
-    {
+    if scheme.eq_ignore_ascii_case("http") && !allows_plain_http(host) {
         return Err(CommentaryFailure::new(
-            "Plain HTTP is allowed only for a provider running on this computer.",
+            "Plain HTTP requires localhost or a literal private network IP address.",
         ));
     }
     // URI rejects malformed percent escapes in paths, even though it preserves them verbatim.
@@ -129,6 +125,44 @@ pub fn validate_base_url(value: &str) -> Result<String, CommentaryFailure> {
         }
     }
     Ok(value.into())
+}
+/// Java `TeacherServiceHost.allowsPlainHttp`: the hosts an `http://` address may name. `localhost`,
+/// `127.0.0.1`, a private IPv4 address (10/8, 172.16/12, 192.168/16) in dotted decimal, or the
+/// IPv6 loopback or a unique local address (fc00::/7). Only literal addresses count: a name is
+/// never looked up, and other spellings of an address (a single number, octal or hexadecimal
+/// parts, IPv4 inside IPv6, a scope) are refused, so what is checked is what is connected to.
+fn allows_plain_http(host: &str) -> bool {
+    if host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    if host.contains(':') {
+        if !host.bytes().all(|b| b.is_ascii_hexdigit() || b == b':') {
+            return false;
+        }
+        return host
+            .parse::<std::net::Ipv6Addr>()
+            .is_ok_and(|ip| ip.to_ipv4_mapped().is_none() && (ip.is_loopback() || ip.octets()[0] & 0xfe == 0xfc));
+    }
+    let mut octets = [0u8; 4];
+    let mut parts = host.split('.');
+    for octet in &mut octets {
+        let Some(part) = parts.next() else { return false };
+        // Java `0|[1-9][0-9]{0,2}`: plain decimal without a leading zero (which some parsers read
+        // as octal) or a sign.
+        let decimal = part.bytes().all(|b| b.is_ascii_digit()) && !(part.len() > 1 && part.starts_with('0'));
+        let Some(value) = part.parse::<u8>().ok().filter(|_| decimal) else {
+            return false;
+        };
+        *octet = value;
+    }
+    if parts.next().is_some() {
+        return false;
+    }
+    match octets {
+        [127, 0, 0, 1] | [10, ..] | [192, 168, ..] => true,
+        [172, second, ..] => (16..=31).contains(&second),
+        _ => false,
+    }
 }
 pub fn validate_model(value: &str) -> Result<String, CommentaryFailure> {
     let v = value.trim_matches(|c: char| c <= '\u{20}');

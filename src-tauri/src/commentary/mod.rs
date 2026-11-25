@@ -187,6 +187,9 @@ fn dispatch_inner(
 ) -> Result<CommandResult, CommentaryFailure> {
     let adapter = app.state::<Adapter>();
     match operation {
+        ConnectionCommand::CheckApiAddress { base_url } => {
+            settings::validate_base_url(&base_url)?;
+        }
         ConnectionCommand::ListApiModels { base_url, api_key } => {
             let mut client = ApiKeyClient::for_models(&base_url, &api_key)?.with_exchange(
                 http::Http::new(&network(shared), sessions::fresh_cancel(), false)

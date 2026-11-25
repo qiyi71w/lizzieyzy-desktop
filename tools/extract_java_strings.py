@@ -49,10 +49,9 @@ LOCALES = {
 # behaviour this product does not have yet; each goes when its feature follows the fixed commit.
 # The online-link prompt names OGS links, which this product does not open. 评估此点 keeps naming
 # the reason itself when it is unavailable (Java now keeps the item's name and adds the reason in
-# brackets) and its tooltip keeps the conditions this product checks. The AI 解说 address hints
-# would allow plain HTTP to literal private addresses. The AI 陪练 setup texts belong to Java's
-# redesigned setup sheet and its live move feedback. The Chinese strength match tooltip drops 棋
-# because Java's dialog now passes 黑棋/白棋 where this product passes 黑/白.
+# brackets) and its tooltip keeps the conditions this product checks. The AI 陪练 setup texts
+# belong to Java's redesigned setup sheet and its live move feedback. The Chinese strength match
+# tooltip drops 棋 because Java's dialog now passes 黑棋/白棋 where this product passes 黑/白.
 CORRECTIONS: dict[str, dict[str, str]] = {
     "ZhCn": {
         "ConfigDialog2.modern.proxy.subtitle": "控制程序自身网络请求使用的代理策略",
@@ -68,8 +67,6 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "RightClickMenu.trackPoint.requiresCapability": "选点重点研究不可用（需要本地 KataGo 支持）",
         "RightClickMenu.trackPoint.unavailableTooltip": "需要稳定局面，以及当前前台本地 KataGo 已支持选点重点研究",
         "RightClickMenu.trackPoint.upgradeRequired": "选点评估需要升级引擎",
-        "Teacher.settings.apiHint": "填入服务商提供的地址和密钥，再选择用于讲棋的模型。",
-        "Teacher.settings.invalidAddress": "请检查服务地址，填写完整的 HTTPS 地址；本机服务也可使用 HTTP。",
     },
     "ZhTw": {
         "ConfigDialog2.modern.proxy.subtitle": "選擇來自應用程式的網路請求如何使用代理",
@@ -86,8 +83,6 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "RightClickMenu.trackPoint.requiresCapability": "選點重點研究不可用（需要本地 KataGo 支援）",
         "RightClickMenu.trackPoint.unavailableTooltip": "需要穩定局面，以及目前前台本地 KataGo 已支援選點重點研究",
         "RightClickMenu.trackPoint.upgradeRequired": "選點評估需要升級引擎",
-        "Teacher.settings.apiHint": "填入服務商提供的網址和金鑰，再選擇用於講棋的模型。",
-        "Teacher.settings.invalidAddress": "請檢查服務網址，填寫完整的 HTTPS 網址；本機服務也可使用 HTTP。",
     },
     "EnUs": {
         "ConfigDialog2.modern.proxy.subtitle": "Choose how network requests from the app use a proxy",
@@ -105,8 +100,6 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "RightClickMenu.trackPoint.requiresCapability": "Move focus unavailable (local KataGo capability required)",
         "RightClickMenu.trackPoint.unavailableTooltip": "Requires a stable position and the current foreground local KataGo with move-focus capability",
         "RightClickMenu.trackPoint.upgradeRequired": "Point evaluation requires an engine upgrade",
-        "Teacher.settings.apiHint": "Enter the address and key from your provider, then choose a commentary model.",
-        "Teacher.settings.invalidAddress": "Check the address. Use your provider's full HTTPS address; local services may use HTTP.",
     },
     "JaJp": {
         "ConfigDialog2.modern.proxy.subtitle": "アプリからのネットワーク リクエストでプロキシを使用する方法を選択します",
@@ -124,8 +117,6 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "RightClickMenu.trackPoint.requiresCapability": "move focus は利用不可（ローカル KataGo の対応が必要）",
         "RightClickMenu.trackPoint.unavailableTooltip": "安定した局面と、move focus 対応の現在のフォアグラウンドローカル KataGo が必要です",
         "RightClickMenu.trackPoint.upgradeRequired": "選点評価にはエンジンの更新が必要です",
-        "Teacher.settings.apiHint": "提供元の URL とキーを入力し、解説に使うモデルを選んでください。",
-        "Teacher.settings.invalidAddress": "完全な HTTPS URL を確認してください。ローカルサービスは HTTP も使えます。",
     },
     "KoKr": {
         "AnalysisFrame.concentration": "집중:",
@@ -191,8 +182,6 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "RightClickMenu.trackPoint.requiresCapability": "move focus 사용 불가 (로컬 KataGo 지원 필요)",
         "RightClickMenu.trackPoint.unavailableTooltip": "안정된 국면과 move focus를 지원하는 현재 포그라운드 로컬 KataGo가 필요합니다",
         "RightClickMenu.trackPoint.upgradeRequired": "착점 평가에는 엔진 업데이트가 필요합니다",
-        "Teacher.settings.apiHint": "서비스 제공자의 주소와 키를 입력한 뒤 해설 모델을 선택하세요.",
-        "Teacher.settings.invalidAddress": "전체 HTTPS 주소를 확인하세요. 로컬 서비스는 HTTP도 사용할 수 있습니다.",
     },
     "ThTh": {
         "AnalysisFrame.concentration": "ความเข้มข้น:",
@@ -322,8 +311,6 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "RightClickMenu.trackPoint.requiresCapability": "ใช้ move focus ไม่ได้ (ต้องใช้ KataGo ภายในเครื่องที่รองรับ)",
         "RightClickMenu.trackPoint.unavailableTooltip": "ต้องมีตำแหน่งที่เสถียรและ KataGo ภายในเครื่องที่อยู่เบื้องหน้าและรองรับ move focus",
         "RightClickMenu.trackPoint.upgradeRequired": "การประเมินจุดต้องอัปเกรดเอนจิน",
-        "Teacher.settings.apiHint": "กรอกที่อยู่และคีย์จากผู้ให้บริการ แล้วเลือกโมเดลอธิบาย",
-        "Teacher.settings.invalidAddress": "ตรวจสอบที่อยู่ HTTPS แบบเต็ม บริการในเครื่องใช้ HTTP ได้",
     },
 }
 

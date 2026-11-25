@@ -2516,6 +2516,10 @@ pub enum CommentaryCommand {
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
 #[serde(tag = "type")]
 pub enum ConnectionCommand {
+    /// Whether `base_url` is an address the API-key connection accepts
+    /// (`commentary::settings::validate_base_url`): the settings dialog asks before it lists models
+    /// or saves, so it reports with the rule the connection uses.
+    CheckApiAddress { base_url: String },
     ListApiModels { base_url: String, api_key: String },
     SaveApiKeyConnection { base_url: String, model: String, api_key: String, remember: bool },
     ForgetApiKey, OpenApiKeyTab,

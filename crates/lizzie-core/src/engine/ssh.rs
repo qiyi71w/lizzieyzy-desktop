@@ -8,16 +8,17 @@
 //! apart. The password is looked up by account on the connection thread and never reaches the
 //! engine runtime; host keys are trusted on first use and pinned ([`KnownHosts`]).
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use russh::client;
 use russh::keys::{HashAlg, PrivateKeyWithHashAlg, PublicKey, PublicKeyOrCertificate};
+use russh::{client, kex, mac, Preferred};
 use russh::{ChannelMsg, Disconnect, Sig};
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
@@ -36,6 +37,50 @@ const LOGIN: Duration = Duration::from_secs(15);
 const KEEPALIVE: Duration = Duration::from_secs(10);
 /// Ending: `quit`, then the channel is closed after this long (local `QUIT_GRACE`).
 const QUIT_GRACE: Duration = Duration::from_secs(3);
+
+/// russh's default key exchanges are modern only. The ganymed-ssh2 client the Java program used
+/// before could only use SHA-1 key exchange, so servers set up for it keep working through these
+/// two, offered after every default one: a server that supports any default still agrees on the
+/// same one (Java `SshCommandSession.withLegacyKeyExchangeFallbacks`). Not group1, whose 1024-bit
+/// group is too weak.
+static KEY_EXCHANGES: LazyLock<Vec<kex::Name>> = LazyLock::new(|| {
+    let defaults = &Preferred::DEFAULT.kex;
+    // The defaults end with pseudo-algorithms that announce extensions, not ways to exchange keys.
+    let extensions = [
+        kex::EXTENSION_SUPPORT_AS_CLIENT,
+        kex::EXTENSION_SUPPORT_AS_SERVER,
+        kex::EXTENSION_OPENSSH_STRICT_KEX_AS_CLIENT,
+        kex::EXTENSION_OPENSSH_STRICT_KEX_AS_SERVER,
+    ];
+    let end = defaults
+        .iter()
+        .position(|k| extensions.contains(k))
+        .unwrap_or(defaults.len());
+    let mut names = defaults[..end].to_vec();
+    names.extend(
+        [kex::DH_G14_SHA1, kex::DH_GEX_SHA1]
+            .into_iter()
+            .filter(|k| !defaults.contains(k)),
+    );
+    names.extend_from_slice(&defaults[end..]);
+    names
+});
+
+/// russh's default message authentication codes leave out SHA-1; the Java program's SSH library
+/// (Apache MINA SSHD) offers `hmac-sha1-etm@openssh.com` and `hmac-sha1` after its SHA-2 ones. So a
+/// server whose only shared choice is SHA-1, with a cipher that needs a MAC, is reached as in Java,
+/// and a server that supports any default still agrees on the same one. No other algorithm is added
+/// (no CBC ciphers).
+static MACS: LazyLock<Vec<mac::Name>> = LazyLock::new(|| {
+    let defaults = &Preferred::DEFAULT.mac;
+    let mut names = defaults.to_vec();
+    names.extend(
+        [mac::HMAC_SHA1_ETM, mac::HMAC_SHA1]
+            .into_iter()
+            .filter(|m| !defaults.contains(m)),
+    );
+    names
+});
 
 /// The SSH connection of a remote engine (Java `EngineData` `ip` / `port` / `userName` /
 /// `useKeyGen` / `keyGenPath`, or `analysis-engine-ssh-info`). The password is not part of it:
@@ -407,6 +452,11 @@ async fn login(
         keepalive_interval: Some(KEEPALIVE),
         keepalive_max: 3,
         nodelay: true,
+        preferred: Preferred {
+            kex: Cow::Borrowed(KEY_EXCHANGES.as_slice()),
+            mac: Cow::Borrowed(MACS.as_slice()),
+            ..Preferred::default()
+        },
         ..Default::default()
     });
     let refused = Arc::new(Mutex::new(None));
@@ -561,6 +611,34 @@ async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The defaults keep their order and come first, so a server that supports one of them agrees
+    /// on what it did before; the SHA-1 fallbacks follow (key exchanges before the extension names).
+    #[test]
+    fn sha1_fallbacks_come_after_every_default_algorithm() {
+        fn names<N: AsRef<str>>(list: &[N]) -> Vec<String> {
+            list.iter().map(|n| n.as_ref().to_string()).collect()
+        }
+        let mut expected = names(&Preferred::DEFAULT.kex);
+        let extensions = expected.iter().position(|n| n == "ext-info-c").unwrap();
+        expected.splice(
+            extensions..extensions,
+            [
+                "diffie-hellman-group14-sha1".to_string(),
+                "diffie-hellman-group-exchange-sha1".to_string(),
+            ],
+        );
+        assert_eq!(names(&KEY_EXCHANGES), expected);
+        assert!(!expected.iter().any(|n| n == "diffie-hellman-group1-sha1"));
+
+        let mut expected = names(&Preferred::DEFAULT.mac);
+        assert!(
+            !expected.iter().any(|n| n.contains("sha1")),
+            "russh's defaults changed: {expected:?}"
+        );
+        expected.extend(["hmac-sha1-etm@openssh.com".to_string(), "hmac-sha1".to_string()]);
+        assert_eq!(names(&MACS), expected);
+    }
 
     #[test]
     fn a_port_that_is_not_a_number_is_22() {

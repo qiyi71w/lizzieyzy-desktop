@@ -216,7 +216,36 @@ fn resolve_url(href: &str) -> String {
         format!("https://katagotraining.org/networks/{href}")
     }
 }
-/// Java's table parser: preserves table order, deduplicates names case-insensitively.
+/// Java `KataGoWeightFile.PLAIN_NAME`: a weight file name without a folder in it.
+const PLAIN_WEIGHT_FILE_NAME: &str = r"^[A-Za-z0-9][A-Za-z0-9._-]*\.(?:bin|txt)\.gz$";
+/// Java `KataGoWeightFile.isTrustedListing`: a download link read from the networks page is
+/// followed only when it is HTTPS to katagotraining.org or one of its subdomains and its last path
+/// segment is a plain weight file name. The page is not ours, so a link to another host, an
+/// `http://` link or a name with a folder in it (on Windows a backslash is one) is dropped. The
+/// host must be written plainly: user information, escapes or a backslash could make a URL
+/// parser connect somewhere else.
+fn is_trusted_listing(url: &str) -> bool {
+    let Some(rest) = url
+        .get(..8)
+        .filter(|scheme| scheme.eq_ignore_ascii_case("https://"))
+        .map(|_| &url[8..])
+    else {
+        return false;
+    };
+    let (authority, rest) = rest.split_at(rest.find(['/', '?', '#']).unwrap_or(rest.len()));
+    let host = match authority.rsplit_once(':') {
+        Some((host, port)) if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) => host,
+        _ => authority,
+    };
+    let host = host.to_ascii_lowercase();
+    let path = rest.split(['?', '#']).next().unwrap_or("");
+    host.bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'.')
+        && (host == "katagotraining.org" || host.ends_with(".katagotraining.org"))
+        && matches_pattern(PLAIN_WEIGHT_FILE_NAME, path.rsplit('/').next().unwrap_or(""))
+}
+/// Java's table parser: preserves table order, deduplicates names case-insensitively and drops a
+/// row whose download link is not trusted (`is_trusted_listing`).
 /// HTML-only entries have no invented hash/size and use the >1MiB download rule.
 pub fn parse_official_weight_table(html: &str) -> ResourceResult<Vec<RemoteWeight>> {
     let tables = captures(r#"(?is)<table class="table mt-3">(.*?)</table>"#, html, 1);
@@ -247,7 +276,7 @@ pub fn parse_official_weight_table(html: &str) -> ResourceResult<Vec<RemoteWeigh
             let name = clean_html(&cells[0]);
             let hrefs = captures(r#"(?is)<a[^>]*href="([^"]+)""#, &cells[3], 1);
             let download_url = resolve_url(hrefs.first().map(String::as_str).unwrap_or(""));
-            if name.is_empty() || download_url.is_empty() || !seen.insert(name.to_lowercase()) {
+            if name.is_empty() || !is_trusted_listing(&download_url) || !seen.insert(name.to_lowercase()) {
                 continue;
             }
             // Never allow table text to become a path outside the weights directory.
