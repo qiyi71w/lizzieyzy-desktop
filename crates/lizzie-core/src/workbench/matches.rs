@@ -36,6 +36,7 @@ struct Participant {
     rules: rules::SideRules,
     awaiting: Vec<u64>,
     captures: Vec<(u64, String)>,
+    /// Commands undoing the game's parameter changes; its rules are `rules.handback()`.
     restore: Vec<String>,
     released: bool,
     resign_count: u32,
@@ -956,11 +957,13 @@ impl Workbench {
                 commands.push("clear_cache".into());
             }
             commands.push("name".into());
+            let mut modified = false;
             for (at, c) in commands.iter().enumerate() {
                 if let Some(command) = self.engines.game_send(seat, c) {
                     awaiting.push(command);
                     if set_rules == Some(at) {
                         captures.push((command, "setRules".into()));
+                        modified = true;
                     }
                 }
             }
@@ -972,7 +975,7 @@ impl Workbench {
             }
             let p = &mut self.matches.run.as_mut().unwrap().sides[n];
             p.setup = true;
-            p.rules = rules::SideRules::prepare(can_query, can_set, last_known);
+            p.rules = rules::SideRules::prepare(can_query, can_set, modified, last_known);
             p.awaiting = awaiting;
             p.captures = captures;
             p.restore.extend(restore_visits);
@@ -1215,35 +1218,32 @@ impl Workbench {
         if let Some(at) = p.captures.iter().position(|(c, _)| *c == command) {
             let (_, name) = p.captures.remove(at);
             match name.as_str() {
-                // Leelaz.completeEngineRulesCommand: a refused command fails the side's rules
-                // operation, an unreadable answer is an invalid readback, an answer is observed.
-                // The game is decided once both sides have answered everything (match_setup).
-                "rules" | "setRules" | "verifyRules" if !ending => {
+                "rules" | "setRules" | "verifyRules" => {
                     use rules::{RulesReason, RulesStatus};
                     rules_reply = true;
                     let set = name == "setRules";
-                    if !ok && set {
-                        p.rules.fail(RulesStatus::SetFailed, RulesReason::SetRejected);
-                    } else if !ok {
-                        p.rules.fail(RulesStatus::QueryFailed, RulesReason::QueryRejected);
-                    } else if !set {
-                        match crate::engine::rules::KataRules::parse(&text) {
-                            Some(read) => {
-                                let original = name == "rules";
-                                if original
-                                    && p.rules.can_set
-                                    && p.rules.status == RulesStatus::Pending
-                                    && read.has_required_fields()
-                                {
-                                    p.restore.push(format!("kata-set-rules {}", text.trim()));
-                                }
-                                p.rules.report(read, original);
-                            }
-                            None => p.rules.fail(RulesStatus::QueryFailed, RulesReason::InvalidReadback),
+                    let read = (ok && !set)
+                        .then(|| crate::engine::rules::KataRules::parse(&text))
+                        .flatten();
+                    // What the engine had before the overlay is what its handback sets again,
+                    // also when the game ended while the answer was on its way.
+                    if name == "rules" {
+                        p.rules.original = read.clone();
+                    }
+                    // Leelaz.completeEngineRulesCommand: a refused command fails the side's rules
+                    // operation, an unreadable answer is an invalid readback, an answer is
+                    // observed. The game is decided once both sides have answered everything
+                    // (match_setup); a game already ending decides nothing.
+                    if !ending {
+                        match (ok, set, read) {
+                            (false, true, _) => p.rules.fail(RulesStatus::SetFailed, RulesReason::SetRejected),
+                            (false, false, _) => p.rules.fail(RulesStatus::QueryFailed, RulesReason::QueryRejected),
+                            (true, false, Some(read)) => p.rules.report(read, name == "rules"),
+                            (true, false, None) => p.rules.fail(RulesStatus::QueryFailed, RulesReason::InvalidReadback),
+                            (true, true, _) => {}
                         }
                     }
                 }
-                "rules" | "setRules" | "verifyRules" => rules_reply = true,
                 "snapshotPda" | "snapshotWrn" => {
                     snapshot = true;
                     let value = ok
@@ -1507,8 +1507,9 @@ impl Workbench {
         let started = r.phase != MatchPhase::Starting;
         // The game's 本局规则 (EngineGameModule.freezeRecordOnCurrentHistoryLocked and
         // onOwnerStartFailed): a played game's are complete, on its document as well; a start
-        // ending before the game is decided keeps what the engines answered as failed, or nothing
-        // when none answered (Java went on showing 正在检查本局规则 after such a start).
+        // ending before the game is decided keeps what the engines answered as failed, an answer
+        // still waiting for its readback included, or nothing when none answered (Java went on
+        // showing 正在检查本局规则 after such a start).
         if started {
             if let Some(live) = self
                 .matches
@@ -1527,7 +1528,7 @@ impl Workbench {
             .as_ref()
             .is_some_and(|s| s.phase == rules::RulesPhase::Preparing)
         {
-            let answered = r.sides.iter().any(|p| p.rules.status != rules::RulesStatus::Pending);
+            let answered = r.sides.iter().any(|p| p.rules.answered());
             self.matches.rules = answered
                 .then(|| rules::RulesSnapshot::of(r, rules::RulesPhase::Failed, false))
                 .flatten();
@@ -1612,22 +1613,31 @@ impl Workbench {
         let Some(r) = self.matches.run.as_ref().filter(|r| r.phase == MatchPhase::Ending) else {
             return;
         };
+        // EngineManager.restoreMatchRulesBeforeRelease: an engine the game's rules were sent to
+        // gets its own rules back, read back to be sure, whichever way the game ended; one whose
+        // own rules are unknown cannot be given back as usable.
         let seats: Vec<_> = r
             .sides
             .iter()
             .filter(|p| !p.released && p.awaiting.is_empty())
             .map(|p| {
-                (
-                    p.reservation,
-                    p.restore.clone(),
-                    p.rules
-                        .original
-                        .clone()
-                        .filter(|_| p.restore.iter().any(|command| command.starts_with("kata-set-rules "))),
-                )
+                let (mut restore, original, unknown) = match p.rules.handback() {
+                    rules::RulesHandback::Untouched => (Vec::new(), None, false),
+                    rules::RulesHandback::Restore(original) => (
+                        vec![format!("kata-set-rules {}", original.to_gtp_argument())],
+                        Some(original.clone()),
+                        false,
+                    ),
+                    rules::RulesHandback::Unknown => (Vec::new(), None, true),
+                };
+                restore.extend(p.restore.iter().cloned());
+                (p.reservation, restore, original, unknown)
             })
             .collect();
-        for (seat, restore, original) in seats {
+        for (seat, restore, original, unknown) in seats {
+            if unknown {
+                self.engines.game_mark_restore_failed(seat);
+            }
             self.engines.release_game_verified(seat, &restore, original);
         }
         self.match_retirement();

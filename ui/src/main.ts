@@ -1415,8 +1415,7 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
   if (P.shown.sub && changed("sub", `${at(P.sub)}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${subCandidate}:${sub.length}:${over}:${subFrozen?.revision}:${layerSignature("sub", sub.ownership)}`))
     subReport = paintSubBoard(prepare($("sub"), P.sub), boardGeom(P.sub, cols, rows, SUB_MARGIN_RATIO), P.sub, sub);
   const ai = v.statistics;
-  if (!P.shown.captured) captionBox = null;
-  else if (changed("captured", `${at(P.captured)}:${!!P.smallCaptured}:${docSig}:${v.komi}:${v.engine.analysing}:${v.engine.rules_key}:${v.match_rules_caption}:${ai.ai_score_black}:${ai.ai_score_white}`)) {
+  if (P.shown.captured && changed("captured", `${at(P.captured)}:${!!P.smallCaptured}:${docSig}:${v.komi}:${v.engine.analysing}:${v.engine.rules_key}:${v.match_rules_caption}:${ai.ai_score_black}:${ai.ai_score_white}`)) {
     capturedReport = paintCaptured(prepare($("captured"), P.captured), P.captured, {
       toPlay: pos.to_play,
       blackCaptures: pos.black_captures,
@@ -1429,8 +1428,10 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
       aiScoreWhite: ai.ai_score_white,
       small: P.smallCaptured,
     });
-    captionBox = capturedReport?.captionBox ?? null;
   }
+  // The click box is the caption on the canvas as it shows now: none while the panel is hidden;
+  // shown again unchanged, the canvas keeps its last picture and so the box its last caption.
+  captionBox = P.shown.captured ? capturedReport?.captionBox ?? null : null;
   const stat = statScene(v, historyByNode, (node) => state.nodes.get(node)?.parent ?? undefined);
   // drawMoveStatistics in play mode: the darkened strip with the human's clock.
   const playClock = v.game?.clock ? clockText(v.game.clock) : null;
