@@ -1626,8 +1626,9 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
   if (layers.stones) {
     const onlyNew = layers.float && !layers.float.edit && !layers.float.setup ? preview?.numbers ?? null : null;
     for (let p = 0; p < stones.length; p++) if (stones[p] && (!onlyNew || onlyNew.has(p))) shadowed.add(p);
-    // 立体棋子's soft shadows reach past the stone: all of them go under every stone.
-    if (look.enhanced && look.showShadow) enhancedShadows(g, [...shadowed], `${ox},${oy},${geo.margin},${marginY},${sq},${squareY},${cols}`, px, py, r);
+    // 立体棋子's soft shadows reach past the stone: all of them go under every stone. An empty board
+    // has none, so it neither builds nor composites the layer.
+    if (look.enhanced && look.showShadow && shadowed.size) enhancedShadows(g, [...shadowed], `${ox},${oy},${geo.margin},${marginY},${sq},${squareY},${cols}`, px, py, r);
     for (const p of shadowed) drawStone(g, px(p), py(p), r, stones[p] === "Black", p % cols, i(p / cols), !look.enhanced);
   }
   // drawmoveblock (BoardRenderer.java:1390-1408), composited after the stones and any shown
