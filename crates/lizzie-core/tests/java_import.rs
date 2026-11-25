@@ -926,6 +926,86 @@ fn analysis_and_match_commands_without_credentials_still_come_over() {
 }
 
 #[test]
+fn commands_with_unc_paths_or_escaped_quotes_are_not_taken_for_credentials() {
+    let analysis = r#"\\srv\Users\katago.exe analysis -config \"C:\Program Files\a.cfg\""#;
+    let black = r"\\srv\Users\katago.exe gtp -model \\srv\Users\m.bin.gz";
+    let white = r#"katago.exe gtp -config \"C:\a b\x.cfg\""#;
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let config = json!({
+        "ui": {
+            "analysis-engine-command": analysis,
+            "analysis-engine-command-customized": true,
+            "engine-pk-black-commands": black,
+            "engine-pk-white-commands": white,
+        },
+        "leelaz": { "engine-settings-list": [
+            { "id": "unc-1", "name": "Unc", "command": black, "isDefault": false },
+        ] },
+    });
+    std::fs::write(java.join("config.txt"), config.to_string()).unwrap();
+    let mut wb = workbench(&tmp.path().join("product"), Recorder::default());
+    let p = preview(&mut wb, &java);
+    let report = wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    let keys = ["ui.analysis-engine-command", "ui.engine-pk-black-commands", "ui.engine-pk-white-commands"];
+    let shown: Vec<_> = keys
+        .iter()
+        .map(|&key| {
+            let it = item(&report.items, key);
+            (key, it.status, it.credential)
+        })
+        .collect();
+    assert_eq!(shown, keys.map(|key| (key, ImportStatus::Imported, false)));
+    let c = wb.config();
+    assert_eq!(c.analysis_engine.command, analysis);
+    assert!(c.analysis_engine.command_customized);
+    assert_eq!((c.matches.first.commands.as_str(), c.matches.second.commands.as_str()), (black, white));
+    assert!(!p.engines[0].credential);
+}
+
+#[test]
+fn commands_hiding_credentials_behind_escapes_are_still_taken_for_credentials() {
+    const MARKER: &str = "TEST_MARKER";
+    let engine = format!(r"\\srv\Users\katago.exe gtp --t\u006fken {MARKER}");
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let config = json!({
+        "ui": {
+            "analysis-engine-command": format!(r"\\srv\Users\katago.exe analysis -override-config passw\u006frd={MARKER}"),
+            "analysis-engine-command-customized": true,
+            "engine-pk-black-commands": engine,
+            "engine-pk-white-commands": engine,
+        },
+        "leelaz": { "engine-settings-list": [
+            { "id": "hidden-1", "name": "Hidden", "command": engine, "isDefault": false },
+        ] },
+    });
+    std::fs::write(java.join("config.txt"), config.to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let analysis_before = wb.config().analysis_engine.clone();
+    let p = preview(&mut wb, &java);
+    assert!(!serde_json::to_string(&p).unwrap().contains(MARKER));
+    assert!(p.engines[0].credential);
+    let report = wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    assert!(!serde_json::to_string(&report).unwrap().contains(MARKER));
+    for key in ["ui.analysis-engine-command", "ui.analysis-engine-command-customized"] {
+        let it = item(&report.items, key);
+        assert_eq!((it.status, it.reason), (ImportStatus::NotMigrated, Some(ImportReason::Credential)), "{key}");
+    }
+    for key in ["ui.engine-pk-black-commands", "ui.engine-pk-white-commands"] {
+        let it = item(&report.items, key);
+        assert_eq!((it.status, it.reason), (ImportStatus::NotMigrated, Some(ImportReason::CredentialNotConfirmed)), "{key}");
+    }
+    let c = wb.config();
+    assert_eq!(c.analysis_engine.command, analysis_before.command);
+    assert_eq!((c.matches.first.commands.as_str(), c.matches.second.commands.as_str()), ("", ""));
+    assert!(!std::fs::read_to_string(storage(&product).config_file).unwrap().contains(MARKER));
+}
+
+#[test]
 fn a_board_size_this_product_does_not_open_is_reported_and_left_alone() {
     // Java's 综合设置 saves 53 (ConfigDialog2 only corrects values below 2).
     let tmp = tempfile::tempdir().unwrap();

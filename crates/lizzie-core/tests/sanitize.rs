@@ -429,3 +429,26 @@ fn credentials_hidden_behind_escapes_are_masked_in_the_decoded_text() {
         ),
     ]);
 }
+
+// Expected outputs are Java's (B and B2 alike) for the same inputs.
+#[test]
+fn a_credential_exposed_after_several_decoding_passes_is_masked_beside_a_path() {
+    let input = format!(r"\\srv\share passw{}u006frd=CANARY_MULTI", "\\".repeat(8));
+    let output = sanitize(&input);
+    assert!(!output.contains("CANARY"), "{output}");
+    assert_eq!(output, r"\srv\share password=<redacted>");
+}
+
+#[test]
+fn escaped_delimiters_beside_a_path_still_mask_the_value() {
+    for (input, expected) in [
+        (r"password\u003dCANARY_EQ \\srv", r"password=<redacted> \srv"),
+        (r#"password\"=\"CANARY_QEQ\" \\srv"#, r#"password"="<redacted>" \srv"#),
+        (r"--t\u006fken CANARY_FLAG \\srv", r"--token <redacted> \srv"),
+        (r"Authorizati\u006fn: Bearer CANARY_HDR \\srv", "Authorization: <redacted>"),
+    ] {
+        let output = sanitize(input);
+        assert!(!output.contains("CANARY"), "input: {input:?} output: {output}");
+        assert_eq!(output, expected, "input: {input:?}");
+    }
+}
