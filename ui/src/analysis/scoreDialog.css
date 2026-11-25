@@ -3,11 +3,14 @@
    side's count after its stone, then the result on the winner's colour (the workbench's flat
    stones, design/stage.css) or a draw's grey; the footer (design/dialog.css) ends the body. */
 
+/* No wider than the app window less a margin: in a narrow window the footer's start buttons and
+   the result wrap, and a short window scrolls the body under the title (the shared frame's 94vh,
+   design/dialog.css). */
 .score-result {
   position: fixed;
   z-index: 25;
   min-width: 0;
-  max-width: none;
+  max-width: calc(100vw - 16px);
 }
 .score-title {
   user-select: none;
@@ -40,13 +43,13 @@
   width: 14px;
   height: 14px;
 }
-.score-count,
-.score-total {
+.score-count {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 .score-total {
   margin-top: 4px;
+  font-variant-numeric: tabular-nums;
   padding: 3px 10px;
   border-radius: var(--ds-radius);
   font-weight: 600;
