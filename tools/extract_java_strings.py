@@ -5,10 +5,15 @@ The UI shows Java's own wording. This script collects every resource key the UI 
 calls, `"key"` entries in ui/src/chrome/javaMenus.ts, and any other string literal in ui/src that
 names a bundle key, as the tables that pass keys to t() through a helper do) and copies those
 entries from the Java DisplayStrings bundles, per locale, falling back to the base bundle like
-Java's ResourceBundle. CORRECTIONS replaces the few Java entries that are wrong, per locale.
+Java's ResourceBundle. A key the UI still uses that the fixed commit deleted keeps its entry at
+PREVIOUS_SHA, the commit the table was taken from before, until the feature using it follows the
+fixed commit; the script lists these keys. CORRECTIONS replaces the few Java entries that are
+wrong, per locale, and holds the entries whose newer wording describes behaviour this product
+does not have yet.
 
 Usage: tools/extract_java_strings.py <java-checkout>
-The Java checkout must be wimi321/lizzieyzy-next at cb53acc55eda42c6c671b5f668cd3b597456bf07.
+The Java checkout must be wimi321/lizzieyzy-next at 6a5c8d1524f8bdfd9163162a38dcf64c23402a1b
+(tag next-2026-11-19.1), with cb53acc55eda42c6c671b5f668cd3b597456bf07 in its history.
 """
 from __future__ import annotations
 
@@ -19,7 +24,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-FIXED_SHA = "cb53acc55eda42c6c671b5f668cd3b597456bf07"
+FIXED_SHA = "6a5c8d1524f8bdfd9163162a38dcf64c23402a1b"
+PREVIOUS_SHA = "cb53acc55eda42c6c671b5f668cd3b597456bf07"
+L10N = "src/main/resources/l10n"
 LOCALES = {
     "ZhCn": "DisplayStrings_zh_CN.properties",
     "EnUs": "DisplayStrings_en_US.properties",
@@ -37,15 +44,50 @@ LOCALES = {
 # English and Thai settings title said "Shif+X". Some entries escape a character twice (\\: \\=
 # \\! \\" \\uXXXX and a leading "\\ "), which Java reads as a backslash before the character and
 # shows; they carry the once-escaped text, the leading one as the space the English entry starts with.
+#
+# The entries marked "held" keep PREVIOUS_SHA's wording where the fixed commit rewrote it for
+# behaviour this product does not have yet; each goes when its feature follows the fixed commit.
+# The online-link prompt names OGS links, which this product does not open. 评估此点 keeps naming
+# the reason itself when it is unavailable (Java now keeps the item's name and adds the reason in
+# brackets) and its tooltip keeps the conditions this product checks. The AI 解说 address hints
+# would allow plain HTTP to literal private addresses. The AI 陪练 setup texts belong to Java's
+# redesigned setup sheet and its live move feedback. The Chinese strength match tooltip drops 棋
+# because Java's dialog now passes 黑棋/白棋 where this product passes 黑/白.
 CORRECTIONS: dict[str, dict[str, str]] = {
     "ZhCn": {
         "ConfigDialog2.modern.proxy.subtitle": "控制程序自身网络请求使用的代理策略",
         "SetLeelaEngines.lblResign": "放弃胜利率(%,default -1,范围-1到30):",
+        # Held (see above).
+        "HumanSlTraining.color.random": "随机执棋",
+        "HumanSlTraining.model.missing": "尚未下载 HumanSL 数据",
+        "HumanSlTraining.model.ready": "HumanSL 数据已就绪",
+        "HumanSlTraining.start": "开始训练",
+        "HumanSlTraining.subtitle": "选择适合自己水平的人类棋风对手，在主棋盘实战并随时复盘",
+        "OnlineDialog.lblPrompt1.text": "请输入一个有效的链接。",
+        "PlayerStrengthEstimate.match.rankTooltip": "%1$s棋第 %2$d 手到第 %3$d 手下出了 %4$s 水平",
+        "RightClickMenu.trackPoint.requiresCapability": "选点重点研究不可用（需要本地 KataGo 支持）",
+        "RightClickMenu.trackPoint.unavailableTooltip": "需要稳定局面，以及当前前台本地 KataGo 已支持选点重点研究",
+        "RightClickMenu.trackPoint.upgradeRequired": "选点评估需要升级引擎",
+        "Teacher.settings.apiHint": "填入服务商提供的地址和密钥，再选择用于讲棋的模型。",
+        "Teacher.settings.invalidAddress": "请检查服务地址，填写完整的 HTTPS 地址；本机服务也可使用 HTTP。",
     },
     "ZhTw": {
         "ConfigDialog2.modern.proxy.subtitle": "選擇來自應用程式的網路請求如何使用代理",
         "SetLeelaEngines.lblResign": "放棄勝利率(%,default -1,範圍-1到30):",
         "YikeLiveDialog.syncFailed": "弈客同步失敗",
+        # Held (see above).
+        "HumanSlTraining.color.random": "隨機執棋",
+        "HumanSlTraining.model.missing": "尚未下載 HumanSL 資料",
+        "HumanSlTraining.model.ready": "HumanSL 資料已就緒",
+        "HumanSlTraining.start": "開始訓練",
+        "HumanSlTraining.subtitle": "選擇適合自己水平的人類棋風對手，在主棋盤實戰並隨時覆盤",
+        "OnlineDialog.lblPrompt1.text": "請輸入一個有效的連結。",
+        "PlayerStrengthEstimate.match.rankTooltip": "%1$s棋第 %2$d 手到第 %3$d 手下出了 %4$s 水平",
+        "RightClickMenu.trackPoint.requiresCapability": "選點重點研究不可用（需要本地 KataGo 支援）",
+        "RightClickMenu.trackPoint.unavailableTooltip": "需要穩定局面，以及目前前台本地 KataGo 已支援選點重點研究",
+        "RightClickMenu.trackPoint.upgradeRequired": "選點評估需要升級引擎",
+        "Teacher.settings.apiHint": "填入服務商提供的網址和金鑰，再選擇用於講棋的模型。",
+        "Teacher.settings.invalidAddress": "請檢查服務網址，填寫完整的 HTTPS 網址；本機服務也可使用 HTTP。",
     },
     "EnUs": {
         "ConfigDialog2.modern.proxy.subtitle": "Choose how network requests from the app use a proxy",
@@ -54,6 +96,17 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "Menu.comprehensiveSettings": "Config (Shift+X)",
         "Menu.leadJustScore": "Excluding komi",
         "Menu.leadWithKomi": "Including komi",
+        # Held (see above).
+        "HumanSlTraining.model.missing": "HumanSL model not downloaded",
+        "HumanSlTraining.model.ready": "HumanSL model ready",
+        "HumanSlTraining.start": "Start training",
+        "HumanSlTraining.subtitle": "Choose a fitting human-style opponent, play on the main board, and review the game there afterward.",
+        "OnlineDialog.lblPrompt1.text": "Please input an available url.",
+        "RightClickMenu.trackPoint.requiresCapability": "Move focus unavailable (local KataGo capability required)",
+        "RightClickMenu.trackPoint.unavailableTooltip": "Requires a stable position and the current foreground local KataGo with move-focus capability",
+        "RightClickMenu.trackPoint.upgradeRequired": "Point evaluation requires an engine upgrade",
+        "Teacher.settings.apiHint": "Enter the address and key from your provider, then choose a commentary model.",
+        "Teacher.settings.invalidAddress": "Check the address. Use your provider's full HTTPS address; local services may use HTTP.",
     },
     "JaJp": {
         "ConfigDialog2.modern.proxy.subtitle": "アプリからのネットワーク リクエストでプロキシを使用する方法を選択します",
@@ -62,6 +115,17 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "SetLeelaEngines.lblResign": "winRate を辞任 (%,default -1、範囲 -1 ～ 30):",
         "WindowsUpdate.btnUpdate": "今すぐ更新",
         "YikeLiveDialog.syncFailed": "弈客の同期に失敗しました",
+        # Held (see above).
+        "HumanSlTraining.model.missing": "HumanSL モデルが未ダウンロードです",
+        "HumanSlTraining.model.ready": "HumanSL モデルは準備済みです",
+        "HumanSlTraining.start": "トレーニング開始",
+        "HumanSlTraining.subtitle": "自分の棋力に合う人間らしい相手とメイン盤面で対局し、そのまま振り返れます。",
+        "OnlineDialog.lblPrompt1.text": "使用可能なurlを入力してください。",
+        "RightClickMenu.trackPoint.requiresCapability": "move focus は利用不可（ローカル KataGo の対応が必要）",
+        "RightClickMenu.trackPoint.unavailableTooltip": "安定した局面と、move focus 対応の現在のフォアグラウンドローカル KataGo が必要です",
+        "RightClickMenu.trackPoint.upgradeRequired": "選点評価にはエンジンの更新が必要です",
+        "Teacher.settings.apiHint": "提供元の URL とキーを入力し、解説に使うモデルを選んでください。",
+        "Teacher.settings.invalidAddress": "完全な HTTPS URL を確認してください。ローカルサービスは HTTP も使えます。",
     },
     "KoKr": {
         "AnalysisFrame.concentration": "집중:",
@@ -118,6 +182,17 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "TencentKifuDownload.points": " 포인트",
         "TencentKifuDownload.stones": " 돌",
         "YikeLiveDialog.syncFailed": "Yike 동기화 실패",
+        # Held (see above).
+        "HumanSlTraining.model.missing": "HumanSL 모델을 아직 다운로드하지 않았습니다",
+        "HumanSlTraining.model.ready": "HumanSL 모델 준비 완료",
+        "HumanSlTraining.start": "훈련 시작",
+        "HumanSlTraining.subtitle": "내 기력에 맞는 인간형 상대와 메인 바둑판에서 대국하고 그대로 복기합니다.",
+        "OnlineDialog.lblPrompt1.text": "유효한 URL을 입력하세요.",
+        "RightClickMenu.trackPoint.requiresCapability": "move focus 사용 불가 (로컬 KataGo 지원 필요)",
+        "RightClickMenu.trackPoint.unavailableTooltip": "안정된 국면과 move focus를 지원하는 현재 포그라운드 로컬 KataGo가 필요합니다",
+        "RightClickMenu.trackPoint.upgradeRequired": "착점 평가에는 엔진 업데이트가 필요합니다",
+        "Teacher.settings.apiHint": "서비스 제공자의 주소와 키를 입력한 뒤 해설 모델을 선택하세요.",
+        "Teacher.settings.invalidAddress": "전체 HTTPS 주소를 확인하세요. 로컬 서비스는 HTTP도 사용할 수 있습니다.",
     },
     "ThTh": {
         "AnalysisFrame.concentration": "ความเข้มข้น:",
@@ -235,13 +310,24 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "TencentKifuDownload.points": " คะแนน",
         "TencentKifuDownload.stones": " หิน",
         "menu.setFrameSizeRestart": "ตั้งค่าสำเร็จ โปรดรีสตาร์ท Lizzie!",
+        # Held (see above).
+        "HumanSlTraining.model.missing": "ยังไม่ได้ดาวน์โหลดโมเดล HumanSL",
+        "HumanSlTraining.model.ready": "โมเดล HumanSL พร้อมใช้งาน",
+        "HumanSlTraining.start": "เริ่มฝึก",
+        "HumanSlTraining.subtitle": "เลือกคู่ต่อสู้สไตล์มนุษย์ที่เหมาะกับระดับ เล่นบนกระดานหลัก และทบทวนเกมต่อได้ทันที",
+        "OnlineDialog.lblPrompt1.text": "โปรดป้อน url ที่มีอยู่",
+        "RightClickMenu.trackPoint.requiresCapability": "ใช้ move focus ไม่ได้ (ต้องใช้ KataGo ภายในเครื่องที่รองรับ)",
+        "RightClickMenu.trackPoint.unavailableTooltip": "ต้องมีตำแหน่งที่เสถียรและ KataGo ภายในเครื่องที่อยู่เบื้องหน้าและรองรับ move focus",
+        "RightClickMenu.trackPoint.upgradeRequired": "การประเมินจุดต้องอัปเกรดเอนจิน",
+        "Teacher.settings.apiHint": "กรอกที่อยู่และคีย์จากผู้ให้บริการ แล้วเลือกโมเดลอธิบาย",
+        "Teacher.settings.invalidAddress": "ตรวจสอบที่อยู่ HTTPS แบบเต็ม บริการในเครื่องใช้ HTTP ได้",
     },
 }
 
 
-def load_properties(path: Path) -> dict[str, str]:
+def parse_properties(text: str) -> dict[str, str]:
     """java.util.Properties text format: continuation lines, escapes, \\uXXXX."""
-    lines = path.read_text(encoding="utf-8").replace("\r\n", "\n").split("\n")
+    lines = text.replace("\r\n", "\n").split("\n")
     logical: list[str] = []
     buf = ""
     for line in lines:
@@ -302,8 +388,18 @@ def main() -> None:
     sha = subprocess.run(["git", "-C", str(java), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
     if sha != FIXED_SHA:
         raise SystemExit(f"{java} is at {sha or '?'}, expected {FIXED_SHA}")
-    l10n = java / "src/main/resources/l10n"
-    base = load_properties(l10n / "DisplayStrings.properties")
+
+    def fixed(file: str) -> dict[str, str]:
+        return parse_properties((java / L10N / file).read_text(encoding="utf-8"))
+
+    def previous(file: str) -> dict[str, str]:
+        shown = subprocess.run(["git", "-C", str(java), "show", f"{PREVIOUS_SHA}:{L10N}/{file}"],
+                               capture_output=True, encoding="utf-8")
+        if shown.returncode != 0:
+            raise SystemExit(f"{java} cannot show {PREVIOUS_SHA}:{L10N}/{file}: {shown.stderr.strip()}")
+        return parse_properties(shown.stdout)
+
+    base = fixed("DisplayStrings.properties")
     keys, literals = used_keys()
     # A function's aliases and description are wanted only while the catalogue lists the function.
     per_function = ("FunctionSearch.aliases.", "FunctionSearch.description.")
@@ -314,12 +410,15 @@ def main() -> None:
     keys.update(key for key in base if key.startswith(("EngineGameInfo.", "EnginePkConfig.",
         "NewEngineGameDialog.", "Mannul.", "Teacher.", "Fox.")))
     keys.add("GtpConsolePane.isEngineGame")
-    bundles = {locale: load_properties(l10n / file) for locale, file in LOCALES.items()}
+    bundles = {locale: fixed(file) for locale, file in LOCALES.items()}
     for bundle in bundles.values():
         keys.update(key for key in bundle if key.startswith("FunctionSearch.") and not key.startswith(per_function))
     keys.update(key for key in literals if key in base or any(key in bundle for bundle in bundles.values()))
+    previous_base = previous("DisplayStrings.properties")
+    previous_bundles = {locale: previous(file) for locale, file in LOCALES.items()}
     result: dict[str, dict[str, str]] = {}
     missing: set[str] = set()
+    held: set[str] = set()
     for locale, bundle in bundles.items():
         table = {}
         for k in sorted(keys):
@@ -327,16 +426,23 @@ def main() -> None:
                 table[k] = bundle[k]
             elif k in base:
                 table[k] = base[k]
+            elif k in previous_bundles[locale] or k in previous_base:
+                table[k] = previous_bundles[locale].get(k, previous_base.get(k))
+                held.add(k)
             else:
                 missing.add(k)
         table.update(CORRECTIONS.get(locale, {}))
         result[locale] = table
     out = ROOT / "ui/src/i18n/javaStrings.json"
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps({"source": f"wimi321/lizzieyzy-next {FIXED_SHA} src/main/resources/l10n", "strings": result},
+    source = f"wimi321/lizzieyzy-next {FIXED_SHA} {L10N}; keys deleted there from {PREVIOUS_SHA}"
+    out.write_text(json.dumps({"source": source, "strings": result},
                               ensure_ascii=False, indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    print(f"{len(keys)} keys, {len(held)} deleted at {FIXED_SHA[:8]} and taken from {PREVIOUS_SHA[:8]}:")
+    for k in sorted(held):
+        print("  ", k)
     # Keys that are literal Java text (language names, Chinese-only items) are expected here.
-    print(f"{len(keys)} keys, {len(missing)} without a bundle entry (shown literally):")
+    print(f"{len(missing)} without a bundle entry (shown literally):")
     for k in sorted(missing):
         print("  ", k)
 

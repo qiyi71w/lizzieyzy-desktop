@@ -54,7 +54,7 @@ export interface CardTexts {
 }
 
 /** PlayerStrengthAssessmentCard: the side, its rank and 可信度, five metric rows with their bars
- *  and the 评分规则 scale. The tooltip and accessible texts are Java's. */
+ *  and the 段位标尺 scale. The tooltip and accessible texts are Java's. */
 export function assessmentSection(black: boolean, side: StrengthSideReport, humanSl: boolean): { element: HTMLElement; drawn: CardTexts } {
   const report = side.summary;
   const drawn: CardTexts = { rank: sideRankText(report), confidence: confidenceText(report.confidence), metrics: [] };

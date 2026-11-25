@@ -291,7 +291,7 @@ function build(d: Dashboard, report: StrengthReport): void {
   const header = el("div", "ps-header");
   header.append(tabRow, subtitle, actions);
 
-  // The HumanSL strip: 后台 HumanSL, 补算 HumanSL for HumanSL 40, the preparation status.
+  // The HumanSL strip: 分析棋局时自动准备, 开始计算 for HumanSL 40, the preparation status.
   const strip = el("div", "ps-strip");
   const toggle = el("label", "ps-check");
   const box = el("input");
@@ -321,7 +321,7 @@ function build(d: Dashboard, report: StrengthReport): void {
 
   root.append(header, cardHost, strip);
   show("assessment");
-  // A rebuild removes the control that had the focus (the combo, 导入, 补算 HumanSL): the focus
+  // A rebuild removes the control that had the focus (the combo, 导入, 开始计算): the focus
   // would fall to the body, outside every dialog's Esc binding. Java's reopened dialog is focused.
   if (!document.activeElement?.closest("#dialog .modal-box")) ownerFocus();
   d.probe = {

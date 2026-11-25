@@ -55,7 +55,7 @@ pub enum StrengthCommand {
     SelectModel { id: String },
     ImportModel { path: String },
     SetBackground { enabled: bool },
-    /// 补算 HumanSL. `resume`: the same request after the model download it needed; it prepares
+    /// 开始计算 (HumanSL 40). `resume`: the same request after the model download it needed; it prepares
     /// the game it was asked for, else is refused with `HumanSL40.gameChanged`.
     RunHumanSl { resume: bool },
     CancelHumanSl,
@@ -79,7 +79,7 @@ pub struct StrengthStatusView {
 }
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
 pub struct StrengthManualView {
-    /// Numbers each admitted 补算 HumanSL; a dialog only takes the outcome of the run it started
+    /// Numbers each admitted 开始计算 (HumanSL 40); a dialog only takes the outcome of the run it started
     /// (an earlier run's outcome stays visible until the next run is admitted).
     pub run: u32,
     pub running: bool,

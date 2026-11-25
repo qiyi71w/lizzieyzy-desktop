@@ -1977,17 +1977,24 @@ binary with its output and exits non-zero, like `cargo test --no-fail-fast`.
   `UPDATE_CONTRACT=1 cargo test -p lizzie-core --test contract`; the plain test fails while the
   file is out of date.
 - `ui/src/i18n/javaStrings.json` holds the Java UI strings used by the UI, taken from the Java
-  `l10n/DisplayStrings_*.properties` bundles. Regenerate it with
+  `l10n/DisplayStrings_*.properties` bundles at `6a5c8d1524f8bdfd9163162a38dcf64c23402a1b`
+  (LizzieYzy Next `next-2026-11-19.1`). Regenerate it with
   `python3 tools/extract_java_strings.py <java-checkout>`; the script requires the checkout to be
-  at the reference commit and lists keys that are shown literally. It keeps the keys the UI passes
+  at that commit, with the earlier reference commit `cb53acc55eda42c6c671b5f668cd3b597456bf07` in
+  its history, and lists keys that are shown literally. It keeps the keys the UI passes
   to `t()`, the `key` fields of its menu and toolbar tables, every other string literal in `ui/src`
   that names a bundle key (tables that reach `t()` through a helper), the keys the core writes
   through `java_text`, and the function catalog's keys; a function's `FunctionSearch.*` aliases and
-  description only while the catalog lists the function. `CORRECTIONS` in the script replaces the
+  description only while the catalog lists the function. A key the UI still uses that the newer
+  commit deleted keeps its text from the earlier reference commit until the feature using it
+  follows the newer Java; the script lists these keys. `CORRECTIONS` in the script replaces the
   Java entries this product corrects (wrong score-lead wording, slang, a request phrased as a
   button, the `Shif+X` typo, and the Thai, Korean, Japanese and Chinese entries that Java's bundles
   escape twice, so that Java shows a stray backslash before `:`, `=`, `!`, `"`, a leading space or a
-  `\uXXXX` sequence). The function catalog keeps the same corrected texts
+  `\uXXXX` sequence), and holds the earlier wording of entries the newer Java rewrote for behaviour
+  this product does not have yet (the online-link prompt naming OGS links, the unavailable
+  评估此点 labels and tooltip, the AI 解说 address hints, the AI 陪练 setup texts and the Chinese
+  strength match tooltip). The function catalog keeps the same texts
   (`tools/function_catalog/README.md`). Strings this product adds to Java's menus and catalog are kept by hand, in all six
   languages, in `ui/src/i18n/productStrings.json`; the script does not touch that file.
 
