@@ -921,7 +921,7 @@ fn ordinary_analyses(sent: &[String]) -> Vec<&String> {
         .collect()
 }
 
-/// B2 390250e0 (`TrackingAnalysisController.holdsSearchOf`): when 整盘精析 ends, a foreground
+/// Java 390250e0 (`TrackingAnalysisController.holdsSearchOf`): when 整盘精析 ends, a foreground
 /// engine still searching the tracked position is sent nothing — sending the position again
 /// would clear its tree and the points — and the point keeps its extra search. An engine the run
 /// had stopped searches the tracked point extra again, on the position it still holds.

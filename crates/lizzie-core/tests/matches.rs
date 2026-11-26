@@ -1609,7 +1609,7 @@ fn the_pda_dialog_reaches_the_kata_go_pda_participant_whichever_engine_is_in_fro
     }
 }
 
-// 本局规则 summary and details. Expected texts are Java's (B2 `MatchRulesSnapshot.mainSummary`,
+// 本局规则 summary and details. Expected texts are Java's (Java `MatchRulesSnapshot.mainSummary`,
 // `MatchRulesTexts.details`, `EngineGamePresentation.inspectableMatchRules`) in the English bundle.
 const CHINESE_FIELDS: &str =
     "Chinese (ko=SIMPLE, scoring=AREA, tax=NONE, suicide=false, hasButton=false, whiteHandicapBonus=N, friendlyPassOk=true)";

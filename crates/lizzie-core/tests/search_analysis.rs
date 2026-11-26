@@ -456,7 +456,7 @@ fn changing_tracked_points_keeps_the_analysis_time_limit() {
     }
 }
 
-/// B2 `Leelaz.moveFocusCapability` asks `isPondering` and `TRACKING_ANALYSIS_CONTRACT.md`: a point
+/// Java `Leelaz.moveFocusCapability` asks `isPondering` and `TRACKING_ANALYSIS_CONTRACT.md`: a point
 /// added while the foreground engine does not analyse — the user's pause or a limit's stop —
 /// would get no search, so none is taken and the pause is the reason given. The points tracked
 /// before stay; the pause ends their extra search for good, and resuming takes points again.

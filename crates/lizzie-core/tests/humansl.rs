@@ -236,7 +236,7 @@ fn missing_model_refuses_without_starting_a_process() {
     assert!(f.wb.inspect().human_sl.is_none());
 }
 /// A two-stone game: the player takes Black and the stones whatever colour the settings chose,
-/// with a komi of 0.5 (B2 `CoachSetupForm.config`, `HumanSlTrainingConfig.resolveHumanIsBlack`);
+/// with a komi of 0.5 (Java `CoachSetupForm.config`, `HumanSlTrainingConfig.resolveHumanIsBlack`);
 /// the board changes only once the companion is ready.
 #[test]
 fn preparation_is_transactional_and_success_persists_settings() {
@@ -608,9 +608,9 @@ fn level(level: CoachLevel, pace: Pace) -> HumanSlTrainingSettings {
     }
 }
 
-/// The fixed Java's level table (`fixtures/coach/b2-coach.json`, written by running it).
+/// The fixed Java's level table (`fixtures/coach/java-coach.json`, written by running it).
 fn b2_level(level: CoachLevel) -> Value {
-    let b2: Value = serde_json::from_str(include_str!("fixtures/coach/b2-coach.json")).unwrap();
+    let b2: Value = serde_json::from_str(include_str!("fixtures/coach/java-coach.json")).unwrap();
     let rows = b2["levels"].as_array().unwrap();
     rows.iter()
         .find(|row| serde_json::from_value::<CoachLevel>(row["name"].clone()).ok() == Some(level))
@@ -1273,7 +1273,7 @@ fn kind(f: &Fixture, node: NodeId) -> NodeKind {
 }
 
 /// The board is browsed back two moves while the AI thinks: the game goes on, and the reply is
-/// played on the game's position with the board back on it (B2 `applyAiMoveIfCurrent`).
+/// played on the game's position with the board back on it (Java `applyAiMoveIfCurrent`).
 #[test]
 fn browsing_back_while_the_ai_thinks_keeps_the_game_and_the_reply_brings_the_board_back() {
     let mut f = fixture(true);
@@ -1304,7 +1304,7 @@ fn browsing_back_while_the_ai_thinks_keeps_the_game_and_the_reply_brings_the_boa
 }
 
 /// On the player's turn a click on an earlier position only brings the board back; the next
-/// click plays (B2 `onBoardClicked` → `atLiveGame`).
+/// click plays (Java `onBoardClicked` → `atLiveGame`).
 #[test]
 fn a_click_on_an_earlier_position_brings_the_board_back_and_the_next_click_plays() {
     let mut f = fixture(true);
@@ -1329,7 +1329,7 @@ fn a_click_on_an_earlier_position_brings_the_board_back_and_the_next_click_plays
 }
 
 /// 停一手 on an earlier position only brings the board back to the game's position, saying so;
-/// the next 停一手 passes there (B2 `humanPass` → `atLiveGame`).
+/// the next 停一手 passes there (Java `humanPass` → `atLiveGame`).
 #[test]
 fn pass_on_an_earlier_position_brings_the_board_back_and_the_next_pass_passes() {
     for keyboard in [false, true] {
@@ -1381,7 +1381,7 @@ fn a_reply_arriving_after_the_game_ended_is_dropped() {
 }
 
 /// Deleting the moves at the game's position ends the session with a message, when the AI's
-/// reply arrives or the player next acts (B2 `returnToGamePosition`, `gameMovesDeleted`).
+/// reply arrives or the player next acts (Java `returnToGamePosition`, `gameMovesDeleted`).
 #[test]
 fn deleting_the_games_moves_ends_the_session_with_a_message() {
     for ai_thinking in [true, false] {
@@ -1482,7 +1482,7 @@ fn ai_move(f: &Fixture) -> NodeKind {
 const LEVELS: [CoachLevel; 2] = [CoachLevel::Kyu5, CoachLevel::Dan3];
 
 /// From 40% of the board on (move 145 of 361 points), well before move 200, the AI passes when
-/// KataGo's search says so (B2 `HumanSlAnalysisRunner.mayPass`, `PASS_BOARD_SHARE`).
+/// KataGo's search says so (Java `HumanSlAnalysisRunner.mayPass`, `PASS_BOARD_SHARE`).
 #[test]
 fn the_ai_passes_when_katago_says_so_once_forty_percent_of_the_board_is_played() {
     for level in LEVELS {
@@ -1529,7 +1529,7 @@ fn before_forty_percent_the_ai_does_not_pass_unless_the_player_just_passed() {
 }
 
 /// Right after the player's pass the AI may pass on the first move: when KataGo's top move is a
-/// pass, and when passing too gives up at most a point (B2 `SearchView.passEnds`,
+/// pass, and when passing too gives up at most a point (Java `SearchView.passEnds`,
 /// `PASS_TOLERANCE_POINTS`). Both players having passed, KataGo then counts the game.
 #[test]
 fn after_the_players_pass_the_ai_may_pass_early() {
@@ -1561,7 +1561,7 @@ fn after_the_players_pass_the_ai_may_pass_early() {
 }
 
 /// When most players of a policy level would pass but KataGo still sees a point that matters, the
-/// AI plays KataGo's move rather than what is left of the human policy (B2 `HUMAN_PASS_SHARE`).
+/// AI plays KataGo's move rather than what is left of the human policy (Java `HUMAN_PASS_SHARE`).
 #[test]
 fn a_policy_level_that_would_pass_plays_katagos_point_instead() {
     let (mut f, id) = ai_turn(CoachLevel::Kyu5, 0);
@@ -1580,7 +1580,7 @@ fn a_policy_level_that_would_pass_plays_katagos_point_instead() {
     );
 }
 
-// ---- the game's end: komi, both passes and KataGo's count, resignations (B2 `GameResult`,
+// ---- the game's end: komi, both passes and KataGo's count, resignations (Java `GameResult`,
 // `AiResignation`, `HumanSlGameController.countAndEnd` / `resign`, `CoachSetupForm.config`).
 
 /// KataGo's chinese rules with the button: a drawn count goes to the first player to pass.

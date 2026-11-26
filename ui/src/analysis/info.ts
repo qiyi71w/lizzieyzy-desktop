@@ -126,7 +126,7 @@ const samples: ({ key: string; visits: number } | null)[] = [null, null, null, n
 let sampleIndex = -1;
 let speedText = "";
 /** The position, instance and search `speedText` was measured for: a position without analysis
- *  never shows the previous position's speed (B2 clears `visitsString` when there is nothing to
+ *  never shows the previous position's speed (Java clears `visitsString` when there is nothing to
  *  sample), an instance never another one's, and a search never the speed of the one before. */
 let speedKey = "";
 let speedAt = 0;
@@ -174,7 +174,7 @@ function sampleSpeed(): void {
 
 /** The analysing engine's measured speed ("746 搜索/秒"); empty before the first measure, once
  *  it went stale, when the shown position, the foreground instance or the position's search is
- *  not the one measured, and while the position has no analysis (B2 `visitsString`). */
+ *  not the one measured, and while the position has no analysis (Java `visitsString`). */
 export function searchSpeed(): string {
   const v = state.view;
   if (!v?.engine.analysing || !v.engine.foreground) return "";

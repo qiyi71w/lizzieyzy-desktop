@@ -3343,11 +3343,11 @@ fn humansl_java_corrupt_or_future_fields_fall_back_independently() {
 
 /// The newer Java saves the level and AI 思考时间 by name; older ones the preset, the numbered rank
 /// and 用时. Each reads as the fixed Java reads it (`HumanSlTrainingPreferences.load`, run on these
-/// files in `fixtures/coach/b2-coach.json`).
+/// files in `fixtures/coach/java-coach.json`).
 #[test]
 fn humansl_java_levels_and_paces_import_as_java_reads_them() {
     use lizzie_core::humansl::{CoachLevel, Pace};
-    let b2: serde_json::Value = serde_json::from_str(include_str!("fixtures/coach/b2-coach.json")).unwrap();
+    let b2: serde_json::Value = serde_json::from_str(include_str!("fixtures/coach/java-coach.json")).unwrap();
     for row in b2["saved"].as_array().unwrap() {
         let saved = &row["saved"];
         let tmp = tempfile::tempdir().unwrap();

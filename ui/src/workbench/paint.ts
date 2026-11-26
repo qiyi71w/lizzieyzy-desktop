@@ -2776,7 +2776,7 @@ export function paintStat(g: CanvasRenderingContext2D, r: Rect, s: StatScene): S
   const pad = sidePad(w);
   const room = w - 2 * pad;
   const lead: Figure[] = s.kata && s.lead !== null ? [{ name: nameOf(leadName), value: s.lead.toFixed(1) }] : [];
-  // The previous move's change only when the core has both positions analysed (B2
+  // The previous move's change only when the core has both positions analysed (Java
   // `validLastWinrate && validWinrate`); its rank is left out when it was no candidate.
   const last: Figure[] = s.change === null ? [] : [{ name: lastName, value: `${javaSigned(s.change)}%` }];
   if (last.length && s.change !== null && s.change < 0) last[0].color = p.loss;

@@ -1,5 +1,5 @@
 //! AI 陪练's opponents, move choice, think time and older saved settings against the values the
-//! fixed Java produces: `fixtures/coach/b2-coach.json` was written by running its
+//! fixed Java produces: `fixtures/coach/java-coach.json` was written by running its
 //! `training/CoachLevel`, `HumanSlPlaySettings`, `HumanThinkTime`, `HumanSlTrainingPreferences`
 //! and `analysis/HumanPolicySampler`, `HumanSlChosenMove` on the inputs it lists.
 use lizzie_core::humansl::{choose, think_time, Candidate, CoachLevel, CoachLevelKind, Pace};
@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use std::time::Duration;
 
 fn b2() -> Value {
-    serde_json::from_str(include_str!("fixtures/coach/b2-coach.json")).unwrap()
+    serde_json::from_str(include_str!("fixtures/coach/java-coach.json")).unwrap()
 }
 
 fn level(name: &str) -> CoachLevel {

@@ -430,7 +430,7 @@ fn credentials_hidden_behind_escapes_are_masked_in_the_decoded_text() {
     ]);
 }
 
-// Expected outputs are Java's (B and B2 alike) for the same inputs.
+// Expected outputs are Java's (both upstream Java versions alike) for the same inputs.
 #[test]
 fn a_credential_exposed_after_several_decoding_passes_is_masked_beside_a_path() {
     let input = format!(r"\\srv\share passw{}u006frd=CANARY_MULTI", "\\".repeat(8));
