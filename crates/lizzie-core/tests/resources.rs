@@ -843,7 +843,7 @@ fn managed_setup_plan_roundtrips_paths_and_never_overwrites_unmanaged_profiles()
     assert!(plan_setup(&[manual], &choice, temp.path()).is_err());
 }
 /// Java `NvidiaRuntimePins` at the reference commit: key, version and SHA-256.
-const B2_NVIDIA_PINS: [(&str, &str, &str); 5] = [
+const JAVA_NVIDIA_PINS: [(&str, &str, &str); 5] = [
     (
         "cuda_cudart",
         "12.8.57",
@@ -882,7 +882,7 @@ fn nvidia_manifest(key: &str, version: &str, sha256: &str) -> String {
 }
 #[test]
 fn nvidia_manifests_must_name_the_built_in_versions_and_digests() {
-    for (key, version, sha256) in B2_NVIDIA_PINS {
+    for (key, version, sha256) in JAVA_NVIDIA_PINS {
         let manifest_url = if key == "cudnn" {
             CUDNN_MANIFEST_URL
         } else {

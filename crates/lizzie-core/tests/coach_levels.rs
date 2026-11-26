@@ -7,7 +7,7 @@ use lizzie_core::settings::Config;
 use serde_json::{json, Value};
 use std::time::Duration;
 
-fn b2() -> Value {
+fn java_table() -> Value {
     serde_json::from_str(include_str!("fixtures/coach/java-coach.json")).unwrap()
 }
 
@@ -33,11 +33,11 @@ fn pace(name: &str) -> Pace {
 
 #[test]
 fn thirty_one_levels_match_the_java_table_and_default_to_three_dan() {
-    let b2 = b2();
-    let rows = b2["levels"].as_array().unwrap();
+    let table = java_table();
+    let rows = table["levels"].as_array().unwrap();
     assert_eq!(CoachLevel::ALL.len(), 31);
     assert_eq!(rows.len(), 31);
-    assert_eq!(CoachLevel::default(), level(b2["default"].as_str().unwrap()));
+    assert_eq!(CoachLevel::default(), level(table["default"].as_str().unwrap()));
     assert_eq!(CoachLevel::default(), CoachLevel::Dan3);
     for (level, row) in CoachLevel::ALL.into_iter().zip(rows) {
         let name = row["name"].as_str().unwrap();
@@ -93,7 +93,7 @@ fn thirty_one_levels_match_the_java_table_and_default_to_three_dan() {
 
 #[test]
 fn older_numbered_ranks_map_to_the_plain_level_of_that_number() {
-    for row in b2()["forRank"].as_array().unwrap() {
+    for row in java_table()["forRank"].as_array().unwrap() {
         let (rank, dan) = (row["rank"].as_i64().unwrap(), row["dan"].as_bool().unwrap());
         assert_eq!(
             CoachLevel::for_rank(rank, dan),
@@ -105,7 +105,7 @@ fn older_numbered_ranks_map_to_the_plain_level_of_that_number() {
 
 #[test]
 fn policy_levels_sample_the_human_policy_as_java_does() {
-    for row in b2()["policy"].as_array().unwrap() {
+    for row in java_table()["policy"].as_array().unwrap() {
         let moves = candidates(&row["moves"]);
         let number = row["moveNumber"].as_u64().unwrap() as u32;
         let (w, h) = (
@@ -126,9 +126,9 @@ fn policy_levels_sample_the_human_policy_as_java_does() {
 
 #[test]
 fn search_levels_choose_as_genmove_would_from_the_search() {
-    let b2 = b2();
-    let infos = b2["searchedMoveInfos"].as_array().unwrap();
-    for row in b2["searched"].as_array().unwrap() {
+    let table = java_table();
+    let infos = table["searchedMoveInfos"].as_array().unwrap();
+    for row in table["searched"].as_array().unwrap() {
         let move_infos = infos[row["moveInfos"].as_u64().unwrap() as usize].as_array().unwrap();
         let human = candidates(&row["humanMoves"]);
         let play = level(row["level"].as_str().unwrap()).play();
@@ -144,7 +144,7 @@ fn search_levels_choose_as_genmove_would_from_the_search() {
 
 #[test]
 fn think_time_matches_java_for_each_pace() {
-    for row in b2()["thinkTime"].as_array().unwrap() {
+    for row in java_table()["thinkTime"].as_array().unwrap() {
         let millis = think_time(
             row["top"].as_f64(),
             row["moveNumber"].as_u64().unwrap() as u32,
@@ -200,7 +200,7 @@ fn product_settings(java: &Value) -> lizzie_core::settings::HumanSlTrainingSetti
 
 #[test]
 fn older_saved_settings_read_as_java_reads_them() {
-    for row in b2()["saved"].as_array().unwrap() {
+    for row in java_table()["saved"].as_array().unwrap() {
         let saved = &row["saved"];
         // An unreadable number falls back to the default 3 段 whatever 段/级 says (Java keeps its
         // fallback's number, 3, and so reads 3 级 here).

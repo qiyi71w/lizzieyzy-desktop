@@ -609,9 +609,9 @@ fn level(level: CoachLevel, pace: Pace) -> HumanSlTrainingSettings {
 }
 
 /// The fixed Java's level table (`fixtures/coach/java-coach.json`, written by running it).
-fn b2_level(level: CoachLevel) -> Value {
-    let b2: Value = serde_json::from_str(include_str!("fixtures/coach/java-coach.json")).unwrap();
-    let rows = b2["levels"].as_array().unwrap();
+fn java_level(level: CoachLevel) -> Value {
+    let table: Value = serde_json::from_str(include_str!("fixtures/coach/java-coach.json")).unwrap();
+    let rows = table["levels"].as_array().unwrap();
     rows.iter()
         .find(|row| serde_json::from_value::<CoachLevel>(row["name"].clone()).ok() == Some(level))
         .unwrap()
@@ -643,7 +643,7 @@ fn each_level_asks_the_companion_what_java_asks() {
         CoachLevel::StrongDan10,
         CoachLevel::Dan11,
     ] {
-        let java = b2_level(level);
+        let java = java_level(level);
         let play = &java["play"];
         let profile = play["profile"].as_str().unwrap();
         let elite = ["rank_7d", "rank_8d", "rank_9d"].contains(&profile);

@@ -3347,8 +3347,8 @@ fn humansl_java_corrupt_or_future_fields_fall_back_independently() {
 #[test]
 fn humansl_java_levels_and_paces_import_as_java_reads_them() {
     use lizzie_core::humansl::{CoachLevel, Pace};
-    let b2: serde_json::Value = serde_json::from_str(include_str!("fixtures/coach/java-coach.json")).unwrap();
-    for row in b2["saved"].as_array().unwrap() {
+    let table: serde_json::Value = serde_json::from_str(include_str!("fixtures/coach/java-coach.json")).unwrap();
+    for row in table["saved"].as_array().unwrap() {
         let saved = &row["saved"];
         let tmp = tempfile::tempdir().unwrap();
         let java = tmp.path().join("java");
