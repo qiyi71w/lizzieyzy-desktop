@@ -1275,8 +1275,10 @@ impl Workbench {
     /// `refreshCurrentMove` (重算当前局面): the current move's stored result gives way to the
     /// next live one, and the foreground engine, with the secondary one in 双引擎模式 (Java
     /// mirrors the commands to it), drops its search cache (`clear_cache`, only when it lists
-    /// the command) and, if it is analysing, searches this move again.
+    /// the command) and, if it is analysing, searches this move again. The position's analysis
+    /// starts over ([`crate::api::WorkbenchView::analysis_restarts`]).
     pub fn refresh_current_move(&mut self) {
+        self.analysis_restarts += 1;
         self.invalidate_analysis(AnalysisScope::Current);
         let secondary = self.double_engine().then(|| self.engines.secondary()).flatten();
         for id in self.engines.foreground().into_iter().chain(secondary) {

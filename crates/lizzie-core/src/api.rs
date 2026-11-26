@@ -1651,6 +1651,10 @@ pub struct WorkbenchView {
     pub problems: ProblemListView,
     /// Stored analysis of the current node (whether or not the engine is analysing it now).
     pub analysis: Option<NodeAnalysisView>,
+    /// Increases whenever the current position's analysis starts over (清除分析信息,
+    /// 重算当前局面): the totals shown before and after it belong to different searches, so the
+    /// title never measures a search speed across it.
+    pub analysis_restarts: u64,
     /// Move numbers, 落子评价 and 下一手 详细 of the current position, as the display settings
     /// choose them.
     pub board: crate::display::BoardOverlayView,

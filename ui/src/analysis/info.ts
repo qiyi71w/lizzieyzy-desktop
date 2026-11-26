@@ -117,27 +117,25 @@ export function statScene(v: WorkbenchView, history: Map<number, HistoryPoint>, 
 /** visitsString (LizzieFrame.java:1570-1620, getLastVisitsCount 2514-2572): once a second the
  *  current position's visits are sampled into four slots; the speed is measured against the
  *  oldest sample of the same position, and " - 搜索/秒" replaces it 5 s after the last measure.
- *  A sample belongs to the position and the foreground engine instance, so another instance never
- *  measures against the previous one's samples. Only what the instance searched while sampled
- *  counts: the total a position shows when the instance arrives there (another instance's stored
- *  result, say) is no sample until it changes, and when the analysis is cleared or starts over
- *  below its last sample, the earlier samples and their speed are dropped. */
+ *  A sample belongs to the position, the foreground engine instance and the position's search
+ *  (`analysis_restarts`), so another instance never measures against the previous one's samples
+ *  and a cleared or recomputed analysis never against the totals before it. Only what the
+ *  instance searched while sampled counts: the total a position shows when the instance or the
+ *  search arrives there (another instance's stored result, say) is no sample until it changes. */
 const samples: ({ key: string; visits: number } | null)[] = [null, null, null, null];
 let sampleIndex = -1;
 let speedText = "";
-/** The position and instance `speedText` was measured at, and the total it measured up to: a
- *  position without analysis never shows the previous position's speed (B2 clears `visitsString`
- *  when there is nothing to sample), an instance never another one's, and a cleared analysis never
- *  the speed measured before it. */
+/** The position, instance and search `speedText` was measured for: a position without analysis
+ *  never shows the previous position's speed (B2 clears `visitsString` when there is nothing to
+ *  sample), an instance never another one's, and a search never the speed of the one before. */
 let speedKey = "";
-let speedVisits = 0;
 let speedAt = 0;
-/** The position and instance sampled last, the total it showed on arrival, and whether that
- *  total changed since. */
+/** The position, instance and search sampled last, the total it showed on arrival, and whether
+ *  that total changed since. */
 let arrival = { key: "", visits: 0, changed: false };
 
 function sampleKey(v: WorkbenchView): string {
-  return `${v.document.id}:${v.position.node}:${v.engine.foreground?.instance}`;
+  return `${v.document.id}:${v.position.node}:${v.engine.foreground?.instance}:${v.analysis_restarts}`;
 }
 
 function sampleSpeed(): void {
@@ -147,14 +145,6 @@ function sampleSpeed(): void {
   const total = v.analysis?.visits ?? 0;
   if (arrival.key !== key) arrival = { key, visits: total, changed: false };
   else if (total !== arrival.visits) arrival.changed = true;
-  const newest = sampleIndex < 0 ? undefined : [0, 1, 2, 3].map((age) => samples[(sampleIndex + 4 - age) % 4]).find((s) => s?.key === key);
-  if (total === 0 || (newest && total < newest.visits)) {
-    for (let i = 0; i < 4; i++) if (samples[i]?.key === key) samples[i] = null;
-    if (speedKey === key) {
-      speedText = "";
-      speedKey = "";
-    }
-  }
   let seconds = -1, before = 0;
   if (sampleIndex >= 0 && arrival.changed) {
     for (let age = 4; age >= 1; age--) {
@@ -172,7 +162,6 @@ function sampleSpeed(): void {
     if (speed >= 0) {
       speedText = ` ${speed} ${t("LizzieFrame.speedUnit")}`;
       speedKey = key;
-      speedVisits = total;
       speedAt = now;
     }
   } else if (now - speedAt > 5000) {
@@ -184,12 +173,12 @@ function sampleSpeed(): void {
 }
 
 /** The analysing engine's measured speed ("746 搜索/秒"); empty before the first measure, once
- *  it went stale, when the shown position or the foreground instance is not the one measured, and
- *  as soon as the position's analysis is gone or below the measured total (B2 `visitsString`). */
+ *  it went stale, when the shown position, the foreground instance or the position's search is
+ *  not the one measured, and while the position has no analysis (B2 `visitsString`). */
 export function searchSpeed(): string {
   const v = state.view;
   if (!v?.engine.analysing || !v.engine.foreground) return "";
-  return speedKey === sampleKey(v) && (v.analysis?.visits ?? 0) >= speedVisits ? speedText.trim() : "";
+  return speedKey === sampleKey(v) && (v.analysis?.visits ?? 0) > 0 ? speedText.trim() : "";
 }
 
 /** Starts the once-a-second title update (showPlayouts). */
