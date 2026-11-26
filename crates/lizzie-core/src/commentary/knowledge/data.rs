@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 
 #[derive(Default, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -42,6 +42,14 @@ pub(super) struct Problem {
     pub correct_moves: Vec<TrainingMove>,
     pub failure_moves: Vec<TrainingMove>,
     pub teaching: ProblemTeaching,
+    #[serde(default, deserialize_with = "verified_flag")]
+    pub position_verified: bool,
+}
+
+/// Only a JSON `true` marks a diagram as a real position, as in Java's
+/// `Boolean.TRUE.equals(...)`; any other value reads as unverified instead of failing the catalogue.
+fn verified_flag<'de, D: Deserializer<'de>>(de: D) -> Result<bool, D::Error> {
+    Ok(serde_json::Value::deserialize(de)?.as_bool() == Some(true))
 }
 
 #[derive(Default, Deserialize)]
@@ -150,8 +158,14 @@ pub(super) struct Library {
 }
 impl Library {
     pub fn load() -> Result<Self, serde_json::Error> {
-        let mut catalog: Catalog =
-            serde_json::from_str(include_str!("../../../resources/knowledge/training-catalog.json"))?;
+        Self::from_sources(
+            include_str!("../../../resources/knowledge/training-catalog.json"),
+            include_str!("../../../resources/knowledge/pattern-cards.json"),
+        )
+    }
+    /// Parses catalogues in the embedded files' JSON shape; `load` uses the embedded files.
+    pub fn from_sources(training_catalog: &str, pattern_cards: &str) -> Result<Self, serde_json::Error> {
+        let mut catalog: Catalog = serde_json::from_str(training_catalog)?;
         // Java's loader excludes problems with no usable initial stones.
         for problems in [&mut catalog.life_death_problems, &mut catalog.tesuji_problems] {
             for problem in problems.iter_mut() {
@@ -163,7 +177,7 @@ impl Library {
         }
         Ok(Self {
             catalog,
-            patterns: serde_json::from_str(include_str!("../../../resources/knowledge/pattern-cards.json"))?,
+            patterns: serde_json::from_str(pattern_cards)?,
         })
     }
 }

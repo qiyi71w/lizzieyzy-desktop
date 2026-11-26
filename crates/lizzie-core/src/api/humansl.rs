@@ -1,4 +1,7 @@
-use crate::settings::{HumanSlTrainingSettings, OpponentPreset, TrainingMode};
+use super::ScoreVerdict;
+use crate::humansl::CoachLevel;
+use crate::record::Stone;
+use crate::settings::{HumanSlTrainingSettings, TrainingMode};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -15,6 +18,8 @@ pub enum HumanSlCommand {
     },
     CancelPreparation,
     Pass,
+    /// The player gives up: the AI wins by resignation (`HumanSlGameController.resign`).
+    Resign,
     RetryAi,
     Finish,
     Abort,
@@ -60,9 +65,7 @@ pub struct HumanSlView {
     pub stage: Option<HumanSlStartupStage>,
     pub preparing_secs: u32,
     pub mode: TrainingMode,
-    pub opponent: OpponentPreset,
-    pub rank: u8,
-    pub dan_rank: bool,
+    pub level: CoachLevel,
     pub human_is_black: bool,
     pub human_ms: u64,
     pub ai_ms: u64,
@@ -71,12 +74,36 @@ pub struct HumanSlView {
     pub ai_thinking: bool,
     pub ai_failed: bool,
     pub analysis_display: HumanSlAnalysisDisplay,
+    /// KataGo counts the game after both players passed.
+    pub counting: bool,
+    /// How the game ended; the session stays on for the player to review until 结束并复盘.
+    pub result: Option<HumanSlResult>,
+}
+/// How an AI 陪练 game ended (`training/GameResult`).
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum HumanSlResult {
+    /// KataGo's count after both players passed, as 终局点目 states it.
+    Counted { verdict: ScoreVerdict },
+    /// `winner` won by resignation.
+    Resigned { winner: Stone },
+    /// KataGo did not count the game in time or failed: nothing is written to the record.
+    Uncounted,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
 #[serde(tag = "type")]
 pub enum HumanSlNotice {
     AiPassed,
     AiMoveFailed,
+    /// The AI gave up (`HumanSlGame.aiResigned`).
+    AiResigned,
+    /// Both players passed; KataGo counts the game (`HumanSlGame.bothPassed`).
+    BothPassed,
+    /// The player acted on a position browsed back to: the board shows the game's position again
+    /// (`HumanSlGame.backToLiveGame`).
+    BackToLiveGame,
+    /// The game's moves were deleted, which ended the session (`HumanSlGame.gameMovesDeleted`).
+    GameMovesDeleted,
     StartFailed { reason: String, detail: Option<String> },
     ExitRecoveryFailed,
     Ended,

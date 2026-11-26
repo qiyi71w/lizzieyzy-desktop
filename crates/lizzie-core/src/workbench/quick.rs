@@ -72,6 +72,8 @@ pub(super) struct QuickFlow {
     /// Lightweight model files checked against the catalog digest, by path
     /// (`isValidQuickAnalysisModelFile`); a changed size or time is checked again.
     verified: Mutex<HashMap<PathBuf, Verified>>,
+    /// The missing analysis engine was reported (Java logs it once per run of the application).
+    missing_engine_logged: bool,
 }
 
 struct Verified {
@@ -127,6 +129,27 @@ enum Readiness {
     Ready,
     Wait,
     Stop,
+}
+
+/// Which analysis asks to borrow the foreground engine (`AnalysisResourceCoordinator.Purpose`):
+/// automatic quick analysis, or one the user started (整盘速览, 局部精析, 批量精析, 整盘精析).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum AnalysisPurpose {
+    AutoQuick,
+    Manual,
+}
+
+/// Why an analysis borrows the foreground engine ([`Workbench::analysis_borrow`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Borrow {
+    /// 复用当前前台引擎.
+    Chosen,
+    /// The foreground engine is a cloud engine.
+    Cloud,
+    /// A managed Windows NVIDIA engine whose GPU an analysis process would compete for.
+    Nvidia,
+    /// The analysis command's program no longer exists.
+    MissingEngine,
 }
 
 /// `major.minor` of a version text like `1.16.3` or `v1.17.0`.
@@ -313,10 +336,11 @@ impl Workbench {
         version_at_least(&version, 1, 17)
     }
 
-    /// The local KataGo and the model a lightweight quick analysis runs, when it is wanted and
-    /// possible (`resolveQuickAnalysisEngineCommand`). A remote foreground engine has no local
-    /// KataGo.
-    fn quick_light_parts(&self) -> Option<(String, PathBuf)> {
+    /// The local KataGo, the model and the backend settings a lightweight quick analysis runs,
+    /// when it is wanted and possible (`resolveQuickAnalysisEngineCommand`). The backend settings
+    /// are the foreground engine's (`experimentalBackendOverrides`): the same KataGo build runs on
+    /// the same backend. A remote foreground engine has no local KataGo.
+    fn quick_light_parts(&self) -> Option<(String, PathBuf, Option<String>)> {
         if !self.config.quick_model.enabled || self.foreground_katago_version_ok() != Some(true) {
             return None;
         }
@@ -326,7 +350,7 @@ impl Workbench {
             return None;
         }
         let exe = prepare_launch(&profile.command, self.engines.roots())?.program;
-        Some((exe, model))
+        Some((exe, model, analysis_command::backend_overrides(&profile.command)))
     }
 
     /// 精析设置's 远程引擎 when it is on (`analysis-engine-ssh-info.useJavaSSH`).
@@ -341,26 +365,42 @@ impl Workbench {
         self.engines.start_worker_on(command, "AnalysisEngine", ssh.as_ref())
     }
 
-    /// Borrow the foreground engine instead of starting an analysis process
-    /// (`analysis-reuse-current-engine`, `automaticallyReusesPrimaryForeground`).
-    fn quick_borrows(&self) -> bool {
-        if self.config.analysis_engine.reuse_current_engine {
-            return true;
+    /// `QuickAnalysisPrimaryReuse`: the one rule for whether an analysis borrows the foreground
+    /// engine (the foreground lease) instead of running an analysis process, and why.
+    ///
+    /// - 复用当前前台引擎 borrows for every analysis.
+    /// - A cloud foreground engine is borrowed by automatic quick analysis, and by the manual
+    ///   analyses (整盘速览, 局部精析, 批量精析, 整盘精析) unless the analysis command is
+    ///   customized or runs on 精析设置's SSH host (`shouldReuseForManualAnalysis`).
+    /// - Automatic quick analysis also borrows a managed Windows NVIDIA engine (TensorRT always,
+    ///   CUDA unless the lightweight model runs), and the foreground engine when the analysis
+    ///   command's program no longer exists and the lightweight model does not run
+    ///   (`analysisEngineMissing`).
+    pub(super) fn analysis_borrow(&self, purpose: AnalysisPurpose) -> Option<Borrow> {
+        let a = &self.config.analysis_engine;
+        if a.reuse_current_engine {
+            return Some(Borrow::Chosen);
         }
-        if self.engines.foreground().and_then(|f| self.engines.profile_of(f)).is_some_and(|p| p.cloud.is_some()) {
-            return true;
+        let foreground = self.engines.foreground().and_then(|f| self.engines.profile_of(f));
+        if foreground.is_some_and(|p| p.cloud.is_some())
+            && (purpose == AnalysisPurpose::AutoQuick || (!a.command_customized && self.analysis_ssh().is_none()))
+        {
+            return Some(Borrow::Cloud);
         }
-        let Some(marker) = self
-            .engines
-            .foreground()
-            .and_then(|f| self.engines.profile_of(f))
-            .filter(|p| r::is_managed(p))
-            .and_then(|p| p.managed.as_ref())
-        else {
-            return false;
-        };
-        NVIDIA_ASSETS.contains(&marker.asset_id.as_str())
-            && (marker.asset_id == TENSORRT_ASSET || self.quick_light_parts().is_none())
+        if purpose != AnalysisPurpose::AutoQuick {
+            return None;
+        }
+        if let Some(marker) = foreground.filter(|p| r::is_managed(p)).and_then(|p| p.managed.as_ref()) {
+            if NVIDIA_ASSETS.contains(&marker.asset_id.as_str())
+                && (marker.asset_id == TENSORRT_ASSET || self.quick_light_parts().is_none())
+            {
+                return Some(Borrow::Nvidia);
+            }
+        }
+        (self.analysis_ssh().is_none()
+            && self.quick_light_parts().is_none()
+            && analysis_command::missing_local_program(&self.analysis_command_base(false), self.engines.roots()))
+        .then_some(Borrow::MissingEngine)
     }
 
     /// 自动生成 / 选择引擎: the analysis command made from engine `index` (the foreground engine,
@@ -401,28 +441,33 @@ impl Workbench {
     }
 
     /// The analysis engine command before tuning: the lightweight model (when `light` and it is
-    /// wanted), the customized command, or one made from the current engine (else the saved one).
-    /// The lightweight model is a file of this machine: with 精析设置's 远程引擎 the configured
-    /// remote command runs instead (Java sent the local paths to the SSH host).
+    /// wanted) with the foreground engine's backend settings, the customized command, or one made
+    /// from the current engine (else the saved one). The lightweight model is a file of this
+    /// machine: with 精析设置's 远程引擎 the configured remote command runs instead (Java sent the
+    /// local paths to the SSH host).
     pub(super) fn analysis_command_base(&self, light: bool) -> String {
         let a = &self.config.analysis_engine;
         let light = (light && self.analysis_ssh().is_none())
             .then(|| self.quick_light_parts())
             .flatten()
-            .and_then(|(exe, model)| {
+            .and_then(|(exe, model, backend)| {
                 let config = self.resources.store().analysis_config();
                 if !config.is_file() {
                     r::create_file_once(&config, r::ANALYSIS_EXAMPLE).ok()?;
                 }
-                join_command(&[
+                let mut parts = vec![
                     exe,
                     "analysis".into(),
                     "-model".into(),
                     model.to_string_lossy().into_owned(),
                     "-config".into(),
                     config.to_string_lossy().into_owned(),
-                    "-quit-without-waiting".into(),
-                ])
+                ];
+                if let Some(backend) = backend {
+                    parts.extend(["-override-config".into(), backend]);
+                }
+                parts.push("-quit-without-waiting".into());
+                join_command(&parts)
             });
         match light {
             Some(command) => command,
@@ -433,7 +478,8 @@ impl Workbench {
         }
     }
 
-    /// `optimizeAnalysisEngineCommand`: one more visit than 单步计算量, the PV length and threads.
+    /// `AnalysisEngineLaunchCommand.build`: one more visit than 单步计算量, the PV length,
+    /// threads and the batch size.
     pub(super) fn tuned_analysis_command(&self, base: &str) -> String {
         self.tuned_command_for(base, self.config.analysis_engine.max_visits.max(1) + 1)
     }
@@ -448,7 +494,16 @@ impl Workbench {
             .flatten()
             .filter(|spec| PathBuf::from(&spec.program).starts_with(self.resources.store().root()))
             .map(|_| recommended_threads(std::thread::available_parallelism().map_or(1, |n| n.get() as u32)));
-        analysis_command::optimize(base, visits, self.config.engine.analysis.limit_branch_length, apple)
+        let tuned = analysis_command::optimize(base, visits, self.config.engine.analysis.limit_branch_length, apple);
+        analysis_command::size_padded_batches(&tuned, self.engines.roots())
+    }
+
+    /// 整盘精析's analysis process command: the throughput profile and the batch size
+    /// (`AnalysisEngineLaunchCommand.build` for the whole-game workload).
+    pub(super) fn whole_game_command(&self, base: &str) -> String {
+        let threads = recommended_threads(std::thread::available_parallelism().map_or(1, |n| n.get() as u32));
+        let tuned = analysis_command::whole_game(base, self.config.engine.analysis.limit_branch_length, threads);
+        analysis_command::size_padded_batches(&tuned, self.engines.roots())
     }
 
     /// `resolveLocalAnalysisRules`.
@@ -687,7 +742,8 @@ impl Workbench {
         if t.doc != self.doc.id {
             return self.quick_settle();
         }
-        let borrow = self.quick_borrows();
+        let reason = self.analysis_borrow(AnalysisPurpose::AutoQuick);
+        let borrow = reason.is_some();
         let readiness = self.quick_readiness(borrow);
         if matches!(readiness, Readiness::Stop) {
             return self.quick_settle();
@@ -714,6 +770,14 @@ impl Workbench {
         t.foreground_resumed = false;
         t.rules = rules;
         if borrow {
+            if reason == Some(Borrow::MissingEngine) && !self.quick.missing_engine_logged {
+                self.quick.missing_engine_logged = true;
+                let command = self.analysis_command_base(false);
+                self.log(
+                    true,
+                    format!("The analysis engine in the settings does not exist, so automatic analysis uses the main engine: {command}"),
+                );
+            }
             // `shouldReplaceAutomaticQuickAnalysisEngine`: borrowing the foreground ends the idle
             // analysis process.
             self.quick_drop_warm();
@@ -852,7 +916,7 @@ impl Workbench {
     /// `released`: the attempt's engine is back (or gone); the task ends or retries.
     fn quick_released(&mut self, failed: bool, restore_failed: bool, now: Instant) {
         let Some(t) = self.quick.task.as_ref() else { return };
-        if t.doc != self.doc.id || matches!(self.quick_readiness(self.quick_borrows()), Readiness::Stop) {
+        if t.doc != self.doc.id || matches!(self.quick_readiness(self.analysis_borrow(AnalysisPurpose::AutoQuick).is_some()), Readiness::Stop) {
             return self.quick_settle();
         }
         let t = self.quick.task.as_mut().unwrap();
@@ -1140,9 +1204,10 @@ impl Workbench {
 
     /// `AutomaticQuickAnalysisEngineAdapter.preload` (a `PRELOADED_QUICK_ANALYSIS` engine): the
     /// idle analysis process starts with the configured command, unless one is idle already or
-    /// an analysis holds one; with 复用当前前台引擎 none starts. A failure is only logged.
+    /// an analysis holds one; none starts when the analyses it would serve borrow the foreground
+    /// engine ([`Self::analysis_borrow`]). A failure is only logged.
     fn quick_preload(&mut self) {
-        if self.config.analysis_engine.reuse_current_engine
+        if self.analysis_borrow(AnalysisPurpose::Manual).is_some()
             || self.quick.warm.is_some()
             || self.quick.task.is_some()
             || self.flash_active()

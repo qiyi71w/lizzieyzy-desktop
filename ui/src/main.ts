@@ -72,6 +72,7 @@ import { bindCaptureSurface, copyMainBoardPicture, copySubBoardPicture, saveMain
 import { startAutoSave } from "./recovery/commands";
 import { clockText, handleGameKey } from "./game/commands";
 import { handleMatchKey } from "./match/commands";
+import { inspectMatchRules } from "./match/rulesDetails";
 import { handleTsumegoKey } from "./tsumego/commands";
 import { handleReadBoardKey } from "./readboard/commands";
 import { floatBoardReport, startFloatBoard } from "./readboard/floatBoard";
@@ -107,6 +108,7 @@ import {
   ARROW,
   SCROLLBAR,
   type BoardReport,
+  type CapturedReport,
   type OwnershipLayer,
   type BoardScene,
   type FrostRegions,
@@ -170,6 +172,7 @@ let positionStones = "";
 let boardReport: BoardReport | null = null;
 let subReport: SubBoardReport | null = null;
 let statReport: StatReport | null = null;
+let capturedReport: CapturedReport | null = null;
 /** 双引擎模式: the boards' rectangles, what the right board drew and the status strips as drawn. */
 let dual: DualPanels | null = null;
 let rightReport: BoardReport | null = null;
@@ -204,10 +207,14 @@ let projectedSecondary: NodeAnalysisView | null = null;
 let projectedHistory: HistoryPoint[] = [];
 let projectedView: WorkbenchView | null = null;
 
-/** Java runtime summary keys must also be literal t() calls for bundle extraction. */
+/** Java runtime caption keys (rule-set short names and rules summaries) must also be literal t()
+ *  calls for bundle extraction. */
 function rulesCaption(key: string | null): string | null {
   if (!key) return null;
   const captions: Record<string, string> = {
+    "LizzieFrame.currentRules.chinese2027": t("LizzieFrame.currentRules.chinese2027"),
+    "LizzieFrame.currentRules.chinese2027DrawToWhite": t("LizzieFrame.currentRules.chinese2027DrawToWhite"),
+    "LizzieFrame.currentRules.chinese2027DrawToFirstPass": t("LizzieFrame.currentRules.chinese2027DrawToFirstPass"),
     "LizzieFrame.currentRules.chinese": t("LizzieFrame.currentRules.chinese"),
     "LizzieFrame.currentRules.chn-ancient": t("LizzieFrame.currentRules.chn-ancient"),
     "LizzieFrame.currentRules.japanese": t("LizzieFrame.currentRules.japanese"),
@@ -217,6 +224,14 @@ function rulesCaption(key: string | null): string | null {
   };
   return captions[key] ?? t(key);
 }
+
+/** The captured panel's rules caption: the game's 本局规则 summary while there is one to inspect,
+ *  else the foreground engine's rules (LizzieFrame.drawCaptured's moveOrRules). */
+function capturedCaption(v: WorkbenchView): string | null {
+  return v.match_rules_caption ?? rulesCaption(v.engine.rules_key);
+}
+/** The rules caption's text box as last drawn (panel coordinates), null when none is drawn. */
+let captionBox: Rect | null = null;
 
 /** The rank of the candidate at the hovered point in `analysis`, -1 for the 下一手 详细 point
  *  (BoardRenderer.mouseOveredMove). */
@@ -682,6 +697,23 @@ function bindPointer() {
   }
   // The replay ends when the window is no longer the active one (LizzieFrame.java:11650).
   window.addEventListener("blur", finishReplayBranch);
+  // LizzieFrame.tryInspectMatchRulesAt (Input.java:93, 107; also during a match and with the
+  // floating board): a left press on the rules caption's text opens 本局规则详情 while it shows
+  // 本局规则; anywhere else, or on the engine's rules, it does nothing.
+  const captured = $("captured");
+  const captionPoint = (ev: MouseEvent) => {
+    const r = captured.getBoundingClientRect();
+    const [x, y, box] = [ev.clientX - r.left, ev.clientY - r.top, captionBox];
+    return !!state.view?.match_rules_caption && !!box && x >= box.x && x <= box.x + box.w && y >= box.y && y <= box.y + box.h;
+  };
+  captured.addEventListener("mousedown", (ev) => {
+    if (ev.button !== 0 || !captionPoint(ev)) return;
+    ev.preventDefault();
+    void inspectMatchRules();
+  });
+  captured.addEventListener("mousemove", (ev) => {
+    captured.style.cursor = captionPoint(ev) ? "pointer" : "";
+  });
   const sub = $("sub");
   sub.addEventListener("contextmenu", (ev) => ev.preventDefault());
   // LizzieFrame.java:10522-10532: left click the next candidate, right click the previous one; the
@@ -1383,19 +1415,23 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
   if (P.shown.sub && changed("sub", `${at(P.sub)}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${subCandidate}:${sub.length}:${over}:${subFrozen?.revision}:${layerSignature("sub", sub.ownership)}`))
     subReport = paintSubBoard(prepare($("sub"), P.sub), boardGeom(P.sub, cols, rows, SUB_MARGIN_RATIO), P.sub, sub);
   const ai = v.statistics;
-  if (P.shown.captured && changed("captured", `${at(P.captured)}:${!!P.smallCaptured}:${docSig}:${v.komi}:${v.engine.analysing}:${v.engine.rules_key}:${ai.ai_score_black}:${ai.ai_score_white}`))
-    paintCaptured(prepare($("captured"), P.captured), P.captured, {
+  if (P.shown.captured && changed("captured", `${at(P.captured)}:${!!P.smallCaptured}:${docSig}:${v.komi}:${v.engine.analysing}:${v.engine.rules_key}:${v.match_rules_caption}:${ai.ai_score_black}:${ai.ai_score_white}`)) {
+    capturedReport = paintCaptured(prepare($("captured"), P.captured), P.captured, {
       toPlay: pos.to_play,
       blackCaptures: pos.black_captures,
       whiteCaptures: pos.white_captures,
       moveNumber: pos.move_number,
       komi: v.komi,
       analysing: v.engine.analysing,
-      rules: rulesCaption(v.engine.rules_key),
+      rules: capturedCaption(v),
       aiScoreBlack: ai.ai_score_black,
       aiScoreWhite: ai.ai_score_white,
       small: P.smallCaptured,
     });
+  }
+  // The click box is the caption on the canvas as it shows now: none while the panel is hidden;
+  // shown again unchanged, the canvas keeps its last picture and so the box its last caption.
+  captionBox = P.shown.captured ? capturedReport?.captionBox ?? null : null;
   const stat = statScene(v, historyByNode, (node) => state.nodes.get(node)?.parent ?? undefined);
   // drawMoveStatistics in play mode: the darkened strip with the human's clock.
   const playClock = v.game?.clock ? clockText(v.game.clock) : null;
@@ -1693,18 +1729,26 @@ function uiReport() {
   const active = document.activeElement as HTMLElement | null;
   return {
     title: document.title,
-    focus: active ? { tag: active.tagName.toLowerCase(), id: active.id, className: active.className, key: active.dataset.key ?? null } : null,
+    // `selected`: the text selected in a focused text field or text area.
+    focus: active ? {
+      tag: active.tagName.toLowerCase(), id: active.id, className: active.className, key: active.dataset.key ?? null,
+      selected: active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement ? active.value.slice(active.selectionStart ?? 0, active.selectionEnd ?? 0) : null,
+    } : null,
     menuOpen: menuOpen(),
     /** The menus as the macOS system menu bar has them, from the model on every system, and what
      *  the system menu bar shows once installed (macOS). */
     menuModel: menuModelReport(),
     nativeMenu: nativeMenuReport(),
-    dialogs: [...document.querySelectorAll(".modal-box:not([hidden])")].map((box) => ({
-      title: box.querySelector(".modal-title")?.textContent ?? "",
-      // Form dialogs put their content straight into the box, after the title.
-      body: box.querySelector(".modal-body")?.textContent
-        ?? [...box.children].filter((el) => !el.classList.contains("modal-title")).map((el) => el.textContent ?? "").join(""),
-    })),
+    dialogs: [...document.querySelectorAll(".modal-box:not([hidden])")].map((box) => {
+      const r = box.getBoundingClientRect();
+      return {
+        title: box.querySelector(".modal-title")?.textContent ?? "",
+        // Form dialogs put their content straight into the box, after the title.
+        body: box.querySelector(".modal-body")?.textContent
+          ?? [...box.children].filter((el) => !el.classList.contains("modal-title")).map((el) => el.textContent ?? "").join(""),
+        rect: { x: r.left, y: r.top, w: r.width, h: r.height },
+      };
+    }),
     status: statusView().lines,
     candidateCount: boardReport?.candidates.length ?? 0,
     hoveredCandidate,
@@ -1715,6 +1759,16 @@ function uiReport() {
     /** Both 选点列表 tables (cells as drawn, clicked / selected rows, the 独立选点列表's sort) and
      *  the frame window. */
     tables: { ...tablesReport(), window: frameReport() },
+    /** The captured panel's rules caption as drawn (client coordinates): its text, whether it is
+     *  the game's 本局规则 summary, its text box and the panel's box; null when no caption is drawn. */
+    rulesCaption: ((box, v) => {
+      if (!box || !v) return null;
+      const r = $("captured").getBoundingClientRect();
+      return {
+        text: capturedCaption(v), match: !!v.match_rules_caption, x: r.left + box.x, y: r.top + box.y, w: box.w, h: box.h,
+        panel: { x: r.left, y: r.top, w: r.width, h: r.height },
+      };
+    })(captionBox, state.view),
     graphPointCount: graphReport?.pointCount ?? 0,
     graph: graphReport,
     statusLines: statusView().lines,
@@ -1831,8 +1885,10 @@ function uiReport() {
       rawNet: state.view?.rawNet ? { mode: state.view.rawNet.mode, node: state.view.rawNet.node, hasPolicy: !!state.view.rawNet.policy } : null,
       board: boardReport,
       sub: subReport && { ...subReport, candidateIndex: subCandidate },
-      /** Kata形势 / 统计 / AI总评分 / 终局点目 (T11): what the panels and overlays drew. */
+      /** Kata形势 / 统计 / AI总评分 / 终局点目 (T11) and the captured panel's rules caption: what
+       *  the panels and overlays drew. */
       information: {
+        captured: capturedReport,
         stat: statReport,
         aiScore: state.view ? { black: state.view.statistics.ai_score_black === null ? null : aiScoreText(state.view.statistics.ai_score_black), white: state.view.statistics.ai_score_white === null ? null : aiScoreText(state.view.statistics.ai_score_white) } : null,
         kataEstimate: state.view ? { ...state.view.kata_estimate.state, hidden: state.view.kata_estimate.hidden, style: state.view.settings.display.kataEstimateStyle, mainBoard: boardReport?.estimate ?? null, subBoard: subReport?.ownership ?? null } : null,

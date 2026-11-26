@@ -6,7 +6,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use lizzie_core::api::{OnlineCommand, OnlineJob, OpenSource, QuickModelStatus, ResourceCommand, ResourceItem, UnrestoredReason};
+use lizzie_core::api::{FlashTarget, OnlineCommand, OnlineJob, OpenSource, QuickModelStatus, ResourceCommand, ResourceItem, UnrestoredReason};
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
@@ -157,7 +157,9 @@ impl Launcher for FakeLauncher {
 
 const KATA: &str = "name\nversion\nlist_commands\nkomi\nboardsize\nclear_board\nplay\nundo\nset_position\nkata-analyze\nkata-set-rules\nkata-get-rules\nstop";
 const RECORD: &str = "(;SZ[19];B[pd];W[dd];B[pp];W[dp])";
-const ANALYSIS: &str = "/opt/katago analysis -config /a.cfg";
+/// A program found on PATH: an analysis program named by a path that does not exist makes automatic
+/// quick analysis borrow the foreground engine.
+const ANALYSIS: &str = "katago analysis -config /a.cfg";
 
 fn workbench(dir: &std::path::Path, world: &World) -> Workbench {
     Workbench::new(
@@ -872,6 +874,105 @@ fn the_downloaded_lightweight_model_is_used_while_it_verifies_on_katago_1_17() {
     assert!(world
         .args(*world.workers().last().unwrap())
         .contains(&"/a.cfg".to_string()));
+}
+
+/// The lightweight model runs on the foreground engine's backend (Java
+/// `experimentalBackendOverrides`, OpenVINO's cache folder included), and like every analysis
+/// process on a backend that pads each batch, with a batch size its threads can fill
+/// (`AnalysisEngineLaunchCommand`: `max(2, (2 × 1 + 1) / 2)` for the bundled `analysis.cfg`'s
+/// two analysis threads and a quick request's one search thread).
+#[test]
+fn the_lightweight_model_runs_on_the_foreground_engines_backend() {
+    const QUICK: &str = "analysisPVLen=15,numSearchThreads=,numSearchThreadsPerAnalysisThread=1";
+    let cases = [
+        // DirectML.
+        ("onnxProvider=directml", format!("onnxProvider=directml,{QUICK},nnMaxBatchSize=2")),
+        // OpenVINO on an NPU.
+        (
+            "onnxProvider=openvino,onnxOpenVINOCacheDir=/run/katago-openvino-cache,onnxOpenVINODeviceType=NPU",
+            format!("onnxProvider=openvino,onnxOpenVINOCacheDir=/run/katago-openvino-cache,onnxOpenVINODeviceType=NPU,{QUICK},nnMaxBatchSize=2"),
+        ),
+        // OpenVINO on a GPU batches dynamically.
+        (
+            "onnxProvider=openvino,onnxOpenVINOCacheDir=/run/katago-openvino-cache",
+            format!("onnxProvider=openvino,onnxOpenVINOCacheDir=/run/katago-openvino-cache,{QUICK}"),
+        ),
+        // CUDA, TensorRT, OpenCL, Eigen and Metal builds carry no backend settings.
+        ("", QUICK.to_string()),
+    ];
+    for (backend, expected) in cases {
+        let dir = tempfile::tempdir().unwrap();
+        let world = World::default();
+        let mut wb = workbench(dir.path(), &world);
+        wb.save_analysis_engine_settings(analysis_settings(false), "", true)
+            .unwrap()
+            .unwrap();
+        let command = if backend.is_empty() {
+            "/opt/katago gtp".to_string()
+        } else {
+            format!("/opt/katago gtp -override-config \"{backend}\"")
+        };
+        let profile = EngineProfile {
+            name: "KataGo".into(),
+            command,
+            ..EngineProfile::default()
+        };
+        wb.save_engine_settings(vec![profile], EngineStartup::Default).unwrap();
+        wb.start_engines();
+        let fg = world.engine("/opt/katago");
+        serve(&mut wb, &world, fg, 0, true);
+        let model = download_quick_model(&mut wb);
+        open(&mut wb, RECORD);
+        let args = world.args(*world.workers().last().expect("an analysis process"));
+        assert_eq!(std::path::Path::new(&args[args.iter().position(|a| a == "-model").unwrap() + 1]), model);
+        let overrides: Vec<&String> = args
+            .windows(2)
+            .filter(|w| w[0] == "-override-config")
+            .map(|w| &w[1])
+            .collect();
+        assert_eq!(overrides, [&expected], "{backend}: {args:?}");
+    }
+}
+
+/// Java `QuickAnalysisPrimaryReuse.analysisEngineMissing`: the analysis command's program is gone,
+/// so automatic quick analysis borrows the foreground engine instead of failing on every record,
+/// and says so once. Manual analyses still run the configured command.
+#[test]
+fn a_missing_analysis_engine_lets_quick_analysis_borrow_the_foreground_and_says_so_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    let missing = dir.path().join("moved").join("katago");
+    let settings = AnalysisEngineSettings {
+        command: format!("\"{}\" analysis -config /a.cfg", missing.display()),
+        ..AnalysisEngineSettings::default()
+    };
+    wb.save_analysis_engine_settings(settings, "", true).unwrap().unwrap();
+    let fg = with_engine(&mut wb, &world);
+    for record in [RECORD, "(;SZ[19];B[qd];W[dc];B[qp];W[dq])"] {
+        open(&mut wb, record);
+        assert!(world.workers().is_empty(), "no analysis process");
+        assert!(wb.view(false).quick.borrowed);
+        let sent = serve(&mut wb, &world, fg, 20, true);
+        assert_eq!(sent.iter().filter(|c| c.contains("maxmoves 1")).count(), 4, "{sent:?}");
+        let v = wb.view(false);
+        assert!(!v.quick.running);
+        assert_eq!(v.problems.analyzed, 3);
+    }
+    let notices: Vec<_> = wb
+        .take_logs()
+        .into_iter()
+        .filter(|l| l.text.contains("does not exist"))
+        .collect();
+    assert_eq!(notices.len(), 1, "one notice for the run of the application");
+    assert!(notices[0].warn && notices[0].text.contains(&missing.display().to_string()), "{}", notices[0].text);
+
+    // 整盘速览 of an unanalysed record runs the configured program, as before.
+    wb.set_auto_quick_analyze(false).unwrap();
+    open(&mut wb, "(;SZ[19];B[dp];W[pp];B[dd];W[pd])");
+    assert_eq!(wb.start_flash_analysis(FlashTarget::WholeGame).unwrap(), Ok(true));
+    assert!(!wb.view(false).flash.expect("a flash run").borrowed);
+    assert_eq!(world.workers().len(), 1, "an analysis process");
 }
 
 /// A record whose main trunk has `moves` distinct moves.

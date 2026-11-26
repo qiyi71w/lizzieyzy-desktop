@@ -105,7 +105,9 @@ impl Launcher for FakeLauncher {
 
 const KATA: &str = "name\nversion\nlist_commands\nkomi\nboardsize\nclear_board\nplay\nundo\nset_position\nkata-analyze\nkata-set-rules\nkata-get-rules\nstop";
 const RECORD: &str = "(;SZ[19];B[pd];W[dd];B[pp];W[dp])";
-const ANALYSIS: &str = "/opt/katago analysis -config /a.cfg";
+/// A program found on PATH: an analysis program named by a path that does not exist makes automatic
+/// quick analysis borrow the foreground engine.
+const ANALYSIS: &str = "katago analysis -config /a.cfg";
 const CHINESE: &str = r#"{"friendlyPassOk":true,"hasButton":false,"ko":"SIMPLE","scoring":"AREA","suicide":false,"tax":"NONE","whiteHandicapBonus":"N"}"#;
 
 fn workbench(dir: &std::path::Path, world: &World) -> Workbench {

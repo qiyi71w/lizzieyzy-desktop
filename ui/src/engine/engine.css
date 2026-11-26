@@ -510,9 +510,13 @@
   overflow-wrap: anywhere;
   user-select: text;
 }
+/* The message reads in one piece: a long one scrolls with the dialog's body, not in a box of its
+   own inside that scrolling body. */
 .engine-failure pre.engine-failure-summary {
+  max-height: none;
   margin: 0;
   padding: 0;
+  overflow: visible;
   background: none;
   font: inherit;
 }

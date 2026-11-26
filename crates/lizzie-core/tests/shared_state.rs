@@ -3,14 +3,16 @@
 //! and automatic quick analysis results (R5, R6); focus tracking across an edit, browsing, the
 //! user's pause and an engine switch (Focus rule, R7); the foreground analysis lease handed from
 //! quick to flash analysis, cancelled or stopped borrowed runs and a record opened while a
-//! borrowed engine returns, each under the user's pause (R7, R8); and background batches beside
-//! the open record (R5, T17).
+//! borrowed engine returns, each under the user's pause (R7, R8); background batches beside the
+//! open record (R5, T17); and tracked points when whole-game analysis gives the foreground engine
+//! back.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use lizzie_core::api::{
-    BatchMode, EditCommand, FlashOutcome, FlashTarget, OpenSource, SaveOutcome, TrackingCommand, WholeGameState,
+    BatchMode, EditCommand, FlashOutcome, FlashTarget, OpenSource, SaveOutcome, TrackingCommand, TrackingUnavailable,
+    WholeGameState,
 };
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::gtp::LaunchSpec;
@@ -111,7 +113,9 @@ const KATA: &str = "name\nversion\nlist_commands\nkomi\nboardsize\nclear_board\n
 const CHINESE: &str = r#"{"friendlyPassOk":true,"hasButton":false,"ko":"SIMPLE","scoring":"AREA","suicide":false,"tax":"NONE","whiteHandicapBonus":"N"}"#;
 const RECORD: &str = "(;SZ[19];B[pd];W[dd];B[pp];W[dp])";
 const OTHER: &str = "(;SZ[19];B[qd];W[dc])";
-const ANALYSIS: &str = "/opt/katago analysis -config /a.cfg";
+/// A program found on PATH: an analysis program named by a path that does not exist makes automatic
+/// quick analysis borrow the foreground engine.
+const ANALYSIS: &str = "katago analysis -config /a.cfg";
 const PROBE_ARGS: &str = "10 rootInfo true focus pass 0";
 /// D4 as a board point.
 const D4: Point = Point { x: 3, y: 15 };
@@ -522,7 +526,7 @@ fn focus_after_edit_browse_pause_and_engine_switch_belongs_to_the_new_engine() {
         FocusCapability::Unsupported,
         "B's own probe decides, not A's"
     );
-    assert!(!v.focus.available);
+    assert_eq!(v.focus.unavailable, Some(TrackingUnavailable::EngineUnsupported));
     assert!(v.focus.points.is_empty(), "A's tracked point does not survive onto B");
     assert!(
         v.analysis.is_none() && v.history.is_empty(),
@@ -876,4 +880,171 @@ fn opening_a_record_while_a_whole_game_borrow_is_being_returned() {
     // A new load context: the user pause ends with the adopted record, as for any open.
     assert!(!v.engine.paused);
     assert!(foreground_analyses(&after[name..]), "{after:?}");
+}
+
+// ---------------------------------------------------------------------------- 8. focus × whole-game hand-back
+
+/// 整盘精析 with its own analysis process; no automatic quick analysis.
+fn whole_game_process(wb: &mut Workbench) {
+    let settings = AnalysisEngineSettings {
+        command: ANALYSIS.into(),
+        command_customized: true,
+        ..AnalysisEngineSettings::default()
+    };
+    wb.save_analysis_engine_settings(settings, "", true).unwrap().unwrap();
+    wb.set_auto_quick_analyze(false).unwrap();
+}
+
+/// Answers the queries of the analysis process with their own visits until it asks no more.
+fn finish_whole_game(wb: &mut Workbench, world: &World, worker: InstanceId) {
+    loop {
+        let qs = queries(world, worker);
+        if qs.is_empty() {
+            return;
+        }
+        for q in qs {
+            let visits = q["maxVisits"].as_u64().unwrap();
+            let reply = serde_json::json!({
+                "id": q["id"],
+                "moveInfos": [{"move": "K10", "visits": visits, "winrate": 0.5, "scoreLead": 1.0, "order": 0, "pv": ["K10"]}],
+                "rootInfo": {"visits": visits, "winrate": 0.5, "scoreLead": 1.0},
+            });
+            out(wb, worker, &reply.to_string());
+        }
+    }
+}
+
+/// The foreground engine's own analysis requests among `sent` (not a lease's finite search).
+fn ordinary_analyses(sent: &[String]) -> Vec<&String> {
+    sent.iter()
+        .filter(|c| c.starts_with("kata-analyze") && !c.contains("maxmoves"))
+        .collect()
+}
+
+/// Java 390250e0 (`TrackingAnalysisController.holdsSearchOf`): when 整盘精析 ends, a foreground
+/// engine still searching the tracked position is sent nothing — sending the position again
+/// would clear its tree and the points — and the point keeps its extra search. An engine the run
+/// had stopped searches the tracked point extra again, on the position it still holds.
+#[test]
+fn a_tracked_point_keeps_or_regains_its_extra_search_when_whole_game_analysis_ends() {
+    let focused = "kata-analyze B 10 rootInfo true focus D4 0.5";
+    for searching in [true, false] {
+        let dir = tempfile::tempdir().unwrap();
+        let world = World::default();
+        let mut wb = workbench(dir.path(), &world);
+        whole_game_process(&mut wb);
+        let fg = with_engine(&mut wb, &world);
+        assert!(open(&mut wb, "/x.sgf", RECORD));
+        serve_focus(&mut wb, &world, fg, Probe::Accept);
+        assert_eq!(wb.view(false).focus.capability, FocusCapability::Supported);
+        assert!(wb.tracking(TrackingCommand::Track { point: D4 }).unwrap());
+        let sent = serve_focus(&mut wb, &world, fg, Probe::Accept);
+        assert_eq!(analyses(&sent).last().map(|c| c.as_str()), Some(focused), "{sent:?}");
+
+        assert_eq!(wb.start_whole_game_analysis(1000).unwrap(), Ok(true));
+        let worker = *world.workers().last().expect("the run's analysis process");
+        let held = serve_focus(&mut wb, &world, fg, Probe::Accept);
+        assert!(
+            analyses(&held).is_empty(),
+            "the run holds the foreground engine: {held:?}"
+        );
+        let v = wb.view(false);
+        assert_eq!(v.focus.unavailable, Some(TrackingUnavailable::Unavailable));
+        assert!(!v.focus.points[0].active, "its extra search waits");
+        if searching {
+            // Space resumes the foreground engine the run holds.
+            wb.toggle_analysis().unwrap();
+            let sent = serve_focus(&mut wb, &world, fg, Probe::Accept);
+            assert_eq!(sent, [focused], "the tracked point is searched extra again at once");
+        }
+
+        finish_whole_game(&mut wb, &world, worker);
+        assert_eq!(wb.view(false).whole_game.state, WholeGameState::Complete);
+        let sent = serve_focus(&mut wb, &world, fg, Probe::Accept);
+        if searching {
+            assert!(sent.is_empty(), "nothing goes to the engine still searching: {sent:?}");
+        } else {
+            assert_eq!(sent, [focused], "the same position, searched with focus again");
+        }
+        let v = wb.view(false);
+        assert!(!v.engine.paused && v.engine.analysing);
+        assert_eq!(v.focus.unavailable, None);
+        assert_eq!(v.focus.points.len(), 1);
+        assert!(v.focus.points[0].active);
+        out(&mut wb, fg, &info(&[("Q16", 300), ("D4", 120)]));
+        assert_eq!(
+            wb.view(false).focus.points[0].visits,
+            120,
+            "the point counts its search"
+        );
+    }
+}
+
+/// The same when 整盘精析 borrowed the foreground engine: its searches took the engine to the
+/// other positions, so once the engine is confirmed back it is given the position again with the
+/// tracked point searched extra. Whether the engine analyses after the hand-back is still the
+/// user's pause's decision; the point stays tracked either way.
+#[test]
+fn a_tracked_point_is_searched_extra_again_after_a_borrowed_whole_game_run() {
+    for paused in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let world = World::default();
+        let mut wb = workbench(dir.path(), &world);
+        configure(&mut wb, true, false);
+        let fg = with_engine(&mut wb, &world);
+        assert!(open(&mut wb, "/x.sgf", RECORD));
+        serve(&mut wb, &world, fg, 0, true);
+        assert_eq!(wb.view(false).focus.capability, FocusCapability::Supported);
+        assert!(wb.tracking(TrackingCommand::Track { point: D4 }).unwrap());
+        let sent = serve(&mut wb, &world, fg, 0, true);
+        assert_eq!(
+            ordinary_analyses(&sent).last().map(|c| c.as_str()),
+            Some("kata-analyze B 10 rootInfo true focus D4 0.5"),
+            "{sent:?}"
+        );
+
+        assert_eq!(wb.start_whole_game_analysis(1000).unwrap(), Ok(true));
+        let taken = serve(&mut wb, &world, fg, 0, true);
+        assert!(taken.iter().any(|c| c.contains("maxmoves")), "{taken:?}");
+        assert!(
+            taken.iter().all(|c| !c.contains("focus")),
+            "no focus in the run's searches: {taken:?}"
+        );
+        let v = wb.view(false);
+        assert_eq!(v.focus.unavailable, Some(TrackingUnavailable::Unavailable));
+        assert!(!v.focus.points[0].active);
+        if paused {
+            wb.toggle_analysis().unwrap();
+            assert!(wb.view(false).engine.paused);
+        }
+
+        // The searches are answered; the engine is given back and confirmed.
+        out(&mut wb, fg, "info move K10 visits 1000 winrate 0.5 scoreLead 0.5 prior 0.2 order 0 pv K10 rootInfo visits 1000 winrate 0.4 scoreLead -0.5");
+        let sent = serve(&mut wb, &world, fg, 1000, true);
+        let v = wb.view(false);
+        assert_eq!(v.whole_game.state, WholeGameState::Complete);
+        assert_eq!(v.focus.points.len(), 1, "the point stays tracked");
+        let name = sent
+            .iter()
+            .rposition(|c| c == "name")
+            .expect("the hand-back is confirmed");
+        let after = &sent[name..];
+        if paused {
+            assert!(ordinary_analyses(after).is_empty(), "the pause holds: {after:?}");
+            assert!(v.engine.paused && !v.focus.points[0].active);
+            assert_eq!(v.focus.unavailable, Some(TrackingUnavailable::AnalysisPaused));
+        } else {
+            assert!(
+                sent[..name].iter().any(|c| c == "undo"),
+                "taken back to the position: {sent:?}"
+            );
+            assert_eq!(
+                ordinary_analyses(after).last().map(|c| c.as_str()),
+                Some("kata-analyze B 10 rootInfo true focus D4 0.5"),
+                "{after:?}"
+            );
+            assert!(v.focus.points[0].active);
+            assert_eq!(v.focus.unavailable, None);
+        }
+    }
 }

@@ -2910,6 +2910,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "image",
+ "log",
  "md-5",
  "percent-encoding",
  "reqwest 0.12.28",

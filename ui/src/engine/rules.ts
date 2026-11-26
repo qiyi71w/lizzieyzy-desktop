@@ -1,17 +1,11 @@
 // SetKataRules.java:98-145; KataRulesEditor.java:59-111, 199-233 (shared with SetAnalysisRules).
 import { run, state } from "../app";
+import { KATA_RULE_PRESETS } from "../contract/generated";
 import { formPanel, message } from "../dialogs";
 import { format, t } from "../i18n";
 import { button, footer, groupNote, primaryButton, row, segmented, switchRow } from "./controls";
 
 export type Rules = Record<string, unknown>;
-const PRESETS: Record<string, Rules> = {
-  chinese: { ko: "SIMPLE", scoring: "AREA", tax: "NONE", suicide: false, hasButton: false, friendlyPassOk: true, whiteHandicapBonus: "N" },
-  japanese: { ko: "SIMPLE", scoring: "TERRITORY", tax: "SEKI", suicide: false, hasButton: false, friendlyPassOk: true, whiteHandicapBonus: "0" },
-  "stone-scoring": { ko: "SIMPLE", scoring: "AREA", tax: "ALL", suicide: false, hasButton: false, friendlyPassOk: true, whiteHandicapBonus: "0" },
-  "tromp-taylor": { ko: "POSITIONAL", scoring: "AREA", tax: "NONE", suicide: true, hasButton: false, friendlyPassOk: false, whiteHandicapBonus: "0" },
-  goe: { ko: "POSITIONAL", scoring: "AREA", tax: "NONE", suicide: true, hasButton: false, friendlyPassOk: true, whiteHandicapBonus: "0" },
-};
 
 /** KataRulesEditor: one group, 典型规则 and then one row per rule, each a segmented control,
  *  added to `body`. 典型规则 are Java's buttons, one per preset on a line under the row's name:
@@ -41,7 +35,7 @@ export function rulesEditor(body: HTMLElement, initial: Rules, changed: (rules: 
     ["tromp-taylor", t("SetKataRules.btnTTRule")],
     ["goe", t("SetKataRules.btnGoeRule")],
   ]) {
-    const preset = button(text, () => { rules = { ...rules, ...PRESETS[key] }; refresh(); });
+    const preset = button(text, () => { rules = { ...rules, ...KATA_RULE_PRESETS[key] }; refresh(); });
     preset.dataset.key = `rules.preset.${key}`;
     presets.append(preset);
   }
@@ -74,7 +68,7 @@ export function rulesEditor(body: HTMLElement, initial: Rules, changed: (rules: 
  *  Resolves to the edited rules JSON on 确定, null on 取消. */
 export async function editAnalysisRules(current: string): Promise<string | null> {
   const body = document.createElement("div"); body.className = "engine-rules";
-  let initial: Rules = PRESETS["tromp-taylor"];
+  let initial: Rules = { ...KATA_RULE_PRESETS["tromp-taylor"] };
   try { const parsed: unknown = current ? JSON.parse(current) : null; if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) initial = { ...parsed }; } catch { /* Unreadable saved rules: start from tromp-taylor. */ }
   const rules = rulesEditor(body, initial);
   let result: string | null = null;

@@ -71,7 +71,8 @@ impl Launcher for FakeLauncher {
 
 const KATA: &str = "name\nversion\nlist_commands\nkomi\nboardsize\nclear_board\nplay\nundo\nset_position\nkata-analyze\nkata-raw-nn\nkata-set-rules\nkata-get-rules\nstop";
 const CHINESE: &str = r#"{"friendlyPassOk":true,"hasButton":false,"ko":"SIMPLE","scoring":"AREA","suicide":false,"tax":"NONE","whiteHandicapBonus":"N"}"#;
-const JAPANESE: &str = r#"{"friendlyPassOk":true,"hasButton":false,"ko":"SIMPLE","scoring":"TERRITORY","suicide":false,"tax":"SEKI","whiteHandicapBonus":"0"}"#;
+/// KataGo reports `friendlyPassOk` false for Japanese rules (`kata-get-rules`, 1.18.1).
+const JAPANESE: &str = r#"{"friendlyPassOk":false,"hasButton":false,"ko":"SIMPLE","scoring":"TERRITORY","suicide":false,"tax":"SEKI","whiteHandicapBonus":"0"}"#;
 
 fn out(wb: &mut Workbench, id: InstanceId, line: &str) {
     wb.engine_input(id, EngineInput::Stdout(line.to_string()));

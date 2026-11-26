@@ -98,6 +98,19 @@
   white-space: pre-wrap;
   max-width: min(560px, 86vw);
 }
+/* 本局规则详情 (MatchRulesDetailsDialog.preferredContentSize): a read-only text area of about 32 × 22
+   characters, wrapping, scrolling when longer, and never past the window. */
+.match-rules-details {
+  display: block;
+  width: clamp(320px, 32em, 600px);
+  height: clamp(200px, 22em, 440px);
+  max-height: calc(100vh - 190px);
+  resize: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-y: auto;
+  user-select: text;
+}
 .match-input {
   display: flex;
   flex-direction: column;

@@ -8,16 +8,17 @@
 //! apart. The password is looked up by account on the connection thread and never reaches the
 //! engine runtime; host keys are trusted on first use and pinned ([`KnownHosts`]).
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use russh::client;
 use russh::keys::{HashAlg, PrivateKeyWithHashAlg, PublicKey, PublicKeyOrCertificate};
+use russh::{client, kex, mac, Preferred};
 use russh::{ChannelMsg, Disconnect, Sig};
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
@@ -36,6 +37,50 @@ const LOGIN: Duration = Duration::from_secs(15);
 const KEEPALIVE: Duration = Duration::from_secs(10);
 /// Ending: `quit`, then the channel is closed after this long (local `QUIT_GRACE`).
 const QUIT_GRACE: Duration = Duration::from_secs(3);
+
+/// russh's default key exchanges are modern only. The ganymed-ssh2 client the Java program used
+/// before could only use SHA-1 key exchange, so servers set up for it keep working through these
+/// two, offered after every default one: a server that supports any default still agrees on the
+/// same one (Java `SshCommandSession.withLegacyKeyExchangeFallbacks`). Not group1, whose 1024-bit
+/// group is too weak.
+static KEY_EXCHANGES: LazyLock<Vec<kex::Name>> = LazyLock::new(|| {
+    let defaults = &Preferred::DEFAULT.kex;
+    // The defaults end with pseudo-algorithms that announce extensions, not ways to exchange keys.
+    let extensions = [
+        kex::EXTENSION_SUPPORT_AS_CLIENT,
+        kex::EXTENSION_SUPPORT_AS_SERVER,
+        kex::EXTENSION_OPENSSH_STRICT_KEX_AS_CLIENT,
+        kex::EXTENSION_OPENSSH_STRICT_KEX_AS_SERVER,
+    ];
+    let end = defaults
+        .iter()
+        .position(|k| extensions.contains(k))
+        .unwrap_or(defaults.len());
+    let mut names = defaults[..end].to_vec();
+    names.extend(
+        [kex::DH_G14_SHA1, kex::DH_GEX_SHA1]
+            .into_iter()
+            .filter(|k| !defaults.contains(k)),
+    );
+    names.extend_from_slice(&defaults[end..]);
+    names
+});
+
+/// russh's default message authentication codes leave out SHA-1; the Java program's SSH library
+/// (Apache MINA SSHD) offers `hmac-sha1-etm@openssh.com` and `hmac-sha1` after its SHA-2 ones. So a
+/// server whose only shared choice is SHA-1, with a cipher that needs a MAC, is reached as in Java,
+/// and a server that supports any default still agrees on the same one. No other algorithm is added
+/// (no CBC ciphers).
+static MACS: LazyLock<Vec<mac::Name>> = LazyLock::new(|| {
+    let defaults = &Preferred::DEFAULT.mac;
+    let mut names = defaults.to_vec();
+    names.extend(
+        [mac::HMAC_SHA1_ETM, mac::HMAC_SHA1]
+            .into_iter()
+            .filter(|m| !defaults.contains(m)),
+    );
+    names
+});
 
 /// The SSH connection of a remote engine (Java `EngineData` `ip` / `port` / `userName` /
 /// `useKeyGen` / `keyGenPath`, or `analysis-engine-ssh-info`). The password is not part of it:
@@ -121,6 +166,14 @@ pub enum RemoteFailure {
         trusted: String,
         offered: String,
     },
+    /// The file of trusted host keys exists but could not be read or is not valid: nothing was
+    /// sent to the host and the file was left as it is (Java `SshKnownHosts` refuses the key too).
+    KnownHostsUnreadable {
+        host: String,
+        port: u16,
+        path: String,
+        detail: String,
+    },
     /// The remote command ended by itself: its exit status, or the signal that ended it.
     Ended {
         status: Option<u32>,
@@ -149,6 +202,15 @@ impl std::fmt::Display for RemoteFailure {
                     "host key of {host}:{port} changed (trusted {trusted}, offered {offered})"
                 )
             }
+            RemoteFailure::KnownHostsUnreadable {
+                host,
+                port,
+                path,
+                detail,
+            } => write!(
+                f,
+                "refused {host}:{port}: trusted host keys in {path} could not be read: {detail}"
+            ),
             RemoteFailure::Ended { status: Some(s), .. } => write!(f, "remote command exited with code {s}"),
             RemoteFailure::Ended { signal: Some(s), .. } => write!(f, "remote command ended by signal {s}"),
             RemoteFailure::Ended { .. } => write!(f, "remote command ended"),
@@ -190,11 +252,14 @@ impl KnownHosts {
         &self.path
     }
 
-    fn load(&self) -> BTreeMap<String, String> {
-        std::fs::read_to_string(&self.path)
-            .ok()
-            .and_then(|text| serde_json::from_str(&text).ok())
-            .unwrap_or_default()
+    /// The trusted keys by `host:port`: none while the file does not exist yet; an error when it
+    /// exists but cannot be read or parsed, so that it is never taken for empty and overwritten.
+    fn load(&self) -> io::Result<BTreeMap<String, String>> {
+        match std::fs::read_to_string(&self.path) {
+            Ok(text) => serde_json::from_str(&text).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e)),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(BTreeMap::new()),
+            Err(e) => Err(e),
+        }
     }
 
     fn store(&self, hosts: &BTreeMap<String, String>) -> io::Result<()> {
@@ -205,10 +270,16 @@ impl KnownHosts {
         crate::settings::write_atomic(&self.path, text.as_bytes())
     }
 
-    /// Trusts `key` for `host:port` when none is trusted yet; a different trusted key refuses it.
+    /// Trusts `key` for `host:port` when none is trusted yet; a different trusted key refuses it,
+    /// and so does a file of trusted keys that cannot be read.
     fn check(&self, host: &str, port: u16, key: &PublicKey) -> Result<(), RemoteFailure> {
         let _file = self.file.lock().unwrap();
-        let mut hosts = self.load();
+        let mut hosts = self.load().map_err(|e| RemoteFailure::KnownHostsUnreadable {
+            host: host.to_string(),
+            port,
+            path: self.path.display().to_string(),
+            detail: e.to_string(),
+        })?;
         let name = host_key(host, port);
         let offered = key
             .to_openssh()
@@ -237,12 +308,13 @@ impl KnownHosts {
     /// Trusts the key `host:port` offered when it was last refused, if it is the one with the
     /// fingerprint `shown` the user was shown. `true` as well when that key is trusted already
     /// (another refusal of it was confirmed); `false` when another key was offered since: that
-    /// one has its own refusal to confirm.
+    /// one has its own refusal to confirm. A file of trusted keys that cannot be read is an error
+    /// and is left as it is.
     pub fn trust_offered(&self, host: &str, port: u16, shown: &str) -> io::Result<bool> {
         let has_shown = |text: &String| PublicKey::from_openssh(text).is_ok_and(|key| fingerprint(&key) == shown);
         let name = host_key(host, port);
         let _file = self.file.lock().unwrap();
-        let mut hosts = self.load();
+        let mut hosts = self.load()?;
         if hosts.get(&name).is_some_and(has_shown) {
             return Ok(true);
         }
@@ -407,6 +479,11 @@ async fn login(
         keepalive_interval: Some(KEEPALIVE),
         keepalive_max: 3,
         nodelay: true,
+        preferred: Preferred {
+            kex: Cow::Borrowed(KEY_EXCHANGES.as_slice()),
+            mac: Cow::Borrowed(MACS.as_slice()),
+            ..Preferred::default()
+        },
         ..Default::default()
     });
     let refused = Arc::new(Mutex::new(None));

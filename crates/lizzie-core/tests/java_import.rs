@@ -926,6 +926,86 @@ fn analysis_and_match_commands_without_credentials_still_come_over() {
 }
 
 #[test]
+fn commands_with_unc_paths_or_escaped_quotes_are_not_taken_for_credentials() {
+    let analysis = r#"\\srv\Users\katago.exe analysis -config \"C:\Program Files\a.cfg\""#;
+    let black = r"\\srv\Users\katago.exe gtp -model \\srv\Users\m.bin.gz";
+    let white = r#"katago.exe gtp -config \"C:\a b\x.cfg\""#;
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let config = json!({
+        "ui": {
+            "analysis-engine-command": analysis,
+            "analysis-engine-command-customized": true,
+            "engine-pk-black-commands": black,
+            "engine-pk-white-commands": white,
+        },
+        "leelaz": { "engine-settings-list": [
+            { "id": "unc-1", "name": "Unc", "command": black, "isDefault": false },
+        ] },
+    });
+    std::fs::write(java.join("config.txt"), config.to_string()).unwrap();
+    let mut wb = workbench(&tmp.path().join("product"), Recorder::default());
+    let p = preview(&mut wb, &java);
+    let report = wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    let keys = ["ui.analysis-engine-command", "ui.engine-pk-black-commands", "ui.engine-pk-white-commands"];
+    let shown: Vec<_> = keys
+        .iter()
+        .map(|&key| {
+            let it = item(&report.items, key);
+            (key, it.status, it.credential)
+        })
+        .collect();
+    assert_eq!(shown, keys.map(|key| (key, ImportStatus::Imported, false)));
+    let c = wb.config();
+    assert_eq!(c.analysis_engine.command, analysis);
+    assert!(c.analysis_engine.command_customized);
+    assert_eq!((c.matches.first.commands.as_str(), c.matches.second.commands.as_str()), (black, white));
+    assert!(!p.engines[0].credential);
+}
+
+#[test]
+fn commands_hiding_credentials_behind_escapes_are_still_taken_for_credentials() {
+    const MARKER: &str = "TEST_MARKER";
+    let engine = format!(r"\\srv\Users\katago.exe gtp --t\u006fken {MARKER}");
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let config = json!({
+        "ui": {
+            "analysis-engine-command": format!(r"\\srv\Users\katago.exe analysis -override-config passw\u006frd={MARKER}"),
+            "analysis-engine-command-customized": true,
+            "engine-pk-black-commands": engine,
+            "engine-pk-white-commands": engine,
+        },
+        "leelaz": { "engine-settings-list": [
+            { "id": "hidden-1", "name": "Hidden", "command": engine, "isDefault": false },
+        ] },
+    });
+    std::fs::write(java.join("config.txt"), config.to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let analysis_before = wb.config().analysis_engine.clone();
+    let p = preview(&mut wb, &java);
+    assert!(!serde_json::to_string(&p).unwrap().contains(MARKER));
+    assert!(p.engines[0].credential);
+    let report = wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    assert!(!serde_json::to_string(&report).unwrap().contains(MARKER));
+    for key in ["ui.analysis-engine-command", "ui.analysis-engine-command-customized"] {
+        let it = item(&report.items, key);
+        assert_eq!((it.status, it.reason), (ImportStatus::NotMigrated, Some(ImportReason::Credential)), "{key}");
+    }
+    for key in ["ui.engine-pk-black-commands", "ui.engine-pk-white-commands"] {
+        let it = item(&report.items, key);
+        assert_eq!((it.status, it.reason), (ImportStatus::NotMigrated, Some(ImportReason::CredentialNotConfirmed)), "{key}");
+    }
+    let c = wb.config();
+    assert_eq!(c.analysis_engine.command, analysis_before.command);
+    assert_eq!((c.matches.first.commands.as_str(), c.matches.second.commands.as_str()), ("", ""));
+    assert!(!std::fs::read_to_string(storage(&product).config_file).unwrap().contains(MARKER));
+}
+
+#[test]
 fn a_board_size_this_product_does_not_open_is_reported_and_left_alone() {
     // Java's 综合设置 saves 53 (ConfigDialog2 only corrects values below 2).
     let tmp = tempfile::tempdir().unwrap();
@@ -3194,7 +3274,8 @@ fn engine_match_imports_dialog_and_toolbar_values_with_one_shared_wrn_owner() {
 
 #[test]
 fn humansl_training_and_model_import_preserve_java_files_and_migrate_live_correction() {
-    use lizzie_core::settings::{OpponentPreset, PlayerColor, TrainingMode};
+    use lizzie_core::humansl::{CoachLevel, Pace};
+    use lizzie_core::settings::{PlayerColor, TrainingMode};
     let tmp = tempfile::tempdir().unwrap();
     let java = tmp.path().join("java");
     let model = java.join("human-sl-models/custom.bin.gz");
@@ -3219,9 +3300,14 @@ fn humansl_training_and_model_import_preserve_java_files_and_migrate_live_correc
     let h = &wb.config().human_sl;
     assert_eq!(h.model_path.as_deref().map(Path::new), Some(model.as_path()));
     let s = &h.training;
-    assert_eq!((s.mode, s.opponent, s.player_color), (TrainingMode::LiveAnalysis, OpponentPreset::Online9d, PlayerColor::White));
-    assert_eq!((s.rank, s.move_time_seconds, s.handicap, s.komi), (18, 86400, 2, 0.5));
-    assert!(!s.dan_rank && h.advanced_visible);
+    // 网络 9 段 is retired: the opponent becomes 9 段; 用时 无限制 becomes 慢. With a handicap the
+    // player takes Black (`resolveHumanIsBlack`); the komi is no setting any more.
+    assert_eq!(
+        (s.mode, s.level, s.player_color),
+        (TrainingMode::LiveAnalysis, CoachLevel::Dan9, PlayerColor::Black)
+    );
+    assert_eq!((s.pace, s.handicap), (Pace::Slow, 2));
+    assert!(h.advanced_visible);
     assert_eq!(wb.view(false).settings.human_sl.model.status, lizzie_core::api::HumanSlModelStatus::Installed);
     assert_eq!(saved_config(&product).human_sl, wb.config().human_sl);
     assert_eq!(std::fs::read_to_string(java.join("config.txt")).unwrap(), source);
@@ -3230,7 +3316,8 @@ fn humansl_training_and_model_import_preserve_java_files_and_migrate_live_correc
 
 #[test]
 fn humansl_java_corrupt_or_future_fields_fall_back_independently() {
-    use lizzie_core::settings::{OpponentPreset, PlayerColor, TrainingMode};
+    use lizzie_core::humansl::{CoachLevel, Pace};
+    use lizzie_core::settings::{PlayerColor, TrainingMode};
     let tmp = tempfile::tempdir().unwrap();
     let java = tmp.path().join("java");
     std::fs::create_dir_all(&java).unwrap();
@@ -3246,9 +3333,49 @@ fn humansl_java_corrupt_or_future_fields_fall_back_independently() {
     let p = preview(&mut wb, &java);
     wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
     let s = &wb.config().human_sl.training;
-    assert_eq!((s.mode, s.opponent, s.player_color), (TrainingMode::PostGameReview, OpponentPreset::Rank, PlayerColor::Random));
-    assert_eq!((s.rank, s.move_time_seconds, s.handicap, s.komi), (9, 10, 9, 7.5));
+    assert_eq!(
+        (s.mode, s.level, s.player_color),
+        (TrainingMode::PostGameReview, CoachLevel::Dan11, PlayerColor::Black)
+    );
+    assert_eq!((s.pace, s.handicap), (Pace::Natural, 9));
     assert!(wb.config().human_sl.advanced_visible);
+}
+
+/// The newer Java saves the level and AI 思考时间 by name; older ones the preset, the numbered rank
+/// and 用时. Each reads as the fixed Java reads it (`HumanSlTrainingPreferences.load`, run on these
+/// files in `fixtures/coach/java-coach.json`).
+#[test]
+fn humansl_java_levels_and_paces_import_as_java_reads_them() {
+    use lizzie_core::humansl::{CoachLevel, Pace};
+    let table: serde_json::Value = serde_json::from_str(include_str!("fixtures/coach/java-coach.json")).unwrap();
+    for row in table["saved"].as_array().unwrap() {
+        let saved = &row["saved"];
+        let tmp = tempfile::tempdir().unwrap();
+        let java = tmp.path().join("java");
+        std::fs::create_dir_all(&java).unwrap();
+        std::fs::write(
+            java.join("config.txt"),
+            json!({"ui": {"human-sl-training-last-settings": saved}}).to_string(),
+        )
+        .unwrap();
+        let product = tmp.path().join("product");
+        let mut wb = workbench(&product, Recorder::default());
+        let p = preview(&mut wb, &java);
+        wb.apply_java_import(p.id, &[], false, false, true, None)
+            .unwrap()
+            .unwrap();
+        let s = &wb.config().human_sl.training;
+        // An unreadable number gives the default 3 段 (Java keeps its fallback's number and reads
+        // 3 级 when 级 is chosen).
+        let level = if saved["rank"] == "x" {
+            CoachLevel::Dan3
+        } else {
+            serde_json::from_value(row["level"].clone()).unwrap()
+        };
+        let pace: Pace = serde_json::from_value(row["pace"].clone()).unwrap();
+        assert_eq!((s.level, s.pace), (level, pace), "{saved}");
+        assert_eq!(saved_config(&product).human_sl.training, *s);
+    }
 }
 
 #[test]
@@ -3421,7 +3548,9 @@ fn painting_color_imports_by_value() {
         let p = preview(&mut wb, &java);
         let row = item(&p.items, "ui.last-painting-color");
         assert_eq!((row.status, row.target), (ImportStatus::Imported, Some(ImportTarget::PaintingColor)), "{value}");
-        wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+        wb.apply_java_import(p.id, &[], false, false, true, None)
+            .unwrap()
+            .unwrap();
         assert_eq!(saved_config(&product).edit.painting_color, expected, "last-painting-color {value}");
     }
 }

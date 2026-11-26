@@ -373,3 +373,82 @@ fn canonicalization_is_bounded_and_preserves_unrecognized_escapes() {
         ("分析 %E4%B8%AD stage=done", "分析 %E4%B8%AD stage=done"),
     ]);
 }
+
+// Java also decoded these whenever the text held `\"`, `\'`, `\u` or `\U`, even with no
+// credential in it: `\\wsl.localhost\Ubuntu` became `\wsl.localhost\Ubuntu`.
+#[test]
+fn noncredential_paths_and_escapes_are_kept_as_written() {
+    for written in [
+        r"\\wsl.localhost\Ubuntu\x",
+        r"C:\Users\a\katago.exe",
+        r"\\server\share\u0041",
+        r#"{"command":"C:\\Users\\a\\katago.exe gtp","logDir":"\\\\wsl.localhost\\Ubuntu"}"#,
+        r#"katago.exe -config \"C:\Program Files\x.cfg\" gtp"#,
+    ] {
+        assert_cases(&[(written, written)]);
+    }
+}
+
+#[test]
+fn credentials_beside_paths_are_masked_and_the_paths_kept_as_written() {
+    assert_cases(&[
+        (
+            r"katago.exe gtp -config C:\Users\a\k.cfg -override-config logDir=\\wsl.localhost\Ubuntu\logs,password=CANARY_PW",
+            r"katago.exe gtp -config C:\Users\a\k.cfg -override-config logDir=\\wsl.localhost\Ubuntu\logs,password=<redacted>",
+        ),
+        (
+            r"plink -pw CANARY_PW user@host \\server\Users\katago.exe gtp",
+            r"plink -pw <redacted> user@host \\server\Users\katago.exe gtp",
+        ),
+        (
+            r"body=password%3DCANARY_PCT logDir=\\wsl.localhost\Ubuntu",
+            r"body=password%3D<redacted> logDir=\\wsl.localhost\Ubuntu",
+        ),
+        (
+            r"body=%70assword=CANARY_PCT path=\\server\share\u0041",
+            r"body=%70assword=<redacted> path=\\server\share\u0041",
+        ),
+    ]);
+}
+
+// A credential found only after decoding escapes is masked in the decoded text, as in Java.
+#[test]
+fn credentials_hidden_behind_escapes_are_masked_in_the_decoded_text() {
+    assert_cases(&[
+        (
+            r#"payload={\"password\":\"CANARY_JSON\"} logDir=\\wsl.localhost\Ubuntu"#,
+            r#"payload={"password":"<redacted>"} logDir=\wsl.localhost\Ubuntu"#,
+        ),
+        (
+            r"passw\u006frd=CANARY_ESCAPED logDir=\\wsl.localhost\Ubuntu",
+            r"password=<redacted> logDir=\wsl.localhost\Ubuntu",
+        ),
+        (
+            r"--token CANARY_WRITTEN passw\u006frd=CANARY_ESCAPED \\server\share",
+            r"--token <redacted> password=<redacted> \server\share",
+        ),
+    ]);
+}
+
+// Expected outputs are Java's (both upstream Java versions alike) for the same inputs.
+#[test]
+fn a_credential_exposed_after_several_decoding_passes_is_masked_beside_a_path() {
+    let input = format!(r"\\srv\share passw{}u006frd=CANARY_MULTI", "\\".repeat(8));
+    let output = sanitize(&input);
+    assert!(!output.contains("CANARY"), "{output}");
+    assert_eq!(output, r"\srv\share password=<redacted>");
+}
+
+#[test]
+fn escaped_delimiters_beside_a_path_still_mask_the_value() {
+    for (input, expected) in [
+        (r"password\u003dCANARY_EQ \\srv", r"password=<redacted> \srv"),
+        (r#"password\"=\"CANARY_QEQ\" \\srv"#, r#"password"="<redacted>" \srv"#),
+        (r"--t\u006fken CANARY_FLAG \\srv", r"--token <redacted> \srv"),
+        (r"Authorizati\u006fn: Bearer CANARY_HDR \\srv", "Authorization: <redacted>"),
+    ] {
+        let output = sanitize(input);
+        assert!(!output.contains("CANARY"), "input: {input:?} output: {output}");
+        assert_eq!(output, expected, "input: {input:?}");
+    }
+}

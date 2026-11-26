@@ -945,7 +945,6 @@ impl Workbench {
         } else {
             Vec::new()
         };
-        self.human_sl_position_changed();
         // 优先分析此点 is recorded for the shown position only.
         self.priority_points.clear();
         self.priority_engine = None;
@@ -1380,6 +1379,7 @@ impl Workbench {
             game_outcome: None,
             game_notices: Vec::new(),
             engine_match: self.match_view(),
+            match_rules_caption: self.match_rules_caption(),
             pk_board: self.pk_board_view(),
             match_outcome: None,
             match_notices: Vec::new(),

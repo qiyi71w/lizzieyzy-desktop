@@ -1938,6 +1938,8 @@ impl Workbench {
             let (gtp_name, version, _) = self.engines.identity(f)?;
             Some(ForegroundEngineView {
                 index,
+                instance: f,
+                search: self.engines.search(f)?,
                 name: self.engines.display_name(f)?,
                 gtp_name,
                 version,
@@ -1973,7 +1975,9 @@ impl Workbench {
             stopped_by_limit: self.limit_stop == Some((self.doc.id, self.cursor)),
             analyze_black: self.analyze_black,
             analyze_white: self.analyze_white,
-            rules_key: rules.map(|r| r.summary_key().to_string()),
+            // No rule set is remembered as chosen yet, so a draw rule counting like another
+            // rule set is never told apart from it.
+            rules_key: rules.map(|r| r.caption_key(self.komi, None).to_string()),
             rules: rules.map(KataRules::to_gtp_argument),
             console_seq: self.engines.console_seq(),
             lease,

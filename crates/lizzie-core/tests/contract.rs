@@ -80,13 +80,14 @@ fn generate() -> String {
         NextMoveInfo,
         RawNetMode, RawNetView,
         EstimateStyle, CoordinateStyle, PvVisitsMode,
-        KataEstimateMode, KataEstimateState, KataEstimateView, ScoreCommand, ScorePoint, ScoreView,
+        KataEstimateMode, KataEstimateState, KataEstimateView, ScoreCommand, ScorePoint, ScoreView, ScoreVerdict,
         MoveEvaluation, MoveChange, StatisticsView, FramePlacement,
         ExtraMode, SecondaryEngineView, SecondaryView,
         AnalysisEngineSettings, QuickModelView, QuickModelStatus, QuickAnalysisView, ProblemListSettings,
-        HumanSlSettingsView, HumanSlModelView, HumanSlModelStatus,
+        HumanSlSettingsView, HumanSlModelView, HumanSlModelStatus, CoachLevelView,
         lizzie_core::settings::HumanSlSettings, lizzie_core::settings::HumanSlTrainingSettings,
-        lizzie_core::settings::TrainingMode, lizzie_core::settings::OpponentPreset,
+        lizzie_core::settings::TrainingMode, lizzie_core::humansl::CoachLevel,
+        lizzie_core::humansl::CoachLevelKind, lizzie_core::humansl::Pace,
         lizzie_core::settings::PlayerColor,
         ProblemSide, ProblemSort, ProblemListView, ProblemMoveView, LeaseAvailabilityView, UnrestoredReason,
         FlashTarget, FlashRange, FlashAnalysisView, FlashOutcome,
@@ -112,7 +113,7 @@ fn generate() -> String {
         lizzie_core::settings::MatchTimeMode, lizzie_core::settings::MatchIdentity,
         lizzie_core::settings::MatchResignPolicy, lizzie_core::settings::MatchSettings,
         HumanSlCommand, HumanSlPhase, HumanSlStartupStage, HumanSlSide, HumanSlAnalysisDisplay,
-        HumanSlView, HumanSlNotice,
+        HumanSlView, HumanSlNotice, HumanSlResult,
         HumanSlContinuation,
         StrengthCommand, StrengthView, StrengthStatusView, StrengthManualView, StrengthManualOutcome,
         StrengthModelView, StrengthReport, StrengthSideReport, StrengthSegment, StrengthSummary,
@@ -144,7 +145,7 @@ fn generate() -> String {
         lizzie_core::appearance::ThemeEntry, lizzie_core::appearance::AppearanceCatalog,
         lizzie_core::appearance::ThemeImages, lizzie_core::appearance::ShippedBoard, lizzie_core::appearance::ShippedStones,
         lizzie_core::settings::CustomLayout, lizzie_core::settings::IndependentBoard,
-        RegionCommand, TrackingCommand, RegionView, FocusView, TrackedPointView,
+        RegionCommand, TrackingCommand, RegionView, FocusView, TrackingUnavailable, TrackedPointView,
         lizzie_core::engine::runtime::FocusCapability, lizzie_core::settings::RegionSettings,
         lizzie_core::settings::TrackingSettings,
         lizzie_core::settings::TsumegoSettings, lizzie_core::settings::TsumegoFrameSettings,
@@ -173,9 +174,32 @@ fn generate() -> String {
         out.push_str(d.trim());
         out.push_str("\n\n");
     }
+    out.push_str(&rule_constants());
     out.truncate(out.trim_end().len());
     out.push('\n');
     out
+}
+
+/// The core's rules presets and engine-game rules choices, for the rules editor's 典型规则 buttons
+/// and the 本局规则 picker: the UI keeps no copy of its own.
+fn rule_constants() -> String {
+    use lizzie_core::engine::rules::{KataRules, MATCH_RULE_OPTIONS, PRESETS};
+    let presets: serde_json::Map<String, serde_json::Value> = PRESETS
+        .iter()
+        .map(|p| {
+            let rules = KataRules::preset(p.0).unwrap().to_gtp_argument();
+            (p.0.to_string(), serde_json::from_str(&rules).unwrap())
+        })
+        .collect();
+    let options: Vec<[&str; 2]> = MATCH_RULE_OPTIONS.iter().map(|o| [o.0, o.1]).collect();
+    format!(
+        "/** KataGo's official rules presets (`KataGoRules.officialPresets`), by name. */\n\
+         export const KATA_RULE_PRESETS: Readonly<Record<string, Readonly<Record<string, string | boolean>>>> = {};\n\n\
+         /** The engine game's standard rules choices: preset name and label key (`MatchRuleOption`). */\n\
+         export const MATCH_RULE_OPTIONS: ReadonlyArray<readonly [preset: string, labelKey: string]> = {};\n",
+        serde_json::to_string(&presets).unwrap(),
+        serde_json::to_string(&options).unwrap(),
+    )
 }
 
 #[test]

@@ -225,9 +225,10 @@ export function pressBoard(point: Point | null, button: number, detail: number, 
   commitComment();
   if (button === 1) return false;
   // Input.java:36-47 during an AI 陪练 game: a right press does nothing (onClickedRight); a left
-  // press on an empty point is the human's move (onClicked), which the core takes or ignores.
+  // press on the board is the human's move (onClicked), which the core takes or ignores; on a
+  // position browsed back to it brings the board back to the game, whatever stands there.
   if (humanSlGameActive()) {
-    if (button === 0 && point && !stoneOn(point)) void edit({ op: "Play", point, color: null });
+    if (button === 0 && point) void edit({ op: "Play", point, color: null });
     return false;
   }
   if (state.view.editing.setup_mode) {

@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use super::analysis::{fill_pv_captures, node_analysis};
 use super::flash::reuse_status_key;
-use super::quick::{Query, RulesSignature};
+use super::quick::{AnalysisPurpose, Query, RulesSignature};
 use super::Workbench;
 use crate::api::{ApiError, WholeGameAnalysisView, WholeGameState as State};
 use crate::engine::gtp::InfoLine;
@@ -147,7 +147,7 @@ impl Workbench {
         if policy.threads == 0 { return None; }
         let speed = policy.visits_per_second;
         if !speed.is_finite() || speed <= 0.0 { return None; }
-        let ownership = self.estimate.state.shown && !self.config.analysis_engine.reuse_current_engine;
+        let ownership = self.estimate.state.shown && self.analysis_borrow(AnalysisPurpose::Manual).is_none();
         let required: u64 = self.whole_game_nodes().into_iter().map(|n| {
             u64::from(!self.whole_game_has(n, 32, false)) * 32
                 + u64::from(!self.whole_game_has(n, visits, ownership)) * u64::from(visits)
@@ -166,7 +166,7 @@ impl Workbench {
         if self.flash_active() || self.flash_releasing() { return Ok(Err("WholeGameAnalysis.conflict.analysis".into())); }
         // isWholeGameAnalysisConflict: `isBatchAna`, `isBatchAnalysisMode`.
         if self.batch_engaged() { return Ok(Err("WholeGameAnalysis.conflict".into())); }
-        let borrow = self.config.analysis_engine.reuse_current_engine;
+        let borrow = self.analysis_borrow(AnalysisPurpose::Manual).is_some();
         // Silent automatic analysis relinquishes its process/lease without resuming in between.
         self.quick_cancel();
         self.discard_analysis_process();
@@ -209,8 +209,7 @@ impl Workbench {
             }
         } else {
             let base = self.analysis_command_base(false);
-            let threads = crate::engine::analysis_command::recommended_threads(std::thread::available_parallelism().map_or(1, |n| n.get() as u32));
-            let command = crate::engine::analysis_command::whole_game(&base, self.config.engine.analysis.limit_branch_length, threads);
+            let command = self.whole_game_command(&base);
             // Java requires a unique accepted saved-engine scene for this exact configured command.
             let mut matches = self.config.engine.engines.iter().filter(|p| p.thread_policy.as_ref()
                 .and_then(|policy| policy.measured_scenes.as_ref())

@@ -108,7 +108,7 @@ export function statScene(v: WorkbenchView, history: Map<number, HistoryPoint>, 
     kata: !!v.engine.foreground?.katago || lead !== null,
     matched: v.statistics.moves.find((m) => m.node === node)?.matched ?? null,
     moveNumber: v.position.move_number,
-    moveNumberDown: !!v.engine.rules_key,
+    moveNumberDown: !!(v.match_rules_caption ?? v.engine.rules_key),
   };
 }
 
@@ -116,22 +116,42 @@ export function statScene(v: WorkbenchView, history: Map<number, HistoryPoint>, 
 
 /** visitsString (LizzieFrame.java:1570-1620, getLastVisitsCount 2514-2572): once a second the
  *  current position's visits are sampled into four slots; the speed is measured against the
- *  oldest sample of the same position, and " - 搜索/秒" replaces it 5 s after the last measure. */
-const samples: ({ position: string; visits: number } | null)[] = [null, null, null, null];
+ *  oldest sample of the same position, and " - 搜索/秒" replaces it 5 s after the last measure.
+ *  A sample belongs to the position, the foreground engine instance and the search it runs
+ *  there (`engine.foreground.search`), so another instance never measures against the previous
+ *  one's samples and a search begun again (清除/重算, komi, rules, 广度, a resumed analysis)
+ *  never against the totals before it. Only what the instance searched while sampled counts:
+ *  the total a position shows when the instance or the search arrives there (another instance's
+ *  or search's stored result, say) is no sample until it changes. */
+const samples: ({ key: string; visits: number } | null)[] = [null, null, null, null];
 let sampleIndex = -1;
 let speedText = "";
+/** The position, instance and search `speedText` was measured for: a position without analysis
+ *  never shows the previous position's speed (Java clears `visitsString` when there is nothing to
+ *  sample), an instance never another one's, and a search never the speed of the one before. */
+let speedKey = "";
 let speedAt = 0;
+/** The position, instance and search sampled last, the total it showed on arrival, and whether
+ *  that total changed since. */
+let arrival = { key: "", visits: 0, changed: false };
+
+function sampleKey(v: WorkbenchView): string {
+  const fg = v.engine.foreground;
+  return `${v.document.id}:${v.position.node}:${fg?.instance}:${fg?.search}`;
+}
 
 function sampleSpeed(): void {
   const v = state.view;
   if (!v?.engine.foreground || !v.engine.analysing) return;
-  const position = `${v.document.id}:${v.position.node}`;
+  const key = sampleKey(v);
   const total = v.analysis?.visits ?? 0;
+  if (arrival.key !== key) arrival = { key, visits: total, changed: false };
+  else if (total !== arrival.visits) arrival.changed = true;
   let seconds = -1, before = 0;
-  if (sampleIndex >= 0) {
+  if (sampleIndex >= 0 && arrival.changed) {
     for (let age = 4; age >= 1; age--) {
       const sample = samples[(sampleIndex + 5 - age) % 4];
-      if (sample?.position === position) {
+      if (sample?.key === key) {
         seconds = age;
         before = sample.visits;
         break;
@@ -143,17 +163,24 @@ function sampleSpeed(): void {
     const speed = Math.trunc((total - before) / seconds);
     if (speed >= 0) {
       speedText = ` ${speed} ${t("LizzieFrame.speedUnit")}`;
+      speedKey = key;
       speedAt = now;
     }
-  } else if (now - speedAt > 5000) speedText = ` - ${t("LizzieFrame.speedUnit")}`;
+  } else if (now - speedAt > 5000) {
+    speedText = "";
+    speedKey = "";
+  }
   sampleIndex = (sampleIndex + 1) % 4;
-  if (total > 0) samples[sampleIndex] = { position, visits: total };
+  if (total > 0 && arrival.changed) samples[sampleIndex] = { key, visits: total };
 }
 
-/** The analysing engine's measured speed ("746 搜索/秒"); empty before the first measure and once
- *  it went stale. */
+/** The analysing engine's measured speed ("746 搜索/秒"); empty before the first measure, once
+ *  it went stale, when the shown position, the foreground instance or the position's search is
+ *  not the one measured, and while the position has no analysis (Java `visitsString`). */
 export function searchSpeed(): string {
-  return state.view?.engine.analysing && !speedText.startsWith(" -") ? speedText.trim() : "";
+  const v = state.view;
+  if (!v?.engine.analysing || !v.engine.foreground) return "";
+  return speedKey === sampleKey(v) && (v.analysis?.visits ?? 0) > 0 ? speedText.trim() : "";
 }
 
 /** Starts the once-a-second title update (showPlayouts). */
@@ -165,12 +192,12 @@ export function startTitleUpdates(repaint: () => void): void {
 }
 
 /** LizzieFrame.updateTitle (LizzieFrame.java:10942-11052): the app name, the [Black win rate, Black
- *  lead, visits] of the current position (else of the previous one), the engine with its speed (or
- *  " - 搜索/秒" while paused) and the B11 speed notice (appendSpeedModelNotice), the players,
- *  result and file, then the Web 旁观 address (webBoardSuffix). A Genmove 引擎对战 game shows the
- *  thinking engine; the batch title (enginePkTitile) replaces the players and file. 试下 keeps
- *  LizzieFrame.tryTitle. That line is the system title; the window bar shows the same parts as
- *  the game and, quieter, the analysis, without the app name its mark already carries. */
+ *  lead, visits] of the current position (else of the previous one), the engine with the speed it
+ *  is measuring (none while no analysis runs) and the B11 speed notice (appendSpeedModelNotice),
+ *  the players, result and file, then the Web 旁观 address (webBoardSuffix). A Genmove 引擎对战
+ *  game shows the thinking engine; the batch title (enginePkTitile) replaces the players and file.
+ *  试下 keeps LizzieFrame.tryTitle. That line is the system title; the window bar shows the same
+ *  parts as the game and, quieter, the analysis, without the app name its mark already carries. */
 export function workbenchTitle(v: WorkbenchView, version: string, history: Map<number, HistoryPoint>, parent: number | undefined): WindowTitle {
   if (v.editing.trying) {
     const text = windowTitle(version);
@@ -220,9 +247,10 @@ function mainTitle(v: WorkbenchView, version: string, history: Map<number, Histo
   const prefix = values ? `[${numbers}] ` : shown && v.game ? "[ ---   ---   --- ] " : "";
   const foreground = v.engine.foreground;
   if (!foreground) return { text: `${stem}${prefix ? ` - ${prefix}` : ""} ${rest}`, game, detail: numbers ? [numbers] : [], detailTip };
-  const notice = foreground.b11 ? ` · ${t("B11SpeedNotice.title")} ` : "";
-  const detail = [numbers, `${foreground.name}${v.engine.analysing || pk !== null ? speedText : ""}`, foreground.b11 ? t("B11SpeedNotice.title") : ""].filter(Boolean);
-  if (pk !== null) return { text: `${pk} ${stem} - ${prefix}${foreground.name}${speedText} ${notice}`, game, detail, detailTip };
-  const speed = v.engine.analysing ? `${speedText} ` : ` - ${t("LizzieFrame.speedUnit")} `;
-  return { text: `${stem} - ${prefix}${foreground.name}${speed}${notice}${rest}`, game, detail, detailTip };
+  const speed = searchSpeed();
+  const notice = foreground.b11 ? t("B11SpeedNotice.title") : "";
+  const detail = [numbers, `${foreground.name}${speed ? ` ${speed}` : ""}`, notice].filter(Boolean);
+  if (pk !== null) return { text: `${pk} ${stem} - ${prefix}${foreground.name}${speed ? ` ${speed}` : ""}${notice ? ` · ${notice}` : ""} ${rest}`, game, detail, detailTip };
+  const tail = foreground.name + (speed ? ` ${speed}` : "") + (notice ? ` · ${notice}` : "");
+  return { text: `${stem} - ${prefix}${tail} ${rest}`, game, detail, detailTip };
 }

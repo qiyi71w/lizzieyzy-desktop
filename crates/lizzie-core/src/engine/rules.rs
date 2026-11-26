@@ -1,5 +1,8 @@
 //! KataGo rules (`KataGoRules`): parse a `kata-get-rules` answer or a preset name, compare
-//! semantically, summarise for the captured panel and format for `kata-set-rules`.
+//! semantically, summarise for the captured panel and format for `kata-set-rules`; and the rule
+//! sets (`RulePreset`), rules together with the komi that belongs to them.
+
+use std::sync::LazyLock;
 
 use serde_json::{Map, Value};
 
@@ -30,14 +33,15 @@ type Preset = (
     bool,
 );
 
-/// Official presets in Java's order (`KataGoRules.officialPresets`).
+/// Official presets in Java's order (`KataGoRules.officialPresets`). KataGo reports
+/// `friendlyPassOk` false for its territory presets (`kata-get-rules`, 1.18.1).
 pub const PRESETS: [Preset; 13] = [
     ("tromp-taylor", "POSITIONAL", "AREA", "NONE", true, false, "0", false),
     ("chinese", "SIMPLE", "AREA", "NONE", false, false, "N", true),
     ("chinese-ogs", "POSITIONAL", "AREA", "NONE", false, false, "N", true),
     ("chinese-kgs", "POSITIONAL", "AREA", "NONE", false, false, "N", true),
-    ("japanese", "SIMPLE", "TERRITORY", "SEKI", false, false, "0", true),
-    ("korean", "SIMPLE", "TERRITORY", "SEKI", false, false, "0", true),
+    ("japanese", "SIMPLE", "TERRITORY", "SEKI", false, false, "0", false),
+    ("korean", "SIMPLE", "TERRITORY", "SEKI", false, false, "0", false),
     ("stone-scoring", "SIMPLE", "AREA", "ALL", false, false, "0", true),
     ("aga", "SITUATIONAL", "AREA", "NONE", false, false, "N-1", true),
     ("bga", "SITUATIONAL", "AREA", "NONE", false, false, "N-1", true),
@@ -73,6 +77,199 @@ const ALIASES: [(&str, &str); 15] = [
     ("tromptaylor", "tromp-taylor"),
     ("ing", "goe"),
 ];
+
+/// An engine-game rules choice: preset name and label key.
+pub type MatchRuleOption = (&'static str, &'static str);
+
+/// The engine game's standard rules choices in Java's order, each with its label
+/// (`MatchRuleOption`); anything else is 自定义.
+pub const MATCH_RULE_OPTIONS: [MatchRuleOption; 7] = [
+    ("chinese", "LizzieFrame.currentRules.chinese"),
+    ("stone-scoring", "LizzieFrame.currentRules.chn-ancient"),
+    ("japanese", "MatchRules.option.japaneseKorean"),
+    ("aga", "MatchRules.option.agaBga"),
+    ("new-zealand", "MatchRules.option.newZealand"),
+    ("tromp-taylor", "MatchRules.option.trompTaylor"),
+    ("goe", "LizzieFrame.currentRules.goe"),
+];
+
+/// A rule set (`RulePreset`): KataGo rules together with the komi that belongs to them.
+///
+/// The Chinese rule sets are KataGo's chinese rules and differ in komi and in how a draw is
+/// broken. The 2027 Chinese rules have Black give 7 points, so a game can end in a draw; the 2002
+/// rules gave 7.5. Where a game must have a winner, the 2027 rules break a draw either for White,
+/// which counts exactly like komi 7.5, or for the player who passed first, which is KataGo's
+/// button rule with komi 7.
+#[derive(Debug)]
+pub struct RuleSet {
+    /// Java's name for it (the `rule-preset` setting holds it).
+    pub id: &'static str,
+    /// The rules as `KataRules::parse` takes them: a preset name or a JSON object.
+    rules: &'static str,
+    pub komi: f64,
+    /// Display-string key of its entry in a list of rule sets (`RulesQuickMenu.*`).
+    pub label_key: &'static str,
+    /// Display-string key of the rules caption, when it is not the rules' summary.
+    caption_key: Option<&'static str>,
+    /// It counts exactly like another rule set and is recognised only when chosen.
+    draw_rule: bool,
+}
+
+/// The rule sets in Java's order (`RulePreset.values()`).
+pub const RULE_SETS: [RuleSet; 8] = [
+    RuleSet {
+        id: "CHINESE_2027",
+        rules: "chinese",
+        komi: 7.0,
+        label_key: "RulesQuickMenu.chinese2027",
+        caption_key: Some("LizzieFrame.currentRules.chinese2027"),
+        draw_rule: false,
+    },
+    RuleSet {
+        id: "CHINESE_2027_DRAW_TO_WHITE",
+        rules: "chinese",
+        komi: 7.5,
+        label_key: "RulesQuickMenu.chinese2027DrawToWhite",
+        caption_key: Some("LizzieFrame.currentRules.chinese2027DrawToWhite"),
+        draw_rule: true,
+    },
+    RuleSet {
+        id: "CHINESE_2027_DRAW_TO_FIRST_PASS",
+        // KataGo's chinese rules with the button, which the player who passes first takes.
+        rules: r#"{"ko":"SIMPLE","scoring":"AREA","tax":"NONE","suicide":false,"hasButton":true,"whiteHandicapBonus":"N","friendlyPassOk":true}"#,
+        komi: 7.0,
+        label_key: "RulesQuickMenu.chinese2027DrawToFirstPass",
+        caption_key: Some("LizzieFrame.currentRules.chinese2027DrawToFirstPass"),
+        draw_rule: true,
+    },
+    RuleSet {
+        id: "CHINESE",
+        rules: "chinese",
+        komi: 7.5,
+        label_key: "RulesQuickMenu.chinese",
+        caption_key: None,
+        draw_rule: false,
+    },
+    RuleSet {
+        id: "JAPANESE",
+        rules: "japanese",
+        komi: 6.5,
+        label_key: "RulesQuickMenu.japanese",
+        caption_key: None,
+        draw_rule: false,
+    },
+    RuleSet {
+        id: "CHINESE_ANCIENT",
+        rules: "stone-scoring",
+        komi: 7.5,
+        label_key: "RulesQuickMenu.chnAncient",
+        caption_key: None,
+        draw_rule: false,
+    },
+    RuleSet {
+        id: "TROMP_TAYLOR",
+        rules: "tromp-taylor",
+        komi: 7.5,
+        label_key: "RulesQuickMenu.trompTaylor",
+        caption_key: None,
+        draw_rule: false,
+    },
+    RuleSet {
+        id: "GOE",
+        rules: "goe",
+        komi: 7.5,
+        label_key: "RulesQuickMenu.goe",
+        caption_key: None,
+        draw_rule: false,
+    },
+];
+
+/// Each rule set's parsed rules and their summary key, in `RULE_SETS` order.
+static RULE_SET_RULES: LazyLock<Vec<(KataRules, &'static str)>> = LazyLock::new(|| {
+    RULE_SETS
+        .iter()
+        .map(|s| {
+            let rules = KataRules::parse(s.rules).expect("rule set rules parse");
+            let summary = rules.summary_key();
+            (rules, summary)
+        })
+        .collect()
+});
+
+/// The komi new games start with when no rule set is chosen, as far as the even-game komi goes
+/// (`RulePreset.evenGameKomi` asks `newGameKomi(config, 7.5f)`).
+const NEW_GAME_KOMI: f64 = 7.5;
+
+impl RuleSet {
+    pub fn rules(&self) -> &'static KataRules {
+        &self.parsed().0
+    }
+
+    /// Display-string key of the rules caption: the rule set's own short name, else the rules'
+    /// summary.
+    pub fn caption_key(&self) -> &'static str {
+        self.caption_key.unwrap_or(self.parsed().1)
+    }
+
+    /// The rule set these rules and komi are (`RulePreset.of`). Rule sets with the same rules are
+    /// told apart by komi; one whose rules no other rule set has is recognised whatever the komi.
+    /// A draw rule that counts like another rule set is recognised only when it is `chosen`, the
+    /// one picked last.
+    pub fn of(rules: &KataRules, komi: f64, chosen: Option<&RuleSet>) -> Option<&'static RuleSet> {
+        RuleSet::recognise(rules, rules.summary_key(), komi, chosen)
+    }
+
+    fn recognise(rules: &KataRules, summary: &str, komi: f64, chosen: Option<&RuleSet>) -> Option<&'static RuleSet> {
+        let matches = || {
+            RULE_SETS
+                .iter()
+                .filter(move |s| s.has_rules(rules, summary) && (!s.shares_rules() || s.komi == komi))
+        };
+        if let Some(chosen) = chosen.and_then(|c| matches().find(|s| s.id == c.id)) {
+            return Some(chosen);
+        }
+        let single = matches().count() == 1;
+        matches().find(|s| !s.draw_rule || single)
+    }
+
+    /// The komi of an even game under the rules KataGo plays now (`RulePreset.evenGameKomi`):
+    /// that of the rule set they are, such as 7 for the 2027 rules or 6.5 for the Japanese; else,
+    /// after a handicap game, the komi new games start with (the chosen rule set's, or 7.5); else
+    /// the current game's `komi`.
+    pub fn even_game_komi(rules: Option<&KataRules>, komi: f64, handicap_game: bool, chosen: Option<&RuleSet>) -> f64 {
+        match rules.and_then(|r| RuleSet::of(r, komi, chosen)) {
+            Some(set) => set.komi,
+            None if handicap_game => chosen.map_or(NEW_GAME_KOMI, |c| c.komi),
+            None => komi,
+        }
+    }
+
+    fn parsed(&self) -> &'static (KataRules, &'static str) {
+        let at = RULE_SETS
+            .iter()
+            .position(|s| s.id == self.id)
+            .expect("one of RULE_SETS");
+        &RULE_SET_RULES[at]
+    }
+
+    /// A named KataGo rule set is recognised by its summary, which allows its close variants;
+    /// other rules field for field.
+    fn has_rules(&self, observed: &KataRules, observed_summary: &str) -> bool {
+        let (rules, summary) = self.parsed();
+        if *summary == "LizzieFrame.currentRules.others" {
+            rules == observed
+        } else {
+            *summary == observed_summary
+        }
+    }
+
+    fn shares_rules(&self) -> bool {
+        let (rules, summary) = self.parsed();
+        RULE_SETS
+            .iter()
+            .any(|other| other.id != self.id && other.has_rules(rules, summary))
+    }
+}
 
 impl KataRules {
     pub fn preset(name: &str) -> Option<KataRules> {
@@ -113,30 +310,62 @@ impl KataRules {
         KataRules::preset(&name)
     }
 
-    fn matches(&self, preset: &str) -> bool {
-        KataRules::preset(preset).is_some_and(|p| p == *self)
+    /// Whether these rules are preset `name`. Territory scoring does not use `friendlyPassOk`
+    /// (the rules editor disables it there), so a territory preset matches whatever that field
+    /// says (`matchesOfficialApartFromFriendlyPass`); other presets match field for field.
+    pub fn matches_preset(&self, name: &str) -> bool {
+        let Some(preset) = KataRules::preset(name) else {
+            return false;
+        };
+        if preset.0.get("scoring").and_then(Value::as_str) != Some("TERRITORY") {
+            return preset == *self;
+        }
+        let others = |m: &Map<String, Value>| m.iter().filter(|(k, _)| *k != "friendlyPassOk").count();
+        others(&self.0) == others(&preset.0)
+            && preset
+                .0
+                .iter()
+                .filter(|(k, _)| *k != "friendlyPassOk")
+                .all(|(k, v)| self.0.get(k) == Some(v))
+    }
+
+    /// The engine-game choice (`MatchRuleOption.matching`) these rules are, if any.
+    pub fn match_option(&self) -> Option<&'static MatchRuleOption> {
+        MATCH_RULE_OPTIONS.iter().find(|o| self.matches_preset(o.0))
+    }
+
+    /// KataGo's button: a drawn count goes to the first player to pass (`FirstPassDraw.applies`).
+    pub fn has_button(&self) -> bool {
+        self.0.get("hasButton").and_then(Value::as_bool).unwrap_or(false)
     }
 
     /// The official preset this value equals, if any.
     pub fn official_name(&self) -> Option<&'static str> {
-        PRESETS.iter().map(|p| p.0).find(|n| self.matches(n))
+        PRESETS.iter().map(|p| p.0).find(|n| self.matches_preset(n))
     }
 
-    /// `KataGoRules.summary().labelKey()`: the captured-panel caption key.
+    /// `KataGoRules.summary().labelKey()`: the rules' summary caption key.
     pub fn summary_key(&self) -> &'static str {
-        if self.matches("chinese") || self.matches("chinese-ogs") {
+        if self.matches_preset("chinese") || self.matches_preset("chinese-ogs") {
             "LizzieFrame.currentRules.chinese"
-        } else if self.matches("japanese") {
+        } else if self.matches_preset("japanese") {
             "LizzieFrame.currentRules.japanese"
-        } else if self.matches("stone-scoring") {
+        } else if self.matches_preset("stone-scoring") {
             "LizzieFrame.currentRules.chn-ancient"
-        } else if self.matches("tromp-taylor") {
+        } else if self.matches_preset("tromp-taylor") {
             "LizzieFrame.currentRules.tromp-taylor"
-        } else if self.matches("goe") {
+        } else if self.matches_preset("goe") {
             "LizzieFrame.currentRules.goe"
         } else {
             "LizzieFrame.currentRules.others"
         }
+    }
+
+    /// The captured-panel rules caption key with the game's `komi` (`RulePreset.captionKey`): the
+    /// rule set's short name when these rules and komi are one, else the rules' summary.
+    pub fn caption_key(&self, komi: f64, chosen: Option<&RuleSet>) -> &'static str {
+        let summary = self.summary_key();
+        RuleSet::recognise(self, summary, komi, chosen).map_or(summary, RuleSet::caption_key)
     }
 
     pub fn field(&self, name: &str) -> Option<&Value> {

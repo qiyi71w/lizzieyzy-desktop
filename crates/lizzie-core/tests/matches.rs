@@ -162,14 +162,7 @@ impl Match {
                         }
                         continue;
                     }
-                    let text = match cmd.split(' ').next().unwrap() {
-                        "name" => "KataGo",
-                        "version" => "1.18.2",
-                        "list_commands" => COMMANDS,
-                        "kata-get-rules" => RULES,
-                        "kata-get-param" => "1.5",
-                        _ => "",
-                    };
+                    let text = usual_answer(cmd);
                     if cmd.starts_with("kata-analyze") {
                         self.out(instance, &format!("={id}"));
                         self.streams.insert(instance);
@@ -207,6 +200,17 @@ impl Match {
     fn successor(&mut self) {
         self.wb.engine_tick(Instant::now() + Duration::from_secs(1));
         self.serve(&|_, _| None);
+    }
+}
+/// What a controlled participant answers when a test does not say otherwise.
+fn usual_answer(command: &str) -> &'static str {
+    match command.split(' ').next().unwrap() {
+        "name" => "KataGo",
+        "version" => "1.18.2",
+        "list_commands" => COMMANDS,
+        "kata-get-rules" => RULES,
+        "kata-get-param" => "1.5",
+        _ => "",
     }
 }
 fn genmove() -> MatchSessionSettings {
@@ -770,6 +774,37 @@ fn unverifiable_rules_require_consent_and_verified_mismatch_is_not_consent() {
     assert_eq!(m.phase(), None);
     assert_eq!(m.wb.view(false).match_outcome.unwrap().end, MatchEnd::Retired);
     assert!(!m.held.iter().any(|(_, _, c)| c.starts_with("genmove")));
+}
+
+/// 本局规则 is named by the core's rules presets: Japanese rules saved by earlier versions with
+/// friendlyPassOk true are still 日本/韩国规则 (territory scoring does not use that field), while a
+/// real difference is 自定义.
+#[test]
+fn territory_match_rules_keep_their_name_whatever_friendly_pass_says() {
+    let japanese = |friendly: bool, tax: &str| {
+        format!(
+            r#"{{"ko":"SIMPLE","scoring":"TERRITORY","tax":"{tax}","suicide":false,"hasButton":false,"whiteHandicapBonus":"0","friendlyPassOk":{friendly}}}"#
+        )
+    };
+    for (rules, choice) in [
+        (japanese(true, "SEKI"), Some("japanese")),
+        (japanese(false, "SEKI"), Some("japanese")),
+        (japanese(true, "NONE"), None),
+    ] {
+        let mut m = Match::new();
+        m.command(MatchCommand::Start {
+            settings: MatchSettings {
+                rules,
+                ..MatchSettings::default()
+            },
+            session: genmove(),
+            first_engine: 0,
+            second_engine: 1,
+            disable_wrn: true,
+        });
+        let view = m.wb.inspect().engine_match.unwrap();
+        assert_eq!(view.rules_target_choice.as_deref(), choice);
+    }
 }
 
 #[test]
@@ -1381,6 +1416,39 @@ fn saved_match_records_and_summaries_mask_credentials_in_engine_commands() {
     assert!(summary.text.contains(&format!("\r\nCommand:{plain}")), "{}", summary.text);
 }
 
+/// Windows and UNC paths in engine commands are shown and saved as typed (`\\`, `\U`, `\u0041`
+/// included); only the credential values beside them are masked.
+#[test]
+fn match_rules_keep_windows_and_unc_paths_in_engine_commands_as_typed() {
+    const MARK: &str = "UNCMARK";
+    let first = r"C:\Users\a\katago.exe gtp -override-config logDir=\\wsl.localhost\Ubuntu\logs";
+    let second = format!(r"\\server\share\u0041\katago.exe gtp --token {MARK}tok");
+    let masked = r"\\server\share\u0041\katago.exe gtp --token <redacted>";
+    let mut m = Match::with_profiles(
+        Some("en-US"),
+        vec![
+            EngineProfile { id: "one".into(), name: "First".into(), command: first.into(), ..EngineProfile::default() },
+            EngineProfile { id: "two".into(), name: "Second".into(), command: second, ..EngineProfile::default() },
+        ],
+    );
+    m.start(batch());
+    m.serve(&|_, _| None);
+    let shown = details(&m).unwrap();
+    assert!(shown.contains(&format!("Black: First ({first})\nStatus: confirmed\n")), "{shown}");
+    assert!(shown.contains(&format!("White: Second ({masked})\nStatus: confirmed\n")), "{shown}");
+    assert!(!shown.contains(MARK), "{shown}");
+    m.finish_turn("resign");
+    let jobs = m.wb.take_background_saves();
+    let sgf = jobs.iter().find(|j| j.path.extension().is_some_and(|e| e == "sgf")).unwrap();
+    let summary = jobs.iter().find(|j| j.path.extension().is_some_and(|e| e == "txt")).unwrap();
+    let record = lizzie_core::formats::parse(lizzie_core::record::RecordFormat::Sgf, &sgf.text, false).unwrap();
+    let root = &record.node(ROOT).comment;
+    assert!(root.contains(&shown), "the saved block is the details text: {root}");
+    assert!(!sgf.text.contains(MARK) && !summary.text.contains(MARK));
+    assert!(summary.text.contains(&format!("\r\nCommand:{first}")), "{}", summary.text);
+    assert!(summary.text.contains(&format!("\r\nCommand:{masked}")), "{}", summary.text);
+}
+
 #[test]
 fn spec_08_query_only_rules_are_checked_instead_of_offered_as_unverified() {
     // MatchRulesAdmission.java:36–40,167–180,202–210: a queryable side must return
@@ -1538,5 +1606,372 @@ fn the_pda_dialog_reaches_the_kata_go_pda_participant_whichever_engine_is_in_fro
     assert_eq!(plain.wb.save_custom_pda(fixed(2.0)).unwrap(), None);
     for id in plain.world.ids() {
         assert!(sent(&plain, id).is_empty());
+    }
+}
+
+// 本局规则 summary and details. Expected texts are Java's (`MatchRulesSnapshot.mainSummary`,
+// `MatchRulesTexts.details`, `EngineGamePresentation.inspectableMatchRules`) in the English bundle.
+const CHINESE_FIELDS: &str =
+    "Chinese (ko=SIMPLE, scoring=AREA, tax=NONE, suicide=false, hasButton=false, whiteHandicapBonus=N, friendlyPassOk=true)";
+const JAPANESE_RULES: &str = r#"{"ko":"SIMPLE","scoring":"TERRITORY","tax":"SEKI","suicide":false,"hasButton":false,"whiteHandicapBonus":"0","friendlyPassOk":true}"#;
+
+fn caption(m: &Match) -> Option<String> {
+    m.wb.inspect().match_rules_caption
+}
+
+fn details(m: &Match) -> Option<String> {
+    match m.wb.inspect_match_rules() {
+        CommandResult::MatchRulesDetails { text } => Some(text),
+        CommandResult::Unchanged => None,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn without_a_game_the_rules_caption_stays_the_engines_and_nothing_is_inspected() {
+    let mut m = Match::with_locale(Some("en-US"));
+    assert_eq!(caption(&m), None);
+    assert_eq!(details(&m), None);
+    // A saved engine game reopened is a new record without the game's 本局规则 (its GameInfo has
+    // no engine-game record); the block in its comment is only text.
+    open_sgf(
+        &mut m,
+        "(;GM[1]SZ[19]DZ[KW]C[Match rules\nTarget: Chinese\nconfirmed\nEnd of match rules];B[pd])",
+    );
+    assert_eq!(caption(&m), None);
+    assert_eq!(details(&m), None);
+}
+
+#[test]
+fn confirmed_match_rules_name_the_target_and_list_each_engines_fields() {
+    let mut m = Match::with_locale(Some("en-US"));
+    m.start(genmove());
+    // Preparing: both sides idle.
+    assert_eq!(caption(&m).as_deref(), Some("Checking match rules"));
+    assert_eq!(
+        details(&m).as_deref(),
+        Some(concat!(
+            "Target: Chinese\nChecking match rules\n",
+            "Black: First (/opt/katago gtp)\nStatus: pending\nEffective rules unavailable: pending\n",
+            "White: Second (/opt/katago gtp)\nStatus: pending\nEffective rules unavailable: pending",
+        ))
+    );
+    m.serve(&|_, _| None);
+    assert_eq!(m.phase(), Some(MatchPhase::Playing));
+    assert_eq!(caption(&m).as_deref(), Some("Chinese"));
+    let expected = format!(
+        "Target: Chinese\nconfirmed\nBlack: First (/opt/katago gtp)\nStatus: confirmed\nEffective rules: {CHINESE_FIELDS}\nWhite: Second (/opt/katago gtp)\nStatus: confirmed\nEffective rules: {CHINESE_FIELDS}"
+    );
+    assert_eq!(details(&m), Some(expected.clone()));
+    // Inspecting asks no engine anything.
+    for id in m.world.ids() {
+        m.world.take(id);
+    }
+    details(&m);
+    for id in m.world.ids() {
+        assert!(m.world.take(id).is_empty());
+    }
+
+    // The game ends and the board is reviewed: the record the game left on it is shown.
+    m.finish_turn("resign");
+    assert_eq!(m.phase(), None);
+    assert_eq!(caption(&m).as_deref(), Some("Chinese"));
+    assert_eq!(details(&m), Some(expected));
+    // Another record has none.
+    let new_board = |confirmed| EditCommand::NewBoard { confirmed };
+    if let CommandResult::NeedsEditConfirmation { target } = m.wb.edit(new_board(None)).unwrap() {
+        assert_eq!(m.wb.edit(new_board(Some(target))).unwrap(), CommandResult::Done);
+    }
+    assert_eq!(caption(&m), None);
+    assert_eq!(details(&m), None);
+}
+
+#[test]
+fn an_engine_that_cannot_query_rules_is_named_unconfirmed_with_the_reason() {
+    let mut m = Match::with_locale(Some("en-US"));
+    m.start(genmove());
+    let first = m.world.ids()[0];
+    let plain = "name\nversion\nlist_commands\nboardsize\nclear_board\nkomi\nplay\nundo\ngenmove";
+    m.serve(&|instance, command| (instance == first && command == "list_commands").then(|| plain.to_string()));
+    // Waiting for consent is still checking (Java publishes the game's rules after consent).
+    let view = m.wb.inspect().engine_match.unwrap();
+    assert!(view.rules_consent_required);
+    assert_eq!(caption(&m).as_deref(), Some("Checking match rules"));
+    m.command(MatchCommand::ConfirmRules {
+        game: view.game,
+        allow: true,
+    });
+    m.serve(&|_, _| None);
+    assert_eq!(m.phase(), Some(MatchPhase::Playing));
+    assert_eq!(caption(&m).as_deref(), Some("Black: Unconfirmed / White: Chinese"));
+    assert_eq!(
+        details(&m),
+        Some(format!(
+            "Target: Chinese\nUnconfirmed\nBlack: First (/opt/katago gtp)\nStatus: Unconfirmed\nEffective rules unavailable: cannot query rules\nWhite: Second (/opt/katago gtp)\nStatus: confirmed\nEffective rules: {CHINESE_FIELDS}"
+        ))
+    );
+}
+
+#[test]
+fn a_failed_preparation_stays_inspectable_with_the_last_observation() {
+    let mut m = Match::with_locale(Some("en-US"));
+    m.start(genmove());
+    let first = m.world.ids()[0];
+    m.serve(&|instance, command| {
+        (instance == first).then_some(())?;
+        if command == "kata-get-rules" {
+            Some(JAPANESE_RULES.to_string())
+        } else if command == "kata-set-rules chinese" {
+            // The overlay is refused; giving the engine its own rules back is not.
+            Some("?cannot set rules".to_string())
+        } else {
+            None
+        }
+    });
+    assert_eq!(m.phase(), None, "the start failed");
+    let view = m.wb.view(false);
+    assert_eq!(view.match_outcome.unwrap().end, MatchEnd::Retired);
+    assert_eq!(
+        view.match_notices
+            .iter()
+            .map(|n| n.message_key.as_str())
+            .collect::<Vec<_>>(),
+        ["MatchRules.failed.setFailed"]
+    );
+    assert_eq!(
+        caption(&m).as_deref(),
+        Some("Black: Japanese / Korean / White: Chinese")
+    );
+    assert_eq!(
+        details(&m),
+        Some(format!(
+            "Target: Chinese\nMatch rules could not be prepared.\nBlack: First (/opt/katago gtp)\nStatus: setting rules rejected\nEffective rules unavailable: setting rules rejected\nLast observed (not current): Japanese / Korean (ko=SIMPLE, scoring=TERRITORY, tax=SEKI, suicide=false, hasButton=false, whiteHandicapBonus=0, friendlyPassOk=true)\nWhite: Second (/opt/katago gtp)\nStatus: confirmed\nEffective rules: {CHINESE_FIELDS}"
+        ))
+    );
+    // The failed start is shown until another game starts.
+    m.start(genmove());
+    assert_eq!(caption(&m).as_deref(), Some("Checking match rules"));
+}
+
+#[test]
+fn a_query_that_fails_shows_the_engines_earlier_rules_as_not_current() {
+    let mut m = Match::with_locale(Some("en-US"));
+    m.start(genmove());
+    let second = m.world.ids()[1];
+    // The engine answered its start-up query, then refuses the match's.
+    let asked = std::cell::Cell::new(0);
+    m.serve(&|instance, command| {
+        (instance == second && command == "kata-get-rules").then_some(())?;
+        asked.set(asked.get() + 1);
+        (asked.get() > 1).then(|| "?rules query refused".to_string())
+    });
+    assert_eq!(m.phase(), None);
+    assert_eq!(
+        m.wb.view(false)
+            .match_notices
+            .iter()
+            .map(|n| n.message_key.as_str())
+            .collect::<Vec<_>>(),
+        ["MatchRules.failed.queryFailed"]
+    );
+    assert_eq!(caption(&m).as_deref(), Some("Black: Chinese / White: Chinese"));
+    let text = details(&m).unwrap();
+    assert!(
+        text.ends_with(&format!(
+            "White: Second (/opt/katago gtp)\nStatus: rules query rejected\nEffective rules unavailable: rules query rejected\nLast observed (not current): {CHINESE_FIELDS}"
+        )),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_start_stopped_before_any_rules_answer_leaves_no_match_rules() {
+    // Java kept 正在检查本局规则 after such a start; nothing is being checked any more.
+    let mut m = Match::with_locale(Some("en-US"));
+    m.start(genmove());
+    assert_eq!(caption(&m).as_deref(), Some("Checking match rules"));
+    m.command(MatchCommand::Stop);
+    m.serve(&|_, _| None);
+    assert_eq!(m.phase(), None);
+    assert_eq!(caption(&m), None);
+    assert_eq!(details(&m), None);
+}
+
+// A start that ends while the rules are being prepared. The controlled KataGo keeps the rules it
+// is given (Japanese at first), so the rules each engine holds after its handback can be read.
+const JAPANESE_FIELDS: &str = "Japanese / Korean (ko=SIMPLE, scoring=TERRITORY, tax=SEKI, suicide=false, hasButton=false, whiteHandicapBonus=0, friendlyPassOk=true)";
+
+#[derive(Default)]
+struct KeptRules(std::cell::RefCell<std::collections::HashMap<InstanceId, String>>);
+impl KeptRules {
+    fn of(&self, instance: InstanceId) -> lizzie_core::engine::rules::KataRules {
+        let rules = self.0.borrow().get(&instance).cloned();
+        lizzie_core::engine::rules::KataRules::parse(rules.as_deref().unwrap_or(JAPANESE_RULES)).unwrap()
+    }
+    /// `kata-set-rules` changes the engine's rules; `kata-get-rules` reads them.
+    fn run(&self, instance: InstanceId, command: &str) -> Option<String> {
+        if let Some(rules) = command.strip_prefix("kata-set-rules ") {
+            let rules = if rules == "chinese" { RULES } else { rules };
+            self.0.borrow_mut().insert(instance, rules.into());
+            return Some(String::new());
+        }
+        (command == "kata-get-rules").then(|| {
+            let rules = self.0.borrow().get(&instance).cloned();
+            rules.unwrap_or_else(|| JAPANESE_RULES.into())
+        })
+    }
+}
+
+fn japanese() -> lizzie_core::engine::rules::KataRules {
+    lizzie_core::engine::rules::KataRules::parse(JAPANESE_RULES).unwrap()
+}
+
+/// Serves `kept` engines; `instance` answers in order, so from its match's own `kata-get-rules`
+/// (its second, after the start-up one) on it keeps every command waiting. `refuse_query`
+/// refuses that match query instead of answering it.
+fn serve_holding_from_match_query(m: &mut Match, kept: &KeptRules, instance: InstanceId, refuse_query: bool) {
+    let queries = std::cell::Cell::new(0);
+    m.serve(&|i, command| {
+        if i == instance && command == "kata-get-rules" {
+            queries.set(queries.get() + 1);
+        }
+        if i == instance && queries.get() >= 2 {
+            return Some("HOLD".into());
+        }
+        kept.run(i, command)
+    });
+    // The held match query is refused when it is answered.
+    if refuse_query {
+        let at = m.held.iter().position(|(i, _, c)| *i == instance && c == "kata-get-rules").unwrap();
+        m.held[at].2 = "refuse".into();
+    }
+}
+
+/// `instance` now answers what it kept waiting, in order; everything after is served at once.
+fn answer_held(m: &mut Match, kept: &KeptRules, instance: InstanceId) -> Vec<(InstanceId, String)> {
+    let held = std::mem::take(&mut m.held);
+    let (mine, rest): (Vec<_>, Vec<_>) = held
+        .into_iter()
+        .partition(|(i, _, c)| *i == instance && !c.starts_with("genmove"));
+    m.held = rest;
+    for (_, id, command) in mine {
+        let text = if command == "refuse" {
+            "?rules query refused".to_string()
+        } else {
+            kept.run(instance, &command).unwrap_or_else(|| usual_answer(&command).into())
+        };
+        m.reply(instance, &id, &text);
+    }
+    m.serve(&|i, command| kept.run(i, command))
+}
+
+#[test]
+fn a_start_stopped_after_its_rules_were_sent_gives_each_engine_its_own_rules_back() {
+    let kept = KeptRules::default();
+    let mut m = Match::with_locale(Some("en-US"));
+    m.start(genmove());
+    let [first, second] = [m.world.ids()[0], m.world.ids()[1]];
+    // First is sent the match's query, the Chinese rules and their readback, and has answered
+    // none of them when the start is stopped.
+    serve_holding_from_match_query(&mut m, &kept, first, false);
+    assert_eq!(m.phase(), Some(MatchPhase::Starting));
+    m.command(MatchCommand::Stop);
+    m.serve(&|i, command| kept.run(i, command));
+    // It then answers them in order, taking the Chinese rules.
+    let handback = answer_held(&mut m, &kept, first);
+    assert_eq!(m.phase(), None);
+    let view = m.wb.view(false);
+    assert!(view.match_outcome.unwrap().unrestored.is_empty());
+    assert_eq!(view.engine.unrestored, None);
+    // The handback puts the rules the engine reported before back and reads them again.
+    assert_eq!(kept.of(first), japanese(), "{handback:?}");
+    let restore = handback
+        .iter()
+        .position(|(i, c)| *i == first && c.starts_with("kata-set-rules {"));
+    assert!(
+        restore.is_some_and(|at| handback[at..].iter().any(|(i, c)| *i == first && c == "kata-get-rules")),
+        "{handback:?}"
+    );
+    // Second, which had answered everything, is given back the same way.
+    assert_eq!(kept.of(second), japanese());
+}
+
+#[test]
+fn an_engine_whose_rules_before_the_match_are_unknown_is_not_given_back_as_usable() {
+    // The match's rules query is refused but the overlay is taken; with or without a stop, the
+    // engine cannot be put back to its own rules.
+    for stop in [false, true] {
+        let kept = KeptRules::default();
+        let mut m = Match::with_locale(Some("en-US"));
+        m.start(genmove());
+        let [first, second] = [m.world.ids()[0], m.world.ids()[1]];
+        serve_holding_from_match_query(&mut m, &kept, first, true);
+        if stop {
+            m.command(MatchCommand::Stop);
+            m.serve(&|i, command| kept.run(i, command));
+        }
+        answer_held(&mut m, &kept, first);
+        assert_eq!(m.phase(), None, "stop {stop}");
+        assert_ne!(kept.of(first), japanese(), "the overlay changed the engine (stop {stop})");
+        let view = m.wb.view(false);
+        assert_eq!(
+            view.match_outcome.unwrap().unrestored,
+            [UnrestoredReason::Restore],
+            "stop {stop}"
+        );
+        assert_eq!(view.engine.unrestored, Some(UnrestoredReason::Restore), "stop {stop}");
+        assert_eq!(kept.of(second), japanese(), "stop {stop}");
+    }
+}
+
+#[test]
+fn a_start_ending_after_a_rules_answer_keeps_it_as_the_last_observation() {
+    // First answers the match's rules query and has the Chinese rules and their readback still
+    // open; Second has its match query open. Then First's process ends, or the start is stopped.
+    for disconnect in [true, false] {
+        let kept = KeptRules::default();
+        let mut m = Match::with_locale(Some("en-US"));
+        m.start(genmove());
+        let [first, second] = [m.world.ids()[0], m.world.ids()[1]];
+        let queries = std::cell::RefCell::new(std::collections::HashMap::<InstanceId, usize>::new());
+        m.serve(&|i, command| {
+            let mut queries = queries.borrow_mut();
+            let asked = queries.entry(i).or_default();
+            *asked += usize::from(command == "kata-get-rules");
+            let first_match_query = i == first && *asked == 2 && command == "kata-get-rules";
+            (*asked >= 2 && !first_match_query)
+                .then(|| "HOLD".to_string())
+                .or_else(|| kept.run(i, command))
+        });
+        assert_eq!(m.phase(), Some(MatchPhase::Starting));
+        assert_eq!(caption(&m).as_deref(), Some("Checking match rules"));
+        if disconnect {
+            m.wb.engine_input(first, EngineInput::Exited(Some(1)));
+        } else {
+            m.command(MatchCommand::Stop);
+        }
+        m.serve(&|i, command| kept.run(i, command));
+        let expected_caption = "Black: Japanese / Korean / White: Japanese / Korean";
+        let expected = format!(
+            "Target: Chinese\nMatch rules could not be prepared.\nBlack: First (/opt/katago gtp)\nStatus: pending\nEffective rules unavailable: pending\nLast observed (not current): {JAPANESE_FIELDS}\nWhite: Second (/opt/katago gtp)\nStatus: pending\nEffective rules unavailable: pending\nLast observed (not current): {JAPANESE_FIELDS}"
+        );
+        assert_eq!(caption(&m).as_deref(), Some(expected_caption), "disconnect {disconnect}");
+        assert_eq!(details(&m).as_deref(), Some(expected.as_str()), "disconnect {disconnect}");
+        // Retired: the snapshot stays, and inspecting it asks no engine anything.
+        if !disconnect {
+            answer_held(&mut m, &kept, first);
+        }
+        answer_held(&mut m, &kept, second);
+        m.wb.engine_tick(Instant::now() + Duration::from_secs(120));
+        m.serve(&|i, command| kept.run(i, command));
+        assert_eq!(m.phase(), None);
+        for id in m.world.ids() {
+            m.world.take(id);
+        }
+        assert_eq!(caption(&m).as_deref(), Some(expected_caption), "disconnect {disconnect}");
+        assert_eq!(details(&m).as_deref(), Some(expected.as_str()), "disconnect {disconnect}");
+        for id in m.world.ids() {
+            assert!(m.world.take(id).is_empty());
+        }
     }
 }

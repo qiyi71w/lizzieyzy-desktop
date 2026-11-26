@@ -602,6 +602,9 @@ struct Instance {
     board: Option<EngineBoard>,
     /// GTP id of the analysis stream the engine is producing (or about to).
     stream: Option<u64>,
+    /// How many analysis searches the instance began for its seat's wish
+    /// ([`Engines::search`]).
+    searches: u64,
     /// What the stream was asked to report besides the candidates (KataGo).
     stream_options: StreamOptions,
     /// Analysis requests by GTP id, so late lines still reach the position they were for.
@@ -1123,6 +1126,14 @@ impl Engines {
         self.foreground.is_some_and(|id| self.analysing_by(id, doc, node))
     }
 
+    /// Whether the foreground engine is told to analyse this node (the latest
+    /// [`want`](Self::want)), whether or not the engine has answered yet.
+    pub fn wants_analysis(&self, doc: u64, node: NodeId) -> bool {
+        self.wish
+            .as_ref()
+            .is_some_and(|(target, analyse)| *analyse && target.doc == doc && target.node == node)
+    }
+
     /// Whether instance `id` is analysing this node: its stream is this node's, or its seat wishes
     /// to analyse this node and the batch it sent before is still unanswered (stepping through the
     /// moves quickly), so the next batch starts the stream here.
@@ -1579,6 +1590,7 @@ impl Engines {
             threads_overridden: false,
             threads_confirmed: None,
             thread_requests: HashMap::new(),
+            searches: 0,
         });
         if let speed_model::SpeedModel::Lookup(lookup) = speed {
             self.model_lookups.push(lookup);
@@ -1616,6 +1628,14 @@ impl Engines {
     /// The engine runs an official B11 model, for the title's speed notice.
     pub fn uses_b11(&self, id: InstanceId) -> bool {
         self.get(id).is_some_and(|i| i.b11)
+    }
+
+    /// The analysis search instance `id` runs for its seat's wish, or ran last: a new number
+    /// whenever it begins one, as for another position, komi, rules or parameter, 重算 or a
+    /// resumed analysis, and the same while that search goes on (a request changing only its
+    /// focus continues it). Totals of different searches are not one sequence.
+    pub fn search(&self, id: InstanceId) -> Option<u64> {
+        self.get(id).map(|i| i.searches)
     }
 
     /// Starts the instance a check was made for and writes the commands queued meanwhile. A
@@ -2102,6 +2122,9 @@ impl Engines {
                             };
                             if let Some(n) = self.send(id, &cmd, purpose) {
                                 let i = self.get_mut(id).unwrap();
+                                if started.is_none() {
+                                    i.searches += 1;
+                                }
                                 // A changed region is another search of the same position: the old
                                 // stream's late lines, searched without it, are not published.
                                 if let Some(old) = i.stream.filter(|_| i.stream_region != args.region) {

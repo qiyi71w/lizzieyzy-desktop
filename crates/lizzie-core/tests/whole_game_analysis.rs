@@ -50,7 +50,7 @@ const RULES: &str = r#"{"friendlyPassOk":true,"hasButton":false,"ko":"SIMPLE","s
 fn make(path: &std::path::Path, world: &World) -> Workbench {
     let mut wb = Workbench::new(Storage::in_dirs(&path.join("config"), &path.join("data")), None, Box::new(Launch(world.clone())), vec![]);
     wb.set_auto_quick_analyze(false).unwrap();
-    wb.save_analysis_engine_settings(AnalysisEngineSettings { command: "/opt/katago analysis -config /a.cfg".into(), command_customized: true, ..AnalysisEngineSettings::default() }, "", true).unwrap().unwrap();
+    wb.save_analysis_engine_settings(AnalysisEngineSettings { command: "katago analysis -config /a.cfg".into(), command_customized: true, ..AnalysisEngineSettings::default() }, "", true).unwrap().unwrap();
     wb
 }
 fn open(wb: &mut Workbench, text: &str) {

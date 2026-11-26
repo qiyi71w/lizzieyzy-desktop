@@ -667,6 +667,75 @@ fn official_strongest_and_html_table_preserve_integrity_and_metadata() {
     assert!(parse_official_weight_table("maintenance page").is_err());
 }
 #[test]
+fn the_online_weight_list_keeps_only_https_links_to_katagotraining_with_plain_file_names() {
+    const MEDIA: &str = "https://media.katagotraining.org/uploaded/networks/models/";
+    // Java `KataGoWeightFileTest.onlyHttpsLinksToTheTrainingSiteWithPlainNamesAreTrusted`, as rows.
+    let links = [
+        (
+            "kept-media",
+            format!("{MEDIA}kata1/kata1-b28c512nbt-s1-d1.bin.gz"),
+            true,
+        ),
+        (
+            "kept-site",
+            "https://katagotraining.org/m/g170e.txt.gz".to_string(),
+            true,
+        ),
+        ("kept-relative", "/m/kata1-relative.bin.gz".to_string(), true),
+        (
+            "plain-http",
+            "http://media.katagotraining.org/a.bin.gz".to_string(),
+            false,
+        ),
+        ("other-host", "https://example.com/a.bin.gz".to_string(), false),
+        (
+            "lookalike",
+            "https://katagotraining.org.example.com/a.bin.gz".to_string(),
+            false,
+        ),
+        ("suffix", "https://evilkatagotraining.org/a.bin.gz".to_string(), false),
+        ("protocol-relative", "//example.com/a.bin.gz".to_string(), false),
+        ("escaped-backslash", format!("{MEDIA}..%5C..%5Cevil.bin.gz"), false),
+        ("raw-backslash", format!("{MEDIA}a\\..\\evil.bin.gz"), false),
+        ("parent", format!("{MEDIA}kata1/.."), false),
+        (
+            "parent-backslash",
+            format!("{MEDIA}..\\kata1-b28c512nbt-s1-d1.bin.gz"),
+            false,
+        ),
+        ("not-a-weight", format!("{MEDIA}kata1/installer.exe"), false),
+        ("no-file", format!("{MEDIA}kata1/"), false),
+        ("not-a-url", "not a url.bin.gz".to_string(), false),
+    ];
+    let rows: String = links
+        .iter()
+        .map(|(name, href, _)| {
+            format!(r#"<tr><td>{name}</td><td>2026-09-25</td><td>0</td><td><a href="{href}">download</a></td></tr>"#)
+        })
+        .collect();
+    // A refused row does not hide a later trusted row of the same name (Java checks the link first).
+    let html = format!(
+        r#"<table class="table mt-3"><tr><th>Name</th></tr>{rows}<tr><td>plain-http</td><td>2026-09-26</td><td>0</td><td><a href="{MEDIA}kata1/plain-http.bin.gz">download</a></td></tr></table>"#
+    );
+    let kept: Vec<(String, String)> = parse_official_weight_table(&html)
+        .unwrap()
+        .into_iter()
+        .map(|w| (w.name, w.download_url))
+        .collect();
+    let mut expected: Vec<(String, String)> = links
+        .iter()
+        .filter(|(.., trusted)| *trusted)
+        .map(|(name, href, _)| {
+            (
+                name.to_string(),
+                href.replace("/m/kata1-relative", "https://katagotraining.org/m/kata1-relative"),
+            )
+        })
+        .collect();
+    expected.push(("plain-http".into(), format!("{MEDIA}kata1/plain-http.bin.gz")));
+    assert_eq!(kept, expected);
+}
+#[test]
 fn verification_classifies_java_markers_and_uses_exact_probe_arguments() {
     let valid = classify_version(Ok(success("KataGo v1.18.2\nCUDA")), false);
     assert_eq!(valid.status, ValidationStatus::Valid);
@@ -773,21 +842,104 @@ fn managed_setup_plan_roundtrips_paths_and_never_overwrites_unmanaged_profiles()
     choice.update_profile_id = Some("manual".into());
     assert!(plan_setup(&[manual], &choice, temp.path()).is_err());
 }
+/// Java `NvidiaRuntimePins` at the reference commit: key, version and SHA-256.
+const JAVA_NVIDIA_PINS: [(&str, &str, &str); 5] = [
+    (
+        "cuda_cudart",
+        "12.8.57",
+        "2c7aa62a195d79229d4381c8bd0174a30502cf3d8124c6e94ee50a7fc8a1e9f4",
+    ),
+    (
+        "libcublas",
+        "12.8.3.14",
+        "a2f990cf61f0086d942632f2455727240baa9378c2e9fa2bdda56ef81f6cf8ad",
+    ),
+    (
+        "libnvjitlink",
+        "12.8.61",
+        "8258afaadbd9744d87070525067c497041dd52c6b22d11ba7297421fc8f6f39d",
+    ),
+    (
+        "cuda_nvrtc",
+        "12.8.61",
+        "e43603b09f8a52d681ceb814c00b655af19da53692ab91671dabbf8071c8f93d",
+    ),
+    (
+        "cudnn",
+        "9.8.0.87",
+        "d8a23705e3884b137b7e05449fb2b61bfa524e7cfc3fda80743d633f423c6ce4",
+    ),
+];
+/// A redistrib manifest listing one package (cuDNN nests its archive under `cuda12`).
+fn nvidia_manifest(key: &str, version: &str, sha256: &str) -> String {
+    let archive = serde_json::json!({"relative_path": format!("{key}/windows-x86_64/{key}-archive.zip"), "sha256": sha256, "size": "12345"});
+    let platform = if key == "cudnn" {
+        serde_json::json!({ "cuda12": archive })
+    } else {
+        archive
+    };
+    serde_json::json!({ key: { "version": version, "windows-x86_64": platform } }).to_string()
+}
+#[test]
+fn nvidia_manifests_must_name_the_built_in_versions_and_digests() {
+    for (key, version, sha256) in JAVA_NVIDIA_PINS {
+        let manifest_url = if key == "cudnn" {
+            CUDNN_MANIFEST_URL
+        } else {
+            CUDA_MANIFEST_URL
+        };
+        let spec = parse_runtime_manifest(
+            &nvidia_manifest(key, version, &sha256.to_uppercase()),
+            manifest_url,
+            key,
+        )
+        .unwrap();
+        assert_eq!(
+            (spec.version.as_str(), spec.sha256.as_str(), spec.size),
+            (version, sha256, 12345)
+        );
+        assert!(
+            spec.url.starts_with("https://developer.download.nvidia.com/compute/"),
+            "{}",
+            spec.url
+        );
+        // NVIDIA's live metadata naming another version or digest is not trusted.
+        for (other_version, other_sha256) in [
+            (format!("{version}.1"), sha256.to_string()),
+            (version.to_string(), "0".repeat(64)),
+        ] {
+            let refused =
+                parse_runtime_manifest(&nvidia_manifest(key, &other_version, &other_sha256), manifest_url, key)
+                    .unwrap_err()
+                    .to_string();
+            assert!(
+                refused.contains(&format!("expected version {version} and SHA-256 {sha256}")),
+                "{refused}"
+            );
+        }
+    }
+    assert!(parse_runtime_manifest(
+        &nvidia_manifest("libcufft", "1", &"0".repeat(64)),
+        CUDA_MANIFEST_URL,
+        "libcufft"
+    )
+    .is_err());
+    // KataGoRuntimeHelper's TensorRT archive.
+    let tensorrt = tensorrt_package();
+    assert_eq!(
+        (tensorrt.version.as_str(), tensorrt.url.as_str(), tensorrt.sha256.as_str(), tensorrt.size),
+        (
+            "10.9.0.34",
+            "https://developer.download.nvidia.com/compute/machine-learning/tensorrt/10.9.0/zip/TensorRT-10.9.0.34.Windows.win10.cuda-12.8.zip",
+            "c2758eb60191f01a47b24f54700e5463f577ebe129cd18fe835d0aa9f1e1a16d",
+            1_845_842_538
+        )
+    );
+}
 #[test]
 fn runtime_manifests_pins_dll_filter_staged_install_and_cache_cleanup() {
-    let manifest = serde_json::json!({"cuda_cudart": {"version": "12.8.57", "windows-x86_64": {"relative_path": "cuda_cudart/windows-x86_64/package.zip", "sha256": "a".repeat(64), "size": "12345"}}, "cuda_nvrtc": {"version": NVRTC_VERSION, "windows-x86_64": {"relative_path": "cuda_nvrtc/windows-x86_64/nvrtc.zip", "sha256": NVRTC_SHA256, "size": "300000000"}}});
-    let spec = parse_runtime_manifest(&manifest.to_string(), CUDA_MANIFEST_URL, "cuda_cudart").unwrap();
-    assert_eq!(spec.size, 12345);
-    assert!(spec
-        .url
-        .starts_with("https://developer.download.nvidia.com/compute/cuda/redist/"));
-    parse_runtime_manifest(&manifest.to_string(), CUDA_MANIFEST_URL, "cuda_nvrtc").unwrap();
-    let mut wrong = manifest;
-    wrong["cuda_nvrtc"]["version"] = "12.8.99".into();
-    assert!(parse_runtime_manifest(&wrong.to_string(), CUDA_MANIFEST_URL, "cuda_nvrtc").is_err());
     assert_eq!(runtime_component_keys("cuda").len(), 5);
     assert_eq!(runtime_component_keys("tensorrt").len(), 6);
-    assert_eq!(tensorrt_package().size, 1_845_842_538);
     assert!(should_extract_runtime_dll("tensorrt", "nvinfer_10.dll"));
     assert!(!should_extract_runtime_dll("tensorrt", "unrelated.dll"));
     assert!(should_extract_runtime_dll("cuda_cudart", "cudart64_12.dll"));

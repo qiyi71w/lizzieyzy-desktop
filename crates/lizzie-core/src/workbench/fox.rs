@@ -8,6 +8,20 @@ use crate::{api::*, engine::{rules::KataRules, runtime::{InstanceId, Phase, Runt
 const TIMEOUT: Duration = Duration::from_secs(5);
 const UNLIMITED_TIME: f64 = 1e20;
 const UNLIMITED_VISITS: u64 = 1_125_899_906_842_624;
+/// `FoxRulesText`: one entry per semantically distinct KataGo preset with its name's key; other
+/// rules are worded field by field in the dialog.
+const FOX_RULES_PRESETS: [(&str, &str); 10] = [
+    ("chinese", "Fox.rulesPreset.chinese"),
+    ("chinese-ogs", "Fox.rulesPreset.chineseOgs"),
+    ("japanese", "Fox.rulesPreset.japaneseKorean"),
+    ("stone-scoring", "Fox.rulesPreset.stoneScoring"),
+    ("tromp-taylor", "Fox.rulesPreset.trompTaylor"),
+    ("aga", "Fox.rulesPreset.agaBga"),
+    ("new-zealand", "Fox.rulesPreset.newZealand"),
+    ("aga-button", "Fox.rulesPreset.agaButton"),
+    ("goe", "LizzieFrame.currentRules.goe"),
+    ("ancient-territory", "Fox.rulesPreset.ancientTerritory"),
+];
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Mode { Idle, Inspect, Setup, Ready, Observe, Restore, Releasing }
 enum Check { Ack, Commands, TimeModes, Rules, Time, Visits, Pda, VerifyRules(KataRules), Number(f64), PdaValue(f64), Selection(Snapshot, u64) }
@@ -538,6 +552,7 @@ impl Workbench {
     }
     pub(super) fn fox_view(&self) -> FoxView {
         let snapshot = self.fox.state.snapshot(); let now = self.fox_now();
+        let rules = self.fox.selected_rules.as_ref().or_else(|| match &self.session_rules { super::analysis::SessionRules::Valid { rules,.. } => Some(rules), _ => self.fox.captured_rules.as_ref() });
         let map = |f: &SubmissionFact| FoxSubmissionView { connection:f.submission.connection, game:f.submission.game, revision:f.submission.revision, search:f.submission.search, vertex:f.submission.action.vertex(snapshot.rules.as_ref().map_or(19, |r|r.size)), outcome:format!("{:?}", f.outcome), written:f.written_nanos != 0, reason:f.reason.clone() };
         let submissions: Vec<_> = self.fox.state.submissions().iter().rev().take(64).map(map).collect();
         let pending = self.fox.state.latest_submission().filter(|f| snapshot.pending.as_ref().is_some_and(|p|p.search == f.submission.search)).map(map);
@@ -545,7 +560,8 @@ impl Workbench {
             status_key:self.fox.status.clone(), listening:self.fox.listener.is_some(), port:self.fox.port,
             owns_board:self.fox.owns, preparing:matches!(self.fox.mode,Mode::Inspect|Mode::Setup), restoring:matches!(self.fox.mode,Mode::Restore|Mode::Releasing), ready:self.fox.mode == Mode::Ready,
             can_start:self.fox.listener.is_none() && self.fox.reservation.is_none() && self.fox.inspected_instance.is_some_and(|i|Some(i) == self.engines.foreground() && self.engines.phase(i) == Some(Phase::Ready) && self.engines.unrestored(i).is_none()), can_stop:self.fox.listener.is_some(),
-            rules: self.fox.selected_rules.as_ref().or_else(|| match &self.session_rules { super::analysis::SessionRules::Valid { rules,.. } => Some(rules), _ => self.fox.captured_rules.as_ref() }).map(KataRules::to_gtp_argument),
+            rules: rules.map(KataRules::to_gtp_argument),
+            rules_preset_key: rules.and_then(|r| FOX_RULES_PRESETS.iter().find(|p| r.matches_preset(p.0))).map(|p| p.1.to_string()),
             max_time:self.fox.captured_time.map(|t|if t >= UNLIMITED_TIME {0.0}else{t}), max_visits:self.fox.captured_visits.map(|v|if v>=UNLIMITED_VISITS{0}else{v}),
             connection:snapshot.connection,game:snapshot.game,revision:snapshot.revision,live_node:self.fox.live,
             browsing:self.fox.owns && self.fox.live.is_some() && self.fox.live != Some(self.cursor), browsing_status_key:if snapshot.searchable(){"Fox.browsing"}else{"Fox.retainedObservation"}.into(),

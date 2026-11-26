@@ -1,4 +1,4 @@
-// 补算 HumanSL (HumanSlStrengthDialog.prepare): the game, the engine, the model download prompt,
+// 开始计算 (HumanSlStrengthDialog.prepare): the game, the engine, the model download prompt,
 // then the modal "HumanSL 40" progress dialog with its status, bar and 取消. The model
 // download is the resource job AI 陪练 uses; the preparation itself is the core's manual task.
 import { registerViewHandler, run, state } from "../app";

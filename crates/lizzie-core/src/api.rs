@@ -55,7 +55,7 @@ pub enum StrengthCommand {
     SelectModel { id: String },
     ImportModel { path: String },
     SetBackground { enabled: bool },
-    /// 补算 HumanSL. `resume`: the same request after the model download it needed; it prepares
+    /// 开始计算 (HumanSL 40). `resume`: the same request after the model download it needed; it prepares
     /// the game it was asked for, else is refused with `HumanSL40.gameChanged`.
     RunHumanSl { resume: bool },
     CancelHumanSl,
@@ -79,7 +79,7 @@ pub struct StrengthStatusView {
 }
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
 pub struct StrengthManualView {
-    /// Numbers each admitted 补算 HumanSL; a dialog only takes the outcome of the run it started
+    /// Numbers each admitted 开始计算 (HumanSL 40); a dialog only takes the outcome of the run it started
     /// (an earlier run's outcome stays visible until the next run is admitted).
     pub run: u32,
     pub running: bool,
@@ -598,8 +598,8 @@ pub enum Command {
         settings: crate::settings::RegionSettings,
     },
     /// 选点重点研究 (right-click 评估此点 / 取消评估 / 清除所有评估选点) on the current position. A
-    /// point that cannot be tracked now (engine without `focus`, occupied, outside a kept region,
-    /// already tracked) answers `Unchanged`.
+    /// point that cannot be tracked now (engine without `focus`, analysis paused or stopped by a
+    /// limit, occupied, outside a kept region, already tracked) answers `Unchanged`.
     Tracking {
         op: TrackingCommand,
     },
@@ -648,6 +648,9 @@ pub enum Command {
     },
     /// 引擎对战.
     Match { op: MatchCommand },
+    /// 本局规则详情 (a click on the rules caption, Shift+D): the text of the rules the caption
+    /// shows; `Unchanged` when it shows no 本局规则. Only reads the frozen record.
+    InspectMatchRules,
     HumanSl { op: HumanSlCommand },
     /// 抓取死活题 参数设置 确定 (`CaptureTsumeGoSettings.saveSettings`).
     SetCaptureSettings {
@@ -912,14 +915,29 @@ pub struct RegionView {
 pub struct FocusView {
     /// What the foreground engine's own start-up probe found (`Unknown` without one).
     pub capability: crate::engine::runtime::FocusCapability,
-    /// A point can be tracked now (`canStartTrackingAnalysis`).
-    pub available: bool,
+    /// Why no point can be tracked now; `None` when one can (`canStartTrackingAnalysis`).
+    pub unavailable: Option<TrackingUnavailable>,
     pub target_visits: u32,
     /// Tracked points, in the order they were chosen.
     pub points: Vec<TrackedPointView>,
     /// The engine still searches focus points the user no longer tracks (the change is sent,
     /// not yet accepted).
     pub cancellation_pending: bool,
+}
+
+/// Why 评估此点 takes no point now (`RightClickMenu.trackingUnavailableKey`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub enum TrackingUnavailable {
+    /// The foreground KataGo rejected the `focus` option.
+    EngineUnsupported,
+    /// Checking the foreground KataGo for `focus` failed.
+    ProbeFailed,
+    /// Only the user's pause, an analysis limit's stop or 分析 黑／白 keeps the foreground engine
+    /// from analysing this position; resuming the analysis makes points trackable.
+    AnalysisPaused,
+    /// No local KataGo that supports `focus` analyses this position for the user: still
+    /// starting, lent to a background task, 双引擎模式, the pure network or 摆子.
+    Unavailable,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
@@ -1061,6 +1079,9 @@ pub enum CommandResult {
     /// Answer to [`Command::ClickReview`]; `None` when no move on the current line, the current
     /// node included, was played at the point.
     ClickReview { review: Option<ClickReviewView> },
+    /// Answer to [`Command::InspectMatchRules`]: the 本局规则详情 text, as the saved record's
+    /// 本局规则 block has it.
+    MatchRulesDetails { text: String },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
@@ -1671,6 +1692,10 @@ pub struct WorkbenchView {
     /// 人机对弈 messages, once each, in order.
     pub game_notices: Vec<GameNotice>,
     pub engine_match: Option<MatchView>,
+    /// The rules caption's 本局规则 summary (`EngineGamePresentation.matchRulesCaption`): while the
+    /// open document has a game's 本局规则 record, a match runs, or the last start is preparing or
+    /// failed. It replaces the foreground engine's rules caption; `None` otherwise.
+    pub match_rules_caption: Option<String>,
     /// The open document is an engine game (Java `Board.isPkBoard` with `isPkBoardKataB` /
     /// `isPkBoardKataW`; `WinrateGraph.isEngineOrPkGraphMode`): always while a match exists, its
     /// score side from the match's engines; else a document a match game was played on
@@ -2152,6 +2177,15 @@ pub struct EngineEntryView {
 pub struct ForegroundEngineView {
     /// Position in the engine list.
     pub index: u32,
+    /// The running engine process: another start, also of the same engine, is another instance.
+    /// The title measures the search speed of one instance only.
+    pub instance: u64,
+    /// The analysis search this instance runs for the current position, or ran last: it changes
+    /// whenever the instance begins searching again — another position, komi or rules, a
+    /// changed search parameter, 重算 or 清除分析信息, a resumed analysis — and stays while a
+    /// search goes on. Totals of different searches are not one sequence, so the title
+    /// measures a search speed within one search only.
+    pub search: u64,
     /// The configured name, else the GTP name.
     pub name: String,
     pub gtp_name: String,
@@ -2225,7 +2259,8 @@ pub struct EngineView {
     /// 分析 黑 / 白: ordinary analysis goes on for these sides (session only, both at start).
     pub analyze_black: bool,
     pub analyze_white: bool,
-    /// Captured-panel rules caption key (`KataGoRules.Summary`), when KataGo reported its rules.
+    /// Captured-panel rules caption key (`RulePreset.captionKey`): the rule set the reported
+    /// rules and the game's komi are, else the rules' summary; when KataGo reported its rules.
     pub rules_key: Option<String>,
     /// Rules the foreground KataGo reported (JSON), for the rules dialog.
     pub rules: Option<String>,
@@ -2393,8 +2428,24 @@ pub struct ScoreView {
     pub komi: f64,
     pub black_total: f64,
     pub white_total: f64,
-    /// SGF result written by 确认结果 (`B+3.5`, `W+0.5`; Black wins ties like Java).
+    /// Who won and by how much, or a draw (`CountVerdict`).
+    pub verdict: ScoreVerdict,
+    /// SGF result written by 确认结果: `B+3.5`, `W+4`, `0` for a draw, `B+` / `W+` for a draw
+    /// the rules give to the first player to pass.
     pub result: String,
+}
+
+/// 终局点目's verdict (`CountVerdict`). Equal totals are a draw unless KataGo's button rules give
+/// a drawn count to the player who passed first on the way to the position.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum ScoreVerdict {
+    /// 和棋.
+    Draw,
+    /// 黑胜（和棋，黑方最先放弃着手）: equal totals given to `winner`, who passed first.
+    DrawToFirstPasser { winner: Stone },
+    /// 黑胜3.5目: `margin` without a trailing `.0` (`4`, `3.5`).
+    Win { winner: Stone, margin: String },
 }
 
 /// Analysis stored for a node (`BoardData.bestMoves` and summary).
@@ -2516,6 +2567,10 @@ pub enum CommentaryCommand {
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
 #[serde(tag = "type")]
 pub enum ConnectionCommand {
+    /// Whether `base_url` is an address the API-key connection accepts
+    /// (`commentary::settings::validate_base_url`): the settings dialog asks before it lists models
+    /// or saves, so it reports with the rule the connection uses.
+    CheckApiAddress { base_url: String },
     ListApiModels { base_url: String, api_key: String },
     SaveApiKeyConnection { base_url: String, model: String, api_key: String, remember: bool },
     ForgetApiKey, OpenApiKeyTab,

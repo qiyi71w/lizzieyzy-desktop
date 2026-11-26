@@ -14,6 +14,8 @@ pub use matches::*;
 
 use std::path::{Path, PathBuf};
 
+use crate::humansl::{CoachLevel, Pace};
+
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -863,17 +865,6 @@ pub enum TrainingMode {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
-pub enum OpponentPreset {
-    #[default]
-    #[serde(alias = "RANK")]
-    Rank,
-    #[serde(alias = "MODERN_PRO")]
-    ModernPro,
-    #[serde(alias = "ONLINE_9D")]
-    Online9d,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub enum PlayerColor {
     #[default]
     #[serde(alias = "RANDOM")]
@@ -884,48 +875,47 @@ pub enum PlayerColor {
     White,
 }
 
+/// The last started AI 陪练 game's choices. The komi is no choice: the game starts with the
+/// even-game komi of the rules KataGo plays, or 0.5 with a handicap.
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct HumanSlTrainingSettings {
     pub mode: TrainingMode,
-    pub opponent: OpponentPreset,
-    pub dan_rank: bool,
-    pub rank: u8,
+    /// The opponent; it alone decides how the AI picks its moves and its search budget.
+    pub level: CoachLevel,
     pub player_color: PlayerColor,
-    pub move_time_seconds: u32,
+    /// AI 思考时间: paces the AI's replies, nothing else.
+    pub pace: Pace,
     pub handicap: u8,
-    pub komi: f64,
 }
 
 impl Default for HumanSlTrainingSettings {
     fn default() -> Self {
         Self {
             mode: TrainingMode::PostGameReview,
-            opponent: OpponentPreset::Rank,
-            dan_rank: true,
-            rank: 3,
+            level: CoachLevel::default(),
             player_color: PlayerColor::Random,
-            move_time_seconds: 10,
+            pace: Pace::Natural,
             handicap: 0,
-            komi: 7.5,
         }
     }
 }
 
 impl HumanSlTrainingSettings {
+    /// At most nine handicap stones; with a handicap the player takes Black and receives them
+    /// (`HumanSlTrainingConfig.resolveHumanIsBlack`).
     pub fn normalized(mut self) -> Self {
-        self.rank = self.rank.clamp(1, if self.dan_rank { 9 } else { 20 });
-        if ![10, 30, 60, 86400].contains(&self.move_time_seconds) {
-            self.move_time_seconds = 10;
-        }
         self.handicap = self.handicap.min(9);
-        if !self.komi.is_finite() {
-            self.komi = 7.5;
+        if self.handicap > 0 {
+            self.player_color = PlayerColor::Black;
         }
         self
     }
 }
 
+/// Settings from before the 31 levels and AI 思考时间 still read (Java
+/// `HumanSlTrainingPreferences.load`): the opponent was a preset with a numbered rank, and the
+/// pace was 用时, the AI's time per move.
 impl<'de> Deserialize<'de> for HumanSlTrainingSettings {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = serde_json::Value::deserialize(deserializer)?;
@@ -936,7 +926,9 @@ impl<'de> Deserialize<'de> for HumanSlTrainingSettings {
         };
         let number = |key: &str| {
             let v = field(key);
-            v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok()))
+            v.as_f64()
+                .or_else(|| v.as_str().and_then(|s| s.parse::<f64>().ok()))
+                .filter(|v| v.is_finite())
         };
         let boolean = |key: &str, default| {
             let v = field(key);
@@ -946,18 +938,45 @@ impl<'de> Deserialize<'de> for HumanSlTrainingSettings {
                 else { None }
             })).unwrap_or(default)
         };
+        // 职业棋风 and 网络 9 段 are gone; 9 dan, their strongest old rank, takes over. An old
+        // number gives the plain level of that number, an unreadable one the default.
+        let level = if serde_json::from_value::<RetiredPreset>(field("opponent")).is_ok() {
+            CoachLevel::Dan9
+        } else if !field("level").is_null() {
+            serde_json::from_value(field("level")).unwrap_or_default()
+        } else {
+            number("rank").map_or_else(CoachLevel::default, |rank| {
+                CoachLevel::for_rank(rank.trunc() as i64, boolean("danRank", true))
+            })
+        };
+        // 用时's minute and no limit become 慢, anything shorter 自然.
+        let pace = if field("pace").is_null() {
+            let seconds = number("moveTimeSeconds").map(f64::trunc);
+            if seconds == Some(60.0) || seconds == Some(86400.0) {
+                Pace::Slow
+            } else {
+                Pace::Natural
+            }
+        } else {
+            serde_json::from_value(field("pace")).unwrap_or_default()
+        };
         Ok(Self {
             mode: serde_json::from_value(field("mode")).unwrap_or_default(),
-            opponent: serde_json::from_value(field("opponent")).unwrap_or_default(),
-            dan_rank: boolean("danRank", true),
-            rank: number("rank").filter(|v| v.is_finite()).unwrap_or(3.0).clamp(0.0, 255.0) as u8,
+            level,
             player_color: serde_json::from_value(field("playerColor")).unwrap_or_default(),
-            move_time_seconds: number("moveTimeSeconds").map(f64::trunc)
-                .filter(|v| [10.0, 30.0, 60.0, 86400.0].contains(v)).unwrap_or(10.0) as u32,
-            handicap: number("handicap").filter(|v| v.is_finite()).unwrap_or(0.0).clamp(0.0, 9.0) as u8,
-            komi: number("komi").unwrap_or(7.5),
+            pace,
+            handicap: number("handicap").unwrap_or(0.0).clamp(0.0, 9.0) as u8,
         }.normalized())
     }
+}
+
+/// The opponent presets older settings may name besides `Rank`.
+#[derive(Deserialize)]
+enum RetiredPreset {
+    #[serde(alias = "MODERN_PRO")]
+    ModernPro,
+    #[serde(alias = "ONLINE_9D")]
+    Online9d,
 }
 
 impl<'de> Deserialize<'de> for HumanSlSettings {

@@ -198,6 +198,9 @@
   flex: 1;
   min-height: 0;
   position: relative;
+  /* A panel keeps its padding and scroll bars when the toolbar and the strip leave less height
+     than that; clipped here, it never paints over the strip below. */
+  overflow: hidden;
   border-top: 1px solid var(--ds-line);
 }
 .ps-dash {
@@ -246,9 +249,29 @@
   gap: 4px 10px;
 }
 
-/* 测评: the five metrics with their bars, the 评分规则 scale beside them. */
+/* 测评: the five metrics with their bars, the 段位标尺 scale beside them. */
 .ps-dash-assessment > .ps-two {
   flex: 1 0 auto;
+}
+
+/* A window at the 520 x 400 floor: the two sides stack and each figure keeps one line, so the
+   Japanese and Korean rank labels never overlap the next row. The body scrolls as usual. */
+@media (max-width: 700px) {
+  .ps-two {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ps-two > :first-child {
+    padding-right: 0;
+  }
+  .ps-two > :last-child {
+    padding-left: 0;
+    padding-top: 12px;
+    border-left: 0;
+    border-top: 1px solid var(--ds-line);
+  }
+  .ps-metric-value {
+    white-space: nowrap;
+  }
 }
 .ps-side-body {
   display: grid;
@@ -499,7 +522,7 @@
   font-weight: 600;
 }
 
-/* 后台 HumanSL, 补算 HumanSL and the preparation status below the tabs. */
+/* 分析棋局时自动准备, 开始计算 and the preparation status below the tabs. */
 .ps-strip {
   flex: none;
   display: flex;

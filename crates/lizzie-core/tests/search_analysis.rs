@@ -7,7 +7,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use lizzie_core::api::{OpenSource, RegionCommand, TrackingCommand};
+use lizzie_core::api::{OpenSource, RegionCommand, TrackingCommand, TrackingUnavailable};
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
@@ -245,7 +245,7 @@ fn every_engine_start_probes_focus_whatever_the_pause() {
     let v = wb.view(false);
     assert!(v.engine.paused);
     assert_eq!(v.focus.capability, FocusCapability::Unsupported);
-    assert!(!v.focus.available);
+    assert_eq!(v.focus.unavailable, Some(TrackingUnavailable::EngineUnsupported));
 
     wb.switch_engine(2).unwrap();
     let c = Engine {
@@ -284,7 +284,7 @@ fn a_replaced_engine_answering_its_probe_late_changes_nothing() {
     let v = wb.view(false);
     assert_eq!(v.engine.foreground.as_ref().unwrap().name, "b");
     assert_eq!(v.focus.capability, FocusCapability::Unsupported);
-    assert!(!v.focus.available);
+    assert_eq!(v.focus.unavailable, Some(TrackingUnavailable::EngineUnsupported));
 }
 
 #[test]
@@ -456,33 +456,72 @@ fn changing_tracked_points_keeps_the_analysis_time_limit() {
     }
 }
 
+/// Java `Leelaz.moveFocusCapability` asks `isPondering` and `TRACKING_ANALYSIS_CONTRACT.md`: a point
+/// added while the foreground engine does not analyse — the user's pause or a limit's stop —
+/// would get no search, so none is taken and the pause is the reason given. The points tracked
+/// before stay; the pause ends their extra search for good, and resuming takes points again.
 #[test]
-fn pausing_ends_the_extra_search_and_tracking_never_resumes_analysis() {
+fn no_point_is_tracked_while_the_analysis_is_paused_or_stopped_by_a_limit() {
     let dir = tempfile::tempdir().unwrap();
     let world = World::default();
     let mut wb = workbench(dir.path(), &world);
     let e = with_engines(&mut wb, &world, &["a"], Probe::Accept);
     open(&mut wb, RECORD);
     serve(&mut wb, &world, &e, None);
-    wb.tracking(TrackingCommand::Track { point: p(3, 15) }).unwrap();
+    assert_eq!(wb.view(false).focus.unavailable, None);
+    assert!(wb.tracking(TrackingCommand::Track { point: p(3, 15) }).unwrap()); // D4
     serve(&mut wb, &world, &e, None);
 
     wb.toggle_analysis().unwrap();
     assert_eq!(serve(&mut wb, &world, &e, None), ["stop"]);
     let v = wb.view(false);
-    assert_eq!(v.focus.points.len(), 1);
+    assert!(v.engine.paused);
+    assert_eq!(v.focus.unavailable, Some(TrackingUnavailable::AnalysisPaused));
+    assert_eq!(v.focus.points.len(), 1, "the tracked point stays");
     assert!(!v.focus.points[0].active && !v.focus.cancellation_pending);
-
-    assert!(wb.tracking(TrackingCommand::Track { point: p(16, 15) }).unwrap());
+    assert!(!wb.tracking(TrackingCommand::Track { point: p(16, 15) }).unwrap()); // R4
     assert!(serve(&mut wb, &world, &e, None).is_empty(), "no request while paused");
-    assert!(wb.view(false).engine.paused);
+    let v = wb.view(false);
+    assert!(v.engine.paused, "a refused point does not resume the analysis");
+    assert_eq!(v.focus.points.iter().map(|t| t.point).collect::<Vec<_>>(), [p(3, 15)]);
 
     wb.toggle_analysis().unwrap();
+    assert_eq!(wb.view(false).focus.unavailable, None);
     assert_eq!(
         serve(&mut wb, &world, &e, None),
         ["kata-analyze B 10 rootInfo true"],
         "resuming adds no focus"
     );
+    assert!(wb.tracking(TrackingCommand::Track { point: p(16, 15) }).unwrap());
+    assert_eq!(
+        serve(&mut wb, &world, &e, None),
+        ["kata-analyze B 10 rootInfo true focus R4 0.5"]
+    );
+
+    // A visit limit stops the search here.
+    let mut settings = wb.config().engine.analysis.clone();
+    settings.limit_playout = true;
+    settings.limit_playouts = 100;
+    wb.set_analysis_settings(settings).unwrap();
+    out(&mut wb, e.id, &info(&[("D4", 80), ("R4", 40)]));
+    assert_eq!(serve(&mut wb, &world, &e, None), ["stop"]);
+    let v = wb.view(false);
+    assert!(v.engine.stopped_by_limit && !v.engine.paused);
+    assert_eq!(v.focus.unavailable, Some(TrackingUnavailable::AnalysisPaused));
+    assert!(!wb.tracking(TrackingCommand::Track { point: p(16, 3) }).unwrap()); // R16
+    assert!(serve(&mut wb, &world, &e, None).is_empty());
+    assert_eq!(wb.view(false).focus.points.len(), 2);
+
+    // Space goes on past the limit: R16 is taken.
+    wb.toggle_analysis().unwrap();
+    assert_eq!(wb.view(false).focus.unavailable, None);
+    assert!(wb.tracking(TrackingCommand::Track { point: p(16, 3) }).unwrap());
+    let sent = serve(&mut wb, &world, &e, None);
+    assert_eq!(
+        analyses(&sent).last().unwrap().as_str(),
+        "kata-analyze B 10 rootInfo true focus R16 0.5"
+    );
+    assert_eq!(wb.view(false).focus.points.len(), 3);
 }
 
 #[test]
@@ -544,7 +583,8 @@ fn an_engine_without_focus_explains_and_keeps_analysing() {
     assert_eq!(analyses(&sent), ["kata-analyze B 10 rootInfo true"]);
     assert!(!wb.tracking(TrackingCommand::Track { point: p(3, 15) }).unwrap());
     let v = wb.view(false);
-    assert!(!v.focus.available && v.focus.points.is_empty());
+    assert!(v.focus.points.is_empty());
+    assert_eq!(v.focus.unavailable, Some(TrackingUnavailable::EngineUnsupported));
     assert_eq!(v.focus.capability, FocusCapability::Unsupported);
     assert!(
         serve(&mut wb, &world, &e, None).is_empty(),

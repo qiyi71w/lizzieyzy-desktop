@@ -203,9 +203,10 @@ export function options(title: string, text: string, choices: [label: string, ke
   return show(title, text, choices.map(([label, key], value) => ({ label, key, value, primary: value === initial })), kind, -1);
 }
 
-/** A dialog with custom content that only shows something, closed with 关闭. */
-export function panel(title: string, body: HTMLElement): Promise<void> {
-  return show(title, body, [{ label: product("close"), value: true }], "info", false).then(() => undefined);
+/** A dialog with custom content that only shows something, closed with 关闭 (or the window's own
+ *  name for it). */
+export function panel(title: string, body: HTMLElement, close = product("close")): Promise<void> {
+  return show(title, body, [{ label: close, value: true }], "info", false).then(() => undefined);
 }
 
 /** The close box that ends a dialog's title row and closes it as Escape does (DESIGN.md Dialogs).

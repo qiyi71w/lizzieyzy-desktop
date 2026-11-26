@@ -35,9 +35,44 @@
   overflow: auto;
   padding: 4px 20px 16px;
 }
+/* A row's control goes under its name, at the end, once the two no longer fit on one line (a
+   narrow window, a large font, a long language); a control wider than the row wraps its parts. */
+.hs-setup .ds-row {
+  flex-wrap: wrap;
+}
+.hs-setup .ds-row-text {
+  flex: 1 1 10em;
+}
+.hs-setup .ds-row-control {
+  margin-left: auto;
+  max-width: 100%;
+  min-width: 0;
+}
+.hs-setup .ds-row-control > select {
+  max-width: 100%;
+}
+.hs-setup .ds-seg {
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
 .hs-subtitle {
   margin: 0 0 12px;
   color: var(--ds-text-2);
+}
+/* 更多设置 with the arrow that shows whether its group is open. */
+.hs-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.hs-more-icon {
+  display: inline-flex;
+}
+.hs-more-icon .icon {
+  width: 14px;
+  height: 14px;
 }
 .hs-more[aria-expanded="true"] {
   border-color: var(--ds-accent-soft-line);
@@ -45,20 +80,7 @@
   color: var(--ds-accent-text);
 }
 
-/* AI 对手: 按段位 / 职业风格, then the rank (级 / 段 and the number) or the style. */
-.hs-rank-panel {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-.hs-rank {
-  width: calc(var(--ds-size) * 5);
-  text-align: right;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-/* The model's state and the summary or the run's status. */
+/* The model's state and the run's status. */
 .hs-summary {
   display: flex;
   flex-wrap: wrap;
@@ -158,6 +180,19 @@
 .humansl-dialog > .ds-footer button {
   min-width: 76px;
 }
+/* Too narrow for 更多设置 and the two actions on one line (the minimum window with a large font
+   or a long language): the actions go to a second line at the end, and no button gets narrower
+   than its label. */
+.humansl-dialog > .ds-footer {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.humansl-dialog > .ds-footer > .ds-footer-start {
+  min-width: min-content;
+}
+.humansl-dialog > .ds-footer > .ds-footer-end {
+  margin-left: auto;
+}
 .hs-start {
   display: inline-flex;
   align-items: center;
@@ -171,16 +206,26 @@
 .hs-start .icon[hidden] {
   display: none;
 }
+/* 贴目: the komi the game starts with, a value rather than a field. */
+.hs-komi {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
 
 /* ---- training bar (HumanSlTrainingBar): the bottom bar's ground and height, capsules of
-   segments: the opponent, the clocks around the turn with the thinking line, the actions. */
+   segments: the opponent, the clocks around the turn with the thinking line, the actions. When
+   the window is too narrow for them on one line (the minimum window with a large font or a long
+   language), the capsules go on to a further line and the turn's text wraps, so that nothing is
+   cut off; on a wide window the bar is one line of the bottom bar's height. */
 .hs-bar {
   flex: none;
-  height: calc(var(--ds-cap-h) + 18px);
+  min-height: calc(var(--ds-cap-h) + 18px);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
-  padding: 0 12px;
+  align-content: center;
+  gap: 8px 12px;
+  padding: 8px 12px;
   border-top: 1px solid var(--ds-line);
   background: var(--ds-chrome);
   white-space: nowrap;
@@ -199,10 +244,10 @@
   overflow: hidden;
 }
 .hs-bar-identity {
+  flex: none;
   display: flex;
   align-items: baseline;
   gap: 6px;
-  min-width: 0;
 }
 .hs-bar-caption {
   color: var(--ds-text-3);
@@ -210,14 +255,14 @@
 }
 .hs-bar-opponent {
   font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 /* The clocks and the turn: three text segments, the clocks in tabular figures. */
 .hs-bar-status {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
   max-width: 560px;
+  height: auto;
+  min-height: var(--ds-cap-h);
   margin: 0 auto;
 }
 .hs-bar-status > span {
@@ -237,8 +282,10 @@
   flex: 1;
   justify-content: center;
   min-width: 0;
+  padding-block: 4px;
   font-weight: 600;
-  overflow: hidden;
+  text-align: center;
+  white-space: normal;
 }
 /* While the AI thinks: a line running along the capsule's bottom edge. */
 .hs-bar-thinking {
@@ -259,7 +306,11 @@
   bottom: 0;
   background: var(--ds-accent);
 }
-/* 停一手 / 重试 AI / 结束并复盘: segments with a line between them. */
+/* The actions keep their labels whole: the capsule goes on to the next line instead. */
+.hs-bar-actions {
+  flex: none;
+}
+/* 停一手 / 认输 / 重试 AI / 结束并复盘: segments with a line between the shown ones. */
 .hs-seg {
   height: auto;
   padding: 0 12px;
@@ -267,7 +318,7 @@
   border-radius: 0;
   background-color: transparent;
 }
-.hs-seg + .hs-seg {
+.hs-seg:not([hidden]) ~ .hs-seg {
   box-shadow: inset 1px 0 0 var(--ds-line);
 }
 .hs-seg:disabled {

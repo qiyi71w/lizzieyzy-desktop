@@ -467,6 +467,169 @@ fn import_and_cache_cleanup_have_specific_completion_messages() {
     assert_eq!(outcome.detail, "6 bytes");
 }
 
+/// A local stand-in for NVIDIA's download server: the two redistrib manifests, and `archive` for
+/// any package. It records what was asked for.
+struct NvidiaSource {
+    cuda: String,
+    cudnn: String,
+    archive: Vec<u8>,
+    asked: std::sync::Mutex<Vec<String>>,
+}
+impl r::Fetch for NvidiaSource {
+    fn get(&self, url: &str, start: Option<u64>) -> r::ResourceResult<r::FetchResponse> {
+        self.asked.lock().unwrap().push(url.into());
+        let body = match url {
+            r::CUDA_MANIFEST_URL => self.cuda.as_bytes(),
+            r::CUDNN_MANIFEST_URL => self.cudnn.as_bytes(),
+            _ => &self.archive,
+        };
+        let offset = start.unwrap_or(0) as usize;
+        Ok(r::FetchResponse {
+            status: if offset == 0 { 200 } else { 206 },
+            total_length: Some(body.len() as u64),
+            body: Box::new(Cursor::new(body[offset..].to_vec())),
+        })
+    }
+}
+impl NvidiaSource {
+    /// Manifests naming the versions and digests of Java's `NvidiaRuntimePins`, with `change`
+    /// applied to the entry of one package.
+    fn new(archive: Vec<u8>, change: impl Fn(&str, &mut serde_json::Value)) -> NvidiaSource {
+        let entry = |key: &str, version: &str, sha256: &str| {
+            let file = serde_json::json!({"relative_path": format!("{key}/windows-x86_64/{key}-archive.zip"), "sha256": sha256, "size": archive.len()});
+            let platform = if key == "cudnn" {
+                serde_json::json!({ "cuda12": file })
+            } else {
+                file
+            };
+            let mut entry = serde_json::json!({ "version": version, "windows-x86_64": platform });
+            change(key, &mut entry);
+            entry
+        };
+        let cuda = serde_json::json!({
+            "cuda_cudart": entry("cuda_cudart", "12.8.57", "2c7aa62a195d79229d4381c8bd0174a30502cf3d8124c6e94ee50a7fc8a1e9f4"),
+            "libcublas": entry("libcublas", "12.8.3.14", "a2f990cf61f0086d942632f2455727240baa9378c2e9fa2bdda56ef81f6cf8ad"),
+            "libnvjitlink": entry("libnvjitlink", "12.8.61", "8258afaadbd9744d87070525067c497041dd52c6b22d11ba7297421fc8f6f39d"),
+            "cuda_nvrtc": entry("cuda_nvrtc", "12.8.61", "e43603b09f8a52d681ceb814c00b655af19da53692ab91671dabbf8071c8f93d"),
+        });
+        let cudnn = serde_json::json!({
+            "cudnn": entry("cudnn", "9.8.0.87", "d8a23705e3884b137b7e05449fb2b61bfa524e7cfc3fda80743d633f423c6ce4"),
+        });
+        NvidiaSource {
+            cuda: cuda.to_string(),
+            cudnn: cudnn.to_string(),
+            archive,
+            asked: Default::default(),
+        }
+    }
+    fn archives_asked(&self) -> Vec<String> {
+        let manifests = [r::CUDA_MANIFEST_URL, r::CUDNN_MANIFEST_URL];
+        self.asked
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|u| !manifests.contains(&u.as_str()))
+            .cloned()
+            .collect()
+    }
+}
+/// Installs the CUDA runtime on a machine detected as Windows, from `source`.
+fn install_nvidia_runtime(wb: &mut Workbench, source: &NvidiaSource) -> lizzie_core::api::ResourceOutcome {
+    let inspect = wb
+        .begin_resource_task(ResourceCommand::Inspect { refresh: false })
+        .unwrap();
+    let machine = r::MachineFacts {
+        os: "windows".into(),
+        arch: "x86_64".into(),
+        ..Default::default()
+    };
+    assert!(wb.complete_resource_task(
+        inspect.id,
+        Ok(lizzie_core::workbench::ResourceCompletion {
+            machine: Some(machine),
+            ..Default::default()
+        })
+    ));
+    let job = wb
+        .begin_resource_task(ResourceCommand::Download {
+            item: ResourceItem::NvidiaRuntime {
+                backend: "cuda".into(),
+                confirmed: true,
+            },
+        })
+        .unwrap();
+    run(wb, &job, source);
+    wb.resource_snapshot().last_outcome.unwrap()
+}
+/// Every file under the NVIDIA runtime directory, downloads included.
+fn runtime_files(wb: &Workbench) -> Vec<PathBuf> {
+    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else {
+                out.push(path);
+            }
+        }
+    }
+    let mut files = Vec::new();
+    walk(&wb.resource_store().runtime_dir(), &mut files);
+    files
+}
+
+#[test]
+fn nvidia_runtime_trusts_only_the_built_in_versions_and_digests() {
+    // Manifests that name another digest for a package (NVIDIA's metadata changed or was tampered
+    // with): refused with the expected values before any archive is downloaded.
+    let (_d, mut wb) = fixture();
+    let source = NvidiaSource::new(b"archive".to_vec(), |key, entry| {
+        if key == "libcublas" {
+            entry["windows-x86_64"]["sha256"] = "0".repeat(64).into();
+        }
+    });
+    let outcome = install_nvidia_runtime(&mut wb, &source);
+    assert_eq!(
+        (outcome.status.as_str(), outcome.message_key.as_str()),
+        ("failed", "AutoSetup.failed")
+    );
+    assert!(
+        outcome.detail.contains(
+            "Unexpected NVIDIA libcublas metadata; expected version 12.8.3.14 and SHA-256 a2f990cf61f0086d942632f2455727240baa9378c2e9fa2bdda56ef81f6cf8ad"
+        ),
+        "{}",
+        outcome.detail
+    );
+    assert!(source.archives_asked().is_empty());
+    assert_eq!(runtime_files(&wb), Vec::<PathBuf>::new());
+
+    // Manifests naming the built-in values: each archive is downloaded against them, so one whose
+    // content is not the pinned package is refused as a checksum failure and nothing is installed.
+    let (_d, mut wb) = fixture();
+    let source = NvidiaSource::new(b"not the NVIDIA archive".to_vec(), |_, _| {});
+    let outcome = install_nvidia_runtime(&mut wb, &source);
+    assert_eq!(
+        (outcome.status.as_str(), outcome.message_key.as_str()),
+        ("failed", "AutoSetup.packageChecksumFailed")
+    );
+    assert!(
+        outcome
+            .detail
+            .contains("2c7aa62a195d79229d4381c8bd0174a30502cf3d8124c6e94ee50a7fc8a1e9f4"),
+        "{}",
+        outcome.detail
+    );
+    assert_eq!(
+        source.archives_asked(),
+        ["https://developer.download.nvidia.com/compute/cuda/redist/cuda_cudart/windows-x86_64/cuda_cudart-archive.zip"]
+    );
+    assert_eq!(
+        runtime_files(&wb),
+        Vec::<PathBuf>::new(),
+        "nothing installed and no refused archive kept"
+    );
+}
+
 struct NoFetch;
 impl r::Fetch for NoFetch {
     fn get(&self, _: &str, _: Option<u64>) -> r::ResourceResult<r::FetchResponse> {
@@ -571,7 +734,8 @@ fn humansl_download_uses_resource_busy_and_cancellation_contract() {
 
 #[test]
 fn humansl_settings_normalize_and_corrupt_fields_do_not_drop_the_config() {
-    use lizzie_core::settings::{Config, HumanSlTrainingSettings, OpponentPreset, PlayerColor, TrainingMode};
+    use lizzie_core::humansl::{CoachLevel, Pace};
+    use lizzie_core::settings::{Config, HumanSlTrainingSettings, PlayerColor, TrainingMode};
     let config: Config = serde_json::from_value(serde_json::json!({
         "humanSl": { "modelPath": 4, "advancedVisible": "broken", "training": {
             "mode": "FUTURE", "opponent": "UNKNOWN", "danRank": false, "rank": 99,
@@ -580,14 +744,12 @@ fn humansl_settings_normalize_and_corrupt_fields_do_not_drop_the_config() {
     })).unwrap();
     let settings = config.human_sl;
     let s = settings.training;
-    assert_eq!((s.mode, s.opponent, s.player_color), (TrainingMode::PostGameReview, OpponentPreset::Rank, PlayerColor::Random));
-    assert_eq!((s.rank, s.move_time_seconds, s.handicap, s.komi), (20, 10, 9, 7.5));
+    // Nine handicap stones: the player takes Black whatever the saved colour.
+    assert_eq!((s.mode, s.level, s.player_color), (TrainingMode::PostGameReview, CoachLevel::Kyu10, PlayerColor::Black));
+    assert_eq!((s.pace, s.handicap), (Pace::Natural, 9));
     assert!(!settings.advanced_visible && settings.model_path.is_none() && !config.record.read_komi);
-    let s = HumanSlTrainingSettings { rank: 0, handicap: 255, komi: f64::INFINITY, ..Default::default() }.normalized();
-    assert_eq!((s.rank, s.handicap, s.komi), (1, 9, 7.5));
-    for seconds in [10, 30, 60, 86400] {
-        assert_eq!(HumanSlTrainingSettings { move_time_seconds: seconds, ..Default::default() }.normalized().move_time_seconds, seconds);
-    }
+    let s = HumanSlTrainingSettings { handicap: 255, player_color: PlayerColor::White, ..Default::default() }.normalized();
+    assert_eq!((s.handicap, s.player_color), (9, PlayerColor::Black));
     let config: Config = serde_json::from_value(serde_json::json!({"humanSl": "broken"})).unwrap();
     assert_eq!(config.human_sl, Default::default());
 }

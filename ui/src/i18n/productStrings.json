@@ -7,7 +7,8 @@
    "Menu.appearanceModeDark": "Dark",
    "Menu.appearanceModeLight": "Light",
    "Menu.appearanceModeSystem": "Match System",
-   "Menu.editPanelLayout": "Edit panel layout…"
+   "Menu.editPanelLayout": "Edit panel layout…",
+   "RightClickMenu.trackPoint.analysisPaused": "Analysis paused; cannot evaluate this point"
   },
   "JaJp": {
    "FunctionSearch.description.menu.appearanceMode": "インターフェイスをライト、ダーク、またはシステム設定に合わせて表示します。",
@@ -16,7 +17,8 @@
    "Menu.appearanceModeDark": "ダーク",
    "Menu.appearanceModeLight": "ライト",
    "Menu.appearanceModeSystem": "システムに合わせる",
-   "Menu.editPanelLayout": "パネルのレイアウトを編集…"
+   "Menu.editPanelLayout": "パネルのレイアウトを編集…",
+   "RightClickMenu.trackPoint.analysisPaused": "分析の一時停止中は、この点を評価できません"
   },
   "KoKr": {
    "FunctionSearch.description.menu.appearanceMode": "인터페이스를 라이트, 다크 또는 시스템 설정에 맞춰 표시합니다.",
@@ -25,7 +27,8 @@
    "Menu.appearanceModeDark": "다크",
    "Menu.appearanceModeLight": "라이트",
    "Menu.appearanceModeSystem": "시스템 설정과 일치",
-   "Menu.editPanelLayout": "패널 레이아웃 편집…"
+   "Menu.editPanelLayout": "패널 레이아웃 편집…",
+   "RightClickMenu.trackPoint.analysisPaused": "분석이 일시 중지되어 이 수를 평가할 수 없음"
   },
   "ThTh": {
    "FunctionSearch.description.menu.appearanceMode": "เลือกหน้าตาแบบสว่าง แบบมืด หรือตามการตั้งค่าระบบ",
@@ -34,7 +37,8 @@
    "Menu.appearanceModeDark": "มืด",
    "Menu.appearanceModeLight": "สว่าง",
    "Menu.appearanceModeSystem": "ตามระบบ",
-   "Menu.editPanelLayout": "แก้ไขเค้าโครงแผง…"
+   "Menu.editPanelLayout": "แก้ไขเค้าโครงแผง…",
+   "RightClickMenu.trackPoint.analysisPaused": "หยุดการวิเคราะห์ชั่วคราว จึงประเมินจุดนี้ไม่ได้"
   },
   "ZhCn": {
    "FunctionSearch.description.menu.appearanceMode": "选择界面使用浅色、深色，或跟随系统设置。",
@@ -43,7 +47,8 @@
    "Menu.appearanceModeDark": "深色",
    "Menu.appearanceModeLight": "浅色",
    "Menu.appearanceModeSystem": "跟随系统",
-   "Menu.editPanelLayout": "编辑面板布局…"
+   "Menu.editPanelLayout": "编辑面板布局…",
+   "RightClickMenu.trackPoint.analysisPaused": "分析已暂停，不能评估此点"
   },
   "ZhTw": {
    "FunctionSearch.description.menu.appearanceMode": "選擇介面使用淺色、深色，或跟隨系統設定。",
@@ -52,7 +57,8 @@
    "Menu.appearanceModeDark": "深色",
    "Menu.appearanceModeLight": "淺色",
    "Menu.appearanceModeSystem": "跟隨系統",
-   "Menu.editPanelLayout": "編輯面板佈局…"
+   "Menu.editPanelLayout": "編輯面板佈局…",
+   "RightClickMenu.trackPoint.analysisPaused": "分析已暫停，不能評估此點"
   }
  }
 }

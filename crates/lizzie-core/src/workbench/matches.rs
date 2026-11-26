@@ -1,5 +1,6 @@
 //! Engine-versus-engine matches: one writer for acceptance, turns, retirement and batch succession.
 //! Runtime reservations own processes; every document mutation uses apply_edit/edit_document.
+mod rules;
 mod saving;
 
 use std::path::{Path, PathBuf};
@@ -32,11 +33,10 @@ struct Participant {
     reservation: u64,
     name: String,
     setup: bool,
-    rules_verified: bool,
-    original_rules: Option<crate::engine::rules::KataRules>,
-    observed_rules: Option<crate::engine::rules::KataRules>,
+    rules: rules::SideRules,
     awaiting: Vec<u64>,
     captures: Vec<(u64, String)>,
+    /// Commands undoing the game's parameter changes; its rules are `rules.handback()`.
     restore: Vec<String>,
     released: bool,
     resign_count: u32,
@@ -84,6 +84,14 @@ struct Run {
     /// restarted once the match is retired (EngineManager.java:5403-5506, 8845-9093).
     failed: Vec<(String, bool)>,
 }
+impl Run {
+    /// Whether the game's rules let it start, once both sides answered.
+    fn rules_admission(&self) -> rules::Admission {
+        let black = side_index(self.first_is_black, Stone::Black);
+        let target = crate::engine::rules::KataRules::parse(&self.settings.rules);
+        rules::admission(target.as_ref(), &self.sides[black].rules, &self.sides[1 - black].rules)
+    }
+}
 #[derive(Default)]
 pub(super) struct MatchFlow {
     run: Option<Run>,
@@ -95,6 +103,10 @@ pub(super) struct MatchFlow {
     image_write: Option<MatchWinrateImageRequest>,
     jobs: Vec<SaveJob>,
     saves: Vec<u64>,
+    /// The latest game's 本局规则 (`EngineGameModule.matchRulesSnapshot`), kept after the match.
+    rules: Option<rules::RulesSnapshot>,
+    /// The 本局规则 of the game played on document `.0` (`GameInfo`'s engine-game record).
+    rules_record: Option<(u64, rules::RulesSnapshot)>,
 }
 fn refused(key: &str) -> CommandResult {
     CommandResult::Refused {
@@ -404,9 +416,7 @@ impl Workbench {
                         reservation,
                         name: profile.name.clone(),
                         setup: false,
-                        rules_verified: false,
-                        original_rules: None,
-                        observed_rules: None,
+                        rules: rules::SideRules::default(),
                         awaiting: Vec::new(),
                         captures: Vec::new(),
                         restore: Vec::new(),
@@ -480,6 +490,7 @@ impl Workbench {
                 });
                 self.persisted.matches.batch_name.clear();
                 self.match_prepare_board();
+                self.match_rules_publish(rules::RulesPhase::Preparing, false);
                 self.match_setup();
                 Ok(CommandResult::Done)
             }
@@ -595,6 +606,11 @@ impl Workbench {
                     run.rules_consent = true;
                     self.match_setup();
                 } else {
+                    // MatchRulesPrepareException("unverified-consent-refused").
+                    self.matches.notices.push(MatchNotice {
+                        message_key: "MatchRules.failed.consentRefused".into(),
+                        arguments: Vec::new(),
+                    });
                     self.match_end(MatchEnd::Retired, None);
                 }
                 Ok(CommandResult::Done)
@@ -689,18 +705,7 @@ impl Workbench {
             })
             .unwrap_or_else(|| KataRules::preset("chinese").unwrap());
         let rules_prefill = prefill.to_gtp_argument();
-        let rules_choice = [
-            "chinese",
-            "stone-scoring",
-            "japanese",
-            "aga",
-            "new-zealand",
-            "tromp-taylor",
-            "goe",
-        ]
-        .iter()
-        .find(|name| KataRules::preset(name).is_some_and(|p| p == prefill))
-        .map(|s| s.to_string());
+        let rules_choice = prefill.match_option().map(|o| o.0.to_string());
         MatchSettingsView {
             rules_prefill,
             rules_choice,
@@ -841,6 +846,16 @@ impl Workbench {
         self.engines.want(None, false);
         self.engines.set_foreground(Some(r.sides[n].instance), true);
     }
+    /// Publishes the game's 本局规则 (`publishMatchRulesSnapshot`); a game that starts playing
+    /// also leaves them on its document (`attachRecordContextToCurrentHistoryLocked`).
+    fn match_rules_publish(&mut self, phase: rules::RulesPhase, confirmed: bool) {
+        let Some(run) = &self.matches.run else { return };
+        let snapshot = rules::RulesSnapshot::of(run, phase, confirmed);
+        if phase == rules::RulesPhase::Playing {
+            self.matches.rules_record = snapshot.clone().map(|s| (run.doc, s));
+        }
+        self.matches.rules = snapshot;
+    }
     fn match_setup(&mut self) {
         let Some(r) = self.matches.run.as_ref().filter(|r| r.phase == MatchPhase::Starting) else {
             return;
@@ -860,12 +875,17 @@ impl Workbench {
             let mut commands = Vec::new();
             let can_query = self.engines.has_command(id, "kata-get-rules");
             let can_set = self.engines.has_command(id, "kata-set-rules");
+            // An engine without the query gets no rules (MatchRulesPrepareState: the overlay
+            // needs both commands); what it reported before stays its last observation.
+            let last_known = self.engines.confirmed_rules(id).cloned();
+            let mut set_rules = None;
             if can_query {
                 if let Some(command) = self.engines.game_send(seat, "kata-get-rules") {
                     captures.push((command, "rules".to_string()));
                     awaiting.push(command);
                 }
                 if can_set && !settings.rules.is_empty() {
+                    set_rules = Some(commands.len());
                     commands.push(format!("kata-set-rules {}", settings.rules));
                 }
             }
@@ -937,9 +957,14 @@ impl Workbench {
                 commands.push("clear_cache".into());
             }
             commands.push("name".into());
-            for c in commands {
-                if let Some(command) = self.engines.game_send(seat, &c) {
+            let mut modified = false;
+            for (at, c) in commands.iter().enumerate() {
+                if let Some(command) = self.engines.game_send(seat, c) {
                     awaiting.push(command);
+                    if set_rules == Some(at) {
+                        captures.push((command, "setRules".into()));
+                        modified = true;
+                    }
                 }
             }
             if can_query && can_set {
@@ -950,6 +975,7 @@ impl Workbench {
             }
             let p = &mut self.matches.run.as_mut().unwrap().sides[n];
             p.setup = true;
+            p.rules = rules::SideRules::prepare(can_query, can_set, modified, last_known);
             p.awaiting = awaiting;
             p.captures = captures;
             p.restore.extend(restore_visits);
@@ -977,12 +1003,23 @@ impl Workbench {
             .is_some_and(|r| r.sides.iter().all(|p| p.setup && p.awaiting.is_empty()))
         {
             let r = self.matches.run.as_mut().unwrap();
-            if !r.rules_consent && r.sides.iter().any(|p| !p.rules_verified) {
-                return;
+            let admission = r.rules_admission();
+            match admission {
+                rules::Admission::Rejected(key) => {
+                    self.matches.notices.push(MatchNotice {
+                        message_key: key.into(),
+                        arguments: Vec::new(),
+                    });
+                    self.match_end(MatchEnd::Retired, None);
+                    return;
+                }
+                rules::Admission::Unverified if !r.rules_consent => return,
+                _ => {}
             }
             r.phase = MatchPhase::Playing;
             r.setup_deadline = None;
             r.started = Instant::now();
+            self.match_rules_publish(rules::RulesPhase::Playing, admission == rules::Admission::Confirmed);
             self.sync_engine();
             self.match_dispatch();
         }
@@ -1174,78 +1211,62 @@ impl Workbench {
         if let Some(at) = p.awaiting.iter().position(|c| *c == command) {
             p.awaiting.remove(at);
         }
+        let ending = r.phase == MatchPhase::Ending;
         let mut snapshot = false;
+        let mut rules_reply = false;
         let mut snapshot_failed = false;
         if let Some(at) = p.captures.iter().position(|(c, _)| *c == command) {
             let (_, name) = p.captures.remove(at);
-            if name == "rules" || name == "verifyRules" {
-                let actual = ok
-                    .then(|| crate::engine::rules::KataRules::parse(&text))
-                    .flatten()
-                    .filter(crate::engine::rules::KataRules::has_required_fields);
-                let target = crate::engine::rules::KataRules::parse(&r.settings.rules);
-                if actual.is_none()
-                    || (name == "verifyRules" && actual != target)
-                    || (name == "rules" && !self.engines.has_command(p.instance, "kata-set-rules") && actual != target)
-                {
-                    self.matches.notices.push(MatchNotice {
-                        message_key: "EngineManager.engineGameStartFailed".into(),
-                        arguments: Vec::new(),
-                    });
-                    self.match_end(MatchEnd::Retired, None);
-                    return;
+            match name.as_str() {
+                "rules" | "setRules" | "verifyRules" => {
+                    use rules::{RulesReason, RulesStatus};
+                    rules_reply = true;
+                    let set = name == "setRules";
+                    let read = (ok && !set)
+                        .then(|| crate::engine::rules::KataRules::parse(&text))
+                        .flatten();
+                    // What the engine had before the overlay is what its handback sets again,
+                    // also when the game ended while the answer was on its way.
+                    if name == "rules" {
+                        p.rules.original = read.clone();
+                    }
+                    // Leelaz.completeEngineRulesCommand: a refused command fails the side's rules
+                    // operation, an unreadable answer is an invalid readback, an answer is
+                    // observed. The game is decided once both sides have answered everything
+                    // (match_setup); a game already ending decides nothing.
+                    if !ending {
+                        match (ok, set, read) {
+                            (false, true, _) => p.rules.fail(RulesStatus::SetFailed, RulesReason::SetRejected),
+                            (false, false, _) => p.rules.fail(RulesStatus::QueryFailed, RulesReason::QueryRejected),
+                            (true, false, Some(read)) => p.rules.report(read, name == "rules"),
+                            (true, false, None) => p.rules.fail(RulesStatus::QueryFailed, RulesReason::InvalidReadback),
+                            (true, true, _) => {}
+                        }
+                    }
                 }
-                p.observed_rules = actual.clone();
-                if name == "rules" {
-                    p.original_rules = actual;
+                "snapshotPda" | "snapshotWrn" => {
+                    snapshot = true;
+                    let value = ok
+                        .then(|| text.trim().parse::<f64>().ok())
+                        .flatten()
+                        .filter(|value| value.is_finite());
+                    snapshot_failed = value.is_none();
+                    if name == "snapshotPda" {
+                        p.pda = value;
+                    } else {
+                        p.wrn = value;
+                    }
                 }
-                if name == "rules" && !self.engines.has_command(p.instance, "kata-set-rules") {
-                    p.rules_verified = true;
-                    self.match_setup();
-                    return;
+                _ if ok => {
+                    if name == "analysisWideRootNoise" {
+                        p.wrn = Some(0.0);
+                    }
+                    p.restore.push(format!("kata-set-param {name} {}", text.trim()));
                 }
-            }
-            if matches!(name.as_str(), "snapshotPda" | "snapshotWrn") {
-                snapshot = true;
-                let value = ok
-                    .then(|| text.trim().parse::<f64>().ok())
-                    .flatten()
-                    .filter(|value| value.is_finite());
-                snapshot_failed = value.is_none();
-                if name == "snapshotPda" {
-                    p.pda = value;
-                } else {
-                    p.wrn = value;
-                }
-            } else if name == "verifyRules" {
-                if r.phase == MatchPhase::Ending {
-                    self.match_release();
-                    return;
-                }
-                let target = crate::engine::rules::KataRules::parse(&r.settings.rules);
-                let actual = crate::engine::rules::KataRules::parse(&text);
-                if !ok || target.is_none() || actual != target {
-                    self.matches.notices.push(MatchNotice {
-                        message_key: "EngineManager.engineGameStartFailed".into(),
-                        arguments: Vec::new(),
-                    });
-                    self.match_end(MatchEnd::Retired, None);
-                    return;
-                }
-                p.rules_verified = true;
-            } else if ok {
-                if name == "analysisWideRootNoise" {
-                    p.wrn = Some(0.0);
-                }
-                p.restore.push(if name == "rules" {
-                    format!("kata-set-rules {}", text.trim())
-                } else {
-                    format!("kata-set-param {name} {}", text.trim())
-                });
+                _ => {}
             }
         }
-        let ending = r.phase == MatchPhase::Ending;
-        if !ok && !snapshot && !ending {
+        if !ok && !snapshot && !rules_reply && !ending {
             self.match_end(MatchEnd::Retired, None);
             return;
         }
@@ -1484,6 +1505,34 @@ impl Workbench {
             return;
         }
         let started = r.phase != MatchPhase::Starting;
+        // The game's 本局规则 (EngineGameModule.freezeRecordOnCurrentHistoryLocked and
+        // onOwnerStartFailed): a played game's are complete, on its document as well; a start
+        // ending before the game is decided keeps what the engines answered as failed, an answer
+        // still waiting for its readback included, or nothing when none answered (Java went on
+        // showing 正在检查本局规则 after such a start).
+        if started {
+            if let Some(live) = self
+                .matches
+                .rules
+                .as_mut()
+                .filter(|s| s.phase == rules::RulesPhase::Playing)
+            {
+                live.phase = rules::RulesPhase::Completed;
+            }
+            if let Some((_, record)) = self.matches.rules_record.as_mut().filter(|(doc, _)| *doc == r.doc) {
+                record.phase = rules::RulesPhase::Completed;
+            }
+        } else if self
+            .matches
+            .rules
+            .as_ref()
+            .is_some_and(|s| s.phase == rules::RulesPhase::Preparing)
+        {
+            let answered = r.sides.iter().any(|p| p.rules.answered());
+            self.matches.rules = answered
+                .then(|| rules::RulesSnapshot::of(r, rules::RulesPhase::Failed, false))
+                .flatten();
+        }
         r.phase = MatchPhase::Ending;
         r.setup_deadline = Some(Instant::now() + MATCH_RETIRE);
         r.turn = None;
@@ -1564,21 +1613,31 @@ impl Workbench {
         let Some(r) = self.matches.run.as_ref().filter(|r| r.phase == MatchPhase::Ending) else {
             return;
         };
+        // EngineManager.restoreMatchRulesBeforeRelease: an engine the game's rules were sent to
+        // gets its own rules back, read back to be sure, whichever way the game ended; one whose
+        // own rules are unknown cannot be given back as usable.
         let seats: Vec<_> = r
             .sides
             .iter()
             .filter(|p| !p.released && p.awaiting.is_empty())
             .map(|p| {
-                (
-                    p.reservation,
-                    p.restore.clone(),
-                    p.original_rules
-                        .clone()
-                        .filter(|_| p.restore.iter().any(|command| command.starts_with("kata-set-rules "))),
-                )
+                let (mut restore, original, unknown) = match p.rules.handback() {
+                    rules::RulesHandback::Untouched => (Vec::new(), None, false),
+                    rules::RulesHandback::Restore(original) => (
+                        vec![format!("kata-set-rules {}", original.to_gtp_argument())],
+                        Some(original.clone()),
+                        false,
+                    ),
+                    rules::RulesHandback::Unknown => (Vec::new(), None, true),
+                };
+                restore.extend(p.restore.iter().cloned());
+                (p.reservation, restore, original, unknown)
             })
             .collect();
-        for (seat, restore, original) in seats {
+        for (seat, restore, original, unknown) in seats {
+            if unknown {
+                self.engines.game_mark_restore_failed(seat);
+            }
             self.engines.release_game_verified(seat, &restore, original);
         }
         self.match_retirement();
@@ -1629,8 +1688,31 @@ impl Workbench {
                 .as_ref()
                 .is_some_and(|run| run.phase == MatchPhase::Starting);
             if starting {
+                // An unanswered rules command times out that side's operation (Leelaz
+                // EngineRulesOperation), and the start fails with the rules time-out message.
+                use rules::{RulesReason, RulesStatus};
+                let mut timed_out = false;
+                for p in self.matches.run.as_mut().into_iter().flat_map(|run| &mut run.sides) {
+                    let waits = |role: &str| p.captures.iter().any(|(_, name)| name == role);
+                    let failure = if waits("rules") || (waits("verifyRules") && !waits("setRules")) {
+                        Some((RulesStatus::QueryFailed, RulesReason::QueryTimeout))
+                    } else if waits("setRules") {
+                        Some((RulesStatus::SetFailed, RulesReason::SetTimeout))
+                    } else {
+                        None
+                    };
+                    if let Some((status, reason)) = failure.filter(|_| p.rules.status == RulesStatus::Pending) {
+                        p.rules.fail(status, reason);
+                        timed_out = true;
+                    }
+                }
                 self.matches.notices.push(MatchNotice {
-                    message_key: "EngineManager.engineGameStartFailed".into(),
+                    message_key: if timed_out {
+                        "MatchRules.failed.timeout"
+                    } else {
+                        "EngineManager.engineGameStartFailed"
+                    }
+                    .into(),
                     arguments: Vec::new(),
                 });
                 self.match_end(MatchEnd::Retired, None);
@@ -1674,14 +1756,13 @@ impl Workbench {
             p.restore.clear();
             p.released = false;
             p.resign_count = 0;
-            p.rules_verified = false;
-            p.original_rules = None;
-            p.observed_rules = None;
+            p.rules = rules::SideRules::default();
             p.seconds = 0.0;
             p.visits = 0.0;
         }
         r.previous = [None, None];
         self.match_prepare_board();
+        self.match_rules_publish(rules::RulesPhase::Preparing, false);
         self.match_setup();
         true
     }
@@ -1724,26 +1805,13 @@ impl Workbench {
     pub(super) fn match_view(&self) -> Option<MatchView> {
         let r = self.matches.run.as_ref()?;
         let thinking = matches!(r.phase, MatchPhase::Playing | MatchPhase::Paused).then(|| self.match_side());
-        let target = crate::engine::rules::KataRules::parse(&r.settings.rules);
-        let rules_target_choice = target.and_then(|target| {
-            [
-                "chinese",
-                "stone-scoring",
-                "japanese",
-                "aga",
-                "new-zealand",
-                "tromp-taylor",
-                "goe",
-            ]
-            .iter()
-            .find(|name| crate::engine::rules::KataRules::preset(name).is_some_and(|p| p == target))
-            .map(|s| s.to_string())
-        });
+        let rules_target_choice = crate::engine::rules::KataRules::parse(&r.settings.rules)
+            .and_then(|target| target.match_option().map(|o| o.0.to_string()));
         let rules_unverified = r
             .sides
             .iter()
             .enumerate()
-            .filter(|(_, p)| !p.rules_verified)
+            .filter(|(_, p)| p.rules.unsupported_confirmation())
             .map(|(index, p)| {
                 let identity = if index == 0 {
                     &r.settings.first
@@ -1788,7 +1856,7 @@ impl Workbench {
             rules_consent_required: r.phase == MatchPhase::Starting
                 && r.sides.iter().all(|p| p.setup && p.awaiting.is_empty())
                 && !r.rules_consent
-                && r.sides.iter().any(|p| !p.rules_verified),
+                && r.rules_admission() == rules::Admission::Unverified,
             rules_unverified,
             rules_target_choice,
             opening_index: r.opening.map(|i| i as u32),

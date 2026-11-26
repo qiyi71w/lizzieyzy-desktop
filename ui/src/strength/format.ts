@@ -3,7 +3,7 @@
 // (LizzieFrame.java:17852-17973, 18935-18994). The report carries Java's numbers; everything here
 // only formats them.
 import type { MoveRank, StrengthConfidence, StrengthModelView, StrengthSideReport, StrengthSummary } from "../contract/generated";
-import { isChinese, t } from "../i18n";
+import { t } from "../i18n";
 
 /** String.format(Locale.US, "%.Nf", v): HALF_UP on the shortest decimal form, the sign kept. */
 export function javaFixed(v: number, digits: number): string {
@@ -93,30 +93,28 @@ export function sideRankText(s: StrengthSummary): string {
 }
 
 /** playerStrengthRankRangeText. */
-function rankRangeText(raw: string, dan: boolean, chinese: boolean): string {
+function rankRangeText(raw: string, dan: boolean): string {
   const value = raw.trim();
   if (!value) return "-";
-  if (!chinese) return dan ? `${value} dan` : `${value} kyu`;
   const parts = value.split("-");
   if (parts.length === 2) {
-    return javaFormat(dan ? t("PlayerStrengthEstimate.rank.danRange") : t("PlayerStrengthEstimate.rank.kyuRange"), parts[0], parts[1]);
+    return javaFormat(dan ? t("PlayerStrengthEstimate.rank.danRange") : t("PlayerStrengthEstimate.rank.kyuRange"), parts[0].trim(), parts[1].trim());
   }
   return javaFormat(dan ? t("PlayerStrengthEstimate.rank.danSingle") : t("PlayerStrengthEstimate.rank.kyuSingle"), value);
 }
 
-/** playerStrengthDisplayRank: the STRENGTH_BANDS literal as Java shows it. */
+/** playerStrengthDisplayRank: StrengthText.band, with every part from the language's bundle. */
 export function displayRank(strengthBand: string): string {
   const band = strengthBand.trim();
   if (!band || band === "-") return "-";
-  const chinese = isChinese();
-  if (band.toLowerCase() === "beginner") return chinese ? t("PlayerStrengthEstimate.rank.beginner") : "Beginner";
-  if (band.includes("AI")) return chinese ? t("PlayerStrengthEstimate.rank.ai") : band;
-  if (band.includes("一线职业")) return chinese ? t("PlayerStrengthEstimate.rank.topPro") : band;
-  if (band.includes("职业")) return chinese ? t("PlayerStrengthEstimate.rank.pro") : band;
+  if (band.toLowerCase() === "beginner") return t("PlayerStrengthEstimate.rank.beginner");
+  if (band.includes("AI")) return t("PlayerStrengthEstimate.rank.ai");
+  if (band.includes("一线职业")) return t("PlayerStrengthEstimate.rank.topPro");
+  if (band.includes("职业")) return t("PlayerStrengthEstimate.rank.pro");
   const k = band.indexOf("k");
-  if (k > 0) return rankRangeText(band.substring(0, k), false, chinese);
+  if (k > 0) return rankRangeText(band.substring(0, k), false);
   const d = band.indexOf("d");
-  if (d > 0) return rankRangeText(band.substring(0, d), true, chinese);
+  if (d > 0) return rankRangeText(band.substring(0, d), true);
   return band;
 }
 

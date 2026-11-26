@@ -7,8 +7,36 @@ pub const CUDNN_VERSION: &str = "9.8.0";
 pub const TENSORRT_VERSION: &str = "10.9.0";
 pub const CUDA_MANIFEST_URL: &str = "https://developer.download.nvidia.com/compute/cuda/redist/redistrib_12.8.0.json";
 pub const CUDNN_MANIFEST_URL: &str = "https://developer.download.nvidia.com/compute/cudnn/redist/redistrib_9.8.0.json";
-pub const NVRTC_VERSION: &str = "12.8.61";
-pub const NVRTC_SHA256: &str = "e43603b09f8a52d681ceb814c00b655af19da53692ab91671dabbf8071c8f93d";
+/// Java `NvidiaRuntimePins`: the CUDA 12.8 and cuDNN 9.8 packages, as key, version and SHA-256.
+/// NVIDIA's redistrib JSON only says where to find them; a version or digest read from it at
+/// install time would trust whatever it said that day.
+const NVIDIA_PINS: [(&str, &str, &str); 5] = [
+    (
+        "cuda_cudart",
+        "12.8.57",
+        "2c7aa62a195d79229d4381c8bd0174a30502cf3d8124c6e94ee50a7fc8a1e9f4",
+    ),
+    (
+        "libcublas",
+        "12.8.3.14",
+        "a2f990cf61f0086d942632f2455727240baa9378c2e9fa2bdda56ef81f6cf8ad",
+    ),
+    (
+        "libnvjitlink",
+        "12.8.61",
+        "8258afaadbd9744d87070525067c497041dd52c6b22d11ba7297421fc8f6f39d",
+    ),
+    (
+        "cuda_nvrtc",
+        "12.8.61",
+        "e43603b09f8a52d681ceb814c00b655af19da53692ab91671dabbf8071c8f93d",
+    ),
+    (
+        "cudnn",
+        "9.8.0.87",
+        "d8a23705e3884b137b7e05449fb2b61bfa524e7cfc3fda80743d633f423c6ce4",
+    ),
+];
 pub const TENSORRT_URL: &str = "https://developer.download.nvidia.com/compute/machine-learning/tensorrt/10.9.0/zip/TensorRT-10.9.0.34.Windows.win10.cuda-12.8.zip";
 pub const TENSORRT_SHA256: &str = "c2758eb60191f01a47b24f54700e5463f577ebe129cd18fe835d0aa9f1e1a16d";
 pub const TENSORRT_SIZE: u64 = 1_845_842_538;
@@ -52,7 +80,8 @@ pub fn runtime_component_keys(backend: &str) -> &'static [&'static str] {
         _ => &[],
     }
 }
-/// `windows-x86_64`, with `cuda12` nested under cuDNN. NVRTC's version/hash are pinned.
+/// `windows-x86_64`, with `cuda12` nested under cuDNN. The metadata must name the pinned version
+/// and SHA-256 (`NVIDIA_PINS`); it only supplies where to download and the size.
 pub fn parse_runtime_manifest(body: &str, manifest_url: &str, key: &str) -> ResourceResult<RuntimePackage> {
     if !matches!(manifest_url, CUDA_MANIFEST_URL | CUDNN_MANIFEST_URL) {
         return Err(invalid("Untrusted NVIDIA manifest URL"));
@@ -99,10 +128,12 @@ pub fn parse_runtime_manifest(body: &str, manifest_url: &str, key: &str) -> Reso
     {
         return Err(invalid("Untrusted NVIDIA package URL"));
     }
-    if key == "cuda_nvrtc" && (version != NVRTC_VERSION || sha256 != NVRTC_SHA256) {
-        return Err(invalid(
-            "Unexpected CUDA 12.8 NVRTC metadata; pinned version and SHA-256 required",
-        ));
+    let pin = NVIDIA_PINS.iter().find(|(pinned, ..)| *pinned == key);
+    if !pin.is_some_and(|(_, pinned_version, pinned_sha256)| version == *pinned_version && sha256 == *pinned_sha256) {
+        let (expected_version, expected_sha256) = pin.map_or(("?", "?"), |(_, v, s)| (*v, *s));
+        return Err(invalid(format!(
+            "Unexpected NVIDIA {key} metadata; expected version {expected_version} and SHA-256 {expected_sha256}"
+        )));
     }
     Ok(RuntimePackage {
         key: key.into(),

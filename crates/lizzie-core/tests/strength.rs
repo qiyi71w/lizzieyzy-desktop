@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 /// 61 moves, every position analysed (KataGo payload), Java's saved-analysis format. The fixed Java
 /// build shows this game as Black 业余2.9段 / White 业余7.8段 (acceptance screenshot j01).
 const GAME: &str = include_str!("fixtures/strength/seed12-kata-61.sgf");
-/// 补算 HumanSL as the dashboard first sends it.
+/// 开始计算 (HumanSL 40) as the dashboard first sends it.
 const RUN: StrengthCommand = StrengthCommand::RunHumanSl { resume: false };
 
 #[derive(Default)]

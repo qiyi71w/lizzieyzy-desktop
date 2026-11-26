@@ -92,6 +92,9 @@ impl Workbench {
             },
             training: self.config.human_sl.training.clone().normalized(),
             advanced_visible: self.config.human_sl.advanced_visible,
+            levels: crate::humansl::CoachLevel::ALL.into_iter().map(Into::into).collect(),
+            even_komi: self.human_sl_even_komi(),
+            handicap_komi: crate::humansl::HANDICAP_KOMI,
         }
     }
 }
