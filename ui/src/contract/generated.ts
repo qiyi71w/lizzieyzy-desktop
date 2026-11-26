@@ -390,6 +390,14 @@ index: number,
  */
 instance: number, 
 /**
+ * The analysis search this instance runs for the current position, or ran last: it changes
+ * whenever the instance begins searching again — another position, komi or rules, a
+ * changed search parameter, 重算 or 清除分析信息, a resumed analysis — and stays while a
+ * search goes on. Totals of different searches are not one sequence, so the title
+ * measures a search speed within one search only.
+ */
+search: number, 
+/**
  * The configured name, else the GTP name.
  */
 name: string, gtp_name: string, version: string, katago: boolean, 
@@ -696,12 +704,6 @@ problems: ProblemListView,
  * Stored analysis of the current node (whether or not the engine is analysing it now).
  */
 analysis: NodeAnalysisView | null, 
-/**
- * Increases whenever the current position's analysis starts over (清除分析信息,
- * 重算当前局面): the totals shown before and after it belong to different searches, so the
- * title never measures a search speed across it.
- */
-analysis_restarts: number, 
 /**
  * Move numbers, 落子评价 and 下一手 详细 of the current position, as the display settings
  * choose them.

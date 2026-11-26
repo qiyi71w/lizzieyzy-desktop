@@ -117,11 +117,12 @@ export function statScene(v: WorkbenchView, history: Map<number, HistoryPoint>, 
 /** visitsString (LizzieFrame.java:1570-1620, getLastVisitsCount 2514-2572): once a second the
  *  current position's visits are sampled into four slots; the speed is measured against the
  *  oldest sample of the same position, and " - 搜索/秒" replaces it 5 s after the last measure.
- *  A sample belongs to the position, the foreground engine instance and the position's search
- *  (`analysis_restarts`), so another instance never measures against the previous one's samples
- *  and a cleared or recomputed analysis never against the totals before it. Only what the
- *  instance searched while sampled counts: the total a position shows when the instance or the
- *  search arrives there (another instance's stored result, say) is no sample until it changes. */
+ *  A sample belongs to the position, the foreground engine instance and the search it runs
+ *  there (`engine.foreground.search`), so another instance never measures against the previous
+ *  one's samples and a search begun again (清除/重算, komi, rules, 广度, a resumed analysis)
+ *  never against the totals before it. Only what the instance searched while sampled counts:
+ *  the total a position shows when the instance or the search arrives there (another instance's
+ *  or search's stored result, say) is no sample until it changes. */
 const samples: ({ key: string; visits: number } | null)[] = [null, null, null, null];
 let sampleIndex = -1;
 let speedText = "";
@@ -135,7 +136,8 @@ let speedAt = 0;
 let arrival = { key: "", visits: 0, changed: false };
 
 function sampleKey(v: WorkbenchView): string {
-  return `${v.document.id}:${v.position.node}:${v.engine.foreground?.instance}:${v.analysis_restarts}`;
+  const fg = v.engine.foreground;
+  return `${v.document.id}:${v.position.node}:${fg?.instance}:${fg?.search}`;
 }
 
 function sampleSpeed(): void {

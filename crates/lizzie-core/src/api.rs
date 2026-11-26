@@ -1651,10 +1651,6 @@ pub struct WorkbenchView {
     pub problems: ProblemListView,
     /// Stored analysis of the current node (whether or not the engine is analysing it now).
     pub analysis: Option<NodeAnalysisView>,
-    /// Increases whenever the current position's analysis starts over (清除分析信息,
-    /// 重算当前局面): the totals shown before and after it belong to different searches, so the
-    /// title never measures a search speed across it.
-    pub analysis_restarts: u64,
     /// Move numbers, 落子评价 and 下一手 详细 of the current position, as the display settings
     /// choose them.
     pub board: crate::display::BoardOverlayView,
@@ -2184,6 +2180,12 @@ pub struct ForegroundEngineView {
     /// The running engine process: another start, also of the same engine, is another instance.
     /// The title measures the search speed of one instance only.
     pub instance: u64,
+    /// The analysis search this instance runs for the current position, or ran last: it changes
+    /// whenever the instance begins searching again — another position, komi or rules, a
+    /// changed search parameter, 重算 or 清除分析信息, a resumed analysis — and stays while a
+    /// search goes on. Totals of different searches are not one sequence, so the title
+    /// measures a search speed within one search only.
+    pub search: u64,
     /// The configured name, else the GTP name.
     pub name: String,
     pub gtp_name: String,

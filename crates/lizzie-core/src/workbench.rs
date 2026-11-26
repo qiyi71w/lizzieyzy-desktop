@@ -268,8 +268,6 @@ pub struct Workbench {
     /// 双引擎模式's secondary engine results for the open document (`BoardData.bestMoves2` and
     /// its summary), read from `LZ2`/`LZOP2` or reported by the secondary engine.
     secondary_store: AnalysisStore,
-    /// See [`crate::api::WorkbenchView::analysis_restarts`].
-    analysis_restarts: u64,
     /// The user paused analysis (session only, like Java `userAnalysisPaused`).
     paused: bool,
     /// 综合设置 is open: no engine analyses meanwhile, whatever the mode (see
@@ -480,7 +478,6 @@ impl Workbench {
             engines,
             store,
             secondary_store,
-            analysis_restarts: 0,
             paused: false,
             analysis_hold: false,
             priority_points: Vec::new(),
@@ -1359,7 +1356,6 @@ impl Workbench {
             whole_game: self.whole_game_view(),
             problems: self.problem_list(),
             analysis: self.current_analysis(),
-            analysis_restarts: self.analysis_restarts,
             board: self.board_overlay(),
             raw_net: self.raw_net_view(),
             history: self.history(),

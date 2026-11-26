@@ -789,6 +789,73 @@ fn komi_change_reaches_the_engine_and_discards_stored_analysis() {
     assert_eq!((a.komi, a.visits), (6.5, 30));
 }
 
+fn search(wb: &mut Workbench) -> u64 {
+    wb.view(false).engine.foreground.unwrap().search
+}
+
+/// The foreground search the title measures its speed within: every command that makes the
+/// engine search the current position again begins another one; results, an unchanged wish and
+/// a pause do not.
+#[test]
+fn searching_the_position_again_begins_another_foreground_search() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    let mut last = search(&mut wb);
+    let mut again = |wb: &mut Workbench, what: &str| {
+        let sent = answer_all(wb, &world, id, KATA);
+        assert!(sent.iter().any(|c| c.starts_with("kata-analyze")), "{what}: {sent:?}");
+        let now = search(wb);
+        assert_ne!(now, last, "{what}");
+        last = now;
+    };
+    let before = search(&mut wb);
+    for visits in [40, 80, 120] {
+        out(&mut wb, id, &info("Q16", visits));
+    }
+    assert!(world.take(id).is_empty());
+    assert_eq!(search(&mut wb), before, "a search that goes on stays the same");
+
+    assert!(wb.set_komi(6.5).unwrap());
+    again(&mut wb, "komi");
+    let chinese = r#"{"friendlyPassOk":true,"hasButton":false,"ko":"SIMPLE","scoring":"AREA","suicide":false,"tax":"NONE","whiteHandicapBonus":"N"}"#;
+    assert_eq!(wb.set_kata_rules(chinese, false).unwrap(), None);
+    again(&mut wb, "rules");
+    wb.refresh_current_move();
+    again(&mut wb, "refresh");
+    wb.clear_analysis_info(AnalysisScope::Current);
+    again(&mut wb, "clear");
+
+    wb.toggle_analysis().unwrap();
+    answer_all(&mut wb, &world, id, KATA);
+    let paused = search(&mut wb);
+    wb.toggle_analysis().unwrap();
+    let sent = answer_all(&mut wb, &world, id, KATA);
+    assert!(sent.iter().any(|c| c.starts_with("kata-analyze")), "{sent:?}");
+    assert_ne!(search(&mut wb), paused, "a resumed analysis");
+}
+
+/// 广度 and 激进度 changes make the engine search again: another foreground search.
+#[test]
+fn a_changed_search_parameter_begins_another_foreground_search() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    wb.save_engine_settings(vec![profile("KataGo", "/opt/katago")], EngineStartup::Default).unwrap();
+    wb.start_engines();
+    let id = world.launched()[0].0;
+    let mut params = engine_params("0", "0");
+    answer_params(&mut wb, &world, id, "KataGo", &mut params);
+    out(&mut wb, id, &info("Q16", 400));
+    for (param, value) in [(KataParam::Wrn, 0.5), (KataParam::Wrn, 0.6), (KataParam::Pda, 1.0)] {
+        let before = search(&mut wb);
+        assert_eq!(wb.set_kata_param(param, true, value).unwrap(), None);
+        let sent = answer_params(&mut wb, &world, id, "KataGo", &mut params);
+        assert!(sent.iter().any(|c| c.starts_with("kata-analyze")), "{param:?}: {sent:?}");
+        assert_ne!(search(&mut wb), before, "{param:?} {value}");
+    }
+}
+
 #[test]
 fn record_rules_are_applied_before_analysis() {
     let dir = tempfile::tempdir().unwrap();

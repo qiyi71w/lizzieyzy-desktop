@@ -100,12 +100,14 @@ importing the matching LizzieYzy Next settings.
   score lead and visits at its right end, then the foreground engine, with its search speed
   (搜索/秒) while it analyses; hovering those values names each of them. The speed is measured
   once a second against the visits the same engine process added on the shown position since
-  its analysis last started over. It goes at once when the analysis is paused, the position has
-  no analysis, its analysis is cleared or recomputed (重算当前局面) — even when the new search at
-  once reports as many visits as before — or another engine process (also a restart of the same
-  engine) takes over, and comes back with the next measure; Java kept the previous speed for up
-  to 5 seconds on a position without analysis and measured across a cleared analysis or an
-  engine switch.
+  it last began searching that position. It goes at once when the analysis is paused, the
+  position has no analysis, or another engine process (also a restart of the same engine)
+  takes over, and whenever the engine begins searching the position again: its analysis is
+  cleared or recomputed (重算当前局面), the komi, the engine rules or a search parameter such
+  as 广度 or 激进度 changes, or a paused analysis resumes — even when the new search at once
+  reports as many visits as before. It comes back with the new search's first measure, a few
+  seconds later; Java kept the previous speed for up to 5 seconds on a position without
+  analysis and measured across a cleared analysis, a new search or an engine switch.
 - The board shows setup stones, moves, passes, captures, comments, SGF markup (TR/SQ/CR/MA/LB),
   next-move rings, player names, the sub board, the variation tree and the empty winrate graph.
 - A failed or cancelled open keeps the current record. Opening a 9x9 record after a 19x19 one (or
