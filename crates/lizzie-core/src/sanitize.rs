@@ -93,8 +93,10 @@ static PATTERNS: LazyLock<Patterns> = LazyLock::new(|| Patterns {
             r#"(?i)((?<![A-Za-z0-9_-])(?:--?|/)?["']?{NAME}["']?(?![A-Za-z0-9_-])\s*(?:[=:]\s*|\s+))(?:(\\"){ESCAPED_DOUBLE}|(\\'){ESCAPED_SINGLE})"#,
             "${1}${2}${3}<redacted>${2}${3}",
         ),
+        // The assignment prefix is atomic: giving back a space after `=` would let the value
+        // start before an escaped quote the rule above already masked.
         Rule::new(
-            r#"(?i)(?:(?<![A-Za-z0-9_-])((?:--?|/)?{NAME}\s*=\s*)(?!\\["'])(?>(?:\\[\s\S])|[^"',\r\n])+(?=,)|(?<=,)((?:--?|/)?{NAME}\s*=\s*)(?!\\["'])(?>(?:\\[\s\S])|[^"',\r\n])+(?=[,"']|$))"#,
+            r#"(?i)(?:(?<![A-Za-z0-9_-])((?:--?|/)?{NAME}(?>\s*=\s*))(?!\\["'])(?>(?:\\[\s\S])|[^"',\r\n])+(?=,)|(?<=,)((?:--?|/)?{NAME}(?>\s*=\s*))(?!\\["'])(?>(?:\\[\s\S])|[^"',\r\n])+(?=[,"']|$))"#,
             "${1}${2}<redacted>",
         ),
         Rule::new(

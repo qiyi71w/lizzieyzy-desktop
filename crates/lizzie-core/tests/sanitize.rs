@@ -488,6 +488,10 @@ fn values_between_escaped_quotes_or_behind_an_escaped_percent_are_masked_whole()
             r#"password=\"SEC,RET\" -model m.bin -override-config maxVisits=5,numSearchThreads=2"#,
             r#"password=\"<redacted>\" -model m.bin -override-config maxVisits=5,numSearchThreads=2"#,
         ),
+        (
+            r#"password= \"SEC,RET\" -model \\wsl.localhost\Ubuntu\m.bin -override-config maxVisits=5,numSearchThreads=2"#,
+            r#"password= \"<redacted>\" -model \\wsl.localhost\Ubuntu\m.bin -override-config maxVisits=5,numSearchThreads=2"#,
+        ),
         // Inside a quoted assignment, escaped quotes that close bound the value; ones that never
         // close end at the outer quote.
         (r#""password=\"SEC,RET\",maxVisits=5""#, r#""password=\"<redacted>\",maxVisits=5""#),
