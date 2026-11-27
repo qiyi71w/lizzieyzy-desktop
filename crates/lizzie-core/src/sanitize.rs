@@ -78,11 +78,12 @@ static PATTERNS: LazyLock<Patterns> = LazyLock::new(|| Patterns {
             r#"(?i)(?<![A-Za-z0-9_-])(["']?{HEADER}["']?\s*(?:[:=]\s*|\s+))[^\r\n]*"#,
             "${1}<redacted>",
         ),
-        // A whole assignment inside quotes, with a value (an empty one hides nothing). A value
-        // between escaped quotes that close is left to the next rule, which keeps a comma inside
-        // them; one that never closes ends at the outer quote here.
+        // A whole assignment inside quotes. A value between escaped quotes that close before the
+        // outer quote is left to the next rule, which keeps a comma inside them; one that does
+        // not close there runs to the outer quote. An empty value is one only where the outer
+        // quote ends the word: in `"password="<redacted>"` that quote opens the masked value.
         Rule::new(
-            r#"(?i)(?<![A-Za-z0-9_-])(["'])((?:--?|/)?{NAME}\s*=\s*)(?!{ESCAPED_QUOTED_CLOSED})(?>(?:\\[\s\S])|(?!\1)[^,\r\n])+(\1|,|$)"#,
+            r#"(?i)(?<![A-Za-z0-9_-])(["'])((?:--?|/)?{NAME}(?>\s*=\s*))(?!\\"(?>\\\\\\\\|\\\\\\["']|\\\\|(?!\\"|\1)[\s\S])*\\"|\\'(?>\\\\\\\\|\\\\\\["']|\\\\|(?!\\'|\1)[\s\S])*\\')(?:\\["'](?>(?:\\[\s\S])|(?!\1)[^\r\n])*|(?>(?:\\[\s\S])|(?!\1)[^,\r\n])+|(?=\1(?:[\s,]|$)))(\1|,|$)"#,
             "${1}${2}<redacted>${3}",
         ),
         // Before the rules that read `\"` as one escaped character of a longer value: they would
@@ -120,7 +121,6 @@ static PATTERNS: LazyLock<Patterns> = LazyLock::new(|| Patterns {
 fn compile(pattern: &str) -> Regex {
     let pattern = pattern
         .replace("{ESCAPED_QUOTED}", r#"(?:\\"{ESCAPED_DOUBLE}|\\'{ESCAPED_SINGLE})"#)
-        .replace("{ESCAPED_QUOTED_CLOSED}", r#"(?:\\"{ESCAPED_DOUBLE_CHARS}\\"|\\'{ESCAPED_SINGLE_CHARS}\\')"#)
         .replace("{ESCAPED_DOUBLE}", r#"{ESCAPED_DOUBLE_CHARS}(?:\\"|$)"#)
         .replace("{ESCAPED_SINGLE}", r#"{ESCAPED_SINGLE_CHARS}(?:\\'|$)"#)
         .replace("{ESCAPED_DOUBLE_CHARS}", ESCAPED_DOUBLE_CHARS)

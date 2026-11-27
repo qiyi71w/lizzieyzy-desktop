@@ -492,5 +492,11 @@ fn values_between_escaped_quotes_or_behind_an_escaped_percent_are_masked_whole()
         // close end at the outer quote.
         (r#""password=\"SEC,RET\",maxVisits=5""#, r#""password=\"<redacted>\",maxVisits=5""#),
         (r#"'password=\"SEC' -model m.bin"#, "'password=<redacted>' -model m.bin"),
+        (r#"'password=\"SEC,RET' -model m.bin"#, "'password=<redacted>' -model m.bin"),
+        (r#"'password= \"SEC,RET\"' -model m.bin"#, "'password= <redacted>' -model m.bin"),
+        (r#"'password=\"SEC' -model \"m.bin\""#, r#"'password=<redacted>' -model \"m.bin\""#),
+        // An empty value hides nothing and ends at its quote.
+        (r#"-override-config "password=" -model m.bin"#, r#"-override-config "password=<redacted>" -model m.bin"#),
+        ("-override-config 'password=',maxVisits=5", "-override-config 'password=<redacted>',maxVisits=5"),
     ]);
 }
