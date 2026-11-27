@@ -842,6 +842,11 @@ function stoneShadow(g: CanvasRenderingContext2D, cx: number, cy: number, r: num
  *  painted onto it one by one. */
 const shadowLayers = new WeakMap<HTMLCanvasElement | OffscreenCanvas, { key: string; layer: HTMLCanvasElement }>();
 
+/** WebView2 paints the board canvases in software. A layer on the GPU would be read back from it at
+ *  every repaint of the board (about ten a second while an engine analyses), so there the layer is
+ *  kept in memory like the board it is composited onto. */
+const SHADOW_LAYER: CanvasRenderingContext2DSettings = navigator.userAgent.includes("Windows") ? { willReadFrequently: true } : {};
+
 function enhancedShadows(g: CanvasRenderingContext2D, points: number[], geometry: string, px: (p: number) => number, py: (p: number) => number, r: number) {
   const canvas = g.canvas;
   const t = g.getTransform();
@@ -853,7 +858,7 @@ function enhancedShadows(g: CanvasRenderingContext2D, points: number[], geometry
       layer.width = canvas.width;
       layer.height = canvas.height;
     }
-    const lg = layer.getContext("2d")!;
+    const lg = layer.getContext("2d", SHADOW_LAYER)!;
     lg.setTransform(1, 0, 0, 1, 0, 0);
     lg.clearRect(0, 0, layer.width, layer.height);
     lg.setTransform(t);
