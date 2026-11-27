@@ -28,7 +28,8 @@
 // world.json from this base.
 //
 // For protocol measurements, --latency-ms delays the engine's output to the client by that many
-// milliseconds (in order), like a network between them, and --stdin-log appends every engine
+// milliseconds (in order), like a network between them; when the --engine process exits, the
+// close follows its last output. --stdin-log appends every engine
 // input line, with the time it arrived, to a JSON-lines file ({"t": epoch ms, "line": "..."}).
 //
 // Only Node built-ins are used; runs on Linux and Windows with Node 20+.
@@ -478,6 +479,7 @@ class EngineSocket {
   }
 
   later(ms, action) {
+    if (this.closed) return;
     const timer = setTimeout(() => { this.timers.delete(timer); if (!this.closed) action(); }, ms);
     this.timers.add(timer);
   }
@@ -648,13 +650,17 @@ class EngineSocket {
   }
 
   startEngine() {
-    // Timers of one delay fire in the order they were set, so --latency-ms keeps the output order.
+    // --latency-ms delays every engine output, and the close that follows the engine's exit, by
+    // the same session timer delay. Timers of one delay fire in the order they were set, so the
+    // client sees the output in order and the last of it before the close; a client that
+    // disconnects first cancels them all (finish).
     const later = (event) => (text) => {
       if (!opts.latencyMs) return this.emit(this.namespace, event, text);
-      setTimeout(() => { if (!this.closed) this.emit(this.namespace, event, text); }, opts.latencyMs);
+      this.later(opts.latencyMs, () => this.emit(this.namespace, event, text));
     };
     const stdout = later("stdout");
     const stderr = later("stderr");
+    const closeAfterOutput = (code) => this.later(opts.latencyMs, () => this.close(code));
     if (!opts.engine) {
       this.engine = builtinEngine(stdout);
     } else {
@@ -670,13 +676,14 @@ class EngineSocket {
         children.delete(child);
         log(`ENGINE ${this.id} failed to start: ${error.message}`);
         stderr(`fake-zhizi: engine failed to start (${error.code ?? "error"})\n`);
-        this.close(1011);
+        closeAfterOutput(1011);
       });
       child.on("exit", (code, signal) => {
         children.delete(child);
         log(`ENGINE ${this.id} exited (${signal ?? code})`);
-        if (!this.closed) this.close(1000);
       });
+      // "close" comes after the last stdout/stderr data, which "exit" does not guarantee.
+      child.on("close", () => closeAfterOutput(1000));
       log(`ENGINE ${this.id} started pid ${child.pid}`);
       this.engine = {
         write: (line) => { if (child.stdin.writable) child.stdin.write(`${line}\n`); },
