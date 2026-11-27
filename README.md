@@ -2218,7 +2218,10 @@ importing the matching LizzieYzy Next settings.
   headers, URL user info, encoded forms); the live console shows raw traffic like Java. Text
   around the masked values stays as written: Java also decoded `\\`, `\"` and `\u…` escapes
   in any text holding one, turning `\\server\share` into `\server\share`. Only a credential
-  that escapes hid (`passw\u006frd=…`) is written in the decoded text, masked.
+  that escapes hid (`passw\u006frd=…`) is written in the decoded text, masked. A value between
+  escaped quotes (`password=\"two words\"`, `-pw \"two words\"`) is masked up to the closing
+  escaped quote, and a percent-encoded assignment behind `\u0025` (`password\u0025\u0033d…`) is
+  found and masked; Java left part of these values visible.
 - Importing LizzieYzy Next settings: offered at the first start (no settings of this client
   yet) and in Help > 从 LizzieYzy Next 导入设置…. Choose the Java settings folder (the one with
   `config.txt`; Java's per-user folders such as `~/.lizzieyzy-next` and, on Windows, the shared
@@ -2769,6 +2772,13 @@ at once (`--jobs N`), longest first by the durations recorded in `target/cargo-t
 Starting every binary together makes the timing-sensitive tests fail. It reports every failing
 binary with its output and exits non-zero, like `cargo test --no-fail-fast`.
 
+Each window's file in `src-tauri/capabilities` grants only the Tauri core commands its own page
+calls (for most child windows `core:event:allow-listen` and `core:event:allow-emit-to`, plus the
+window or menu calls it makes); the main window keeps `core:default`. The application's own
+`#[tauri::command]`s need no entry: without an app permission manifest, Tauri lets local pages
+call them. A child page that starts calling another `@tauri-apps/api` function (a window method,
+a menu, `listen`) needs that command added to its capability, or the call is refused.
+
 ### Generated files
 
 - `ui/src/contract/generated.ts` is generated from the Rust types. After changing them run
@@ -2861,8 +2871,10 @@ channel when `LIZZIEYZY_TAURI_ACCEPTANCE_PORT` is set. It takes newline-delimite
 `{"command": <Command>}` runs a command exactly as the UI does, `{"query": "view"}` returns the
 current view without consuming anything the UI receives, and `{"query": "ui"}` returns what the
 window shows (title, focus, open dialogs, status lines, tree scroll, last stone sound and the
-positions of visible controls). With the feature, `LIZZIEYZY_TAURI_RESOURCE_BASE=<url>` makes
-engine resource downloads fetch `<url>/<file name>` instead of the trusted source (digests and
+positions of visible controls). The `ui` report never carries what is typed or selected in a
+password field or a field marked `data-secret`, also while 显示密码 shows it as text. With the
+feature, `LIZZIEYZY_TAURI_RESOURCE_BASE=<url>` makes engine resource downloads fetch
+`<url>/<file name>` instead of the trusted source (digests and
 sizes stay pinned), for isolated download tests, and `LIZZIEYZY_TAURI_ZHIZI_BASE=<url>` sends
 every 智子 account, payment and socket-token request, and the model catalog's metadata, to `<url>`
 instead of the live service. `node tools/fake-zhizi.mjs` is such a service on the loopback
