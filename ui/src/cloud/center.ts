@@ -3,7 +3,7 @@
 // Rust owns the account session, credentials, settings and the engine; this window holds only
 // unsaved drafts (fields, plan/model choice, link) and presentation state. A reply that arrives
 // after the window closed, or after a newer request of the same kind, is dropped.
-import { registerViewHandler, state } from "../app";
+import { registerViewHandler, run, state } from "../app";
 import type { CloudCatalog, CloudCommand, Command, CloudFailure, CloudReply, CloudSettings, CloudState, EngineFailureView, EngineProfile, Overview, RemoteFailure, WorkbenchView, ZhiziConnection } from "../contract/generated";
 import { remoteFailureText } from "../engine/remote";
 import { message } from "../dialogs";
@@ -774,13 +774,16 @@ function createCenter(initial: WorkbenchView): Center {
   }
 
   /** 信任新密钥并重试: trusts the key shown (a key offered since has its own refusal), then
-   *  refreshes again. */
+   *  refreshes again. As in the engine's failure window, a trust that could not be saved says why
+   *  (`run`'s error message) and nothing is retried. */
   async function trustHostKey() {
     if (hostKeyRefusal?.type !== "HostKeyChanged") return;
     const { host, port, offered } = hostKeyRefusal;
     trustHostKeyButton.disabled = true;
-    await cloudCommand({ type: "SshCredential", op: { type: "TrustHostKey", host, port, offered } });
-    if (alive) await refreshCatalog(true);
+    const trusted = await run({ type: "SshCredential", op: { type: "TrustHostKey", host, port, offered } });
+    if (!alive) return;
+    if (trusted) await refreshCatalog(true);
+    else update();
   }
 
   function showDetails(tab: 0 | 1) {
