@@ -3,5 +3,5 @@
   "identifier": "hawkeye",
   "description": "超级鹰眼 (MoveListFrame): the primary window and 双引擎模式's secondary one render what the main window relays and report their input",
   "windows": ["hawkeye", "hawkeye-sub"],
-  "permissions": ["core:default"]
+  "permissions": ["core:event:allow-listen", "core:event:allow-emit-to"]
 }

@@ -3,5 +3,5 @@
   "identifier": "yike-live",
   "description": "弈客直播中心 (YikeLiveDialog): renders the list the main window relays, reports its input, Esc closes (hides)",
   "windows": ["yike-live"],
-  "permissions": ["core:default", "core:window:allow-close"]
+  "permissions": ["core:event:allow-listen", "core:event:allow-emit-to", "core:window:allow-close"]
 }

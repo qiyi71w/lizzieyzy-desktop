@@ -3,5 +3,5 @@
   "identifier": "yike-bar",
   "description": "弈客 web window toolbar (BrowserFrame toolbar): hears the page address and relays its input to the main window",
   "webviews": ["yike-bar"],
-  "permissions": ["core:default"]
+  "permissions": ["core:event:allow-listen", "core:event:allow-emit-to"]
 }
