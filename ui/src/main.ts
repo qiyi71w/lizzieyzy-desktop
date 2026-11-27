@@ -2022,7 +2022,8 @@ function uiReport() {
         key: el.dataset.key ?? el.dataset.name ?? el.id ?? "",
         text: el.textContent ?? "",
         checked: el instanceof HTMLInputElement && (el.type === "checkbox" || el.type === "radio") ? el.checked : el.hasAttribute("aria-checked") ? el.getAttribute("aria-checked") === "true" : undefined,
-        value: (el instanceof HTMLInputElement && (el.type === "text" || el.type === "number")) || el instanceof HTMLSelectElement ? el.value : undefined,
+        // A secret field shown as text (显示密码) still reports no value.
+        value: (el instanceof HTMLInputElement && (el.type === "text" || el.type === "number") && !("secret" in el.dataset)) || el instanceof HTMLSelectElement ? el.value : undefined,
         disabled: el.classList.contains("disabled") || (el instanceof HTMLInputElement && el.disabled) || undefined,
         invalid: el.classList.contains("invalid") || undefined,
         title: el.title || undefined,
