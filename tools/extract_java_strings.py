@@ -57,7 +57,7 @@ CORRECTIONS: dict[str, dict[str, str]] = {
     "ZhCn": {
         "ConfigDialog2.modern.proxy.subtitle": "控制程序自身网络请求使用的代理策略",
         "SetLeelaEngines.lblResign": "放弃胜利率(%,default -1,范围-1到30):",
-        "Teacher.settings.apiHint": "填写服务地址和密钥，再选择解说模型。HTTP 不加密，仅用于本机服务或可信局域网。HTTP 请求经网络代理发出时，代理能读到请求内容和密钥。",
+        "Teacher.settings.apiHint": "填写服务地址和密钥，再选择解说模型。HTTP 不加密，仅用于本机服务或可信局域网。网络代理为手动配置，或系统设置让该地址走代理时，代理能读到 HTTP 请求内容和密钥。",
         # Held (see above).
         "RightClickMenu.trackPoint.requiresCapability": "选点重点研究不可用（需要本地 KataGo 支持）",
         "RightClickMenu.trackPoint.unavailableTooltip": "需要稳定局面，以及当前前台本地 KataGo 已支持选点重点研究",
@@ -66,7 +66,7 @@ CORRECTIONS: dict[str, dict[str, str]] = {
     "ZhTw": {
         "ConfigDialog2.modern.proxy.subtitle": "選擇來自應用程式的網路請求如何使用代理",
         "SetLeelaEngines.lblResign": "放棄勝利率(%,default -1,範圍-1到30):",
-        "Teacher.settings.apiHint": "填寫服務網址與金鑰，再選擇解說模型。HTTP 不加密，僅用於本機服務或可信區域網路。HTTP 請求經網路代理送出時，代理能讀到請求內容和金鑰。",
+        "Teacher.settings.apiHint": "填寫服務網址與金鑰，再選擇解說模型。HTTP 不加密，僅用於本機服務或可信區域網路。網路代理為手動配置，或系統設定讓該網址經過代理時，代理能讀到 HTTP 請求內容和金鑰。",
         "YikeLiveDialog.syncFailed": "弈客同步失敗",
         # Held (see above).
         "RightClickMenu.trackPoint.requiresCapability": "選點重點研究不可用（需要本地 KataGo 支援）",
@@ -80,7 +80,7 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "Menu.comprehensiveSettings": "Config (Shift+X)",
         "Menu.leadJustScore": "Excluding komi",
         "Menu.leadWithKomi": "Including komi",
-        "Teacher.settings.apiHint": "Enter the service address and key, then choose a commentary model. HTTP is unencrypted; use it only for local services or trusted private networks. When an HTTP request goes through a network proxy, the proxy can read the request and the key.",
+        "Teacher.settings.apiHint": "Enter the service address and key, then choose a commentary model. HTTP is unencrypted; use it only for local services or trusted private networks. If Network proxy is set to a manual proxy, or to system settings that send this address through a proxy, the proxy can read HTTP requests and the key.",
         # Held (see above).
         "RightClickMenu.trackPoint.requiresCapability": "Move focus unavailable (local KataGo capability required)",
         "RightClickMenu.trackPoint.unavailableTooltip": "Requires a stable position and the current foreground local KataGo with move-focus capability",
@@ -92,7 +92,7 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "LizzieChangeMove.txtMoveNumber.error": "無効な番号です!",
         "LizzieFrame.saveFileFailed": "保存に失敗しました!",
         "SetLeelaEngines.lblResign": "winRate を辞任 (%,default -1、範囲 -1 ～ 30):",
-        "Teacher.settings.apiHint": "サービス URL とキーを入力し、解説モデルを選んでください。HTTP は暗号化されないため、ローカルサービスまたは信頼できるプライベートネットワークでのみ使用してください。HTTP リクエストがネットワークプロキシを経由する場合、プロキシはリクエストの内容とキーを読み取れます。",
+        "Teacher.settings.apiHint": "サービス URL とキーを入力し、解説モデルを選んでください。HTTP は暗号化されないため、ローカルサービスまたは信頼できるプライベートネットワークでのみ使用してください。ネットワークプロキシが手動構成の場合、またはシステム設定でこのアドレスにプロキシが使われる場合、プロキシは HTTP のリクエストとキーを読み取れます。",
         "WindowsUpdate.btnUpdate": "今すぐ更新",
         "YikeLiveDialog.syncFailed": "弈客の同期に失敗しました",
         # Held (see above).
@@ -153,7 +153,7 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "SetLeelaEngines.lblRam": "최대 RAM 제한(MiB, 기본값 2048, 범위 128~131072):",
         "SetLeelaEngines.lblResign": "winRate 사임(%,default -1, 범위 -1 ~ 30):",
         "SetMatchAiPara.lblCalculation": "공식:",
-        "Teacher.settings.apiHint": "서비스 주소와 키를 입력한 뒤 해설 모델을 선택하세요. HTTP는 암호화되지 않으므로 로컬 서비스나 신뢰할 수 있는 사설망에서만 사용하세요. HTTP 요청이 네트워크 프록시를 거치면 프록시가 요청 내용과 키를 읽을 수 있습니다.",
+        "Teacher.settings.apiHint": "서비스 주소와 키를 입력한 뒤 해설 모델을 선택하세요. HTTP는 암호화되지 않으므로 로컬 서비스나 신뢰할 수 있는 사설망에서만 사용하세요. 네트워크 프록시를 수동으로 구성했거나 시스템 설정이 이 주소에 프록시를 사용하면, 프록시가 HTTP 요청과 키를 읽을 수 있습니다.",
         "TencentKifuDownload.points": " 포인트",
         "TencentKifuDownload.stones": " 돌",
         "YikeLiveDialog.syncFailed": "Yike 동기화 실패",
@@ -278,7 +278,7 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "SetLeelaEngines.lblResign": "ลาออก winRate (%,default -1,ช่วง -1 ถึง 30):",
         "SetLeelaEngines.lblVisits": "ขีดจำกัดการเข้าชมสูงสุด (ช่วง 0 ถึง 1000000000,0 หมายถึงไม่จำกัด):",
         "SetMatchAiPara.lblCalculation": "สูตร:",
-        "Teacher.settings.apiHint": "กรอกที่อยู่บริการและคีย์ แล้วเลือกโมเดลอธิบาย HTTP ไม่เข้ารหัส จึงควรใช้กับบริการในเครื่องหรือเครือข่ายส่วนตัวที่เชื่อถือได้เท่านั้น เมื่อคำขอ HTTP ผ่านพร็อกซีเครือข่าย พร็อกซีจะอ่านคำขอและคีย์ได้",
+        "Teacher.settings.apiHint": "กรอกที่อยู่บริการและคีย์ แล้วเลือกโมเดลอธิบาย HTTP ไม่เข้ารหัส จึงควรใช้กับบริการในเครื่องหรือเครือข่ายส่วนตัวที่เชื่อถือได้เท่านั้น หากพร็อกซีเครือข่ายกำหนดค่าด้วยตนเอง หรือการตั้งค่าระบบให้ที่อยู่นี้ผ่านพร็อกซี พร็อกซีจะอ่านคำขอ HTTP และคีย์ได้",
         "TencentKifuDownload.points": " คะแนน",
         "TencentKifuDownload.stones": " หิน",
         "menu.setFrameSizeRestart": "ตั้งค่าสำเร็จ โปรดรีสตาร์ท Lizzie!",
