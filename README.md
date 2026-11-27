@@ -1978,7 +1978,9 @@ importing the matching LizzieYzy Next settings.
   IPv6 unique local address (`fc00::/7`, for example `http://[fd00::1]:8080`). A name is never
   looked up to decide this, so a host name needs HTTPS even when it resolves to a private address,
   and other spellings of an address (one number, octal or hexadecimal parts, IPv4 inside IPv6) are
-  refused. Plain HTTP is unencrypted: use it only on networks you trust. The
+  refused. Plain HTTP is unencrypted: use it only on networks you trust. The service requests follow
+  Settings > 网络代理, so with the system or a manual proxy chosen a plain `http://` request and
+  its key pass through that proxy unencrypted; the address note says so. The
   key filled in from this session belongs to the saved address: changing the address empties the
   field, so 获取模型 never sends it to another service, and a model list still loading when the
   address or key changes is dropped (Java sent the filled key to the new address and offered the

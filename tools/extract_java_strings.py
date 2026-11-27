@@ -46,6 +46,8 @@ LOCALES = {
 # shows; they carry the once-escaped text, the leading one as the space the English entry starts with.
 # AI 陪练's 认输 button read as resigning from an office in Japanese and Korean (辞任, 사임); it
 # takes the words of the game's own resign button (Menu.resignBtn: 投了, 기권), as Thai already does.
+# AI 解说's address note adds that a system or manual 网络代理 receives HTTP requests and the key
+# unencrypted, which Java does not say.
 #
 # The entries marked "held" keep PREVIOUS_SHA's wording where the fixed commit rewrote it for
 # behaviour this product does not have yet; each goes when its feature follows the fixed commit.
@@ -55,6 +57,7 @@ CORRECTIONS: dict[str, dict[str, str]] = {
     "ZhCn": {
         "ConfigDialog2.modern.proxy.subtitle": "控制程序自身网络请求使用的代理策略",
         "SetLeelaEngines.lblResign": "放弃胜利率(%,default -1,范围-1到30):",
+        "Teacher.settings.apiHint": "填写服务地址和密钥，再选择解说模型。HTTP 不加密，仅用于本机服务或可信局域网。网络代理使用系统设置或手动配置时，HTTP 请求和密钥会以明文经过代理。",
         # Held (see above).
         "RightClickMenu.trackPoint.requiresCapability": "选点重点研究不可用（需要本地 KataGo 支持）",
         "RightClickMenu.trackPoint.unavailableTooltip": "需要稳定局面，以及当前前台本地 KataGo 已支持选点重点研究",
@@ -63,6 +66,7 @@ CORRECTIONS: dict[str, dict[str, str]] = {
     "ZhTw": {
         "ConfigDialog2.modern.proxy.subtitle": "選擇來自應用程式的網路請求如何使用代理",
         "SetLeelaEngines.lblResign": "放棄勝利率(%,default -1,範圍-1到30):",
+        "Teacher.settings.apiHint": "填寫服務網址與金鑰，再選擇解說模型。HTTP 不加密，僅用於本機服務或可信區域網路。網路代理使用系統設定或手動配置時，HTTP 請求和金鑰會以明文經過代理。",
         "YikeLiveDialog.syncFailed": "弈客同步失敗",
         # Held (see above).
         "RightClickMenu.trackPoint.requiresCapability": "選點重點研究不可用（需要本地 KataGo 支援）",
@@ -76,6 +80,7 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "Menu.comprehensiveSettings": "Config (Shift+X)",
         "Menu.leadJustScore": "Excluding komi",
         "Menu.leadWithKomi": "Including komi",
+        "Teacher.settings.apiHint": "Enter the service address and key, then choose a commentary model. HTTP is unencrypted; use it only for local services or trusted private networks. With Network proxy set to system settings or a manual proxy, HTTP requests and the key pass through the proxy unencrypted.",
         # Held (see above).
         "RightClickMenu.trackPoint.requiresCapability": "Move focus unavailable (local KataGo capability required)",
         "RightClickMenu.trackPoint.unavailableTooltip": "Requires a stable position and the current foreground local KataGo with move-focus capability",
@@ -87,6 +92,7 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "LizzieChangeMove.txtMoveNumber.error": "無効な番号です!",
         "LizzieFrame.saveFileFailed": "保存に失敗しました!",
         "SetLeelaEngines.lblResign": "winRate を辞任 (%,default -1、範囲 -1 ～ 30):",
+        "Teacher.settings.apiHint": "サービス URL とキーを入力し、解説モデルを選んでください。HTTP は暗号化されないため、ローカルサービスまたは信頼できるプライベートネットワークでのみ使用してください。ネットワークプロキシでシステム設定または手動設定を使う場合、HTTP のリクエストとキーは暗号化されずにプロキシを経由します。",
         "WindowsUpdate.btnUpdate": "今すぐ更新",
         "YikeLiveDialog.syncFailed": "弈客の同期に失敗しました",
         # Held (see above).
@@ -147,6 +153,7 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "SetLeelaEngines.lblRam": "최대 RAM 제한(MiB, 기본값 2048, 범위 128~131072):",
         "SetLeelaEngines.lblResign": "winRate 사임(%,default -1, 범위 -1 ~ 30):",
         "SetMatchAiPara.lblCalculation": "공식:",
+        "Teacher.settings.apiHint": "서비스 주소와 키를 입력한 뒤 해설 모델을 선택하세요. HTTP는 암호화되지 않으므로 로컬 서비스나 신뢰할 수 있는 사설망에서만 사용하세요. 네트워크 프록시에서 시스템 설정이나 수동 구성을 사용하면 HTTP 요청과 키가 암호화되지 않은 채 프록시를 거칩니다.",
         "TencentKifuDownload.points": " 포인트",
         "TencentKifuDownload.stones": " 돌",
         "YikeLiveDialog.syncFailed": "Yike 동기화 실패",
@@ -271,6 +278,7 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "SetLeelaEngines.lblResign": "ลาออก winRate (%,default -1,ช่วง -1 ถึง 30):",
         "SetLeelaEngines.lblVisits": "ขีดจำกัดการเข้าชมสูงสุด (ช่วง 0 ถึง 1000000000,0 หมายถึงไม่จำกัด):",
         "SetMatchAiPara.lblCalculation": "สูตร:",
+        "Teacher.settings.apiHint": "กรอกที่อยู่บริการและคีย์ แล้วเลือกโมเดลอธิบาย HTTP ไม่เข้ารหัส จึงควรใช้กับบริการในเครื่องหรือเครือข่ายส่วนตัวที่เชื่อถือได้เท่านั้น เมื่อพร็อกซีเครือข่ายใช้การตั้งค่าของระบบหรือกำหนดค่าด้วยตนเอง คำขอ HTTP และคีย์จะผ่านพร็อกซีโดยไม่เข้ารหัส",
         "TencentKifuDownload.points": " คะแนน",
         "TencentKifuDownload.stones": " หิน",
         "menu.setFrameSizeRestart": "ตั้งค่าสำเร็จ โปรดรีสตาร์ท Lizzie!",
