@@ -1862,10 +1862,12 @@ function uiReport() {
     title: document.title,
     /** The window bar's game part (players, result, file) as shown. */
     windowBar: titleReport(),
-    // `selected`: the text selected in a focused text field or text area.
+    // `selected`: the text selected in a focused text field or text area; never a password or
+    // other secret field's (`data-secret` keeps one secret while it is shown as text).
     focus: active ? {
       tag: active.tagName.toLowerCase(), id: active.id, className: active.className, key: active.dataset.key ?? null,
-      selected: active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement ? active.value.slice(active.selectionStart ?? 0, active.selectionEnd ?? 0) : null,
+      selected: active instanceof HTMLInputElement && (active.type === "password" || "secret" in active.dataset) ? null
+        : active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement ? active.value.slice(active.selectionStart ?? 0, active.selectionEnd ?? 0) : null,
     } : null,
     menuOpen: menuOpen(),
     /** The menus as the macOS system menu bar has them, from the model on every system, and what

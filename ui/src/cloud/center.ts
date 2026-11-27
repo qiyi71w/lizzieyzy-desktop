@@ -125,6 +125,8 @@ function fieldRow(label: string, control: HTMLElement, input: HTMLInputElement):
 function textInput(key: string, placeholder: string, type: "text" | "password" = "text"): HTMLInputElement {
   const input = el("input", "rc-input");
   input.type = type;
+  // Stays secret in acceptance reports while 显示密码 shows it as text.
+  if (type === "password") input.dataset.secret = "";
   input.placeholder = placeholder;
   input.dataset.key = key;
   input.autocomplete = "off";
