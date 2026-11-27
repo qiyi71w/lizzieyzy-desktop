@@ -78,7 +78,7 @@ export const TOP_UP_PRESETS_FEN = [1000, 3000, 5000, 10000];
 export type AccountOutcome = { reply: CloudReply; failure?: undefined } | { reply?: undefined; failure: CloudFailure };
 
 function failure(key: string): CloudFailure {
-  return { key, status: 0, retryAfterSeconds: 0, retryable: false, uncertain: false, cancelled: false, authenticationInvalidated: false };
+  return { key, status: 0, retryAfterSeconds: 0, retryable: false, uncertain: false, cancelled: false, authenticationInvalidated: false, hostKey: null };
 }
 
 /** One group of a window's account requests (Java: a dialog's own SwingWorkers). Its id scopes

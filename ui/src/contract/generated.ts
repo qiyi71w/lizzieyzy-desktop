@@ -1141,7 +1141,12 @@ export type CloudState = { authenticated: boolean, hasPassword: boolean, credent
 
 export type CloudResult = { "type": "State" } | { "type": "LoggedIn" } | { "type": "CodeSent", retry_after_seconds: number, } | { "type": "PasswordReset" } | { "type": "LoggedOut" } | { "type": "Overview", overview: Overview, } | { "type": "Usages", page: UsagePage, } | { "type": "Credits", page: CreditPage, } | { "type": "Catalog", catalog: CloudCatalog, } | { "type": "Products", products: Array<MembershipProduct>, top_up_presets_fen: Array<number>, } | { "type": "Order", order: PaymentOrder, } | { "type": "PaymentVerification", order: PaymentOrder, verification: PaymentVerification, };
 
-export type CloudFailure = { key: string, status: number, retryAfterSeconds: number, retryable: boolean, uncertain: boolean, cancelled: boolean, authenticationInvalidated: boolean, };
+export type CloudFailure = { key: string, status: number, retryAfterSeconds: number, retryable: boolean, uncertain: boolean, cancelled: boolean, authenticationInvalidated: boolean, 
+/**
+ * The model catalog's SSH server was refused before any credential was sent: its host key is
+ * not the trusted one, or the trusted keys could not be read (key `host_key_refused`).
+ */
+hostKey: RemoteFailure | null, };
 
 export type CodePurpose = "fast_login" | "reset_password";
 

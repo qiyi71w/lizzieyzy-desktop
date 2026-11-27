@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::{atomic::{AtomicBool, AtomicU64, Ordering}, Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use lizzie_core::{cloud::*, settings::NetworkSettings};
+use lizzie_core::{cloud::*, engine::ssh::KnownHosts, settings::NetworkSettings};
 use serde_json::{json, Value};
 mod catalog;
 mod data;
@@ -39,12 +39,15 @@ pub struct Adapter {
     store: crate::secrets::Store,
     base: String,
     world: Option<String>,
+    /// The remote engines' trusted host keys, which the model catalog's SSH server is checked
+    /// against too.
+    known_hosts: Arc<KnownHosts>,
 }
 impl Adapter {
-    pub fn new(store: crate::secrets::Store) -> Self {
+    pub fn new(store: crate::secrets::Store, known_hosts: Arc<KnownHosts>) -> Self {
         let (base, world) = service();
         Self { session: Mutex::new(Session::default()), generation: Arc::new(AtomicU64::new(0)),
-            network: Mutex::new(NetworkSettings::default()), store, base, world }
+            network: Mutex::new(NetworkSettings::default()), store, base, world, known_hosts }
     }
     /// The credential storage this account uses, for the Java import's read of Java's entries.
     pub fn store(&self) -> &crate::secrets::Store {
@@ -260,7 +263,7 @@ impl Adapter {
             }
             CloudCommand::RefreshCatalog { args } => {
                 require_token(token)?;
-                let catalog = catalog::refresh(http,&self.base,token,self.world.as_deref())?;
+                let catalog = catalog::refresh(http,&self.base,token,self.world.as_deref(),&self.known_hosts)?;
                 settings.args = catalog.resolve_args(&args);
                 settings.catalog = catalog.clone(); settings.catalog_updated_at = now_millis();
                 Ok(CloudResult::Catalog {catalog})
