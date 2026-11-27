@@ -21,11 +21,13 @@ use lizzie_core::workbench::{OpenOrigin, Workbench};
 use serde_json::{json, Value};
 use tokio_tungstenite::tungstenite::{accept, Message};
 
-/// Launches only cloud profiles, through the product connector.
+/// Launches only cloud profiles, through the product connector, counting the lines the workbench
+/// writes to them.
 struct WsLauncher {
     connector: CloudConnector,
     tx: Mutex<mpsc::Sender<(InstanceId, EngineInput)>>,
     endings: Arc<Mutex<Vec<JoinHandle<()>>>>,
+    written: Arc<AtomicUsize>,
 }
 
 impl Launcher for WsLauncher {
@@ -34,14 +36,40 @@ impl Launcher for WsLauncher {
             return Err(std::io::Error::other("no local engines in this test"));
         };
         let tx = Mutex::new(self.tx.lock().unwrap().clone());
-        self.connector.launch(
+        let io = self.connector.launch(
             id,
             cloud,
             Arc::new(move |i, e| {
                 let _ = tx.lock().unwrap().send((i, e));
             }),
             self.endings.clone(),
-        )
+        )?;
+        Ok(Box::new(Counted {
+            io,
+            written: self.written.clone(),
+        }))
+    }
+}
+
+/// A transport's input, counting every line written to it.
+struct Counted {
+    io: Box<dyn EngineIo>,
+    written: Arc<AtomicUsize>,
+}
+
+impl EngineIo for Counted {
+    fn send(&mut self, line: &str) -> std::io::Result<()> {
+        self.io.send(line)?;
+        self.written.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+
+    fn analysis_progress_accepted(&mut self, total: u64) {
+        self.io.analysis_progress_accepted(total);
+    }
+
+    fn terminate(self: Box<Self>) {
+        self.io.terminate();
     }
 }
 
@@ -145,19 +173,30 @@ pub struct Bench {
     pub wb: Workbench,
     events: mpsc::Receiver<(InstanceId, EngineInput)>,
     endings: Arc<Mutex<Vec<JoinHandle<()>>>>,
+    /// Lines the workbench wrote to its transports.
+    written: Arc<AtomicUsize>,
+    /// Output lines fed to the workbench.
+    read: usize,
     _dir: tempfile::TempDir,
 }
 
 pub fn bench() -> Bench {
+    bench_with(CloudConnector::new(Arc::new(|_, _| {
+        panic!("custom transport must not resolve an account token")
+    })))
+}
+
+/// A bench whose cloud engines connect through `connector` (a 智子 one resolves its socket there).
+pub fn bench_with(connector: CloudConnector) -> Bench {
     let dir = tempfile::tempdir().unwrap();
     let (tx, events) = mpsc::channel();
     let endings = Arc::new(Mutex::new(Vec::new()));
+    let written = Arc::new(AtomicUsize::new(0));
     let launcher = WsLauncher {
-        connector: CloudConnector::new(Arc::new(|_, _| {
-            panic!("custom transport must not resolve an account token")
-        })),
+        connector,
         tx: Mutex::new(tx),
         endings: endings.clone(),
+        written: written.clone(),
     };
     let mut wb = Workbench::new(
         Storage::in_dirs(&dir.path().join("config"), &dir.path().join("data")),
@@ -170,6 +209,8 @@ pub fn bench() -> Bench {
         wb,
         events,
         endings,
+        written,
+        read: 0,
         _dir: dir,
     }
 }
@@ -191,7 +232,7 @@ impl Bench {
             custom_url: url.into(),
             ..CloudSettings::default()
         };
-        self.wb.activate_cloud(draft, true).unwrap();
+        self.wb.activate_cloud(self.wb.cloud_ticket(), draft, true).unwrap();
     }
 
     /// Feeds engine events to the workbench until `done` holds (then `true`) or `limit` passes.
@@ -206,9 +247,39 @@ impl Bench {
                 return false;
             }
             if let Ok((id, e)) = self.events.recv_timeout(left.min(Duration::from_millis(20))) {
-                self.wb.engine_input(id, e);
+                self.feed(id, e);
             }
         }
+    }
+
+    /// Feeds engine events until nothing is on its way in either direction: `peer()` gives the
+    /// lines the peer has read, which must be every line the workbench wrote, and the output
+    /// lines it has written, which must all have been fed to the workbench. The bench runs no
+    /// timers, so from there the workbench writes nothing more until the peer writes again.
+    /// `false` if that does not happen within `limit`.
+    #[allow(dead_code)] // cloud_overview.rs only
+    pub fn pump_until_quiet(&mut self, limit: Duration, peer: impl Fn() -> (usize, usize)) -> bool {
+        let end = Instant::now() + limit;
+        loop {
+            let (read, written) = peer();
+            if read == self.written.load(Ordering::SeqCst) && written == self.read {
+                return true;
+            }
+            let left = end.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return false;
+            }
+            if let Ok((id, e)) = self.events.recv_timeout(left.min(Duration::from_millis(20))) {
+                self.feed(id, e);
+            }
+        }
+    }
+
+    fn feed(&mut self, id: InstanceId, e: EngineInput) {
+        if matches!(e, EngineInput::Stdout(_)) {
+            self.read += 1;
+        }
+        self.wb.engine_input(id, e);
     }
 
     /// Waits for the threads of the transports that ended, then feeds every event left: what
@@ -218,7 +289,7 @@ impl Bench {
             handle.join().unwrap();
         }
         while let Ok((id, e)) = self.events.try_recv() {
-            self.wb.engine_input(id, e);
+            self.feed(id, e);
         }
     }
 
@@ -228,6 +299,7 @@ impl Bench {
             events,
             endings,
             _dir,
+            ..
         } = self;
         wb.end_engines();
         while let Ok((id, e)) = events.recv_timeout(Duration::from_millis(50)) {

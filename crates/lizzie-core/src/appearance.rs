@@ -65,6 +65,13 @@ pub struct ThemeSettings {
     /// 界面颜色, this product's own (no Java key): the bars', the controls', the accent and the
     /// interface text's colour, `[r, g, b]`; empty leaves the skin's own colour.
     pub ui_chrome_color: Vec<u8>, pub ui_control_color: Vec<u8>, pub ui_accent_color: Vec<u8>, pub ui_text_color: Vec<u8>,
+    /// 棋盘坐标 (Java `coordinate-bold`, `coordinate-size`; CoordinateLabels): the labels around
+    /// the board bold or not, and their size in percent of the usual one, one of
+    /// [`COORDINATE_SIZES`]. A value this version cannot read is plain, or the usual size.
+    #[serde(deserialize_with = "coordinate_bold")]
+    pub coordinate_bold: bool,
+    #[serde(deserialize_with = "coordinate_size")]
+    pub coordinate_size: i32,
 }
 impl Default for ThemeSettings {
     fn default() -> Self {
@@ -86,7 +93,9 @@ impl Default for ThemeSettings {
             glass_panel_highlight_color:vec![255,255,255,77], glass_panel_shadow_color:vec![0,0,0,64], glass_accent_color:vec![96,165,250],
             glass_blur_radius:10, liquid_blur_radius:15, glass_corner_radius:12,
             blunder_node_colors: vec![vec![155,25,150],vec![208,16,19],vec![200,140,50],vec![180,180,0],vec![140,202,34],vec![0,220,0],vec![0,210,210]],
-            ui_chrome_color: Vec::new(), ui_control_color: Vec::new(), ui_accent_color: Vec::new(), ui_text_color: Vec::new() }
+            ui_chrome_color: Vec::new(), ui_control_color: Vec::new(), ui_accent_color: Vec::new(), ui_text_color: Vec::new(),
+            // Theme.coordinateBold / coordinateSize defaults.
+            coordinate_bold: false, coordinate_size: 100 }
     }
 }
 impl ThemeSettings {
@@ -106,7 +115,36 @@ impl ThemeSettings {
             && self.comment_font_size >= 0 && self.background_filter >= 0 && self.shadow_size > 0
             && self.glass_blur_radius>=0 && self.liquid_blur_radius>=0 && self.glass_corner_radius>=4
             && (0..=3).contains(&self.stone_indicator_type)
+            && COORDINATE_SIZES.contains(&self.coordinate_size)
     }
+}
+/// CoordinateLabels.SIZES: the coordinate sizes the theme page offers, in percent: 标准, 大, 特大.
+pub const COORDINATE_SIZES: [i32; 3] = [100, 140, 200];
+/// A stored `coordinate-size` as Java reads it (JSONObject.optInt: a number, or a string holding
+/// one), the usual size when it is none of [`COORDINATE_SIZES`].
+pub fn read_coordinate_size(raw: &Value) -> Option<i32> {
+    let n = match raw {
+        Value::Number(n) => n.as_i64().or_else(|| n.as_f64().filter(|f| f.is_finite()).map(|f| f.trunc() as i64)),
+        Value::String(s) => s.trim().parse::<i64>().ok(),
+        _ => None,
+    }?;
+    COORDINATE_SIZES.iter().copied().find(|&size| i64::from(size) == n)
+}
+/// A stored `coordinate-bold` as Java reads it (JSONObject.optBoolean: a boolean, or "true" /
+/// "false" in any letter case).
+pub fn read_coordinate_bold(raw: &Value) -> Option<bool> {
+    match raw {
+        Value::Bool(b) => Some(*b),
+        Value::String(s) if s.eq_ignore_ascii_case("true") => Some(true),
+        Value::String(s) if s.eq_ignore_ascii_case("false") => Some(false),
+        _ => None,
+    }
+}
+fn coordinate_size<'de, D: serde::Deserializer<'de>>(d: D) -> Result<i32, D::Error> {
+    Ok(read_coordinate_size(&Value::deserialize(d)?).unwrap_or(100))
+}
+fn coordinate_bold<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    Ok(read_coordinate_bold(&Value::deserialize(d)?).unwrap_or(false))
 }
 
 pub const BUNDLED: &[(&str, &str)] = &[
@@ -228,6 +266,7 @@ pub(crate) const PAGE_KEYS: &[&str] = &[
     "winrate-line-color", "winrate-miss-line-color", "blunder-bar-color", "scoremean-line-color",
     "stone-indicator-type", "show-comment-node-color", "comment-node-color", "comment-background-color", "comment-font-color",
     "best-move-color", "comment-font-size", "background-filter", "blunder-winrate-thresholds", "blunder-node-colors",
+    "coordinate-bold", "coordinate-size",
     "ui-chrome-color", "ui-control-color", "ui-accent-color", "ui-text-color",
 ];
 /// The `theme.txt` a save of the named theme `name` writes. Like Theme.save (Theme.java:617-643)

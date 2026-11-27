@@ -744,8 +744,9 @@ fn humansl_settings_normalize_and_corrupt_fields_do_not_drop_the_config() {
     })).unwrap();
     let settings = config.human_sl;
     let s = settings.training;
-    // Nine handicap stones: the player takes Black whatever the saved colour.
-    assert_eq!((s.mode, s.level, s.player_color), (TrainingMode::PostGameReview, CoachLevel::Kyu10, PlayerColor::Black));
+    // Nine handicap stones: the player takes Black whatever the saved colour; an unreadable mode is
+    // the default, 边下边提醒.
+    assert_eq!((s.mode, s.level, s.player_color), (TrainingMode::LiveFeedback, CoachLevel::Kyu10, PlayerColor::Black));
     assert_eq!((s.pace, s.handicap), (Pace::Natural, 9));
     assert!(!settings.advanced_visible && settings.model_path.is_none() && !config.record.read_komi);
     let s = HumanSlTrainingSettings { handicap: 255, player_color: PlayerColor::White, ..Default::default() }.normalized();

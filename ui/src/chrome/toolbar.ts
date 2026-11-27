@@ -2,7 +2,7 @@
 // chooses (chrome/topGroups.ts; Menu.java:8251-9931). Items this client implements run their
 // catalog command; the others keep their Java look and report that the capability is not
 // available yet.
-import { run, state, unavailable } from "../app";
+import { registerViewHandler, run, state, unavailable } from "../app";
 import { COMMANDS } from "../commands";
 import { rankMarkLit, setCandidateSide } from "../display/commands";
 import { boardUi, onBoardUiChange } from "../display/state";
@@ -17,9 +17,11 @@ import { FLASH_MENU } from "../quick/flash";
 import { functionSearchRefused, openFunctionSearch } from "../search/controller";
 import { limitPopup } from "../analysis/region";
 import { clockText } from "../game/commands";
-import { matchPlaying } from "../match/state";
+import { matchActive, matchPlaying } from "../match/state";
+import { openMatchParameters, parametersGame, refreshParametersButton } from "../match/parameters";
 import { foxOwnsEngine, submitFoxPda } from "../fox/dialog";
 import type { AnalysisSettings, KataParam } from "../contract/generated";
+import { PendingChanges, taken } from "./analysisDraft";
 import { kataGoPda, kataRevealed, kataToolbarState, kataToolbarUse, kataValueInvalid } from "../engine/kataParams";
 import { openCustomPda } from "../engine/customPda";
 import "../editing/chrome.css";
@@ -277,9 +279,25 @@ function shownGroup(group: TopGroup): () => boolean {
   return () => topGroupShown(group);
 }
 
+/** Toolbar analysis changes sent but not yet shown by the projection (SetAnalysisSettings replaces
+ *  every analysis setting). */
+const analysisDraft = new PendingChanges<AnalysisSettings>();
+registerViewHandler((view) => analysisDraft.settle(view.settings.engine.analysis));
+
+/** The analysis settings with the toolbar's pending changes over the projection. */
+function analysisSettings(): AnalysisSettings | undefined {
+  const s = state.view?.settings.engine.analysis;
+  return s && analysisDraft.over(s);
+}
+
 function saveAnalysis(change: Partial<AnalysisSettings>): void {
-  const settings = state.view?.settings.engine.analysis;
-  if (settings) void run({ type: "SetAnalysisSettings", settings: { ...settings, ...change } });
+  const s = state.view?.settings.engine.analysis;
+  if (!s) return;
+  void run({ type: "SetAnalysisSettings", settings: analysisDraft.send(s, change) }).then((result) => {
+    analysisDraft.answered(result, state.view?.settings.engine.analysis);
+    // A refused change leaves the fields: they show the settings again.
+    if (!taken(result)) refreshButtons();
+  });
 }
 
 /** IntDocument (IntDocument.java:25-50): an edit is taken only when the whole text is still an
@@ -319,7 +337,7 @@ function limitControl(time: boolean): HTMLElement[] {
     saveAnalysis(time ? { maxAnalyzeTimeSeconds: Number(taken) } : { limitPlayouts: Number(taken) });
   });
   updaters.push(() => {
-    const s = state.view?.settings.engine.analysis;
+    const s = analysisSettings();
     if (!s) return;
     box.checked = time ? s.limitTime : s.limitPlayout;
     field.disabled = !box.checked;
@@ -331,13 +349,56 @@ function limitControl(time: boolean): HTMLElement[] {
   return [label, stepper(field)];
 }
 
-/** 限制 (Menu.lblLimit, Menu.java:9698-9712): shown while either limit is. */
+/** 候选点 (SuggestionLimitField, the newer Java's Menu.java:4538-4541, 9264-9279): 综合设置's 候选点上限
+ *  (limit-max-suggestion, 0 for every candidate) with its name before it. Every edit that leaves a
+ *  whole number writes it, and the board shows that many candidates at once; an empty field keeps
+ *  the limit (Utils.parseTextToInt). The arrows step it by one. The field shows the limit 综合设置
+ *  saved unless it is being edited. */
+function suggestionLimitControl(): HTMLElement[] {
+  const name = t("Menu.lblSuggestionLimit");
+  const tip = t("Menu.txtSuggestionLimit.toolTip");
+  const field = document.createElement("input");
+  field.className = "tb-input suggestion-limit";
+  field.inputMode = "numeric";
+  field.min = "0";
+  field.step = "1";
+  field.title = tip;
+  field.dataset.key = "toolbar.suggestion-limit";
+  field.setAttribute("aria-label", name);
+  let taken = "";
+  field.addEventListener("input", () => {
+    if (!intText(field.value)) {
+      field.value = taken;
+      return;
+    }
+    taken = field.value;
+    if (taken !== "" && Number(taken) !== analysisSettings()?.limitMaxSuggestion) saveAnalysis({ limitMaxSuggestion: Number(taken) });
+  });
+  updaters.push(() => {
+    const s = analysisSettings();
+    if (!s || document.activeElement === field) return;
+    const value = String(s.limitMaxSuggestion);
+    if (field.value !== value) field.value = taken = value;
+  });
+  const caption = label(name);
+  caption.title = tip;
+  return [caption, stepper(field)];
+}
+
+/** 限制 (Menu.lblLimit, Menu.java:9698-9712): shown while any of its limits is. */
 function limitCapsule(): HTMLElement {
   const time = shownGroup("showTimeLimit");
   const visits = shownGroup("showVisitLimit");
+  const suggestions = shownGroup("showSuggestionLimit");
   return capsule(
-    () => time() || visits(),
-    group("choices", label(t("Menu.lblLimit")), ...showWhile(time, ...limitControl(true)), ...showWhile(visits, ...limitControl(false))),
+    () => time() || visits() || suggestions(),
+    group(
+      "choices",
+      label(t("Menu.lblLimit")),
+      ...showWhile(time, ...limitControl(true)),
+      ...showWhile(visits, ...limitControl(false)),
+      ...showWhile(suggestions, ...suggestionLimitControl()),
+    ),
   );
 }
 
@@ -373,14 +434,16 @@ function candidateInfoCheck(text: string, command: string, key: string): HTMLEle
  *  a dynamic / unverified refusal and a failed update. */
 const PDA_REPUBLISH: Record<string, true> = { "Fox.pdaDynamic": true, "Fox.pdaUnknown": true, "Fox.pdaFailed": true };
 
-/** Menu.setPdaAndWrnByEngineForDouble (Menu.java:9970-10030): a group shows while the foreground
- *  engine is KataGo, no engine game is starting or playing, and its show-*-in-menu is on (or
- *  function search revealed it for this run). A KataGoPda engine has its own PDA panel instead.
- *  While 野狐 AI 直连 holds the engine its 激进度 stays shown, as it was before these settings. */
+/** Menu.setPdaAndWrnByEngineForDouble (Menu.java:9623-9658): a group shows while the foreground
+ *  engine is KataGo, no engine match holds the parameters (EngineGameModule.ordinaryParametersHidden:
+ *  a batch exists until it has ended and given its parameters back) and its show-*-in-menu is on
+ *  (or function search revealed it for this run). A KataGoPda engine has its own PDA panel
+ *  instead. While 野狐 AI 直连 holds the engine its 激进度 stays shown, as it was before these
+ *  settings. */
 function kataGroupShown(param: KataParam): boolean {
   const v = state.view;
   if (param === "Pda" && foxOwnsEngine()) return true;
-  if (!v?.engine.foreground?.katago || v.engine_match?.phase === "Starting" || matchPlaying(v)) return false;
+  if (!v?.engine.foreground?.katago || matchActive(v)) return false;
   if (param === "Pda" && kataGoPda()) return false;
   const saved = v.settings.engine.kata_params;
   return kataRevealed[param] || (param === "Pda" ? saved.showPda : saved.showWrn);
@@ -388,7 +451,8 @@ function kataGroupShown(param: KataParam): boolean {
 
 /** 激进度 chkPDA / txtGfPDA and 广度 chkWRN / txtWRN (Menu.java:6174-6447). The check box or each
  *  edit of the value sends the value (0 when unchecked or not a number) to the foreground KataGo at
- *  once; a value outside -3..3 / 0..2 only turns the field red. The arrows, ↑ / ↓ and the wheel
+ *  once, except a checked 广度 whose text is not a number in 0..2, which stays here. A 激进度
+ *  outside -3..3 or such a 广度 turns the field red. The arrows, ↑ / ↓ and the wheel
  *  step 激进度 by 0.1 and 广度 by 0.01 within those ranges. The group shows the values the engine reports when
  *  it starts (Menu.setPdaAndWrn), not the answers to its own sets, and is disabled while the
  *  engine is not free for it (refreshBreadthAdmission).
@@ -416,6 +480,8 @@ function kataGroup(param: KataParam): HTMLElement {
   // The foreground engine's read-back last shown; `undefined` shows the next one in any case.
   let shownReadBack: string | null | undefined = undefined;
   let wasFox = false;
+  // An engine match held the parameters at the last update.
+  let held = false;
   const use = (enabled: boolean, text: string) => {
     box.checked = enabled;
     value.value = text;
@@ -498,10 +564,18 @@ function kataGroup(param: KataParam): HTMLElement {
     const params = state.view?.engine.kata_params;
     box.disabled = ((pda ? params?.pda_unavailable : params?.wrn_unavailable) ?? null) !== null;
     value.disabled = box.disabled || !box.checked;
+    const reported = (pda ? params?.pda : params?.wrn) ?? null;
+    // Menu.refreshRestoredParameters: once the batch gave the values back, the group shows what
+    // the engine holds now, unless it already gives that value (matchesEffectiveValue).
+    if (matchActive()) held = true;
+    else if (held) {
+      held = false;
+      const effective = box.checked ? parseJavaDouble(value.value) : 0;
+      if (reported !== null && effective !== reported) use(reported !== 0, reported === 0 ? "0" : javaDouble(reported));
+    }
     const readBack = (pda ? params?.pda_read_back : params?.wrn_read_back) ?? null;
     if (readBack === shownReadBack || document.activeElement === value) return;
     shownReadBack = readBack;
-    const reported = (pda ? params?.pda : params?.wrn) ?? null;
     if (reported !== null) use(reported !== 0, reported === 0 ? "0" : javaDouble(reported));
   });
   return g;
@@ -509,18 +583,11 @@ function kataGroup(param: KataParam): HTMLElement {
 
 /** more2 "..." (Menu.java:6101-6116) opens KataGo 激进参数PDA设置. Java shows it only in a
  *  KataGoPda engine's own PDA panel; here it follows every foreground KataGo outside engine games
- *  (approved: the window can be opened and saved with any KataGo). */
+ *  (approved: the window can be opened and saved with any KataGo). Like the ordinary groups it is
+ *  hidden while a batch holds the parameters. */
 function pdaIdleShown(): boolean {
   const v = state.view;
-  return !!v?.engine.foreground?.katago && v.engine_match?.phase !== "Starting" && !matchPlaying(v);
-}
-
-/** The "..." also stays during an engine game, playing or paused, that has a KataGoPda
- *  participant, whichever engine is in front (Menu.java:7240-7276, 9970-9986
- *  `participantHasKataGoPda`); the dialog then sets that participant. */
-function pdaMoreShown(): boolean {
-  const v = state.view;
-  return pdaIdleShown() || (matchPlaying(v) && !!v?.engine_match?.kata_go_pda_participant);
+  return !!v?.engine.foreground?.katago && !matchActive(v);
 }
 
 /** A KataGoPda engine's own PDA panel, lblCustomPda and txtPDA (Menu.java:5943-5965, 9658-9661,
@@ -564,7 +631,7 @@ function pdaMoreButton(): HTMLElement {
   at("engine.pda", b);
   b.onclick = () => void openCustomPda();
   updaters.push(() => {
-    const display = pdaMoreShown() ? "" : "none";
+    const display = pdaIdleShown() ? "" : "none";
     if (b.style.display !== display) b.style.display = display;
   });
   return b;
@@ -635,11 +702,15 @@ function gamePill(text: string, cls: string, key: string, run: () => void): HTML
 
 /** The double menu's game controls (toggleDoubleMenuGameStatus, Menu.java:10321-10362): 新对局
  *  becomes the red 结束对局 while a 人机对弈 game or an 引擎对战 batch runs, 暂停 / 继续 is enabled
- *  only then and 认输 is shown only in 人机对弈. */
+ *  only then, 对局参数 follows an analysis-mode batch (Menu.java:8666, EngineGameParameterControls)
+ *  and 认输 is shown only in 人机对弈. */
 function gameControls(): HTMLElement[] {
   const newGame = gamePill(t("Menu.newGameBtn"), "newgame", "game-new", () => openPopupMenu(newGame, NEW_GAME_POPUP));
   const stop = at("toolbar.game-stop", gamePill(t("Menu.endGameBtn"), "newgame danger", "game-end", () => COMMANDS["toolbar.game-stop"].run()));
   const pause = at("toolbar.game-pause", gamePill(t("Menu.pauseGameBtn"), "pause", "game-pause", () => { if (state.view?.game || state.view?.engine_match) COMMANDS["toolbar.game-pause"].run(); }));
+  const params = gamePill(t("EngineGameParameters.entry"), "pause", "game-parameters", () => {
+    if (parametersGame()) void openMatchParameters();
+  });
   const resign = at("toolbar.game-resign", gamePill(t("Menu.resignBtn"), "pause danger", "game-resign", () => COMMANDS["toolbar.game-resign"].run()));
   updaters.push(() => {
     const game = state.view?.game;
@@ -652,9 +723,11 @@ function gameControls(): HTMLElement[] {
     pause.classList.toggle("disabled", idle);
     pause.setAttribute("aria-disabled", String(idle));
     const paused = match ? match.phase === "Paused" : game?.phase === "Paused";
-    pause.textContent = paused ? t("Menu.continueGameBtn") : t("Menu.pauseGameBtn");
+    const text = paused ? t("Menu.continueGameBtn") : t("Menu.pauseGameBtn");
+    if (pause.textContent !== text) pause.textContent = text;
+    refreshParametersButton(params);
   });
-  return [newGame, stop, pause, resign];
+  return [newGame, stop, pause, params, resign];
 }
 
 /** byoyomiTime (Menu.java:7507-7512, bold 15): the human's clock while the win-rate graph is
@@ -683,6 +756,14 @@ function foxKifuButton(): HTMLElement {
 function tencentKifuButton(): HTMLElement {
   const b = pill(t("Menu.tencentKifuButton"), "", "menu.tencentKifu");
   b.title = t("Menu.tencentKifu");
+  return b;
+}
+
+/** btnOgsKifu (Java `KifuBrowseControls.button(…, "ogs", …)`): beside 腾讯棋谱, primary style,
+ *  OGS棋谱 as its tip. */
+function ogsKifuButton(): HTMLElement {
+  const b = pill(t("Menu.ogsKifuButton"), "", "menu.ogsKifu");
+  b.title = t("Menu.ogsKifu");
   return b;
 }
 
@@ -931,7 +1012,7 @@ export function buildToolbar(host: HTMLElement): void {
       limitCapsule(),
       capsule(shownGroup("showAnalyzeSides"), group("choices", label(t("Menu.lblShowAnalyze")), analyzeCheck(true), analyzeCheck(false))),
       candidateCapsule(),
-      capsule(basic, foxKifuButton(), tencentKifuButton(), strengthButton(), setup),
+      capsule(basic, foxKifuButton(), tencentKifuButton(), ogsKifuButton(), strengthButton(), setup),
       spacer(),
       capsule(
         () => rules() || parameters() || boardSize() || saveLoad() || tsumego(),

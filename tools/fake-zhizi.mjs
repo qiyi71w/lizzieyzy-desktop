@@ -4,7 +4,7 @@
 //
 //   node tools/fake-zhizi.mjs [--port 18080] [--host 127.0.0.1] [--namespace /zhizi-fixture]
 //     [--scenario ok] [--account vip] [--ready-delay-ms 1000] [--engine "<cmd>"] [--pay-after N]
-//     [--ssh-port 1]
+//     [--ssh-port 1] [--latency-ms 0] [--stdin-log <file>]
 //
 // Point an acceptance build at it with LIZZIEYZY_TAURI_ZHIZI_BASE=http://127.0.0.1:18080 (plain
 // http is accepted only for 127.0.0.1, ::1 and localhost). Sign in with any phone/email and the
@@ -27,10 +27,15 @@
 // fast with catalog_unavailable instead of reaching the real service. The build must also read
 // world.json from this base.
 //
+// For protocol measurements, --latency-ms delays the engine's output to the client by that many
+// milliseconds (in order), like a network between them, and --stdin-log appends every engine
+// input line, with the time it arrived, to a JSON-lines file ({"t": epoch ms, "line": "..."}).
+//
 // Only Node built-ins are used; runs on Linux and Windows with Node 20+.
 
 import http from "node:http";
 import crypto from "node:crypto";
+import fs from "node:fs";
 import { spawn } from "node:child_process";
 import { URL } from "node:url";
 
@@ -59,13 +64,13 @@ function usage(message) {
   if (message) console.error(`fake-zhizi: ${message}`);
   console.error("usage: node tools/fake-zhizi.mjs [--port 18080] [--host 127.0.0.1] [--namespace /zhizi-fixture]\n"
     + `  [--scenario ${SCENARIOS.join("|")}] [--account ${ACCOUNTS.join("|")}] [--ready-delay-ms 1000]\n`
-    + "  [--engine \"<command line>\"] [--pay-after N] [--ssh-port 1]");
+    + "  [--engine \"<command line>\"] [--pay-after N] [--ssh-port 1] [--latency-ms 0] [--stdin-log <file>]");
   process.exit(2);
 }
 
 function parseArgs(argv) {
   const opts = { port: 18080, host: "127.0.0.1", namespace: "/zhizi-fixture", scenario: "ok", account: "vip",
-    readyDelayMs: 1000, engine: null, payAfter: null, sshPort: 1 };
+    readyDelayMs: 1000, engine: null, payAfter: null, sshPort: 1, latencyMs: 0, stdinLog: null };
   const integer = (name, value, min) => {
     if (!/^\d+$/.test(value ?? "") || Number(value) < min) usage(`${name} needs an integer >= ${min}`);
     return Number(value);
@@ -85,6 +90,8 @@ function parseArgs(argv) {
       case "--engine": opts.engine = splitCommandLine(value); if (!opts.engine.length) usage("--engine is empty"); break;
       case "--pay-after": opts.payAfter = integer(name, value, 0); break;
       case "--ssh-port": opts.sshPort = integer(name, value, 1); break;
+      case "--latency-ms": opts.latencyMs = integer(name, value, 0); break;
+      case "--stdin-log": opts.stdinLog = value; break;
       default: usage(`unknown option ${name}`);
     }
   }
@@ -456,6 +463,9 @@ class EngineSocket {
     socket.setNoDelay(true);
     socket.on("data", (chunk) => this.receive(chunk));
     socket.on("close", () => this.finish());
+    // The HTTP server keeps upgraded sockets half-open: a client that closes its side ends the
+    // session at once, as the service does, rather than at the next heartbeat timeout.
+    socket.on("end", () => { log(`WS ${this.id} closed by the client`); socket.destroy(); });
     socket.on("error", () => socket.destroy());
     log(`WS ${this.id} connect`);
     this.text(`0${JSON.stringify({ sid: randomId(), upgrades: [], pingInterval: PING_INTERVAL, pingTimeout: PING_TIMEOUT })}`);
@@ -638,8 +648,13 @@ class EngineSocket {
   }
 
   startEngine() {
-    const stdout = (text) => this.emit(this.namespace, "stdout", text);
-    const stderr = (text) => this.emit(this.namespace, "stderr", text);
+    // Timers of one delay fire in the order they were set, so --latency-ms keeps the output order.
+    const later = (event) => (text) => {
+      if (!opts.latencyMs) return this.emit(this.namespace, event, text);
+      setTimeout(() => { if (!this.closed) this.emit(this.namespace, event, text); }, opts.latencyMs);
+    };
+    const stdout = later("stdout");
+    const stderr = later("stderr");
     if (!opts.engine) {
       this.engine = builtinEngine(stdout);
     } else {
@@ -675,6 +690,7 @@ class EngineSocket {
     for (const line of text.split("\n")) {
       const clean = line.replace(/\r$/, "");
       if (!clean.trim()) continue;
+      if (opts.stdinLog) fs.appendFileSync(opts.stdinLog, `${JSON.stringify({ t: Date.now(), line: clean })}\n`);
       if (this.engine) this.engine.write(clean); else this.pending.push(clean);
     }
   }

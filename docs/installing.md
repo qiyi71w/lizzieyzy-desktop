@@ -49,6 +49,13 @@ exits; install the *Evergreen* runtime from
 that the publisher is shown as unknown and that the file is the one whose hash you verified,
 then click *Run anyway*. Do not turn SmartScreen off.
 
+**An engine reports Windows error 206.** When an engine stops while starting and its output
+names a DLL that could not be loaded with `Error code 206`, the failure window explains that the
+path is too long. Move the engine's whole folder, with the DLLs in it, to a shorter path (for
+example `C:\katago`), then change the engine's command in the engine settings to the new path.
+Never move single DLLs. Engines installed through 引擎一键设置 and the NVIDIA runtime are kept in
+the data folder below (`resources`), so a very long user-profile path also lengthens theirs.
+
 ## macOS
 
 Open the `.dmg` for your Mac's processor (Apple menu > *About This Mac*: "Apple M…" is Apple
@@ -67,6 +74,12 @@ downloaded copy:
 The app then starts, and later starts open it without asking. This allows only this copy of the
 app; do not turn Gatekeeper off. These steps were checked on macOS 27 on Apple Silicon; they have
 not yet been checked on macOS 15 or on an Intel Mac.
+
+The KataGo packages 引擎一键设置 downloads for macOS are built for macOS 15 or later. On an older
+macOS the program does not start them: the failure window (and 引擎一键设置's engine check) says
+which macOS the engine needs and which one this Mac runs. Upgrade macOS, use 远程算力 (remote
+compute), or configure a local engine built for your macOS; downloading the package again or
+adding DLL files does not help. Engines you configure yourself are not checked.
 
 ## Linux
 

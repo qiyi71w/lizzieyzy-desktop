@@ -2,12 +2,14 @@
 // at a time in the order the user issued them (like Swing's event queue), so a quick Down/Up pair
 // can never be applied in the opposite order.
 import { dispatch, nativeDialog } from "./contract/client";
-import type { Command, CommandResult, CommentLabels, ExportKind, Navigation, StoneSound, TreeNodeView, WorkbenchView } from "./contract/generated";
+import type { Command, CommandResult, CommentLabels, ExportKind, GameInfo, Navigation, StoneSound, TreeNodeView, WorkbenchView } from "./contract/generated";
 import { ask, confirm, message, timedMessage } from "./dialogs";
 import { product, t } from "./i18n";
 import { tuningText } from "./engine/tuningText";
 import { contributionText } from "./contribution/text";
 import { errorText } from "./errorText";
+import { players } from "./workbench/wording";
+import "./ogskifu/text";
 
 export const APP_TITLE = "LizzieYzy Tauri";
 
@@ -29,10 +31,13 @@ export function subscribe(listener: () => void): void {
   listeners.push(listener);
 }
 
-const viewHandlers: ((view: WorkbenchView) => void)[] = [];
-/** Feature-owned one-shot notices and presentation state stay outside the controller. */
-export function registerViewHandler(handler: (view: WorkbenchView) => void): void {
-  viewHandlers.push(handler);
+const viewHandlers = new Set<(view: WorkbenchView) => void>();
+/** Feature-owned one-shot notices and presentation state stay outside the controller. Returns what
+ *  ends the subscription; a handler that ends its own (or another's) while a view is handed out is
+ *  not called again, and the rest still are. */
+export function registerViewHandler(handler: (view: WorkbenchView) => void): () => void {
+  viewHandlers.add(handler);
+  return () => void viewHandlers.delete(handler);
 }
 
 /** Applies a published view; stale ones (lower `seq`) are ignored. */
@@ -61,12 +66,16 @@ export function apply(view: WorkbenchView): void {
     if (outcome.message_key === "KifuLoad.failed") message(t("Message.title"), `${t("KifuLoad.failed")}${outcome.detail}`, "error");
     // openFile during a game (LizzieFrame.java:5134-5138): Utils.showMsg(openFileFailed.inGame).
     else if (outcome.message_key === "LizzieFrame.openFileFailed.inGame") message(t("Message.title"), t("LizzieFrame.openFileFailed.inGame"));
+    // An OGS link from 打开在线链接 whose game was not downloaded (OgsKifuImport.tryOpen →
+    // failKifuLoad); OGS refusing requests for now has its own message.
+    else if (outcome.message_key === "OgsKifuImport.failed") message(t("Message.title"), t("OgsKifuImport.failed"), "error");
+    else if (outcome.message_key === "ogsRecordRateLimited") message(t("Message.title"), product("ogsRecordRateLimited"), "error");
     else message(t("Message.title"), t("LizzieFrame.prompt.failedToOpenFile"), "error");
   }
   // SgfSaveCoordinator.showFailure: Utils.showMsg(saveFileFailed); a success shows nothing.
   if (view.save_outcome?.type === "Failed") message(t("Message.title"), t("LizzieFrame.saveFileFailed"), "error");
   view.sounds.forEach(playSound);
-  viewHandlers.forEach((handler) => handler(view));
+  for (const handler of viewHandlers) handler(view);
   listeners.forEach((l) => l());
 }
 
@@ -92,6 +101,14 @@ function playSound(sound: StoneSound) {
 }
 
 let queue: Promise<unknown> = Promise.resolve();
+
+/** Refusals Java says in a 3 s message rather than a dialog: a desktop move during Web 试下
+ *  (LizzieFrame.showTrialBlockedHint) and a delete during an AI 陪练 game
+ *  (HumanSlGameController.showDeleteBlockedHint). */
+const TIMED_REFUSALS: Record<string, true> = {
+  "LizzieFrame.webTrialDesktopBlocked": true,
+  "HumanSlGame.deleteBlocked": true,
+};
 
 /** Sends a command after the previously issued ones. Errors are shown, not thrown. */
 export function run(command: Command): Promise<CommandResult | null> {
@@ -131,10 +148,19 @@ export function run(command: Command): Promise<CommandResult | null> {
           "AnalysisSettings.reuseStatus.readboard_gma": t("AnalysisSettings.reuseStatus.readboard_gma"),
           "AnalysisSettings.reuseStatus.missing_capability": t("AnalysisSettings.reuseStatus.missing_capability"),
           "AnalysisSettings.reuseStatus.existing_lease": t("AnalysisSettings.reuseStatus.existing_lease"),
+          // 规则面板 确定 while 整盘分析 starts or runs.
+          "WholeGameAnalysis.conflict.analysis": t("WholeGameAnalysis.conflict.analysis"),
+          // 断开智子引擎 while a 智子 engine is starting, switching or held by a task.
+          "RemoteCompute.zhiziSession.blocked": t("RemoteCompute.zhiziSession.blocked"),
+          // 对局参数: 继续 before a revision was confirmed, and a revision the core refused.
+          "EngineGameParameters.resumeBlocked": t("EngineGameParameters.resumeBlocked"),
+          "EngineGameParameters.notPlaying": t("EngineGameParameters.notPlaying"),
+          "EngineGameParameters.invalidWrn": t("EngineGameParameters.invalidWrn"),
+          "EngineGameParameters.invalidPda": t("EngineGameParameters.invalidPda"),
+          "EngineGameParameters.rejected": t("EngineGameParameters.rejected"),
         };
         // 跑谱贡献 refusals: Java keys and the product's unsupported-package text.
-        // A desktop move during Web 试下: LizzieFrame.showTrialBlockedHint, a 3 s message.
-        if (result.message_key === "LizzieFrame.webTrialDesktopBlocked") timedMessage(t("LizzieFrame.webTrialDesktopBlocked"), 3);
+        if (TIMED_REFUSALS[result.message_key]) timedMessage(t(result.message_key), 3);
         else void message(t("Message.title"), messages[result.message_key] ?? contributionText(result.message_key), "warning");
       }
       return result;
@@ -232,6 +258,7 @@ function commentLabels(): CommentLabels {
     playouts: t("SGFParse.playouts"),
     komi: t("SGFParse.komi"),
     pda: t("SGFParse.pda"),
+    wrn: t("SGFParse.wrn"),
   };
 }
 
@@ -254,20 +281,22 @@ export function unavailable(): void {
   message(APP_TITLE, product("unavailable"));
 }
 
-/** Java LizzieFrame.updateTitle without an engine: DEFAULT_TITLE + " " + players + result + file.
+/** Java LizzieFrame.updateTitle without an engine: DEFAULT_TITLE, then the players with the result
+ *  ("[黑] X vs [白] Y (结果:B+R)", titlePlayers) and the file.
  *  While 试下 is on the title is LizzieFrame.tryTitle only (tryPlay sets it; updateTitle returns). */
 export function windowTitle(version: string): string {
   const v = state.view;
   if (v?.editing.trying) return t("LizzieFrame.tryTitle");
   let title = `${APP_TITLE} ${version} `;
   if (!v) return title;
-  if (v.document.format !== null) {
-    const info = v.document.info;
-    title += `- [${t("Menu.Black")}]${info.black} vs[${t("Menu.White")}]${info.white}`;
-    if (info.result) title += `(${t("LizzieFrame.result")}${info.result})`;
-  }
+  if (v.document.format !== null) title += `- ${titlePlayers(v.document.info)}`;
   // A record loaded from a 存档与读档 slot has no file of its own; Java shows the slot's file name.
   const fileName = v.document.file_name ?? v.document.origin_name;
   if (fileName) title += ` - ${fileName}`;
   return title;
+}
+
+/** The players and the result as the title writes them (LizzieFrame.setPlayers / setResult). */
+export function titlePlayers(info: GameInfo): string {
+  return players(info.black, info.white, info.result, { black: t("Menu.Black"), white: t("Menu.White"), result: t("LizzieFrame.result") });
 }

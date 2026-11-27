@@ -155,10 +155,10 @@ export function relayHawkeye(v: WorkbenchView): void {
     const shown = title(id, v);
     if (shown !== open.title) {
       open.title = shown;
-      void WebviewWindow.getByLabel(LABELS[id]).then(async (w) => {
-        await w?.setAlwaysOnTop(v.settings.hawkeye.alwaysOnTop);
-        await w?.setTitle(shown);
-      });
+      // The shell switches 窗口置顶 (src-tauri on_top: on Windows it also restacks the window).
+      void invoke("set_window_on_top", { label: LABELS[id], onTop: v.settings.hawkeye.alwaysOnTop })
+        .then(() => WebviewWindow.getByLabel(LABELS[id]))
+        .then((w) => w?.setTitle(shown));
     }
     const p = payload(id, open, v, pane);
     const text = JSON.stringify(p);

@@ -19,6 +19,11 @@ pub struct EngineValidation {
     pub status: ValidationStatus,
     pub version: Option<String>,
     pub detail: String,
+    /// The check refused the engine before starting it (a packaged engine too new for this
+    /// macOS); the status is then [`ValidationStatus::StartFailed`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub diagnosis: Option<crate::engine::diagnosis::StartupDiagnosis>,
 }
 
 pub fn parse_katago_version(output: &str) -> Option<String> {
@@ -39,6 +44,7 @@ pub fn classify_version(result: std::io::Result<ProbeOutput>, active: bool) -> E
             status: ValidationStatus::Active,
             version: None,
             detail: String::new(),
+            diagnosis: None,
         };
     }
     let (detail, timed_out, success) = match result {
@@ -70,6 +76,7 @@ pub fn classify_version(result: std::io::Result<ProbeOutput>, active: bool) -> E
         status,
         version,
         detail,
+        diagnosis: None,
     }
 }
 /// No process is launched for an already active engine. NVIDIA packages get Java's 20s budget.

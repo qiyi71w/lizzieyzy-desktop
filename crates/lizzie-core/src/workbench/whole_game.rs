@@ -317,9 +317,13 @@ impl Workbench {
             if let Some(w) = winrate.filter(|w| w.is_finite()) { result.winrate = w; }
             if let Some(v) = score.filter(|v| v.is_finite()) { result.score_lead = Some(v); }
         }
-        if let Some(old) = self.store.get(&self.doc.record, q.node).filter(|old| old.visits > result.visits) {
-            if ownership.is_some() && self.store.ownership(&self.doc.record, q.node).is_none() {
-                self.store.insert(q.node, q.stamp, old.clone(), ownership);
+        if self
+            .store
+            .get(&self.doc.record, q.node)
+            .is_some_and(|old| old.visits > result.visits)
+        {
+            if let Some(o) = ownership.filter(|_| self.store.ownership(&self.doc.record, q.node).is_none()) {
+                self.store.backfill_ownership(q.node, o);
             }
             return;
         }
@@ -407,7 +411,7 @@ impl Workbench {
                 if let Some(Engine::Lease { ready, .. }) = self.whole_game.session.as_mut().and_then(|s| s.engine.as_mut()) { *ready = true; }
                 self.whole_game_lease_next();
             }
-            RuntimeEvent::LeaseResult { lease: l, doc, node, stamp, komi, rules_rev, to_play, line } if lease == Some(l) => {
+            RuntimeEvent::LeaseResult { lease: l, doc, node, stamp, komi, rules_rev, to_play, line, .. } if lease == Some(l) => {
                 if self.whole_game.session.as_ref().is_some_and(|s| s.doc == doc) {
                     self.whole_game_store(&Query { node, stamp, komi, rules_rev, to_play }, line, true);
                     if let Some(s) = self.whole_game.session.as_mut() { s.answered += 1; }

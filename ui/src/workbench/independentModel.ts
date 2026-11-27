@@ -4,7 +4,7 @@
 // pointer and key input the window reports. A window keeps only its own frame state (lock,
 // always-on-top, the press it is dragging the window with).
 import type { AppearanceSettings, IndependentBoard, Language, Point, SlotThumbnail, ThemeSettings } from "../contract/generated";
-import type { BoardScene, SubBoardScene } from "./paint";
+import type { BoardScene, NamesReport, SubBoardScene } from "./paint";
 
 /** Window labels (src-tauri INDEPENDENT_MAIN_WINDOW / INDEPENDENT_SUB_WINDOW). */
 export const INDEPENDENT_LABELS: Record<IndependentBoard, string> = { Main: "independent-main", Sub: "independent-sub" };
@@ -38,8 +38,8 @@ export type IndependentPayload = {
 } & (
   | {
       board: "Main";
-      /** BoardRenderer.isBigMargin for this scene (0.055 margin instead of 0.03). */
-      bigMargin: boolean;
+      /** The main board's margin ratio (mainMarginRatio: isBigMargin, widened for 棋盘坐标). */
+      marginRatio: number;
       /** 启用拖动棋子: a press on a stone drags the stone instead of the window. */
       allowDrag: boolean;
       /** Input.selectMode: a lit region button makes a press select a region, like Alt. */
@@ -67,8 +67,9 @@ export type IndependentInput = { board: IndependentBoard } & (
   | { type: "hover"; fx: number; fy: number; pressed: boolean }
   | { type: "enter" }
   | { type: "leave" }
-  /** `sx`, `sy`: the pressed screen point (CSS px), where a popup opens. */
-  | { type: "press"; point: Point | null; button: number; detail: number; alt: boolean; sx: number; sy: number }
+  /** `sx`, `sy`: the pressed screen point (CSS px), where a popup opens; `onNames` when it is on
+   *  the players' names as the window last drew them (BoardRenderer.isOnPlayerName). */
+  | { type: "press"; point: Point | null; button: number; detail: number; alt: boolean; sx: number; sy: number; onNames: boolean }
   | { type: "release"; point: Point | null; button: number }
   /** A region selection's press dragged (selectDragged) or released (`end`, selectReleased): the
    *  points it covers; `click` is an Alt release where it was pressed (mouseClicked's 清除区域). */
@@ -84,4 +85,7 @@ export type IndependentInput = { board: IndependentBoard } & (
    *  in CSS pixels, labelled with the position of the scene painted into it; null when the
    *  window has nothing painted yet. */
   | { type: "picture"; id: number; picture: SlotThumbnail | null }
+  /** The names the window drew and where (window client coordinates), sent when they change,
+   *  for the acceptance probe. */
+  | { type: "names"; names: NamesReport | null }
 );

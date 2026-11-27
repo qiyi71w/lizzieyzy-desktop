@@ -45,6 +45,7 @@ use crate::api::{
 use crate::engine::gtp::InfoLine;
 use crate::engine::kata_analysis::{self, Response};
 use crate::engine::rules::KataRules;
+use crate::engine::diagnosis::StartupDiagnosis;
 use crate::engine::runtime::{EngineFailure, InstanceId, LeaseFailure, RuntimeEvent, Target};
 use crate::engine::ssh::RemoteFailure;
 use crate::formats::{saved_analysis, ReadError};
@@ -772,12 +773,14 @@ impl Workbench {
 
     // -------------------------------------------------------------------- 批量分析
 
-    /// The foreground engine's line for 批量分析's record `doc`: stored in that record's store
-    /// (automatic analysis keeps the accepted packet, `protectedCache` off) and checked against
-    /// the run's conditions. Returns whether the line was accepted.
+    /// The foreground engine `instance`'s line for 批量分析's record `doc`: stored in that
+    /// record's store with the PDA and breadth it was made with (automatic analysis keeps the
+    /// accepted packet, `protectedCache` off) and checked against the run's conditions. Returns
+    /// whether the line was accepted.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn batch_foreground_result(
         &mut self,
+        instance: InstanceId,
         doc: u64,
         node: NodeId,
         stamp: u64,
@@ -790,6 +793,10 @@ impl Workbench {
         let limit = self.config.engine.analysis.limit_branch_length;
         let capture = !self.config.edit.no_capture;
         let shown = self.suggestion_limit();
+        let Some((mut result, ownership)) = node_analysis(node, to_play, komi, engine_name, line) else {
+            return false;
+        };
+        let (pda, wrn) = (self.engine_pda(instance), self.engine_wrn(instance, &result));
         let Some(d) = self
             .batch
             .run
@@ -802,14 +809,12 @@ impl Workbench {
         if komi != d.komi || !d.record.contains(node) || d.record.node(node).stamp != stamp {
             return false;
         }
-        let Some((mut result, ownership)) = node_analysis(node, to_play, komi, engine_name, line) else {
-            return false;
-        };
         let visits = result.visits;
         let first = result.candidates.first().map_or(0, |c| c.visits);
         fill_pv_captures(&mut result, &d.record.position(node), limit, capture);
         // Not the shown document: nothing of it is tracked.
         d.store.update(node, stamp, result, ownership, shown, &[]);
+        d.store.made_with(node, pda, wrn);
         if node == d.cursor && !self.paused {
             self.auto_analysis_result(node, visits, first, elapsed);
         }
@@ -933,14 +938,14 @@ impl Workbench {
             };
             let instance = match instance {
                 Ok(instance) => instance,
-                Err(message) => return self.batch_flash_engine_failed(&command, true, message, Vec::new(), None),
+                Err(error) => return self.batch_flash_engine_failed(&command, true, error.message, Vec::new(), None, error.diagnosis),
             };
             self.batch.next_attempt += 1;
             let prefix = format!("batch{}", self.batch.next_attempt);
             let (queries, sent) = self.send_record_queries(instance, &rec, komi, 0, visits, &nodes, &prefix, rules);
             if !sent {
                 self.engines.terminate(instance);
-                return self.batch_flash_engine_failed(&command, true, "input closed".into(), Vec::new(), None);
+                return self.batch_flash_engine_failed(&command, true, "input closed".into(), Vec::new(), None, None);
             }
             self.batch.run.as_mut().unwrap().engine = Some(FlashEngine::Process {
                 instance,
@@ -1164,8 +1169,10 @@ impl Workbench {
     }
 
     /// The analysis process failed (`showErrMsg`): reported like an engine failure; the batch
-    /// stops at the current record, which stays the first row.
-    fn batch_flash_engine_failed(&mut self, command: &str, during_startup: bool, message: String, output: Vec<String>, remote: Option<RemoteFailure>) {
+    /// stops at the current record, which stays the first row. `diagnosis`: its start was refused
+    /// with an explanation.
+    #[allow(clippy::too_many_arguments)]
+    fn batch_flash_engine_failed(&mut self, command: &str, during_startup: bool, message: String, output: Vec<String>, remote: Option<RemoteFailure>, diagnosis: Option<StartupDiagnosis>) {
         if let Some(run) = self.batch.run.as_mut() {
             if run.holds {
                 self.paused = true;
@@ -1182,6 +1189,7 @@ impl Workbench {
             output,
             remote,
             cloud: None,
+            diagnosis,
             foreground: false,
             secondary: false,
             held: false,
@@ -1304,20 +1312,21 @@ impl Workbench {
                 message,
                 output,
                 remote,
+                during_startup,
             } if process == Some(instance) => {
                 let command = match self.batch.run.as_ref().and_then(|r| r.engine.as_ref()) {
                     Some(FlashEngine::Process { command, .. }) => command.clone(),
                     _ => String::new(),
                 };
-                self.batch_flash_engine_failed(&command, false, message, output, remote);
+                self.batch_flash_engine_failed(&command, during_startup, message, output, remote, None);
             }
-            RuntimeEvent::WorkerLaunchFailed { instance, message } if process == Some(instance) => {
+            RuntimeEvent::WorkerLaunchFailed { instance, message, diagnosis } if process == Some(instance) => {
                 let command = match self.batch.run.as_ref().and_then(|r| r.engine.as_ref()) {
                     Some(FlashEngine::Process { command, .. }) => command.clone(),
                     _ => String::new(),
                 };
                 self.engines.terminate(instance);
-                self.batch_flash_engine_failed(&command, true, message, Vec::new(), None);
+                self.batch_flash_engine_failed(&command, true, message, Vec::new(), None, diagnosis);
             }
             other => return Some(other),
         }
@@ -1329,17 +1338,20 @@ impl Workbench {
             return;
         };
         let Some(Run {
-            engine: Some(FlashEngine::Process { queries, .. }),
+            engine: Some(FlashEngine::Process { instance, queries, .. }),
             ..
         }) = self.batch.run.as_mut()
         else {
             return;
         };
         let (query, line) = match kata_analysis::parse(line, size) {
-            Response::Result { id, line } => match queries.remove(&id) {
-                Some(q) => (q, line),
-                None => return,
-            },
+            Response::Result { id, line } => {
+                self.engines.worker_answered(*instance);
+                match queries.remove(&id) {
+                    Some(q) => (q, line),
+                    None => return,
+                }
+            }
             Response::Error { id, message } => {
                 let ours = id.is_some_and(|id| queries.contains_key(&id));
                 self.log(true, format!("batch analysis error: {message}"));

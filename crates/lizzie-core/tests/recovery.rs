@@ -54,6 +54,7 @@ fn labels() -> CommentLabels {
         playouts: "计算量".into(),
         komi: "贴目:".into(),
         pda: "PDA:".into(),
+        wrn: "广度:".into(),
     }
 }
 
@@ -662,6 +663,7 @@ fn the_commented_export_summarises_analysis_saved_in_the_record() {
         playouts: "visits".into(),
         komi: "komi:".into(),
         pda: "PDA:".into(),
+        wrn: "WRN:".into(),
     };
     let text = wb.export_text(ExportKind::RawWithComments, &english);
     let rec = sgf::read(&text).unwrap();
@@ -710,6 +712,7 @@ fn the_commented_export_follows_the_viewpoint_settings_like_java() {
         playouts: "visits".into(),
         komi: "komi:".into(),
         pda: "PDA:".into(),
+        wrn: "WRN:".into(),
     };
     let moves = [(Stone::Black, 4, 4), (Stone::White, 2, 2), (Stone::Black, 6, 6)];
     let java = [

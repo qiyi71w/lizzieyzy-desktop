@@ -61,6 +61,7 @@ fn input(scenario: &Value) -> MainLineInput {
                     score_lead: Some(a["scoreMean"].as_f64().unwrap()),
                     kata,
                     has_payload: true,
+                    visits: 1,
                     candidates: a["candidates"]
                         .as_array()
                         .unwrap()
@@ -330,6 +331,7 @@ fn human_report_uses_policies_and_segment_features() {
                     score_lead: Some(p["rootInfo"]["scoreMean"].as_f64().unwrap()),
                     kata: true,
                     has_payload: true,
+                    visits: 1,
                     candidates: p["moveInfos"]
                         .as_array()
                         .unwrap()
@@ -369,4 +371,58 @@ fn human_report_uses_policies_and_segment_features() {
         assert!(side.samples.iter().all(|s| s.human.is_some()));
         assert_eq!(side.summary.confidence, StrengthConfidence::Low);
     }
+}
+/// A main line of `moves` moves, each position analysed and each move the top candidate.
+fn analysed(moves: usize) -> MainLineInput {
+    let colour = |i: usize| if i % 2 == 1 { Stone::Black } else { Stone::White };
+    let positions = (0..=moves)
+        .map(|i| PositionInput {
+            action: (i > 0).then(|| MoveInput {
+                color: colour(i),
+                move_number: i as u32,
+                coordinate: format!("A{i}"),
+                ordinary: true,
+            }),
+            analysis: Some(AnalysisInput {
+                to_play: colour(i + 1),
+                winrate: 50.0,
+                score_lead: Some(0.0),
+                kata: true,
+                has_payload: true,
+                visits: 10,
+                candidates: vec![CandidateInput {
+                    coordinate: format!("A{}", i + 1),
+                    order: 0,
+                    visits: 10,
+                    winrate: 50.0,
+                    score_lead: Some(0.0),
+                    kata: true,
+                    prior: 0.5,
+                }],
+                extra_candidates: vec![],
+            }),
+        })
+        .collect();
+    MainLineInput {
+        board_width: 19,
+        board_height: 19,
+        game: json!({}),
+        has_setup_stones: false,
+        positions,
+    }
+}
+#[test]
+fn a_fully_analysed_short_game_is_too_short_only_while_no_analysis_runs() {
+    // Java StrengthDashboard.showReport: showShortGame(NEEDS_ANALYSIS && !analyzing && analyzed >= total).
+    let settings = DisplaySettings::default();
+    let short = analysed(5);
+    let report = estimate_with_model(&short, &StrengthModel::xgboost20tun(), &settings);
+    assert!(!report.enough_data);
+    let stage = |analyzing| context(&short, &report, analyzing, None, &settings);
+    assert_eq!((stage(false).stage, stage(false).analyzed, stage(false).total), (StrengthStage::TooShort, 5, 5));
+    assert_eq!(stage(true).stage, StrengthStage::NeedsAnalysis);
+    // Six analysed moves are enough (MIN_REPORT_SAMPLES).
+    let six = analysed(6);
+    let report = estimate_with_model(&six, &StrengthModel::xgboost20tun(), &settings);
+    assert_eq!(context(&six, &report, false, None, &settings).stage, StrengthStage::Ready { partial: false });
 }

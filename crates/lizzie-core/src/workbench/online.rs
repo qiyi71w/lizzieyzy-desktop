@@ -200,6 +200,12 @@ impl Workbench {
     pub fn online(&mut self, op: OnlineCommand) -> Result<CommandResult, ApiError> {
         match op {
             OnlineCommand::Open { url, refresh_seconds } => {
+                // `applyChange`: an OGS game or SGF address is imported once (`OgsKifuImport.tryOpen`).
+                if let Some(game) = crate::ogs_kifu::link_game(&url) {
+                    self.online_stop();
+                    self.ogs_kifu_link(game);
+                    return Ok(CommandResult::Done);
+                }
                 // proc(): a blank or non-positive 刷新 is 10 seconds.
                 let refresh = if refresh_seconds > 0 { refresh_seconds } else { 10 };
                 self.online_start(&url, Origin::Dialog, refresh);
@@ -326,8 +332,10 @@ impl Workbench {
     }
 
     /// `stopSync` (OD 4460-4504): the follow, its requests, connection and page poller end;
-    /// the record stays as it is.
+    /// the record stays as it is. An OGS link import still running ends too, so nothing it
+    /// brings back opens or replaces the next link's game.
     pub(super) fn online_stop(&mut self) {
+        self.ogs_kifu_link_stop();
         let Some(f) = self.online.follow.take() else { return };
         // A game still waiting for a borrowed engine is not adopted any more.
         if let Some(ticket) = f.adopting {

@@ -93,11 +93,13 @@ function modalFrame(className: string): { overlay: HTMLDivElement; box: HTMLDivE
   return { overlay, box };
 }
 
-/** Tab and Shift+Tab move among `items`; from the box itself they go to the first or the last. */
+/** Tab and Shift+Tab move among `items`; from the box itself they go to the first or the last.
+ *  The dialog moves the focus itself, so it asks for the ring a Tab gives (WebKit shows none for
+ *  focus set by script after a pointer press otherwise). */
 function cycleFocus(items: HTMLElement[], back: boolean) {
   const at = items.indexOf(document.activeElement as HTMLElement);
   const next = at < 0 ? items.at(back ? -1 : 0) : items[(at + (back ? -1 : 1) + items.length) % items.length];
-  next?.focus();
+  next?.focus({ focusVisible: true } as FocusOptions);
 }
 
 /** `dismissed` is the answer of Escape and of the title's close box (JOptionPane.CLOSED_OPTION's
@@ -242,11 +244,14 @@ export function formPanel(title: string, body: HTMLElement, beforeClose: () => P
   head.textContent = title;
   const done = Promise.withResolvers<void>();
   let closing = false;
+  // A late caller (an answer that arrives after Escape) finds it closed: it counted once.
+  let closed = false;
   const close = async () => {
-    if (closing) return;
+    if (closing || closed) return;
     closing = true;
     try {
       if (!(await beforeClose())) return;
+      closed = true;
       overlay.remove();
       open--;
       host().hidden = open === 0;

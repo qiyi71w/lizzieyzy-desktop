@@ -1,6 +1,6 @@
 //! Persisted HumanSL preferences, independently validated training-model availability and the
 //! opponents to choose from.
-use crate::humansl::{CoachLevel, CoachLevelKind};
+use crate::humansl::{CoachGrade, CoachLevel, CoachLevelKind};
 use crate::settings::HumanSlTrainingSettings;
 use serde::Serialize;
 use ts_rs::TS;
@@ -20,13 +20,16 @@ pub struct HumanSlSettingsView {
 }
 
 /// An opponent as the interface names it: by its Fox / Tygem rank ("野狐 3D"), then its KataGo
-/// level ("3段", "强3段", "10级").
+/// level ("3段", "强3段", "10级"); the rank table adds its real-world grade ("业余3段", "职业顶尖").
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
 pub struct CoachLevelView {
     pub level: CoachLevel,
     pub fox: &'static str,
     pub kind: CoachLevelKind,
     pub rank: u8,
+    pub grade: CoachGrade,
+    /// The number of an amateur grade, 0 for the others.
+    pub grade_number: u8,
 }
 
 impl From<CoachLevel> for CoachLevelView {
@@ -36,6 +39,8 @@ impl From<CoachLevel> for CoachLevelView {
             fox: level.fox(),
             kind: level.kind(),
             rank: level.rank(),
+            grade: level.grade(),
+            grade_number: level.grade_number(),
         }
     }
 }

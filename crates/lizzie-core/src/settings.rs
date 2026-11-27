@@ -393,6 +393,16 @@ fn stored_whole_game_visits<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u3
     Ok(WholeGameSettings::from_stored(value.as_i64().unwrap_or(1000)).deep_visits)
 }
 
+/// A stored switch that is not a boolean reads as its default (Java `optBoolean`), so one bad
+/// value does not make the rest of the settings file unusable.
+pub(crate) fn bool_or_false<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    Ok(serde_json::Value::deserialize(d)?.as_bool().unwrap_or(false))
+}
+
+pub(crate) fn bool_or_true<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+    Ok(serde_json::Value::deserialize(d)?.as_bool().unwrap_or(true))
+}
+
 /// How the engine's time is set for a Genmove game (`DesktopTimeControl.Mode`; Java keeps it as
 /// `ui.advance-time-settings`, `ui.kata-time-settings` and `ui.genmove-game-notime`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -855,11 +865,18 @@ pub struct HumanSlSettings {
     pub advanced_visible: bool,
 }
 
+/// How an AI 陪练 game presents analysis (Java `TrainingMode`, in the order the setup offers them;
+/// the first is the default for settings that never saved a choice).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub enum TrainingMode {
+    /// 边下边提醒: analysis stays hidden and each of the player's moves is rated as it is played.
     #[default]
+    #[serde(alias = "LIVE_FEEDBACK")]
+    LiveFeedback,
+    /// 实战后复盘: analysis stays hidden until the game ends.
     #[serde(alias = "POST_GAME_REVIEW")]
     PostGameReview,
+    /// 边下边分析: the foreground engine analyses during the game.
     #[serde(alias = "LIVE_ANALYSIS", alias = "LIVE_CORRECTION")]
     LiveAnalysis,
 }
@@ -892,7 +909,7 @@ pub struct HumanSlTrainingSettings {
 impl Default for HumanSlTrainingSettings {
     fn default() -> Self {
         Self {
-            mode: TrainingMode::PostGameReview,
+            mode: TrainingMode::default(),
             level: CoachLevel::default(),
             player_color: PlayerColor::Random,
             pace: Pace::Natural,
@@ -1159,6 +1176,10 @@ pub struct TopToolbarSettings {
     pub show_time_limit: bool,
     /// 限制: 计算 (`ui.show-playout-control-in-menu` [false]).
     pub show_visit_limit: bool,
+    /// 限制: 候选点, the field of 综合设置's 候选点上限 (`ui.show-suggestion-limit-in-menu` [false],
+    /// `SuggestionLimitField`). A stored value that is not a boolean reads as off.
+    #[serde(deserialize_with = "bool_or_false")]
+    pub show_suggestion_limit: bool,
     /// 分析: 黑 / 白 (`ui.show-analyze-controller` [false]).
     pub show_analyze_sides: bool,
     /// 选点 黑 / 白 (`ui.show-double-menu-var` [true]).
@@ -1188,6 +1209,7 @@ impl Default for TopToolbarSettings {
             show_game_controls: true,
             show_time_limit: false,
             show_visit_limit: false,
+            show_suggestion_limit: false,
             show_analyze_sides: false,
             show_candidate_sides: true,
             show_candidate_info: false,
@@ -1529,6 +1551,10 @@ pub struct DisplaySettings {
     pub coordinate_style: CoordinateStyle,
     /// 棋盘下方显示黑白名字 (`show-name-in-board`, on).
     pub names_on_board: bool,
+    /// Both sides' live win rates beside the names under the board (`show-name-winrates`, off);
+    /// a click on the names turns them on and off. A value this version cannot read is off.
+    #[serde(deserialize_with = "lenient")]
+    pub name_winrates: bool,
     /// 手数 (`allow-move-number`): 0 none, -1 every move, n the last n moves. A new Java profile
     /// has `show-move-number` off, so none.
     pub move_numbers: i32,
@@ -1672,6 +1698,7 @@ impl Default for DisplaySettings {
             coordinates: true,
             coordinate_style: CoordinateStyle::Normal,
             names_on_board: true,
+            name_winrates: false,
             move_numbers: 0,
             move_numbers_from_one: false,
             branch_numbers_from_one: true,
@@ -1833,10 +1860,28 @@ pub enum SubBoardMode {
 
 pub const RECENT_LIMIT: usize = 5;
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct StrengthSettings {
     pub humansl_background: bool,
+    /// The phases view's boundaries (Java `ui.strength-phase-bounds`): the last move of the
+    /// opening and of the middle game. A stored value that is not usable is the default.
+    #[serde(deserialize_with = "stored_phase_bounds")]
+    pub phase_bounds: [u32; 2],
+}
+
+impl Default for StrengthSettings {
+    fn default() -> Self {
+        StrengthSettings {
+            humansl_background: false,
+            phase_bounds: crate::strength::DEFAULT_PHASE_BOUNDS,
+        }
+    }
+}
+
+fn stored_phase_bounds<'de, D: serde::Deserializer<'de>>(d: D) -> Result<[u32; 2], D::Error> {
+    let value = serde_json::Value::deserialize(d)?;
+    Ok(crate::strength::parse_phase_bounds(&value).unwrap_or(crate::strength::DEFAULT_PHASE_BOUNDS))
 }
 
 /// 棋盘同步工具 (ReadBoard) options (Java `ui.*` keys; defaults from `Config.java`).
@@ -1921,6 +1966,7 @@ pub struct Config {
     /// 人机对弈.
     pub game: GameSettings,
     /// 引擎对战.
+    #[serde(deserialize_with = "matches::stored")]
     pub matches: MatchSettings,
     /// 死活题.
     pub tsumego: TsumegoSettings,
@@ -1932,6 +1978,8 @@ pub struct Config {
     pub fox_kifu: FoxKifuSettings,
     /// 腾讯棋谱 window.
     pub tencent_kifu: TencentKifuSettings,
+    /// OGS 棋谱 window.
+    pub ogs_kifu: OgsKifuSettings,
     /// 同步 menu's live options.
     pub live: LiveSettings,
     /// 诊断与日志 (Java top-level `logging`).
@@ -1941,6 +1989,142 @@ pub struct Config {
     /// 检查更新 (Java `ui.auto-check-update`, `ui.auto-download-update`, `ui.update-channel`,
     /// `ui.update-source`).
     pub update: crate::update::UpdateSettings,
+    /// 黑白胜率大字.
+    #[serde(deserialize_with = "lenient")]
+    pub big_winrate: BigWinrateSettings,
+}
+
+/// A stored value read leniently: one this version cannot read is the default, and does not stop
+/// the rest of the settings from loading.
+fn lenient<'de, D: serde::Deserializer<'de>, T: serde::de::DeserializeOwned + Default>(d: D) -> Result<T, D::Error> {
+    Ok(serde_json::from_value(serde_json::Value::deserialize(d)?).unwrap_or_default())
+}
+
+/// 黑白胜率大字's look (Java `BigWinratePanel.Style`): a black and a white card, or seven-segment
+/// digits.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub enum BigWinrateStyle {
+    #[default]
+    Plain,
+    Led,
+}
+
+/// What 黑白胜率大字 remembers between sessions (Java `BigWinrateSettings`, `ui.big-winrate-style`,
+/// `ui.big-winrate-on-top`, `ui.big-winrate-bounds`): its look, whether it stays on top and
+/// where it was. Configuration values as in Java, so 重置界面位置 leaves them. A value this
+/// version cannot read is the default.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, rename_all = "camelCase")]
+pub struct BigWinrateSettings {
+    #[serde(deserialize_with = "lenient")]
+    pub style: BigWinrateStyle,
+    #[serde(deserialize_with = "lenient")]
+    pub on_top: bool,
+    /// The whole window's last bounds in logical pixels (x, y, width, height); none when none
+    /// were kept or they are too small to use ([`BigWinrateSettings::usable`]).
+    #[serde(deserialize_with = "stored_big_winrate_bounds")]
+    pub bounds: Option<[i32; 4]>,
+    /// How much of the whole window its frame took when the bounds were kept (width, height in
+    /// logical pixels): the whole size less the content's. Where the window system tells a new
+    /// window's frame only once it is shown (GTK: a title bar, or on Wayland its own header bar
+    /// and shadow), the window opens with the bounds less this frame and comes back at the
+    /// whole size it closed at. Not one of Java's settings; importing Java's bounds leaves it.
+    #[serde(deserialize_with = "lenient")]
+    pub frame: Option<[i32; 2]>,
+}
+
+impl BigWinrateSettings {
+    /// Java `BigWinrateSettings.bounds`: bounds under 120 × 60 are too small to read and are not
+    /// used.
+    pub fn usable(bounds: [i32; 4]) -> bool {
+        bounds[2] >= 120 && bounds[3] >= 60
+    }
+
+    /// The frame of a window whose whole size is `outer` while its content is `content`.
+    pub fn frame_of(outer: [i32; 2], content: [i32; 2]) -> [i32; 2] {
+        [(outer[0] - content[0]).max(0), (outer[1] - content[1]).max(0)]
+    }
+
+    /// The content that makes a window with `frame` `outer` whole, no smaller than 120 × 60.
+    pub fn content_for(outer: [i32; 2], frame: [i32; 2]) -> [i32; 2] {
+        [(outer[0] - frame[0].max(0)).max(120), (outer[1] - frame[1].max(0)).max(60)]
+    }
+}
+
+/// Opening 黑白胜率大字 at its kept whole size where the window system tells a window's frame only
+/// once the window is shown (GTK). The window opens with the kept frame taken off the whole size.
+/// When the frame it gets turns out different (its decorations changed since it was closed), its
+/// content is set again so the whole window has the kept size, and while its size stays the one
+/// asked for, closing it keeps that whole size: only the user resizing it changes the size kept.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BigWinrateFit {
+    /// The whole size to keep.
+    outer: [i32; 2],
+    /// The frame the content was asked for with.
+    frame: [i32; 2],
+    /// The content asked for, and the one asked for before it (its size may still be reported).
+    content: [i32; 2],
+    earlier: Option<[i32; 2]>,
+    /// How many more times the content may be set again; none once another size was given.
+    refits: u8,
+}
+
+impl BigWinrateFit {
+    /// Measures that keep disagreeing must not keep resizing the window.
+    const REFITS: u8 = 2;
+
+    /// A window to open `outer` whole, its frame thought to be `frame`.
+    pub fn new(outer: [i32; 2], frame: [i32; 2]) -> Self {
+        let content = BigWinrateSettings::content_for(outer, frame);
+        Self { outer, frame, content, earlier: None, refits: Self::REFITS }
+    }
+
+    /// The content to ask for.
+    pub fn content(&self) -> [i32; 2] {
+        self.content
+    }
+
+    /// The window system reports the window `outer` whole around `content`: the content to ask
+    /// for when its frame is not the one it was asked for with. A report of the content asked for
+    /// before is an old one; any other content means the window was given another size, and it
+    /// is left alone from then on.
+    pub fn measured(&mut self, outer: [i32; 2], content: [i32; 2]) -> Option<[i32; 2]> {
+        if self.refits == 0 || content != self.content {
+            if self.earlier != Some(content) {
+                self.refits = 0;
+            }
+            return None;
+        }
+        let frame = BigWinrateSettings::frame_of(outer, content);
+        if frame == self.frame {
+            return None;
+        }
+        let asked = BigWinrateSettings::content_for(self.outer, frame);
+        self.frame = frame;
+        self.refits -= 1;
+        if asked == self.content {
+            return None;
+        }
+        self.earlier = Some(self.content);
+        self.content = asked;
+        Some(asked)
+    }
+
+    /// No more refitting (the window was left for the user).
+    pub fn settle(&mut self) {
+        self.refits = 0;
+    }
+
+    /// The whole size to keep as the window, `outer` whole around `content`, closes: the size it
+    /// was opened at while it still has the content asked for, else its own.
+    pub fn kept_outer(&self, outer: [i32; 2], content: [i32; 2]) -> [i32; 2] {
+        if content == self.content { self.outer } else { outer }
+    }
+}
+
+fn stored_big_winrate_bounds<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<[i32; 4]>, D::Error> {
+    let value = serde_json::Value::deserialize(d)?;
+    Ok(serde_json::from_value::<[i32; 4]>(value).ok().filter(|b| BigWinrateSettings::usable(*b)))
 }
 
 /// 同步 menu's live options (Java `ui.always-gotolast-onlive`, `ui.open-html-onlive`).
@@ -2033,6 +2217,38 @@ pub struct TencentKifuSettings {
 pub struct TencentRecentSearch {
     pub uid: String,
     pub query: String,
+}
+
+/// OGS 棋谱. Java keeps neither in its configuration (both live as long as the window); here they
+/// are kept like 腾讯棋谱's. A stored value this version does not read is left out on its own: an
+/// unknown choice is no choice, and only the texts of the searches are kept.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct OgsKifuSettings {
+    /// 打开棋谱后此窗口; until chosen here, 野狐棋谱's choice applies.
+    #[serde(deserialize_with = "choice_or_none")]
+    pub after_get: Option<KifuAfterGet>,
+    /// 近期搜索: the searched texts that found a player, newest first, at most
+    /// [`KIFU_RECENT_LIMIT`].
+    #[serde(deserialize_with = "texts_only")]
+    pub recent: Vec<String>,
+}
+
+fn choice_or_none<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<KifuAfterGet>, D::Error> {
+    Ok(serde_json::from_value(serde_json::Value::deserialize(d)?).ok())
+}
+
+fn texts_only<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
+    Ok(match serde_json::Value::deserialize(d)? {
+        serde_json::Value::Array(items) => items
+            .into_iter()
+            .filter_map(|item| match item {
+                serde_json::Value::String(text) => Some(text),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    })
 }
 
 /// Web 旁观 (Java `config.txt` `web-board`, read by `WebBoardManager.start`; Java has no dialog

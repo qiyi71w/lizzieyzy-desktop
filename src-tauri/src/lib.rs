@@ -4,6 +4,7 @@
 #[cfg(feature = "acceptance")]
 mod acceptance;
 mod appearance;
+mod big_winrate;
 mod commentary;
 mod cloud;
 mod cloud_dispatch;
@@ -17,6 +18,8 @@ mod independent;
 mod kifu_web;
 mod logging;
 mod matches;
+mod ogs_kifu;
+mod on_top;
 mod online;
 mod output;
 mod readboard;
@@ -240,6 +243,7 @@ pub fn publish(app: &AppHandle, shared: &Shared) {
     let commentary_jobs = wb.take_commentary_jobs();
     let fox_kifu_jobs = wb.take_fox_kifu_jobs();
     let tencent_kifu_jobs = wb.take_tencent_kifu_jobs();
+    let ogs_kifu_tasks = wb.take_ogs_kifu_tasks();
     let online_jobs = wb.take_online_jobs();
     drop(wb);
     shared.web_board.changed();
@@ -249,6 +253,7 @@ pub fn publish(app: &AppHandle, shared: &Shared) {
     commentary::spawn_jobs(app, shared, commentary_jobs);
     fox_kifu::spawn_jobs(app, fox_kifu_jobs);
     tencent_kifu::spawn_jobs(app, tencent_kifu_jobs);
+    ogs_kifu::run_tasks(app, ogs_kifu_tasks);
     online::run_jobs(app, shared, online_jobs);
     for job in auto_saves {
         if let Err(mpsc::SendError(job)) = shared.saves.lock().unwrap().send(job) {
@@ -823,6 +828,13 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let done = shared.workbench.lock().unwrap().shutdown_engines(scope);
             Ok(changed(&app, &shared, done))
         }
+        Command::DisconnectZhizi => {
+            let outcome = shared.workbench.lock().unwrap().disconnect_zhizi();
+            if outcome == lizzie_core::api::ZhiziConnection::Busy {
+                return Ok(CommandResult::Refused { message_key: lizzie_core::workbench::ZHIZI_BUSY.into() });
+            }
+            Ok(changed(&app, &shared, true))
+        }
         Command::SetExtraMode { mode } => {
             let done = shared.workbench.lock().unwrap().set_extra_mode(mode)?;
             Ok(changed(&app, &shared, done))
@@ -893,15 +905,10 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
                 other => Ok(changed(&app, &shared, other?)),
             }
         }
-        Command::SetKataRules { rules, auto_load } => {
-            let refused = shared.workbench.lock().unwrap().set_kata_rules(&rules, auto_load)?;
+        Command::SetKataRules { rules, komi, rule_set, auto_load } => {
+            let result = shared.workbench.lock().unwrap().set_kata_rules(&rules, komi, rule_set.as_deref(), auto_load)?;
             publish(&app, &shared);
-            Ok(match refused {
-                None => CommandResult::Done,
-                Some(key) => CommandResult::Refused {
-                    message_key: key.to_string(),
-                },
-            })
+            Ok(result)
         }
         Command::SetKataParam { param, enabled, value } => {
             let refused = shared.workbench.lock().unwrap().set_kata_param(param, enabled, value)?;
@@ -912,6 +919,10 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             let refused = shared.workbench.lock().unwrap().save_kata_engine_params(params)?;
             publish(&app, &shared);
             Ok(refused.map_or(CommandResult::Done, |key| CommandResult::Refused { message_key: key.to_string() }))
+        }
+        Command::SetKataParamShown { param, shown } => {
+            let done = shared.workbench.lock().unwrap().set_kata_param_shown(param, shown)?;
+            Ok(changed(&app, &shared, done))
         }
         Command::SearchThreads { op } => {
             let result = shared.workbench.lock().unwrap().search_threads(op)?;
@@ -1231,6 +1242,11 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             publish(&app, &shared);
             Ok(result)
         }
+        Command::OgsKifu { op } => {
+            let result = shared.workbench.lock().unwrap().ogs_kifu(op)?;
+            publish(&app, &shared);
+            Ok(result)
+        }
         Command::CommentaryConnection { op } => {
             tauri::async_runtime::spawn_blocking(move || commentary::dispatch(&app, &shared, op))
                 .await.map_err(|_| ApiError::new(ErrorKind::Unavailable, "Teacher.error.generic"))?
@@ -1316,6 +1332,10 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
         }
         Command::SetPanelSettings { settings } => {
             let done = shared.workbench.lock().unwrap().set_panel_settings(settings)?;
+            Ok(changed(&app, &shared, done))
+        }
+        Command::SetBigWinrate { style, on_top } => {
+            let done = shared.workbench.lock().unwrap().set_big_winrate(style, on_top)?;
             Ok(changed(&app, &shared, done))
         }
         Command::SetPanelSizes { sizes } => {
@@ -1591,6 +1611,28 @@ fn engine_console(state: tauri::State<'_, State>, since: u64) -> Vec<ConsoleLine
     state.workbench.lock().unwrap().console_since(since)
 }
 
+/// 规则面板: the rule set its rules and komi are (`Workbench::rule_set_of`); `picked` is the row
+/// picked last in the panel.
+#[tauri::command]
+fn rule_set_of(state: tauri::State<'_, State>, rules: String, komi: f64, picked: Option<String>) -> Option<String> {
+    state.workbench.lock().unwrap().rule_set_of(&rules, komi, picked.as_deref()).map(str::to_string)
+}
+
+/// The system engines start on, for the packaged engines' minimum macOS. Acceptance builds can
+/// stand in another one with `LIZZIEYZY_TAURI_HOST_SYSTEM` (`macos 12.7.6`): the refusal on too
+/// old a Mac cannot be reached on the machines acceptance runs on.
+fn host_system() -> lizzie_core::engine::diagnosis::HostSystem {
+    #[cfg(feature = "acceptance")]
+    if let Ok(value) = std::env::var("LIZZIEYZY_TAURI_HOST_SYSTEM") {
+        let (os, version) = value.split_once(' ').unwrap_or((&value, ""));
+        return lizzie_core::engine::diagnosis::HostSystem {
+            os: os.into(),
+            version: (!version.is_empty()).then(|| version.into()),
+        };
+    }
+    lizzie_core::engine::diagnosis::HostSystem::detect(&lizzie_core::resources::StdProbe::default(), std::env::consts::OS)
+}
+
 /// Where relative engine paths are looked up, in Java's order: the current directory, then the
 /// application's location and up to seven ancestors (`CommandLaunchHelper.collectCandidateRoots`).
 fn engine_roots() -> Vec<PathBuf> {
@@ -1756,6 +1798,7 @@ fn prepare_exit(app: &AppHandle, shared: &Shared) -> bool {
     }
     if let Err(error) = independent::capture(app, &mut wb) { shared.log.warn(&error.message); }
     control_panel::capture(app, shared, &mut wb);
+    big_winrate::capture(app, shared, &mut wb);
     persist_ui(app, shared, &mut wb);
     wb.shutdown_strength();
     true
@@ -1975,7 +2018,11 @@ async fn open_hawkeye(
     let layout = state.tables.lock().unwrap().hawkeye.clone();
     if let Some(window) = app.get_webview_window(label) {
         let _ = window.set_title(&title);
-        let _ = window.set_always_on_top(on_top);
+        // On the thread that owns the window, as the switch from the main window is.
+        let shown = window.clone();
+        let _ = window.run_on_main_thread(move || {
+            let _ = on_top::switch(&shown, on_top);
+        });
         return Ok(layout);
     }
     let (x, y, width, height) = hawkeye_bounds(&app, &state, sub, chinese);
@@ -2260,6 +2307,7 @@ pub fn run() {
             let processes = launcher.waiter();
             let mut workbench = Workbench::new(storage, locale.as_deref(), Box::new(launcher), engine_roots());
             workbench.set_diagnostics(diagnostics);
+            workbench.set_host_system(host_system());
             if let Ok(reply) = cloud_adapter.dispatch(&workbench.config().cloud, &workbench.config().network,
                 lizzie_core::cloud::CloudCommand::State) {
                 workbench.set_cloud_authenticated(reply.state.authenticated);
@@ -2315,6 +2363,7 @@ pub fn run() {
             app.manage(tsumego_capture::Capture::default());
             app.manage(fox_kifu::Adapter::default());
             app.manage(tencent_kifu::Adapter::default());
+            app.manage(ogs_kifu::Adapter::default());
             run_refresher(app.handle().clone(), shared.clone());
             shared.workbench.lock().unwrap().start_engines();
             update::setup(app.handle(), &shared);
@@ -2431,11 +2480,27 @@ pub fn run() {
                 api.prevent_close();
                 let _ = window.hide();
             }
+            // OGS 棋谱's close box (DISPOSE_ON_CLOSE): it hides, its request is cancelled and the
+            // next opening starts empty.
+            WindowEvent::CloseRequested { api, .. } if window.label() == ogs_kifu::WINDOW => {
+                api.prevent_close();
+                ogs_kifu::closing(window.app_handle());
+            }
             // 独立棋局控制面板's close box hides it (a JDialog's HIDE_ON_CLOSE).
             WindowEvent::CloseRequested { api, .. } if window.label() == control_panel::LABEL => {
                 api.prevent_close();
                 control_panel::closing(window.app_handle());
             }
+            // 黑白胜率大字's close box closes it: its bounds are kept and its page ends.
+            WindowEvent::CloseRequested { .. } if window.label() == big_winrate::LABEL => {
+                big_winrate::closing(window.app_handle());
+            }
+            // On Linux 黑白胜率大字 is refitted to its kept whole size as GTK reports its frame,
+            // until the user has it.
+            #[cfg(target_os = "linux")]
+            WindowEvent::Resized(_) if window.label() == big_winrate::LABEL => big_winrate::resized(window.app_handle()),
+            #[cfg(target_os = "linux")]
+            WindowEvent::Focused(false) if window.label() == big_winrate::LABEL => big_winrate::settled(),
             WindowEvent::CloseRequested { .. } if window.label() == "commentary" => {}
             // 棋盘同步工具's float board has no close of its own: the helper shows and hides it,
             // and Alt+F4 there must not take the main window's exit path.
@@ -2454,7 +2519,7 @@ pub fn run() {
                 } else {
                     // Java exits with the main window; the tool windows must not keep the
                     // application running.
-                    for label in [SUGGESTIONS_WINDOW, SUGGESTIONS_SUB_WINDOW, HAWKEYE_WINDOW, HAWKEYE_SUB_WINDOW, BATCH_WINDOW, fox_kifu::WINDOW, tencent_kifu::WINDOW, independent::MAIN, independent::SUB, floatboard::LABEL, control_panel::LABEL] {
+                    for label in [SUGGESTIONS_WINDOW, SUGGESTIONS_SUB_WINDOW, HAWKEYE_WINDOW, HAWKEYE_SUB_WINDOW, BATCH_WINDOW, fox_kifu::WINDOW, tencent_kifu::WINDOW, ogs_kifu::WINDOW, independent::MAIN, independent::SUB, floatboard::LABEL, control_panel::LABEL, big_winrate::LABEL] {
                         if let Some(frame) = app.get_webview_window(label) {
                             let _ = frame.destroy();
                         }
@@ -2555,6 +2620,7 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         unsubscribe_workbench,
         logs_directory,
         engine_console,
+        rule_set_of,
         open_katago_releases,
         open_katago_parameter_help,
         open_analysis_engine_docs,
@@ -2582,6 +2648,8 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         fox_kifu::fox_kifu_opened,
         tencent_kifu::open_tencent_kifu,
         tencent_kifu::tencent_kifu_opened,
+        ogs_kifu::open_ogs_kifu,
+        ogs_kifu::ogs_kifu_opened,
         commentary::commentary_api_key_draft,
         close_hawkeye,
         close_hawkeye_sub,
@@ -2593,6 +2661,8 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         open_batch_table,
         control_panel::toggle_control_panel,
         control_panel::reopen_control_panel,
+        big_winrate::toggle_big_winrate,
+        on_top::set_window_on_top,
         tsumego_capture::start_tsumego_capture,
         tsumego_capture::tsumego_capture_picture,
         tsumego_capture::tsumego_capture_preview,
@@ -2618,6 +2688,7 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         unsubscribe_workbench,
         logs_directory,
         engine_console,
+        rule_set_of,
         open_katago_releases,
         open_katago_parameter_help,
         open_analysis_engine_docs,
@@ -2645,6 +2716,8 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         fox_kifu::fox_kifu_opened,
         tencent_kifu::open_tencent_kifu,
         tencent_kifu::tencent_kifu_opened,
+        ogs_kifu::open_ogs_kifu,
+        ogs_kifu::ogs_kifu_opened,
         commentary::commentary_api_key_draft,
         close_hawkeye,
         close_hawkeye_sub,
@@ -2656,6 +2729,8 @@ fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static {
         open_batch_table,
         control_panel::toggle_control_panel,
         control_panel::reopen_control_panel,
+        big_winrate::toggle_big_winrate,
+        on_top::set_window_on_top,
         tsumego_capture::start_tsumego_capture,
         tsumego_capture::tsumego_capture_picture,
         tsumego_capture::tsumego_capture_preview,

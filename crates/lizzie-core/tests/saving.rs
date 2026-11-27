@@ -766,3 +766,264 @@ fn legacy_saved_candidates_keep_java_scales_limits_and_black_positive_ownership(
         "saved ownership is already Black-positive even when White plays next"
     );
 }
+
+fn open_text(wb: &mut Workbench, text: &str) {
+    let ticket = wb.begin_open(OpenOrigin::Clipboard);
+    assert!(wb.complete_open(ticket, Workbench::read_clipboard_record(text, false)));
+}
+
+/// A saved slot's breadth: `None` for no saved analysis, `Some(None)` for an unknown breadth.
+type Slot = Option<Option<f64>>;
+
+/// Each node's saved primary and secondary breadth in `text`, root first along the main line.
+fn breadths(text: &str) -> Vec<(Slot, Slot)> {
+    use lizzie_core::formats::saved_analysis::{primary, saved, SECONDARY};
+    let rec = sgf::read(text).expect("saved SGF reads back");
+    std::iter::successors(Some(ROOT), |&n| rec.main_child(n))
+        .map(|n| {
+            let props = &rec.node(n).properties;
+            (primary(props).map(|a| a.wrn), saved(props, SECONDARY).map(|a| a.wrn))
+        })
+        .collect()
+}
+
+/// The header line of the saved `tag` payloads in `text`, in order.
+fn headers(text: &str, tag: &str) -> Vec<String> {
+    text.split(&format!("{tag}["))
+        .skip(1)
+        .map(|t| t.lines().next().unwrap_or_default().trim_end_matches(']').to_string())
+        .collect()
+}
+
+/// Three kinds of analysis on one line: a known breadth of 0.5, a known 0 and none (the format
+/// of the previous version), with the secondary engine's and the root's own.
+const BREADTHS: &str = "(;SZ[9]KM[7.5]LZOP[KataGo 45 12.3k 2.5 1.2 -2 rootVisits=12345 wrn=0.1\n\
+    move E5 visits 100 winrate 5500 scoreMean 2.5 pv E5]\
+    ;B[ee]C[note]LZ[KataGo 44 200 1.2 0.7 0 rootVisits=200 wrn=0.5\nmove C3 visits 150 winrate 5600 scoreMean 1.2 pv C3]\
+    LZ2[Second 55 230 -2.5 1.3 1 wrn=0 rootVisits=230\nmove D4 visits 230 winrate 4500 scoreMean -2.5 pv D4]\
+    ;W[cc]LZ[KataGo 40 300 -1 0.8 1.5 wrn=0\nmove D4 visits 300 winrate 6000 scoreMean -1 pv D4]\
+    ;B[dd]LZ[b11 44.0 200 1.2 0.7 0.5 rootVisits=200\nmove C3 visits 150 winrate 5600 scoreMean 1.2 pv C3])";
+
+/// Java `SGFAnalysisWrnRoundTripTest`: every analysis slot keeps its own breadth through save and
+/// reopen; a known 0 is written (`wrn=` after the six scalars and `rootVisits=`), an unknown one
+/// is not, and the three never take each other's place. The summary shows only a known non-zero
+/// breadth.
+#[test]
+fn known_zero_and_unknown_breadths_round_trip_apart() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    open_text(&mut wb, BREADTHS);
+    let saved = wb.begin_save("breadth.sgf", AP).text;
+    let expected = [
+        (Some(Some(0.1)), None),
+        (Some(Some(0.5)), Some(Some(0.0))),
+        (Some(Some(0.0)), None),
+        (Some(None), None),
+    ];
+    assert_eq!(breadths(&saved), expected, "{saved}");
+    assert_eq!(
+        headers(&saved, "LZ"),
+        [
+            "KataGo 44.0 200 1.2 0.7 0 rootVisits=200 wrn=0.5",
+            "KataGo 40.0 300 -1 0.8 1.5 wrn=0.0",
+            "b11 44.0 200 1.2 0.7 0.5 rootVisits=200",
+        ]
+    );
+    assert_eq!(
+        headers(&saved, "LZ2"),
+        ["Second 55.0 230 -2.5 1.3 1 rootVisits=230 wrn=0.0"]
+    );
+    assert_eq!(
+        headers(&saved, "LZOP"),
+        ["KataGo 45.0 12k 2.5 1.2 -2 rootVisits=12345 wrn=0.1"]
+    );
+    let rec = sgf::read(&saved).unwrap();
+    let line: Vec<NodeId> = std::iter::successors(rec.main_child(ROOT), |&n| rec.main_child(n)).collect();
+    let comment = |i: usize| rec.node(line[i]).comment.clone();
+    assert!(
+        comment(0).starts_with("note\n\n") && comment(0).ends_with("贴目: 7.5 广度:0.5"),
+        "{}",
+        comment(0)
+    );
+    assert!(
+        comment(1).ends_with("贴目: 7.5 激进度:1.5"),
+        "a known 0 is not shown: {}",
+        comment(1)
+    );
+    assert!(
+        comment(2).ends_with("贴目: 7.5 激进度:0.5"),
+        "an unknown one is not shown: {}",
+        comment(2)
+    );
+
+    // Read back, the same file again.
+    open_text(&mut wb, &saved);
+    assert_eq!(wb.begin_save("again.sgf", AP).text, saved);
+}
+
+/// Java `headerOnlyKnownZeroUnknownAndInvalidExtensionsSurviveTwoRounds`: a missing, empty,
+/// unreadable or out-of-range `wrn=` (the last one counts) reads as unknown without an error and
+/// leaves the rest of the analysis as it is; 0 to 2 is known.
+#[test]
+fn an_unreadable_or_out_of_range_breadth_reads_as_unknown() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    let cases = [
+        ("", None),
+        (" wrn=", None),
+        (" wrn=-0.1", None),
+        (" wrn=2.01", None),
+        (" wrn=3", None),
+        (" wrn=NaN", None),
+        (" wrn=Infinity", None),
+        (" wrn=-Infinity", None),
+        (" wrn=bad", None),
+        (" wrn=0.5 wrn=bad", None),
+        (" wrn=0", Some("0.0")),
+        (" wrn=0.04", Some("0.04")),
+        (" wrn=2", Some("2.0")),
+        (" wrn=bad wrn=0.1", Some("0.1")),
+    ];
+    for (extension, known) in cases {
+        open_text(
+            &mut wb,
+            &format!(
+                "(;SZ[9];B[ee]LZ[KataGo 44 12.3k 1.2 0.7 -2 rootVisits=12345{extension}\n\
+                 move C3 visits 150 winrate 5600 scoreMean 1.2 pv C3])"
+            ),
+        );
+        wb.navigate(lizzie_core::browse::Navigation::Forward(1));
+        let a = wb.view(false).analysis.expect("the analysis is read");
+        assert_eq!(
+            (a.visits, a.winrate, a.score_lead, a.score_stdev),
+            (12345, 56.0, Some(1.2), Some(0.7)),
+            "{extension}"
+        );
+        let saved = wb.begin_save("invalid.sgf", AP).text;
+        let header = match known {
+            Some(w) => format!("KataGo 44.0 12k 1.2 0.7 -2 rootVisits=12345 wrn={w}"),
+            None => "KataGo 44.0 12k 1.2 0.7 -2 rootVisits=12345".into(),
+        };
+        assert_eq!(headers(&saved, "LZ"), [header], "{extension}");
+    }
+}
+
+/// Records this product wrote before breadths were saved (`[scoreStdev [pda]] rootVisits=` or
+/// fewer header fields) read with an unknown breadth and save as they were.
+#[test]
+fn records_without_a_breadth_read_and_save_as_before() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    let old = "(;SZ[9]KM[7.5];B[ee]LZ[KataGo 44.0 200 1.2 0.7 0 rootVisits=200\n\
+        move C3 visits 150 winrate 5600 prior 3000 scoreMean 1.20 order 0 pv C3 D4]\
+        ;W[cc]LZ[KataGo 40.0 300 -1 0.8\nmove D4 visits 300 winrate 6000 prior 2000 scoreMean -1.00 order 0 pv D4]\
+        ;B[dd]LZ[LeelaZero 60.0 1.3k\nmove C7 visits 900 winrate 4000 prior 1000 order 0 pv C7])";
+    open_text(&mut wb, old);
+    wb.set_append_winrate_to_comment(false).unwrap();
+    let saved = wb.begin_save("old.sgf", AP).text;
+    assert_eq!(
+        breadths(&saved)[1..],
+        [(Some(None), None), (Some(None), None), (Some(None), None)]
+    );
+    assert_eq!(
+        headers(&saved, "LZ"),
+        [
+            "KataGo 44.0 200 1.2 0.7 0 rootVisits=200",
+            "KataGo 40.0 300 -1 0.8",
+            "LeelaZero 60.0 1.3k"
+        ]
+    );
+    wb.navigate(lizzie_core::browse::Navigation::Forward(1));
+    let a = wb.view(false).analysis.unwrap();
+    assert_eq!(
+        (a.visits, a.winrate, a.score_lead, a.score_stdev),
+        (200, 56.0, Some(1.2), Some(0.7))
+    );
+    assert_eq!(
+        a.candidates.iter().map(|c| (c.visits, c.pv.len())).collect::<Vec<_>>(),
+        [(150, 2)]
+    );
+}
+
+/// Copying the record (复制棋谱到剪贴板, then pasting it) keeps each breadth and whether it is
+/// known; 清除分析信息 clears it with the analysis, of the current move or of all (both engines'
+/// in 双引擎模式).
+#[test]
+fn copying_keeps_breadths_and_clearing_the_analysis_clears_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    open_text(&mut wb, BREADTHS);
+    let copied = wb.record_text(AP);
+    let mut pasted = workbench(&dir.path().join("pasted"));
+    open_text(&mut pasted, &copied);
+    let saved = pasted.begin_save("pasted.sgf", AP).text;
+    assert_eq!(breadths(&saved), breadths(&wb.begin_save("copied.sgf", AP).text));
+    assert_eq!(
+        breadths(&saved)[1..3],
+        [(Some(Some(0.5)), Some(Some(0.0))), (Some(Some(0.0)), None)]
+    );
+
+    pasted
+        .set_extra_mode(lizzie_core::settings::ExtraMode::DoubleEngine)
+        .unwrap();
+    pasted.navigate(lizzie_core::browse::Navigation::Forward(1));
+    pasted.clear_analysis_info(AnalysisScope::Current);
+    let cleared = pasted.begin_save("cleared.sgf", AP).text;
+    assert_eq!(
+        breadths(&cleared),
+        [
+            (Some(Some(0.1)), None),
+            (None, None),
+            (Some(Some(0.0)), None),
+            (Some(None), None)
+        ],
+        "the current move's analysis and breadth go, the others stay"
+    );
+    pasted.clear_analysis_info(AnalysisScope::All);
+    let cleared = pasted.begin_save("cleared.sgf", AP).text;
+    assert!(!cleared.contains("wrn="), "{cleared}");
+}
+
+/// The same header field by field: words equal, numbers and `name=` values equal as numbers.
+fn same_fields(ours: &str, java: &str) -> bool {
+    let (a, b): (Vec<_>, Vec<_>) = (ours.split_whitespace().collect(), java.split_whitespace().collect());
+    let number = |t: &str| t.parse::<f64>().ok();
+    a.len() == b.len()
+        && a.iter()
+            .zip(&b)
+            .all(|(x, y)| match (x.split_once('='), y.split_once('=')) {
+                (Some((k, v)), Some((l, w))) => k == l && number(v).is_some() && number(v) == number(w),
+                (None, None) => x == y || number(x).is_some_and(|n| Some(n) == number(y)),
+                _ => false,
+            })
+}
+
+/// Interoperation with the fixed Java: `fixtures/analysis/java-breadth.sgf` was written by its
+/// `SGFParser.saveToString` after `BoardData.adoptOrdinaryAnalysis` took results of engines
+/// whose breadth was 0.5 and 0 (0.1 for the secondary engine), and a result published without a
+/// source engine (`tryToSetBestMovesWithStatus(..., false, ...)`). The breadths read back as Java
+/// wrote them, and saving writes every analysis header with the same fields in the same order.
+#[test]
+fn a_java_written_breadth_reads_the_same_and_saves_in_the_java_layout() {
+    let java = include_str!("fixtures/analysis/java-breadth.sgf");
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    open_text(&mut wb, java);
+    wb.set_append_winrate_to_comment(false).unwrap();
+    let saved = wb.begin_save("java.sgf", AP).text;
+    let expected = [
+        (None, None),
+        (Some(Some(0.5)), Some(Some(0.1))),
+        (Some(Some(0.0)), None),
+        (Some(None), None),
+    ];
+    assert_eq!(breadths(java), expected);
+    assert_eq!(breadths(&saved), expected, "{saved}");
+    for tag in ["LZ", "LZ2"] {
+        let (ours, theirs) = (headers(&saved, tag), headers(java, tag));
+        assert_eq!(ours.len(), theirs.len(), "{tag}");
+        for (o, j) in ours.iter().zip(&theirs) {
+            assert!(same_fields(o, j), "{tag}: {o} / {j}");
+        }
+    }
+}

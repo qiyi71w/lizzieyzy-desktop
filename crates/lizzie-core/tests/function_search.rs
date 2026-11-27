@@ -37,8 +37,10 @@ fn browse_preserves_java_id_order_and_unique_words_results() {
     let browse = function_search::search("", Language::EnUs);
     // Java's 360 functions less the three approved exceptions the product does not offer and the
     // 详细工具栏's eleven, with Java's two interface-style switches replaced by the three 外观模式
-    // choices, and this product's 编辑面板布局….
-    assert_eq!(browse.len(), 348);
+    // choices, and this product's 编辑面板布局…, 黑白胜率大字, 断开智子引擎 and 对局参数, the newer
+    // Java's three 自定义内容 items, the later upstream's 棋盘坐标 row, the newer Java commit's
+    // OGS棋谱, and this product's eight settings found inside their dialogs and windows.
+    assert_eq!(browse.len(), 364);
     let ids: Vec<&str> = browse.iter().map(|m| m.id.as_str()).collect();
     assert!(ids.windows(2).all(|w| w[0] < w[1]), "in id order, each once");
     assert!(browse.iter().all(|m| function_search::categories().contains(&m.category.as_str())));
@@ -96,6 +98,84 @@ fn folded_dialogs_lead_to_their_settings_page() {
     }
 }
 
+/// 远程算力's 断开智子引擎 is an action of its own, found by its title in every language and by
+/// what people call it.
+#[test]
+fn disconnecting_zhizi_is_found_as_an_action() {
+    let id = "engine.disconnect-zhizi";
+    let browse = function_search::search("", Language::EnUs);
+    let found = browse.iter().find(|m| m.id == id).expect(id);
+    assert_eq!(
+        (found.target, found.section, found.path.iter().map(String::as_str).collect::<Vec<_>>(), found.title.as_str()),
+        (FunctionTarget::Action, None, vec!["Menu.settings", "Menu.remoteCompute", "RemoteCompute.disconnectZhizi"], "RemoteCompute.disconnectZhizi"),
+    );
+    for (query, language) in [
+        ("断开智子引擎", Language::ZhCn), ("中斷智子引擎連線", Language::ZhTw), ("Disconnect Zhizi engines", Language::EnUs),
+        ("智子エンジンを切断", Language::JaJp), ("즈즈 엔진 연결 끊기", Language::KoKr), ("ตัดการเชื่อมต่อเอนจิน Zhizi", Language::ThTh),
+        ("断开智子", Language::ZhCn), ("disconnect zhizi", Language::EnUs),
+    ] {
+        assert_eq!(function_search::search(query, language)[0].id, id, "{query}");
+    }
+}
+
+/// The newer Java's 激进度 / 广度 / 候选点上限 items of 顶部工具栏 > 自定义内容, which its catalog
+/// leaves out, are found under that menu by their menu text in every language.
+#[test]
+fn later_top_toolbar_items_lead_to_custom_items() {
+    let browse = function_search::search("", Language::EnUs);
+    for id in ["menu.showPDAInMenu", "menu.showWRNInMenu", "menu.showSuggestionLimit"] {
+        let found = browse.iter().find(|m| m.id == id).unwrap_or_else(|| panic!("{id}"));
+        assert_eq!(found.target, FunctionTarget::Setting, "{id}");
+        assert_eq!(found.path[..4], ["Menu.viewMenu", "Menu.toolbar", "Menu.topToolBar", "Menu.customToolbar"], "{id}");
+    }
+    for (query, language, id) in [
+        ("候选点上限", Language::ZhCn, "menu.showSuggestionLimit"),
+        ("Max candidates", Language::EnUs, "menu.showSuggestionLimit"),
+        ("工具栏广度", Language::ZhCn, "menu.showWRNInMenu"),
+        ("探索幅", Language::JaJp, "menu.showWRNInMenu"),
+        ("工具列激進度", Language::ZhTw, "menu.showPDAInMenu"),
+    ] {
+        assert!(function_search::search(query, language).iter().any(|m| m.id == id), "{query} must find {id}");
+    }
+}
+
+/// Settings that live inside a dialog or a child window (开局广度 / 开局激进度 of 引擎对局, 分阶段 of
+/// 棋力评估, 训练方式 of AI 陪练 and the three 打开棋谱后此窗口 choices) and the action that shows or
+/// hides the win rates beside the names are found by what they are called in every language; a
+/// catalog dumped again from Java (tools/function_catalog) would lose them.
+#[test]
+fn settings_inside_dialogs_and_windows_are_found() {
+    use FunctionTarget::*;
+    let browse = function_search::search("", Language::EnUs);
+    for (id, target, path) in [
+        ("match.opening-wrn", Setting, vec!["Menu.game", "Menu.newGame", "Menu.newEngineGame", "NewEngineGameDialog.lblOpeningWrn"]),
+        ("match.opening-pda", Setting, vec!["Menu.game", "Menu.newGame", "Menu.newEngineGame", "NewEngineGameDialog.lblOpeningPda"]),
+        ("strength.phase-bounds", Setting, vec!["Menu.analyze", "Menu.playerStrengthEstimate", "PlayerStrengthEstimate.tab.phases"]),
+        ("humansl.training-mode", Setting, vec!["Menu.aiCoach", "HumanSlTraining.mode"]),
+        ("fox.after-get", Setting, vec!["Menu.sync", "Menu.foxKifu", "FoxKifuDownload.lblAfterGet"]),
+        ("tencent.after-get", Setting, vec!["Menu.sync", "Menu.tencentKifu", "TencentKifuDownload.lblAfterGet"]),
+        ("ogs.after-get", Setting, vec!["Menu.sync", "Menu.ogsKifu", "TencentKifuDownload.lblAfterGet"]),
+        ("board.name-winrates", Action, vec!["FunctionSearch.path.board", "NameWinrates.title"]),
+    ] {
+        let found = browse.iter().find(|m| m.id == id).unwrap_or_else(|| panic!("{id}"));
+        assert_eq!((found.target, found.section, found.path.iter().map(String::as_str).collect::<Vec<_>>()), (target, None, path), "{id}");
+    }
+    for (query, language, id) in [
+        ("开局广度", Language::ZhCn, "match.opening-wrn"), ("开局激进度", Language::ZhCn, "match.opening-pda"),
+        ("opening breadth", Language::EnUs, "match.opening-wrn"), ("開始時の積極性", Language::JaJp, "match.opening-pda"),
+        ("分阶段", Language::ZhCn, "strength.phase-bounds"), ("阶段分界", Language::ZhCn, "strength.phase-bounds"),
+        ("phase boundaries", Language::EnUs, "strength.phase-bounds"),
+        ("姓名旁胜率", Language::ZhCn, "board.name-winrates"), ("win rates beside names", Language::EnUs, "board.name-winrates"),
+        ("训练方式", Language::ZhCn, "humansl.training-mode"), ("边下边提醒", Language::ZhCn, "humansl.training-mode"),
+        ("training mode", Language::EnUs, "humansl.training-mode"),
+        ("OGS 打开棋谱后此窗口", Language::ZhCn, "ogs.after-get"), ("OGS after opening a game", Language::EnUs, "ogs.after-get"),
+        ("野狐 打开棋谱后此窗口", Language::ZhCn, "fox.after-get"), ("腾讯 打开棋谱后此窗口", Language::ZhCn, "tencent.after-get"),
+        ("Tencent after opening a game", Language::EnUs, "tencent.after-get"), ("野狐棋譜 棋譜を開いた後", Language::JaJp, "fox.after-get"),
+    ] {
+        assert_eq!(function_search::search(query, language).first().map(|m| m.id.as_str()), Some(id), "{query}");
+    }
+}
+
 #[test]
 fn curated_pinyin_and_distinct_cross_language_intents() {
     for (query, id) in [
@@ -125,6 +205,20 @@ fn every_java_title_finds_its_function() {
                 function_search::search(title, language).iter().any(|m| m.id == function.id),
                 "{name}: {title} must find {}", function.id
             );
+        }
+    }
+}
+
+/// The search shows every result's title, path and description as text in every interface
+/// language, never as the resource key (FunctionSearchDialog renders them from the bundles).
+#[test]
+fn every_function_shows_its_texts_in_every_language() {
+    let strings = java_strings();
+    for name in ["EnUs", "ZhCn", "ZhTw", "JaJp", "KoKr", "ThTh"] {
+        for function in function_search::search("", Language::EnUs) {
+            for key in [&function.title, &function.description].into_iter().chain(&function.path) {
+                assert!(strings[name][key.as_str()].is_string(), "{name}: {} shows {key}", function.id);
+            }
         }
     }
 }

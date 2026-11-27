@@ -7,8 +7,10 @@ import { COMMANDS, type CommandEntry } from "../commands";
 import { isApiError, writeMatchWinrate } from "../contract/client";
 import type { MatchCommand, MatchNotice, MatchOutcomeView, MatchScoreView, MatchView, MatchWinrateImageRequest, UnrestoredReason } from "../contract/generated";
 import { ask, message } from "../dialogs";
-import { format, product, t } from "../i18n";
-import { matchRuleOptions, messageNoModal, openEngineGameDialog, openManual, reviseBatchLimit } from "./dialogs";
+import { format, product, registerProduct, t } from "../i18n";
+import { messageNoModal, openEngineGameDialog, openManual, reviseBatchLimit } from "./dialogs";
+import { parameterFailures, parametersPanelOpen } from "./parameters";
+import { openingLocateReason } from "../search/locateRules";
 import { matchActive, matchUi, sideName } from "./state";
 
 function match(op: MatchCommand) {
@@ -24,8 +26,43 @@ function toggleMatchPause(): void {
   if (matchActive()) void match({ type: "Pause" });
 }
 
+registerProduct({
+  ZhCn: {
+    matchOpeningDuringGame: "人机对局正在进行，打开“引擎对局”会结束这盘棋。请先结束对局，再查看开局参数。",
+    matchOpeningDuringCoach: "AI 陪练正在进行，打开“引擎对局”会结束陪练。请先结束陪练，再查看开局参数。",
+    matchOpeningNeedsAnalysis: "开局广度和开局激进度只用于分析模式的引擎对局。在“引擎对局”的“更多设置”中选择“分析模式”后，这两项才会出现。",
+  },
+  ZhTw: {
+    matchOpeningDuringGame: "人機對局正在進行，開啟「引擎對局」會結束這盤棋。請先結束對局，再查看開局參數。",
+    matchOpeningDuringCoach: "AI 陪練正在進行，開啟「引擎對局」會結束陪練。請先結束陪練，再查看開局參數。",
+    matchOpeningNeedsAnalysis: "開局廣度和開局激進度只用於分析模式的引擎對局。在「引擎對局」的「更多設定」中選擇「分析模式」後，這兩項才會出現。",
+  },
+  EnUs: {
+    matchOpeningDuringGame: "A game against the engine is in progress, and opening the Engine game dialog would end it. End the game first, then look at the opening parameters.",
+    matchOpeningDuringCoach: "AI Coach is in progress, and opening the Engine game dialog would end it. End AI Coach first, then look at the opening parameters.",
+    matchOpeningNeedsAnalysis: "Opening breadth and opening aggressiveness apply only to analysis-mode engine games. Choose “AnalyzeMode” under “MoreSettings” in the Engine game dialog to show them.",
+  },
+  JaJp: {
+    matchOpeningDuringGame: "エンジンとの対局中です。「エンジン同士の対局設定」を開くとこの対局は終了します。対局を終えてから開始時のパラメータを確認してください。",
+    matchOpeningDuringCoach: "AI コーチの最中です。「エンジン同士の対局設定」を開くと AI コーチは終了します。AI コーチを終えてから開始時のパラメータを確認してください。",
+    matchOpeningNeedsAnalysis: "開始時の幅と開始時の積極性は、分析モードのエンジン対局でのみ使われます。「エンジン同士の対局設定」の「詳細設定」で「分析モード」を選ぶと表示されます。",
+  },
+  KoKr: {
+    matchOpeningDuringGame: "엔진과의 대국이 진행 중이며, [신규대국(AI끼리)]를 열면 이 대국이 끝납니다. 대국을 먼저 끝낸 뒤 시작 매개변수를 확인하세요.",
+    matchOpeningDuringCoach: "AI 코치가 진행 중이며, [신규대국(AI끼리)]를 열면 AI 코치가 끝납니다. AI 코치를 먼저 끝낸 뒤 시작 매개변수를 확인하세요.",
+    matchOpeningNeedsAnalysis: "시작 폭과 시작 공격성은 분석 모드 엔진 대국에서만 쓰입니다. [신규대국(AI끼리)]의 [추가설정]에서 [분석 모드]를 고르면 나타납니다.",
+  },
+  ThTh: {
+    matchOpeningDuringGame: "กำลังเล่นเกมกับเอนจินอยู่ การเปิดหน้าต่าง “เกมเครื่องยนต์” จะจบเกมนี้ โปรดจบเกมก่อน แล้วจึงดูพารามิเตอร์เริ่มต้น",
+    matchOpeningDuringCoach: "กำลังใช้โค้ช AI อยู่ การเปิดหน้าต่าง “เกมเครื่องยนต์” จะจบการฝึกกับโค้ช AI โปรดจบการฝึกก่อน แล้วจึงดูพารามิเตอร์เริ่มต้น",
+    matchOpeningNeedsAnalysis: "ความกว้างเริ่มต้นและความก้าวร้าวเริ่มต้นใช้กับเกมเอนจินในโหมดวิเคราะห์เท่านั้น เลือก “โหมดวิเคราะห์” ใน “การตั้งค่าเพิ่มเติม” ของหน้าต่าง “เกมเครื่องยนต์” แล้วจึงจะแสดง",
+  },
+});
+
 Object.assign(COMMANDS, {
   "menu.newEngineGame": { run: () => void openEngineGameDialog() },
+  "match.opening-wrn": { run: () => void openEngineGameDialog("wrn"), disabledReason: () => openingLocateReason(state.view) },
+  "match.opening-pda": { run: () => void openEngineGameDialog("pda"), disabledReason: () => openingLocateReason(state.view) },
   "menu.breakEngineGame": { run: stopMatch },
   "menu.pauseEngineGame": { run: toggleMatchPause },
   "menu.changeEngineGameNumbers": { run: () => void reviseBatchLimit() },
@@ -115,9 +152,16 @@ function noticeText(n: MatchNotice): string {
     "MatchRules.failed.queryUnconfirmed": t("MatchRules.failed.queryUnconfirmed"),
     "MatchRules.failed.incomplete": t("MatchRules.failed.incomplete"),
     "MatchRules.failed.timeout": t("MatchRules.failed.timeout"),
+    // The opening parameters were not confirmed (the game did not start), the batch's end
+    // could not give an engine its values back, or a revision in 对局参数 was not confirmed (the
+    // game is paused); {0} names each engine and reason.
+    "product.matchOpeningFailed": product("matchOpeningFailed", "{0}"),
+    "EngineGameParameters.restoreFailed": t("EngineGameParameters.restoreFailed"),
+    "EngineGameParameters.failed": t("EngineGameParameters.failed"),
   };
+  const args = n.parameter_failures.length ? [parameterFailures(n.parameter_failures)] : n.arguments;
   let k = 0;
-  return format(texts[n.message_key] ?? t(n.message_key), ...n.arguments).replace(/%s/g, () => n.arguments[k++] ?? "");
+  return format(texts[n.message_key] ?? t(n.message_key), ...args).replace(/%s/g, () => args[k++] ?? "");
 }
 
 /** MatchRulesTexts.statusLabel for an engine that cannot confirm the rules. */
@@ -145,12 +189,9 @@ async function askRulesConsent(m: MatchView): Promise<void> {
     const colour = e.side === "Black" ? t("MatchRules.black") : e.side === "White" ? t("MatchRules.white") : t("MatchRules.unconfirmed");
     return format(t("MatchRules.consentEngine"), identity, colour, consentReason(e.reason_key));
   });
-  const target = m.rules_target_choice === null
-    ? t("NewEngineGameDialog.matchRules.custom")
-    : matchRuleOptions().find(([name]) => name === m.rules_target_choice)?.[1] ?? t("NewEngineGameDialog.matchRules.custom");
   const body = document.createElement("div");
   body.className = "match-consent";
-  body.textContent = format(t("MatchRules.consentMessage"), engines.join("\n"), target);
+  body.textContent = format(t("MatchRules.consentMessage"), engines.join("\n"), m.rules_target_name);
   const allow = await ask(t("MatchRules.consentTitle"), body, product("yes"), product("no"));
   await match({ type: "ConfirmRules", game: m.game, allow });
 }
@@ -214,7 +255,11 @@ registerViewHandler((view) => {
     void askRulesConsent(m);
   }
   if (view.match_outcome) outcome(view.match_outcome);
-  for (const n of view.match_notices) void message(t("Message.title"), noticeText(n), "warning");
+  for (const n of view.match_notices) {
+    // SwingEngineGameChrome.showParameterFailureOnce: the open panel shows it inline instead.
+    if (n.message_key === "EngineGameParameters.failed" && parametersPanelOpen()) continue;
+    void message(t("Message.title"), noticeText(n), "warning");
+  }
   const image = view.match_winrate_image;
   if (image && image.game !== requested) {
     requested = image.game;

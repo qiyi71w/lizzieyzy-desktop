@@ -28,6 +28,8 @@ export interface Palette {
   stoneWhiteEdge: string;
   rankWindow: string;
   ai: string;
+  accent: string;
+  panel: string;
 }
 
 let cached: Palette | null = null;
@@ -49,6 +51,8 @@ export function palette(): Palette {
     stoneWhiteEdge: token("--ws-stone-white-edge"),
     rankWindow: token("--ws-strength-rank-window"),
     ai: token("--ws-strength-ai"),
+    accent: token("--ds-accent"),
+    panel: token("--ds-panel"),
   };
   return cached;
 }

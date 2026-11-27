@@ -33,10 +33,10 @@ export function humanSlSession(v: WorkbenchView | null = state.view): HumanSlVie
   return v?.human_sl ?? null;
 }
 
-/** LizzieFrame.hasActiveHumanSlGame: a controller exists (the game started and has not finished). */
+/** LizzieFrame.hasActiveHumanSlGame: a controller exists (the game started and has not finished),
+ *  as the core projects it; a session cancelled while preparing never has one. */
 export function humanSlGameActive(v: WorkbenchView | null = state.view): boolean {
-  const s = humanSlSession(v);
-  return !!s && s.phase !== "Preparing";
+  return !!humanSlSession(v)?.game_started;
 }
 
 /** The training mode's analysis override (HumanSlGameController.configureAnalysisVisuals)
@@ -59,6 +59,24 @@ export function levelFox(level: CoachLevelView): string {
 export function levelKataGo(level: CoachLevelView): string {
   const plain = format(level.kind === "Kyu" ? t("HumanSlTraining.rank.kyuValue") : t("HumanSlTraining.rank.danValue"), level.rank);
   return level.kind === "StrongDan" ? format(t("HumanSlTraining.rankTable.strong"), plain) : plain;
+}
+
+/** CoachLevelText.grade: the real-world grade, "业余3段" or "职业顶尖". Literal t() calls keep the
+ *  keys in the Java string extraction. */
+export function levelGrade(level: CoachLevelView): string {
+  switch (level.grade) {
+    case "BeyondTopPro": return t("HumanSlTraining.rankTable.beyondTopPro");
+    case "TopPro": return t("HumanSlTraining.rankTable.topPro");
+    case "Pro": return t("HumanSlTraining.rankTable.pro");
+    case "TopAmateur": return t("HumanSlTraining.rankTable.topAmateur");
+    case "AmateurDan": return format(t("HumanSlTraining.rankTable.amateurDan"), level.grade_number);
+    default: return format(t("HumanSlTraining.rankTable.amateurKyu"), level.grade_number);
+  }
+}
+
+/** CoachLevelText.detail: what the Fox rank stands for, "KataGo 强3段 · 约业余3段". */
+export function levelDetail(level: CoachLevelView): string {
+  return format(t("HumanSlTraining.level.detail"), levelKataGo(level), levelGrade(level));
 }
 
 /** The core's description of `level`. */

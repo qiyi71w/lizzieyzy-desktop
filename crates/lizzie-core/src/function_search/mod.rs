@@ -1,8 +1,23 @@
 //! Offline function search over the fixed Java catalog and its eight maintained bundles.
 //! `catalog.json` is the extracted Java catalog with Java's two interface-style switches replaced
-//! by this product's three 外观模式 entries (`menu.appearanceMode*`) and this product's
-//! 编辑面板布局… (`menu.editPanelLayout`, the panel arrangement's edit mode) added, edited in place;
-//! their text matches `ui/src/i18n/productStrings.json`. Six entries whose Java dialogs this product folds
+//! by this product's three 外观模式 entries (`menu.appearanceMode*`), and this product's
+//! 编辑面板布局… (`menu.editPanelLayout`, the panel arrangement's edit mode), 黑白胜率大字
+//! (`menu.bigWinrateWindow`, 显示's large win-rate window), 远程算力's 断开智子引擎
+//! (`engine.disconnect-zhizi`, an action) and 对局参数 (`menu.engineGameParameters`, 棋局's
+//! engine-game parameters panel) added, and the later upstream's 棋盘坐标 settings row
+//! (`config.theme.coordinates`, after 胜率目数字体) added, edited in place; their text
+//! matches `ui/src/i18n/productStrings.json` and the Java resource bundles. The three later 顶部工具栏 > 自定义内容
+//! items 激进度, 广度 and 候选点上限 (`menu.showPDAInMenu`, `menu.showWRNInMenu`,
+//! `menu.showSuggestionLimit`) are added the same way, titled by the newer Java resource text with
+//! this product's aliases and descriptions. OGS棋谱 (`menu.ogsKifu`, after `menu.tencentKifu`) is
+//! added from the newer Java commit the UI text comes from, with that commit's title, description
+//! and aliases in every bundle. Eight functions this product keeps inside a dialog or a child
+//! window are added after their owners' entries with this product's aliases and descriptions:
+//! 姓名旁胜率 (`board.name-winrates`, an action), 开局广度 / 开局激进度 (`match.opening-wrn`,
+//! `match.opening-pda`, in 引擎对局), 分阶段 (`strength.phase-bounds`, in 棋力评估), 训练方式
+//! (`humansl.training-mode`, in AI 陪练) and 打开棋谱后此窗口 of the 野狐 / 腾讯 / OGS 棋谱
+//! windows (`fox.after-get`, `tencent.after-get`, `ogs.after-get`); the caller opens each owner
+//! at the control. Six entries whose Java dialogs this product folds
 //! into 综合设置 (`menu.maxTreeWidth`, `menu.initialMaxScoreLead`, `menu.setReplayInterval`,
 //! `menu.minPlayoutsForNextMove`, `menu.setCandidatesDelay` → engine, `menu.frameFontSize` →
 //! theme) carry that page as their `section`, also edited in place. The 详细工具栏's eleven

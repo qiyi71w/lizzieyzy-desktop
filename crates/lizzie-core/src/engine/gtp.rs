@@ -289,6 +289,12 @@ pub enum Frame {
 pub struct Framer {
     current: Option<(u64, bool)>,
     text: String,
+    /// The open response is an analysis stream (it reported `info` lines).
+    streaming: bool,
+    /// A response that began inside the open stream, before the blank line ending that stream
+    /// (Java reads such an answer by its id and lets its own blank line end it:
+    /// `AnalysisEngine.handleRemoteGtpLine`); the stream stays open behind it.
+    inner: Option<(u64, bool, String)>,
 }
 
 impl Framer {
@@ -299,24 +305,36 @@ impl Framer {
             return;
         }
         let Some((id, _)) = self.current else {
-            let (ok, rest) = match line.as_bytes()[0] {
-                b'=' => (true, &line[1..]),
-                b'?' => (false, &line[1..]),
-                _ => return, // output outside a response is not attributable
+            let Some((id, ok, text)) = header(line) else {
+                return; // output outside a response is not attributable
             };
-            let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
-            let id = rest[..digits].parse().unwrap_or(0);
             self.current = Some((id, ok));
-            self.text = rest[digits..].trim().to_string();
+            self.text = text;
+            self.streaming = false;
             out.push(Frame::Header { id });
             return;
         };
+        if let Some((_, _, text)) = self.inner.as_mut() {
+            if !text.is_empty() {
+                text.push('\n');
+            }
+            text.push_str(line);
+            return;
+        }
         if line.starts_with("info ") {
+            self.streaming = true;
             out.push(Frame::Info {
                 id,
                 line: line.to_string(),
             });
             return;
+        }
+        if self.streaming {
+            if let Some((inner, ok, text)) = header(line).filter(|&(inner, _, _)| inner != 0 && inner != id) {
+                self.inner = Some((inner, ok, text));
+                out.push(Frame::Header { id: inner });
+                return;
+            }
         }
         if !self.text.is_empty() {
             self.text.push('\n');
@@ -324,9 +342,12 @@ impl Framer {
         self.text.push_str(line);
     }
 
-    /// Ends the open response, if any (blank line or end of output).
+    /// Ends the innermost open response, if any (blank line or end of output).
     pub fn finish(&mut self, out: &mut Vec<Frame>) {
-        if let Some((id, ok)) = self.current.take() {
+        if let Some((id, ok, text)) = self.inner.take() {
+            out.push(Frame::Response { id, ok, text });
+        } else if let Some((id, ok)) = self.current.take() {
+            self.streaming = false;
             out.push(Frame::Response {
                 id,
                 ok,
@@ -334,6 +355,18 @@ impl Framer {
             });
         }
     }
+}
+
+/// A response's first line: `=`/`?`, its id (0 when it has none) and the rest of the line.
+fn header(line: &str) -> Option<(u64, bool, String)> {
+    let (ok, rest) = match line.as_bytes().first()? {
+        b'=' => (true, &line[1..]),
+        b'?' => (false, &line[1..]),
+        _ => return None,
+    };
+    let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+    let id = rest[..digits].parse().unwrap_or(0);
+    Some((id, ok, rest[digits..].trim().to_string()))
 }
 
 // ------------------------------------------------------------------------ analysis lines

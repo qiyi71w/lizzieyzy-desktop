@@ -490,6 +490,28 @@ impl BoardContext {
                 }
             }
         }
+        let mut shapes = String::new();
+        for line in &self.lines {
+            if line.frames.len() < 2 {
+                continue;
+            }
+            let first = &line.frames[1];
+            if let Some(shape) = super::shapes::describe(&self.stones, &first.r#move, first.color == "B") {
+                shapes.push_str(if line.label == "recorded" {
+                    "Recorded "
+                } else {
+                    "Candidate "
+                });
+                shapes.push_str(&first.r#move);
+                shapes.push_str(": ");
+                shapes.push_str(&shape);
+                shapes.push('\n');
+            }
+        }
+        if !shapes.is_empty() {
+            s.push_str("Move shapes (from the stones alone; other moves have no listed name):\n");
+            s.push_str(&shapes);
+        }
         if !self.knowledge.trim().is_empty() {
             s.push_str("Position-specific knowledge:\n");
             s.push_str(&self.knowledge);

@@ -7,12 +7,22 @@ import { actions, button, checkbox, footer, row } from "./controls";
 import { remoteFailureText } from "./remote";
 import { cloudStartText, VIP_ARGS } from "../cloud/service";
 import { openAutoSetup } from "../setup/dialog";
+import { diagnosisText } from "./diagnosis";
 
 /** The failure text: SSHController's or ZhiziGtpTransport's wording for a remote or 智子 engine,
  *  with the 智子 plan hint when the failed engine's plan is known in `view`, the view the failure
  *  came with (an empty plan starts as VIP 包月, as the socket token request sends it). Taken when
- *  the failure arrives, so a window queued behind others keeps the plan that failed. */
+ *  the failure arrives, so a window queued behind others keeps the plan that failed. A start with
+ *  a known cause adds what to do under it (Java's startup diagnostic summary); a packaged engine
+ *  refused on too old a macOS reads as that explanation alone (Java's refusal message). */
 function failureText(failure: EngineFailureView, view: WorkbenchView | null): string {
+  const diagnosis = failure.diagnosis;
+  if (diagnosis?.type === "MacOsTooOld") return diagnosisText(diagnosis);
+  const text = causeText(failure, view);
+  return diagnosis ? `${text}\n\n${diagnosisText(diagnosis)}` : text;
+}
+
+function causeText(failure: EngineFailureView, view: WorkbenchView | null): string {
   if (failure.remote) return remoteFailureText(failure.remote);
   if (!failure.cloud) return failure.message;
   const cloud = view?.settings.engine.engines.find((e) => e.id === failure.profile_id)?.cloud;

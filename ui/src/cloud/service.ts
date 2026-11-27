@@ -48,6 +48,17 @@ registerProduct({
   },
 });
 
+// Why 断开智子引擎 cannot be used: no 智子 engine is connected (its button's tooltip and the
+// function search's reason).
+registerProduct({
+  ZhCn: { zhiziNothingToDisconnect: "没有可断开的智子引擎连接" },
+  ZhTw: { zhiziNothingToDisconnect: "沒有可中斷的智子引擎連線" },
+  EnUs: { zhiziNothingToDisconnect: "No Zhizi engine connection to disconnect" },
+  JaJp: { zhiziNothingToDisconnect: "切断できる智子エンジンの接続はありません" },
+  KoKr: { zhiziNothingToDisconnect: "끊을 즈즈 엔진 연결이 없습니다" },
+  ThTh: { zhiziNothingToDisconnect: "ไม่มีการเชื่อมต่อเอนจิน Zhizi ให้ตัด" },
+});
+
 /** Java RemoteComputeConfig *_ZHIZI_ARGS, in the dialog's 连接方式 order. */
 export const VIP_ARGS = "--platform all --engine-type go --gpu-type vip-share --kata-name katago-TENSORRT --kata-weight 10b512t";
 export const PRESETS: { label: () => string; args: string }[] = [

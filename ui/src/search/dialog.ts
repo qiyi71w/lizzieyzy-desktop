@@ -3,6 +3,7 @@
 // method keep their keys. It is a modal layer of the dialog host (dialogs.ts openModalLayer): the
 // rest of the window is inert while it is open, and a dialog opened over it takes the input.
 import { state } from "../app";
+import { reasonText } from "../commands";
 import { searchFunctions } from "../contract/client";
 import { errorText } from "../errorText";
 import type { FunctionMatch, FunctionTarget } from "../contract/generated";
@@ -10,7 +11,7 @@ import { openModalLayer } from "../dialogs";
 import { product, registerProduct, t } from "../i18n";
 import { icon } from "../design/icons";
 import { DARK_READY } from "../design/theme";
-import { reasonKey, reasonText, resolveFunction, type Resolution } from "./targets";
+import { reasonKey, resolveFunction, type Resolution } from "./targets";
 import "./search.css";
 
 /** The visible mark of a result that cannot be opened now; its reason is in the row's details. */
@@ -108,6 +109,8 @@ export interface SearchDialogReport {
   count: string;
   /** Result ids in the order shown. */
   rows: string[];
+  /** The result rows as drawn: label, aria-description and the selected row's detail lines. */
+  shown: { id: string; label: string; description: string; detail: string | null }[];
   selected: string | null;
   activateEnabled: boolean;
   composing: boolean;
@@ -472,6 +475,12 @@ export function openSearchDialog(): SearchDialog {
         category: categories.value || null,
         count: expanded ? count.textContent ?? "" : "",
         rows: model.map((m) => m.id),
+        shown: [...results.querySelectorAll<HTMLElement>(".fs-row")].map((r) => ({
+          id: r.dataset.function ?? "",
+          label: r.getAttribute("aria-label") ?? "",
+          description: r.getAttribute("aria-description") ?? "",
+          detail: r.querySelector(".fs-detail")?.textContent ?? null,
+        })),
         selected: current()?.id ?? null,
         activateEnabled: !activate.disabled,
         composing: session.composing,

@@ -243,6 +243,11 @@ pub struct ResourceOutcome {
     pub message_key: String,
     /// Sanitized bounded diagnostic, without personal paths or credentials.
     pub detail: String,
+    /// The engine check refused the engine with its own explanation, which replaces the key's
+    /// text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub diagnosis: Option<crate::engine::diagnosis::StartupDiagnosis>,
 }
 /// Foreground/default profile details used by Overview.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, TS)]

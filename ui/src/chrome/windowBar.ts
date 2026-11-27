@@ -58,14 +58,69 @@ let title: HTMLElement | null = null;
 const titleGame = document.createElement("span");
 const titleDetail = document.createElement("span");
 const buttons = new Map<WindowButton, HTMLButtonElement>();
+const titleRowListeners: (() => void)[] = [];
 
-/** The title is one line in two places: the game sits on the window's centre line, or as close to
- *  it as the menus and the analysis allow (moving continuously, so a changing analysis never makes
- *  it jump); the analysis stands at the bar's far end, quieter, with as many of its leading parts
- *  as fit beside the whole game, none when not even the first does. The game ends in "…" only when
- *  the bar's whole free space is too narrow for it. A shortened title has the whole of it as its
- *  tooltip. */
+/** Calls `listener` when the bar gains or loses its title row, which changes the bar's height
+ *  and so the room left to the workbench below it. */
+export function onTitleRowChange(listener: () => void): void {
+  titleRowListeners.push(listener);
+}
+
+/** The title is one line beside the menus where it fits. A game too wide for the bar's free space
+ *  there takes a row of its own under the menus instead: the window's whole width, centred, broken
+ *  between words onto a second line when even that is too narrow (inside a name only when the name
+ *  alone is wider than the row). A game longer than two lines ends the second in "…". That row
+ *  leaves the analysis out (the system title keeps it); its tooltip gives the whole title when the
+ *  row leaves out the analysis or shortens the game. */
 function layoutTitle(): void {
+  if (!bar || !title) return;
+  const before = bar.hasAttribute("data-title-row");
+  bar.removeAttribute("data-title-row");
+  titleGame.textContent = wanted.game;
+  placeTitle();
+  if (titleGame.scrollWidth > titleGame.clientWidth) {
+    bar.setAttribute("data-title-row", "");
+    title.style.paddingLeft = "";
+    titleDetail.hidden = true;
+    if (breaksAfterHyphen()) titleGame.textContent = wanted.game.replace(/-(?=\S)/g, "-\u2060");
+    title.title = wanted.detail.length || clamped() ? wanted.text : "";
+  }
+  if (before !== bar.hasAttribute("data-title-row")) titleRowListeners.forEach((listener) => listener());
+}
+
+/** Whether the title row breaks a line right after a hyphen inside a part. Lines should break
+ *  only at the spaces, but Chromium (and so WebView2) also breaks after a hyphen
+ *  ("Wolfeschlegel-" / "Steinhause"); the row then writes a word joiner after each such hyphen,
+ *  which keeps a part the row holds on one line while a part wider than the row still breaks
+ *  inside itself (overflow-wrap). The joiner is left out otherwise, as it can move the glyphs
+ *  around it by a fraction of a pixel. */
+function breaksAfterHyphen(): boolean {
+  const text = titleGame.firstChild;
+  const s = text?.textContent ?? "";
+  if (!text) return false;
+  const range = document.createRange();
+  const top = (i: number): number => {
+    range.setStart(text, i);
+    range.setEnd(text, i + 1);
+    return range.getBoundingClientRect().top;
+  };
+  for (let i = s.indexOf("-"); i >= 0 && i + 1 < s.length; i = s.indexOf("-", i + 1)) {
+    if (s[i + 1] !== " " && top(i + 1) > top(i) + 1) return true;
+  }
+  return false;
+}
+
+/** Whether the title row holds more of the game than its two lines show. */
+function clamped(): boolean {
+  return (bar?.hasAttribute("data-title-row") ?? false) && titleGame.scrollHeight > titleGame.clientHeight;
+}
+
+/** The title beside the menus: the game sits on the window's centre line, or as close to it as the
+ *  menus and the analysis allow (moving continuously, so a changing analysis never makes it jump);
+ *  the analysis stands at the bar's far end, quieter, with as many of its leading parts as fit
+ *  beside the whole game, none when not even the first does. A shortened title has the whole of it
+ *  as its tooltip. */
+function placeTitle(): void {
   if (!bar || !title) return;
   title.style.paddingLeft = "";
   titleDetail.hidden = false;
@@ -111,9 +166,16 @@ function writeSystemTitle(): void {
 export function setWindowTitle(next: WindowTitle): void {
   if (next.text === wanted.text && next.game === wanted.game && next.detail.join("\n") === wanted.detail.join("\n")) return;
   wanted = next;
-  titleGame.textContent = next.game;
   layoutTitle();
   if (!systemTimer && wanted.text !== systemTitle) writeSystemTitle();
+}
+
+/** What the acceptance probe reports of the bar's title: the game, whether it is cut for want of
+ *  room (one line ending in "…", or a title row past its two lines), whether it has the row under
+ *  the menus and whether that row is past its two lines, and the tooltip giving the whole title. */
+export function titleReport(): { game: string; cut: boolean; row: boolean; clamped: boolean; tooltip: string } {
+  const rowClamped = clamped();
+  return { game: wanted.game, cut: titleGame.scrollWidth > titleGame.clientWidth || rowClamped, row: bar?.hasAttribute("data-title-row") ?? false, clamped: rowClamped, tooltip: title?.title ?? "" };
 }
 
 /** The window's state the bar follows: a maximized window has no edge and its maximize button

@@ -3,7 +3,7 @@
 // statistics panel's inputs (LizzieFrame.drawMoveStatistics) and the window title
 // (LizzieFrame.updateTitle with its visits-per-second sampler). Values come from the core
 // projections only; nothing is flipped by side or shifted by komi here.
-import { APP_TITLE, state, windowTitle } from "../app";
+import { APP_TITLE, state, titlePlayers, windowTitle } from "../app";
 import type { WindowTitle } from "../chrome/windowBar";
 import type { CandidateView, HistoryPoint, WorkbenchView } from "../contract/generated";
 import { t } from "../i18n";
@@ -81,10 +81,10 @@ export function layerSignature(board: LayerBoard, layer: OwnershipLayer | null):
   return layer ? `${layer.style}:${layer.source}:${seen.revision}` : "";
 }
 
-/** drawMoveStatistics' inputs: the current node, else the last analysed position before it
- *  (previous, then the one before, LizzieFrame.java:8739-8770); the last move's change
- *  (core `last_move`, from the same earlier position, only while the current node is analysed)
- *  and its candidate rank. */
+/** drawMoveStatistics' inputs: the core's win-rate reading (the current node, else the last
+ *  analysed position before it: previous, then the one before, LizzieFrame.java:8739-8770) with
+ *  the lead of the same position; the last move's change (core `last_move`, from the same earlier
+ *  position, only while the current node is analysed) and its candidate rank. */
 export function statScene(v: WorkbenchView, history: Map<number, HistoryPoint>, parentOf: (node: number) => number | undefined): StatScene {
   const analysed = (node: number | undefined) => {
     const p = node === undefined ? undefined : history.get(node);
@@ -92,13 +92,13 @@ export function statScene(v: WorkbenchView, history: Map<number, HistoryPoint>, 
   };
   const node = v.position.node;
   const parent = parentOf(node);
-  const current = analysed(node);
   const last = analysed(parent) ?? analysed(parent === undefined ? undefined : parentOf(parent));
-  const shown = current ?? last;
+  const reading = v.statistics.reading;
+  const shown = reading ? history.get(reading.node) : undefined;
   const change = v.statistics.last_move;
   const lead = shown?.black.score_lead ?? null;
   return {
-    black: shown?.black.winrate ?? null,
+    black: reading?.black ?? null,
     // blackLastWR: the position the change is measured from.
     before: change && last ? last.black.winrate : null,
     change: change?.winrate ?? null,
@@ -211,10 +211,7 @@ export function workbenchTitle(v: WorkbenchView, version: string, history: Map<n
 /** The game in the window bar: the players with the result, then the file. */
 function gameLine(v: WorkbenchView): string {
   const parts: string[] = [];
-  if (v.document.format !== null) {
-    const info = v.document.info;
-    parts.push(`${info.black} vs ${info.white}${info.result ? ` (${t("LizzieFrame.result")}${info.result})` : ""}`);
-  }
+  if (v.document.format !== null) parts.push(titlePlayers(v.document.info));
   const fileName = v.document.file_name ?? v.document.origin_name;
   if (fileName) parts.push(fileName);
   return parts.join(" — ") || APP_TITLE;

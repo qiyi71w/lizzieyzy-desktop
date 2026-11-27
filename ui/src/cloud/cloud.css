@@ -411,19 +411,50 @@
   font-size: var(--ds-size-s);
 }
 
-/* The current engine and the last status, below both columns. */
+/* Below both columns: the 智子 connections with their disconnect action and billing note, then
+   the current engine and the last status. */
 .rc-footer {
   flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 20px 14px;
+  border-top: 1px solid var(--ds-line);
+}
+.rc-session,
+.rc-current-row {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 4px 12px;
-  padding: 10px 20px 14px;
-  border-top: 1px solid var(--ds-line);
+}
+.rc-session {
+  align-items: center;
+}
+.rc-session-status {
+  flex: 1 1 16em;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.rc-session button {
+  flex: none;
+  max-width: 100%;
+  white-space: normal;
+}
+.rc-session-note {
+  margin: 0;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+  overflow-wrap: anywhere;
+}
+.rc-current-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 .rc-dot {
   flex: none;
-  align-self: center;
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -432,11 +463,15 @@
 .rc-dot.rc-dot-error {
   background: var(--ds-danger-text);
 }
+/* 无活动主引擎: nothing runs, so neither healthy nor failed. */
+.rc-dot.rc-dot-idle {
+  background: var(--ds-text-3);
+}
 .rc-current {
   font-weight: 600;
 }
 .rc-status {
-  flex: 1;
+  flex: 1 1 12em;
   min-width: 0;
   color: var(--ds-text-2);
   overflow-wrap: anywhere;

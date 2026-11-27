@@ -147,8 +147,8 @@ fn started(dir: &std::path::Path, world: &World, profiles: Vec<EngineProfile>, e
 
 fn params() -> KataEngineParamsEdit {
     KataEngineParamsEdit {
-        pda: Some(KataParamEdit { enabled: false, value: Some(0.0), auto_load: false }),
-        wrn: KataParamEdit { enabled: true, value: Some(0.3), auto_load: false },
+        pda: Some(KataParamEdit { enabled: false, value: Some(0.0), auto_load: false, edited: true, auto_load_edited: true }),
+        wrn: KataParamEdit { enabled: true, value: Some(0.3), auto_load: false, edited: true, auto_load_edited: true },
         show_pda: false,
         show_wrn: true,
     }

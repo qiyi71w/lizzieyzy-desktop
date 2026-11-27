@@ -73,7 +73,8 @@ security-framework = "3"
 [target.'cfg(windows)'.dependencies]
 rfd = { version = "0.16", default-features = false }
 # IpHelper/Ndis/WinSock: Web 旁观's LAN address without a default route (GetAdaptersAddresses).
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_Security_Cryptography", "Win32_System_Memory", "Win32_System_Threading"] }
+# WindowsAndMessaging: restacking 黑白胜率大字 when its 窗口置顶 is switched (SetWindowPos).
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock", "Win32_Security_Cryptography", "Win32_System_Memory", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
 
 [features]
 # Isolated acceptance builds only: a loopback control channel that dispatches the same commands
@@ -82,3 +83,4 @@ acceptance = []
 
 [dev-dependencies]
 tokio-tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
+tempfile = "3"

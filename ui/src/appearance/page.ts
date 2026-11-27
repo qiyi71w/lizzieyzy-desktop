@@ -36,6 +36,7 @@ const TARGETS = [
   "config.theme.ui-font",
   "menu.frameFontSize",
   "config.theme.winrate-font",
+  "config.theme.coordinates",
   "config.theme.background-image",
   "config.theme.board-image",
   "config.theme.black-stone-image",
@@ -836,6 +837,18 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
   row(lines, "menu.frameFontSize", product("settingsFrameFont"), product("settingsFrameFontSub"), stepper(frameSize));
   const winrateFont = fontCombo("settings.theme.winrateFontName");
   row(lines, "config.theme.winrate-font", t("ConfigDialog2.modern.theme.winrateFont"), t("ConfigDialog2.modern.theme.winrateFontSub"), winrateFont.select);
+  // 棋盘坐标 (ConfigDialog2 config.theme.coordinates): the size list (CoordinateLabels.SIZES) and 加粗.
+  const coordinateSize = el("select");
+  coordinateSize.dataset.key = "settings.theme.coordinateSize";
+  coordinateSize.setAttribute("aria-label", t("ConfigDialog2.modern.theme.coordinates"));
+  for (const [size, key] of [[100, "ConfigDialog2.modern.theme.coordinateSize.standard"], [140, "ConfigDialog2.modern.theme.coordinateSize.large"], [200, "ConfigDialog2.modern.theme.coordinateSize.extraLarge"]] as const) {
+    const option = el("option", undefined, t(key));
+    option.value = String(size);
+    coordinateSize.append(option);
+  }
+  const boldLabel = t("ConfigDialog2.modern.theme.coordinateBold");
+  const coordinateBold = check("settings.theme.coordinateBold", boldLabel);
+  row(lines, "config.theme.coordinates", t("ConfigDialog2.modern.theme.coordinates"), t("ConfigDialog2.modern.theme.coordinatesSub"), coordinateSize, labelled(coordinateBold, boldLabel));
 
   // 图片与材质.
   const assets = card(host, t("ConfigDialog2.modern.theme.assets"), t("ConfigDialog2.modern.theme.assetsSub"));
@@ -1133,6 +1146,8 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
     infoFont.set(v.fontName);
     uiFont.set(v.uiFontName);
     winrateFont.set(v.winrateFontName);
+    coordinateSize.value = String(v.coordinateSize);
+    coordinateBold.checked = v.coordinateBold;
     backgroundPath.input.value = v.backgroundImage;
     boardPath.input.value = v.boardImage;
     blackPath.input.value = v.blackStoneImage;
@@ -1189,6 +1204,8 @@ function buildThemePage(host: HTMLElement, dialog: SettingsDialog): { save: () =
       fontName: infoFont.get(),
       uiFontName: uiFont.get(),
       winrateFontName: winrateFont.get(),
+      coordinateSize: Number(coordinateSize.value),
+      coordinateBold: coordinateBold.checked,
       backgroundImage: backgroundPath.input.value.trim(),
       boardImage: boardPath.input.value.trim(),
       blackStoneImage: blackPath.input.value.trim(),

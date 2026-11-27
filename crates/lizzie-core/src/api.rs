@@ -16,6 +16,7 @@ mod humansl_settings;
 mod kifu_list;
 mod matches;
 mod readboard;
+mod ogs_kifu;
 mod online;
 mod recovery;
 mod resources;
@@ -39,6 +40,7 @@ pub use humansl_settings::*;
 pub use kifu_list::*;
 pub use matches::*;
 pub use readboard::*;
+pub use ogs_kifu::*;
 pub use online::*;
 pub use recovery::*;
 pub use resources::*;
@@ -46,7 +48,11 @@ pub use tencent_kifu::*;
 pub use tuning::*;
 pub use update::*;
 pub use web_board::*;
-pub use crate::strength::{StrengthModelView, StrengthReport, StrengthSideReport, StrengthSegment, StrengthSummary, StrengthSample, StrengthConfidence, StrengthMoveCategory};
+pub use crate::strength::{
+    PhaseBadge, PhaseReview, PhaseSide, PhaseVerdict, StrengthConfidence, StrengthContext, StrengthModelView,
+    StrengthMoveCategory, StrengthPhase, StrengthPhases, StrengthReport, StrengthSample, StrengthSegment,
+    StrengthSideReport, StrengthStage, StrengthSummary,
+};
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize, TS)]
 #[serde(tag = "type")]
@@ -59,6 +65,11 @@ pub enum StrengthCommand {
     /// the game it was asked for, else is refused with `HumanSL40.gameChanged`.
     RunHumanSl { resume: bool },
     CancelHumanSl,
+    /// The phases of the shown game split at `bounds` while a divider is dragged; nothing is kept.
+    PreviewPhases { bounds: [u32; 2] },
+    /// Keeps the phase boundaries for this and later games (a released divider, an arrow key,
+    /// 重置) and answers the phases split at them. Unusable boundaries keep the defaults.
+    SetPhaseBounds { bounds: [u32; 2] },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
@@ -68,7 +79,11 @@ pub struct StrengthView {
     pub background: bool,
     pub status: StrengthStatusView,
     pub manual: Option<StrengthManualView>,
+    /// Changes with the HumanSL 40 preparation, the analysis of the first 210 moves and how many
+    /// later main-line moves have analysis.
     pub stamp: u64,
+    /// A whole-game, flash or automatic quick analysis is running (`StrengthDialogHost.analyzing`).
+    pub analyzing: bool,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
 pub struct StrengthStatusView {
@@ -90,7 +105,9 @@ pub struct StrengthManualView {
 pub enum StrengthManualOutcome {
     Ready,
     Cancelled,
-    Failed { message_key: String, detail: Option<String> },
+    /// `diagnosis`: the policy engine was refused before it started, with its own explanation
+    /// (a packaged engine too new for this macOS).
+    Failed { message_key: String, detail: Option<String>, diagnosis: Option<crate::engine::diagnosis::StartupDiagnosis> },
 }
 
 use crate::browse::Navigation;
@@ -135,6 +152,8 @@ pub enum Command {
     FoxKifu { op: FoxKifuCommand },
     /// 腾讯棋谱 window.
     TencentKifu { op: TencentKifuCommand },
+    /// OGS 棋谱 window.
+    OgsKifu { op: OgsKifuCommand },
     /// Web 旁观: start, stop, 强制结束试下.
     WebBoard { op: WebBoardCommand },
     /// 检查更新: settings, checking, preparing and installing an update.
@@ -289,6 +308,11 @@ pub enum Command {
     ShutdownEngines {
         scope: EngineScope,
     },
+    /// 远程算力 > 断开智子引擎: ends every running 智子 engine (foreground, secondary or kept by
+    /// fast engine change), and retires remote-compute switches still under way.
+    /// Answers `Refused` with `RemoteCompute.zhiziSession.blocked` while one is busy
+    /// ([`ZhiziConnection::Busy`]); nothing is ended then.
+    DisconnectZhizi,
     /// Fixed Java layout entry; leaving DoubleEngine stops secondary analysis, not its process.
     SetExtraMode {
         mode: crate::settings::ExtraMode,
@@ -337,10 +361,15 @@ pub enum Command {
     SetKomi {
         komi: f64,
     },
-    /// 引擎规则(KataGo): apply `rules` (JSON object or preset name) to KataGo and remember them;
-    /// `auto_load` applies them whenever KataGo starts.
+    /// 规则面板 确定 (`Workbench::set_kata_rules`): KataGo takes `rules` (JSON object or preset
+    /// name) and, outside a handicap game, the game `komi`; `rule_set` is the rule set the panel
+    /// shows as chosen (自定义: none). `auto_load` (启动时自动应用) makes the rules KataGo's startup
+    /// rules and the rule set's komi the komi of new games. Answered with
+    /// [`CommandResult::RulesApplied`] or a refusal.
     SetKataRules {
         rules: String,
+        komi: f64,
+        rule_set: Option<String>,
         auto_load: bool,
     },
     /// Toolbar 激进度 / 广度 (`chkPDA` / `txtGfPDA`, `chkWRN` / `txtWRN`): the foreground KataGo
@@ -355,6 +384,13 @@ pub enum Command {
     /// KataGo gets each parameter's value (0 when unchecked).
     SaveKataEngineParams {
         params: KataEngineParamsEdit,
+    },
+    /// 顶部工具栏 > 自定义内容's 激进度 / 广度 (`ToolbarParameterToggles`): whether the toolbar shows
+    /// the group, the same choice as the 引擎参数 window's 在工具栏中控制. A display choice only:
+    /// it needs no engine and sends nothing.
+    SetKataParamShown {
+        param: KataParam,
+        shown: bool,
     },
     /// 引擎参数 window's 搜索线程数（本次运行） (`SetKataEngines`, Java `RuntimeSearchThreads`):
     /// each step answers [`CommandResult::SearchThreads`]; its progress and end arrive as
@@ -510,6 +546,8 @@ pub enum Command {
     TogglePanel { panel: crate::settings::WorkbenchPanel },
     /// 综合设置 > 显示; drafts become committed together on 保存设置.
     SetPanelSettings { settings: crate::settings::PanelSettings },
+    /// 黑白胜率大字's right-click menu: 简洁 / 数码管 and 窗口置顶, kept at once.
+    SetBigWinrate { style: crate::settings::BigWinrateStyle, on_top: bool },
     /// A finished in-frame separator drag; motion drafts never enter the core.
     SetPanelSizes { sizes: crate::settings::PanelSizes },
     NudgeBoardPosition { delta: i32 },
@@ -1003,7 +1041,19 @@ pub enum CommandResult {
     /// profile `profile`. Every view with `seq > after` was built after the commit and shows the
     /// switch's outcome; earlier views, an old failure included, do not.
     CloudSwitch { profile: String, after: u64 },
-    Strength { report: Box<StrengthReport> },
+    /// 对局参数 took the values ([`MatchCommand::ReviseParameters`]): every view with
+    /// `seq > after` was built after it and shows what came of them; earlier views do not.
+    ParametersRevised { after: u64 },
+    /// 规则面板 确定 gave the rules to the foreground engine process `instance`
+    /// ([`Command::SetKataRules`]). Every view with `seq > after` was built after it: while that
+    /// process is still the foreground engine, `session_rules` says how it took them; another
+    /// process, also one started after it ended, answers for itself and not for this 确定.
+    RulesApplied { after: u64, instance: u64 },
+    /// The estimate for the active strength model, with what the dialog shows instead of or beside
+    /// it, and its phases split at the kept boundaries.
+    Strength { report: Box<StrengthReport>, context: StrengthContext, phases: Box<StrengthPhases> },
+    /// [`StrengthCommand::PreviewPhases`], [`StrengthCommand::SetPhaseBounds`].
+    StrengthPhases { phases: Box<StrengthPhases> },
     CommentaryModels { models: Vec<String> },
     /// Where the password of an SSH account is kept ([`SshCredentialCommand`]).
     SshPassword { state: SshPasswordState },
@@ -1335,6 +1385,8 @@ pub struct SettingsView {
     pub tsumego: crate::settings::TsumegoSettings,
     /// 跑谱贡献 settings and the contribution window's choices.
     pub contribution: crate::settings::ContributionSettings,
+    /// 黑白胜率大字's look, whether it stays on top and its last bounds.
+    pub big_winrate: crate::settings::BigWinrateSettings,
 }
 
 /// 快速曲线轻量模型 card (`KataGoAutoSetupDialog`, `QuickAnalysisModelStatus`).
@@ -1484,12 +1536,17 @@ pub struct EngineSettingsView {
 }
 
 /// One parameter row of the 引擎参数 window: 修改, the value field (`None` when it is not a
-/// number) and 自动加载.
+/// number) and 自动加载, with what the user changed since the window loaded them
+/// (`SetKataEngines.applyExistingSettings` applies only that).
 #[derive(Clone, Copy, Debug, PartialEq, Deserialize, Serialize, TS)]
 pub struct KataParamEdit {
     pub enabled: bool,
     pub value: Option<f64>,
     pub auto_load: bool,
+    /// 修改 or the value changed: they are saved and the engine gets the row's value.
+    pub edited: bool,
+    /// 自动加载 or the value changed: 自动加载 and its value are saved.
+    pub auto_load_edited: bool,
 }
 
 /// The 引擎参数 window's choices. `pda` is `None` for a `KataGoPda` engine, whose PDA row is
@@ -1651,6 +1708,10 @@ pub struct WorkbenchView {
     pub problems: ProblemListView,
     /// Stored analysis of the current node (whether or not the engine is analysing it now).
     pub analysis: Option<NodeAnalysisView>,
+    /// The main board shows its first-use hint (Java `EmptyBoardHint.shows`): no record was ever
+    /// opened (the recent files are empty) and the record is a fresh empty board, shown at its
+    /// root, that no engine has analysed yet.
+    pub empty_board_hint: bool,
     /// Move numbers, 落子评价 and 下一手 详细 of the current position, as the display settings
     /// choose them.
     pub board: crate::display::BoardOverlayView,
@@ -1719,6 +1780,8 @@ pub struct WorkbenchView {
     pub fox_kifu: FoxKifuView,
     /// 腾讯棋谱 window.
     pub tencent_kifu: TencentKifuView,
+    /// OGS 棋谱 window.
+    pub ogs_kifu: OgsKifuView,
     /// Web 旁观 and a viewer's 试下.
     pub web_board: WebBoardView,
     /// 检查更新.
@@ -1823,6 +1886,8 @@ pub enum ImportTarget {
     AppendWinrateToComment,
     Language,
     PlaySound,
+    /// 黑白胜率大字's style, 窗口置顶 and bounds (`ui.big-winrate-*`).
+    BigWinrate,
     /// `ui.not-play-sound-insync`.
     NoSoundInSync,
     /// `ui.always-sync-boardstat`.
@@ -1976,6 +2041,8 @@ pub enum ImportTarget {
     HumanSlTraining,
     HumanSlModel,
     StrengthBackground,
+    /// 棋力评估's phase boundaries: `ui.strength-phase-bounds`.
+    StrengthPhaseBounds,
     /// The model directories of `strength-models` (棋力评估 导入模型).
     StrengthModels,
     /// 死活题: `ui.tsume-go-to-play`, `tsume-go-attaker`, `tsume-go-ko-threat`,
@@ -2244,6 +2311,39 @@ pub struct SecondaryView {
     pub history: Vec<HistoryPoint>,
 }
 
+/// How an engine took the session rules (`EngineRulesResult.Status`, reduced to what the 规则面板
+/// shows).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub enum RulesStatus {
+    /// Sent and not answered yet (`SetKataRules.status.pending`).
+    Pending,
+    /// The engine reported exactly these rules.
+    Confirmed,
+    /// The engine refused them or reported other rules (`SetKataRules.status.setFailed`).
+    Failed,
+}
+
+/// The rules the game asks for and how the foreground engine took them.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct SessionRulesView {
+    /// The rules (JSON), so the 规则面板 knows they are the ones it applied.
+    pub rules: String,
+    pub status: RulesStatus,
+}
+
+/// The analysis state the status line names (Java `StatusOverlay.state`): an automatic quick
+/// analysis of the record comes first, then the foreground engine's own analysis.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub enum AnalysisStatus {
+    /// An automatic quick analysis task is active (`hasActiveAutomaticQuickAnalysis`): waiting
+    /// for, starting or running its attempts, not while it gives a borrowed engine back.
+    AutoAnalyzing,
+    /// The foreground engine is analysing the current node (`isPondering`).
+    Analyzing,
+    /// Neither: paused by the user, stopped by a limit, or no engine analyses.
+    Paused,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
 pub struct EngineView {
     pub engines: Vec<EngineEntryView>,
@@ -2256,14 +2356,20 @@ pub struct EngineView {
     pub analysing: bool,
     /// An analysis limit stopped the analysis of the current node.
     pub stopped_by_limit: bool,
+    /// What the status line says the analysis is doing.
+    pub status: AnalysisStatus,
     /// 分析 黑 / 白: ordinary analysis goes on for these sides (session only, both at start).
     pub analyze_black: bool,
     pub analyze_white: bool,
     /// Captured-panel rules caption key (`RulePreset.captionKey`): the rule set the reported
-    /// rules and the game's komi are, else the rules' summary; when KataGo reported its rules.
+    /// rules and the game's komi are (a draw rule when it is the chosen rule set), else the
+    /// rules' summary; when KataGo reported its rules.
     pub rules_key: Option<String>,
     /// Rules the foreground KataGo reported (JSON), for the rules dialog.
     pub rules: Option<String>,
+    /// The rules the game asks for, while it asks for any, and how the foreground engine took
+    /// them (the 规则面板 closes once they are confirmed and shows a failure).
+    pub session_rules: Option<SessionRulesView>,
     /// Last console line; the console fetches newer lines.
     pub console_seq: u64,
     /// 复用当前前台引擎 target status (`AnalysisSettings.reuseStatus`).
@@ -2285,6 +2391,19 @@ pub struct EngineView {
     /// Points recorded with 优先分析此点 for the current position; a recorded point stays
     /// visible beyond 最大候选点数. Session only.
     pub priority_points: Vec<Point>,
+    /// The 主/对比智子引擎 connections, whatever engine or account is chosen (远程算力's status
+    /// line and 断开智子引擎).
+    pub zhizi: ZhiziConnection,
+}
+
+/// Java `ZhiziEngineConnections.State`: no 智子 engine runs (`Disconnected`), one keeps its
+/// connection (`Connected`), or one is starting, being switched to or from, or held by a task, so
+/// 断开智子引擎 is refused (`Busy`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub enum ZhiziConnection {
+    Disconnected,
+    Connected,
+    Busy,
 }
 
 /// One candidate (`MoveData`). Percentages 0–100 from the side to move.
@@ -2374,6 +2493,23 @@ pub struct StatisticsView {
     /// against its parent's analysis, else (Java `drawMoveStatistics`) its grandparent's, two
     /// moves back.
     pub last_move: Option<MoveChange>,
+    /// Black's win rate at the current position as the statistics show it; the one reading the
+    /// statistics bar, 黑白胜率大字 and the win rates beside the players' names take.
+    pub reading: Option<WinrateReading>,
+}
+
+/// Black's win rate at the current position (Java `WinrateReading.of`): the position's own
+/// analysis, or while that is missing the last of the two positions before it that was analysed
+/// (parent, then grandparent). `None` when none of the three was analysed.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, TS)]
+pub struct WinrateReading {
+    /// The position the reading comes from.
+    pub node: NodeId,
+    /// Black's win rate, 0–100 (a node's win rate is the side to move's; it is turned round
+    /// when White is to move there).
+    pub black: f64,
+    /// Whether it comes from the current position itself rather than an earlier one.
+    pub current: bool,
 }
 
 /// A change for the side that played the move (negative is a loss).
@@ -2510,6 +2646,11 @@ pub struct EngineFailureView {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub cloud: Option<crate::engine::cloud::CloudStartFailure>,
+    /// The specific explanation of a failed start: Windows error 206 in the engine's start-up
+    /// output, or a packaged engine refused on too old a macOS.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub diagnosis: Option<crate::engine::diagnosis::StartupDiagnosis>,
     /// The configured engine that failed (empty for the analysis engine), so the dialog can
     /// start it again (Java opens 更多引擎 after a remote login failure).
     pub profile_id: String,

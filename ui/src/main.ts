@@ -11,15 +11,15 @@ import { buildMenubar, menuOpen } from "./chrome/menubar";
 import { secondaryMenuTitle } from "./chrome/menuModel";
 import { installNativeMenu, menuModelReport, nativeMenuReport, refreshNativeMenu } from "./chrome/nativeMenu";
 import { os } from "./design/theme";
-import { mountWindowBar, setWindowTitle } from "./chrome/windowBar";
+import { mountWindowBar, onTitleRowChange, setWindowTitle, titleReport } from "./chrome/windowBar";
 import { buildToolbar, renderToolbar, topToolbarReport } from "./chrome/toolbar";
 import { onUnavailable, onView, snapshot } from "./contract/client";
-import type { ArrangeablePanel, BoardOverlayView, FloatSceneView, HistoryPoint, NodeAnalysisView, PanelArrangement, Point, SubBoardMode, WorkbenchView } from "./contract/generated";
+import type { AnalysisStatus, ArrangeablePanel, BoardOverlayView, FloatSceneView, HistoryPoint, NodeAnalysisView, PanelArrangement, Point, SubBoardMode, WorkbenchView } from "./contract/generated";
 import { dialogOpen, message } from "./dialogs";
 import { errorText } from "./errorText";
 import { format, product, setLanguage, t } from "./i18n";
 import { openJavaImport } from "./javaImport";
-import { boardGeom, cardLayout, doubleEngineLayout, floatBoardLayout, mainMarginRatio, selectRange, sideLayout, SUB_MARGIN_RATIO, workbenchLayout, type BoardGeom, type DualPanels, type PanelId, type Panels, type Rect, type SidePanels } from "./workbench/layout";
+import { boardGeom, CARD_INSET, cardLayout, doubleEngineLayout, floatBoardLayout, mainMarginRatio, selectRange, sideLayout, SUB_MARGIN_RATIO, workbenchLayout, type BoardGeom, type DualPanels, type PanelId, type Panels, type Rect, type SidePanels } from "./workbench/layout";
 import { arrangedLayout, type ArrangementFallback } from "./workbench/arrangement";
 import { bindEditLayout, dividerOwner, editArrangement, editing as layoutEditing, editReport, editUnavailable, handleEditLayoutKey, javaLayoutDividers, javaPreview, placeEdit } from "./workbench/editLayout";
 import { handleLayoutKey } from "./workbench/extraMode";
@@ -42,6 +42,7 @@ import { moveRect, rectPointer } from "./display/moveRect";
 import { paintingKey, paintingOpen, paintingReport } from "./display/painting";
 import { sameAnalysis, sameHistory } from "./workbench/viewEquality";
 import { handleEngineKey } from "./engine/keys";
+import { rulesPanelReport } from "./engine/rules";
 import { handleDisplayKey } from "./display/keys";
 import { handleInfoKey } from "./analysis/infoCommands";
 import { openAutoAnalysis } from "./quick/autoAnalysis";
@@ -58,9 +59,12 @@ import { handleHawkeyeKey, hawkeyeReport, relayHawkeye, startHawkeye } from "./h
 import { commentaryReport, relayCommentary, renderCommentPanel, startCommentary } from "./commentary/commands";
 import { batchReport, handleBatchKey, startBatchTable } from "./batch/commands";
 import { controlPanelReport, startControlPanel } from "./control/commands";
+import { bigWinrateReport, startBigWinrate } from "./bigWinrate/commands";
 import { contributionReport } from "./contribution/window";
+import { remoteComputeReport } from "./cloud/center";
 import { foxKifuReport, startFoxKifu } from "./foxkifu/commands";
 import { startTencentKifu, tencentKifuReport } from "./tencentkifu/commands";
+import { ogsKifuReport, startOgsKifu } from "./ogskifu/commands";
 import { handleOnlineKey, onlineReport, startOnline } from "./online/commands";
 import { onlineDialogReport } from "./online/dialog";
 import { bindCommentEditor, commentEditing } from "./editing/comment";
@@ -87,13 +91,15 @@ import { appearanceRevision, onAppearanceChange, startAppearance } from "./appea
 import { onStageChange, stageReady, stageRevision } from "./design/stage";
 import "./appearance/commands";
 import "./webBoard";
-import { humanSlDisplay } from "./humansl/state";
+import { humanSlDisplay, humanSlGameActive, humanSlSession } from "./humansl/state";
+import { coachInPopover, coachReport, placeCoach, type CoachSlot } from "./humansl/coach";
 import {
   aiScoreText,
   loadImages,
   beginLiveStage,
   paintBackground,
   paintBoard,
+  paintEmptyBoardHint,
   paintCaptured,
   paintStat,
   paintPlayStat,
@@ -105,10 +111,13 @@ import {
   paintTree,
   paintTreeFit,
   prepare,
+  coordinateLook,
+  nameWinrates,
   ARROW,
   SCROLLBAR,
   type BoardReport,
   type CapturedReport,
+  type EmptyHintReport,
   type OwnershipLayer,
   type BoardScene,
   type FrostRegions,
@@ -116,6 +125,7 @@ import {
   type StageCards,
   type PreviewVariation,
   type StatReport,
+  type StatusReport,
   type SubBoardReport,
   type SubBoardScene,
   type TreeMargin,
@@ -170,9 +180,12 @@ let presentationFor = "";
  *  node but changes them (Java rebuilds the board for SpinAndMirror). */
 let positionStones = "";
 let boardReport: BoardReport | null = null;
+/** The main board's first-use hint as drawn, null while it does not show. */
+let emptyHintReport: EmptyHintReport | null = null;
 let subReport: SubBoardReport | null = null;
 let statReport: StatReport | null = null;
 let capturedReport: CapturedReport | null = null;
+let statusReport: StatusReport | null = null;
 /** 双引擎模式: the boards' rectangles, what the right board drew and the status strips as drawn. */
 let dual: DualPanels | null = null;
 let rightReport: BoardReport | null = null;
@@ -349,9 +362,15 @@ function bigMargin(v: WorkbenchView): boolean {
   return v.settings.display.coordinates || namesUnderBoard(v) || v.rawNet !== null || (boardUi.policy && !!fg && !fg.katago);
 }
 
+/** calculatePixelMargins' margin of the main board: isBigMargin's, widened for the theme's
+ *  棋盘坐标 while coordinates show (CoordinateLabels.margin). */
+function marginRatio(v: WorkbenchView): number {
+  return mainMarginRatio(bigMargin(v), v.settings.display.coordinates ? coordinateLook(v.settings.theme).scale : 1);
+}
+
 /** Main-board geometry; painting and every hit test use this one margin (isBigMargin). */
 function mainGeom(v: WorkbenchView, r: Rect): BoardGeom {
-  return boardGeom(r, v.document.size.width, v.document.size.height, mainMarginRatio(bigMargin(v)));
+  return boardGeom(r, v.document.size.width, v.document.size.height, marginRatio(v));
 }
 
 /** LizzieFrame.isMouseOver: hovering previews candidates only while the side to move's candidates
@@ -645,6 +664,14 @@ function bindPointer() {
   // (BoardRenderer.convertScreenToCoordinates, BoardRenderer.java:4451).
   bindBoardInput([$("board"), $("board2")], {
     pointAt: boardPointAt,
+    onNames: (clientX, clientY) => {
+      const box = boardReport?.names?.box;
+      if (!box || !panels) return false;
+      const m = $("main").getBoundingClientRect();
+      const x = clientX - m.left - panels.board.x;
+      const y = clientY - m.top - panels.board.y;
+      return x >= box.x && x < box.x + box.w && y >= box.y && y < box.y + box.h;
+    },
     stoneAt: (p) => {
       const v = state.view;
       if (!panels || !v) return null;
@@ -1157,9 +1184,11 @@ function whenIdle(f: () => void, timeout: number) {
  *  java:7871-7890); a foreground engine still starting shows 引擎正在加载中 and one that failed
  *  引擎未成功加载 (loadingTextResourceKey, 7894-7915); a retrying quick analysis replaces the
  *  shortcut hint (drawCommandString). While 野狐 AI 直连 history is browsed, its two lines say so
- *  and how to get back (java:8253-8256). `live` is whether the engine ponders while the lines are
- *  the engine's own status, null for the other messages; `speed` the analysing engine's measured
- *  speed beside its name, as the title shows it. */
+ *  and how to get back (java:8253-8256). Otherwise the engine's name, the core's analysis state
+ *  (Java `StatusOverlay.state`: 自动分析中 / 分析中 / 已暂停) and what Space does now, left out
+ *  while the record is analysed automatically (`StatusOverlay.hint`). `live` is whether that
+ *  state analyses while the lines are the engine's own status, null for the other messages;
+ *  `speed` the analysing engine's measured speed beside its name, as the title shows it. */
 function statusView(): { lines: string[]; live: boolean | null; speed: string } {
   const v = state.view;
   const hint = notice && notice.until > performance.now()
@@ -1184,20 +1213,28 @@ function statusView(): { lines: string[]; live: boolean | null; speed: string } 
   if (fg && v?.engine.engines[fg.index]?.state === "Loading") return { lines: [t("LizzieFrame.display.loading"), hint], live: null, speed: "" };
   // LizzieFrame.statusEngineName: a cloud engine shows only its provider (compactDisplayNameForCommand).
   const cloud = fg ? v?.settings.engine.engines[fg.index]?.cloud?.provider : undefined;
-  const analysing = !!v?.engine.analysing;
+  const status = v?.engine.status ?? "Paused";
+  const space = status === "AutoAnalyzing" ? [] : [t(status === "Analyzing" ? "LizzieFrame.status.spaceToPause" : "LizzieFrame.status.spaceToResume")];
   return {
     lines: [
       // weightText: 跑谱贡献中 while the contribution runs (LizzieFrame.java:7548-7553).
       v?.contribution?.active
         ? t("LizzieFrame.weightText.contributing")
         : cloud === "Zhizi" ? t("RemoteCompute.zhizi") : cloud === "Custom" ? t("RemoteCompute.custom") : fg?.name ?? t("LizzieFrame.noEngineText"),
-      `${t("LizzieFrame.display.pondering")} ${analysing ? t("LizzieFrame.display.on") : t("LizzieFrame.display.off")}${t("LizzieFrame.display.space")}`,
+      t(STATUS_KEYS[status]),
+      ...space,
       hint,
     ],
-    live: analysing,
+    live: status !== "Paused",
     speed: searchSpeed(),
   };
 }
+
+const STATUS_KEYS: Record<AnalysisStatus, string> = {
+  AutoAnalyzing: "LizzieFrame.status.autoAnalyzing",
+  Analyzing: "LizzieFrame.status.analyzing",
+  Paused: "LizzieFrame.status.paused",
+};
 
 /** The main board's scene for the view, with the hovered candidate (already gated by
  *  hoverAllowed) and its variation; the ReadBoard float board takes it with its own hover and,
@@ -1226,6 +1263,9 @@ function boardScene(v: WorkbenchView, hovered: number | null, preview: PreviewVa
     black: v.document.info.black,
     white: v.document.info.white,
     names: namesUnderBoard(v),
+    // NameWinrates: the main board's own position only, not the float board's main-line end.
+    nameWinrates: !at && v.settings.display.nameWinrates ? nameWinrates(v.statistics.reading) : null,
+    labels: coordinateLook(v.settings.theme),
     snapshot: at ? at.snapshot : pos.snapshot,
     // The main line's end is on the main trunk.
     mainTrunk: at ? true : pos.main_trunk,
@@ -1257,6 +1297,8 @@ function boardScene(v: WorkbenchView, hovered: number | null, preview: PreviewVa
     priority: at ? [] : v.engine.priority_points,
     moveRect: null,
     review: null,
+    // The coach marks go on the main board only (BoardRenderer: boardIndex 0).
+    coach: null,
   };
 }
 
@@ -1273,6 +1315,34 @@ function endOwnership(v: WorkbenchView, at: FloatSceneView, hovered: number | nu
   return at.ownership ? { ownership: at.ownership, style, source: "estimate" } : null;
 }
 
+/** Whether `a` lies inside `b`. */
+function within(a: Rect, b: Rect): boolean {
+  return a.x >= b.x && a.y >= b.y && a.x + a.w <= b.x + b.w && a.y + a.h <= b.y + b.h;
+}
+
+/** The 胜率 panel's rectangle for AI 陪练's coach section during a game: the shown statistics strip
+ *  and graph; where the training mode hides them, their place under the 提子 card as a card of its
+ *  own, as wide as that card, when no shown panel takes it. None otherwise (a panel the user hid in
+ *  边下边分析). */
+function coachSlot(v: WorkbenchView, normal: Panels, P: Panels, cards: readonly Rect[]): CoachSlot | null {
+  if (!humanSlGameActive(v)) return null;
+  if (P.shown.stat && P.shown.graph) {
+    const { stat: s, graph: g } = P;
+    const rect = s.x === g.x && s.w === g.w && s.y + s.h === g.y ? { x: s.x, y: s.y, w: s.w, h: g.y + g.h - s.y } : g;
+    return rect.w > 0 && rect.h > 0 ? { rect, own: false } : null;
+  }
+  if (humanSlDisplay(v) !== "Suppress") return null;
+  const { stat: s, graph: g } = normal;
+  const above = cards.find((r) => r.x < P.board.x && r.y <= P.captured.y + 1 && r.y + r.h <= s.y);
+  if (!above || s.w <= 0) return null;
+  const rect = { x: above.x, y: s.y, w: above.w, h: g.y + g.h - CARD_INSET - s.y };
+  const free = PANEL_IDS.every((id) => {
+    const r = id === "status" ? P.status : P[id];
+    return !P.shown[id] || !r || r.x >= rect.x + rect.w || r.x + r.w <= rect.x || r.y >= rect.y + rect.h || r.y + r.h <= rect.y;
+  });
+  return rect.w > 0 && rect.h > 0 && free ? { rect, own: true } : null;
+}
+
 function render() {
   const v = state.view;
   if (!v) return;
@@ -1286,8 +1356,16 @@ function render() {
   const main = $("main");
   const W = main.clientWidth;
   const H = main.clientHeight;
+  // A committed appearance repaints every themed panel and the wallpaper (Config.readThemeVaule);
+  // so does a change of the colour mode or of the stage.
+  const look = `${window.devicePixelRatio}:${appearanceRevision()}:${stageRevision()}`;
   // A hidden window has no allocation yet; the window minimum is 520x400 (LizzieFrame.java:686).
-  if (W < 100 || H < 100) return;
+  // A workbench the training bar leaves too small is not drawn: AI 陪练's coach section then goes
+  // to the bar's popover.
+  if (W < 100 || H < 100) {
+    placeCoach(main, v, null, look);
+    return;
+  }
   const pos = v.position;
   const { width: cols, height: rows } = v.document.size;
   const mode = presentation(v).mode;
@@ -1326,18 +1404,25 @@ function render() {
     ? { ...withDividers, arranged: { dividers: withDividers.arranged.dividers.filter((d) => !X_HIDES[d.upper] && !X_HIDES[d.lower]) } }
     : withDividers;
   const P = panels;
-  const stage: StageCards = { cards: carded?.cards ?? [], dividers: carded?.dividers ?? [] };
+  // AI 陪练's coach section takes the 胜率 panel's rectangle (humansl/coach.ts): a card of its own
+  // where the training mode hides that panel, the panel's contents in 边下边分析; in 实战后复盘 a
+  // note says why the place is empty. Without room the training bar offers it over the board.
+  const slot = dual || side || floating ? null : coachSlot(v, normal, P, carded?.cards ?? []);
+  const coach = placeCoach(main, v, slot, look);
+  if (changed("coachPopover", `${coachInPopover()}`)) schedule();
+  const covered = coach.replacesGraph && slot ? slot.rect : null;
+  const stage: StageCards = {
+    cards: [...(carded?.cards ?? []), ...(coach.card ? [coach.card] : [])],
+    dividers: (carded?.dividers ?? []).filter((d) => !covered || !within(d, covered)),
+  };
   stageCards = stage;
-  // A committed appearance repaints every themed panel and the wallpaper (Config.readThemeVaule);
-  // so does a change of the colour mode or of the stage.
-  const look = `${window.devicePixelRatio}:${appearanceRevision()}:${stageRevision()}`;
   const size = `${W}x${H}:${look}`;
   // Edits change a node's position, marks or side to play in place: the revision moves on.
   const docSig = `${v.document.id}:${v.document.revision}:${pos.node}:${pos.to_play}`;
   const background = `${size}:${mode}:${JSON.stringify(stage)}`;
   showStage(background, look, W, H, stage);
   for (const id of PANEL_IDS) {
-    const shown = !dual && P.shown[id] && !(controls && (id === "tree" || id === "table" || id === "comment"));
+    const shown = !dual && P.shown[id] && !(controls && (id === "tree" || id === "table" || id === "comment")) && !(covered && (id === "stat" || id === "graph"));
     const display = shown ? "" : "none";
     if ($(id).style.display !== display) $(id).style.display = display;
     // A pane at a card's corner takes the card's rounded corner.
@@ -1369,7 +1454,7 @@ function render() {
   // Kata形势, policy or heat map for the game; the committed display settings stay as they are.
   const training = humanSlDisplay(v);
   const base = boardScene(v, hoverAllowed(v) ? hoveredCandidate : null, hoveredVariation(v)?.preview ?? null);
-  const scene = reviewScene(base) ?? { ...base, moveRect: moveRect(v, "main") };
+  const scene = reviewScene(base) ?? { ...base, moveRect: moveRect(v, "main"), coach: humanSlGameActive(v) ? humanSlSession(v)!.feedback?.marks ?? null : null };
   const reviewSig = JSON.stringify(clickReviewReport());
   // 试下 changes which move numbers show without changing the position (tryPlay at the last move).
   const ui = `${boardUi.showBlack}:${boardUi.showWhite}:${boardUi.policy}:${v.game?.id ?? ""}:${v.game?.play_mode ?? ""}:${training ?? ""}:${v.editing.trying}`;
@@ -1377,15 +1462,23 @@ function render() {
   const scoreSig = v.score ? JSON.stringify(v.score) : "";
   const searchSig = JSON.stringify([v.region, scene.selecting, v.focus, v.settings.tracking, scene.priority]);
   // The board draws nothing of the stage: only its size and appearance (and the mode) repaint it.
-  if (!floating && changed("board", `${size}:${mode}:${P.board.x},${P.board.y},${P.board.w},${P.board.h}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("main", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}:${searchSig}:${JSON.stringify(scene.moveRect)}:${reviewSig}`))
-    boardReport = paintBoard(prepare($("board"), P.board), mainGeom(v, P.board), P.board, scene);
+  // The names' win rates and 棋盘坐标 are part of what it shows.
+  const namesSig = `${scene.names}:${scene.nameWinrates?.black ?? ""}:${scene.labels.scale}:${scene.labels.bold}`;
+  if (!floating && changed("board", `${size}:${mode}:${P.board.x},${P.board.y},${P.board.w},${P.board.h}:${docSig}:${analysisRevision}:${displaySig}:${ui}:${scene.hovered}:${previewSig}:${namesSig}:${layerSignature("main", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}:${searchSig}:${JSON.stringify(scene.moveRect)}:${reviewSig}:${v.empty_board_hint}:${JSON.stringify(scene.coach)}`)) {
+    const g = prepare($("board"), P.board);
+    const geo = mainGeom(v, P.board);
+    boardReport = paintBoard(g, geo, P.board, scene);
+    // The first-use hint over everything the main board drew (BoardRenderer.java:425-432).
+    emptyHintReport = v.empty_board_hint ? paintEmptyBoardHint(g, geo, P.board, t("BoardRenderer.emptyHint")) : null;
+  }
+  if (floating) emptyHintReport = null;
   if (dual) renderDual(v, dual, W, H, size, docSig, ui, scoreSig, scene);
   // The sub boards and panels follow the current position, never a review.
-  else renderPanels(v, P, H, size, docSig, ui, base);
+  else renderPanels(v, covered ? { ...P, shown: { ...P.shown, stat: false, graph: false } } : P, H, size, docSig, ui, base);
   if (side && mode === "Thinking") renderRawBoard(v, side.aux, size, docSig, scene);
   if (side && mode === "FourSub") renderQuads(v, side, size, docSig, ui, base);
   relayIndependent(v, {
-    main: presentation(v).panels.showingIndependentMain ? { scene: { ...scene, unlimited: [...scene.unlimited], moveRect: scene.review ? null : moveRect(v, "independent") }, bigMargin: bigMargin(v) } : null,
+    main: presentation(v).panels.showingIndependentMain ? { scene: { ...scene, unlimited: [...scene.unlimited], moveRect: scene.review ? null : moveRect(v, "independent") }, marginRatio: marginRatio(v) } : null,
     sub: floatSubScene(v, base),
   });
   relayFrame(v);
@@ -1475,7 +1568,7 @@ function renderPanels(v: WorkbenchView, P: Panels, H: number, size: string, docS
   const statusRect = P.status ?? { x: 0, y: P.ponderingY, w: P.board.x, h: H - P.ponderingY };
   const status = statusView();
   if (P.shown.status && changed("status", `${at(statusRect)}:${status.lines.join("|")}:${status.live}:${status.speed}`))
-    paintStatus(prepare($("status"), statusRect), statusRect, status.lines, status.live, status.speed);
+    statusReport = paintStatus(prepare($("status"), statusRect), statusRect, status.lines, status.live, status.speed);
   if (treeScrollFor !== docSig) {
     treeScroll = null;
     treeScrollFor = docSig;
@@ -1534,6 +1627,8 @@ function renderRawBoard(v: WorkbenchView, r: Rect, size: string, docSig: string,
     preview: null,
     ownership: mainOwnership(v, null),
     moveRect: null,
+    // The coach marks belong to the main board only.
+    coach: null,
   };
   if (changed("raw", `${size}:${r.x},${r.y},${r.w}:${docSig}:${analysisRevision}:${displaySig}:${layerSignature("raw", raw.ownership)}:${JSON.stringify(v.score)}:${raw.mark?.x},${raw.mark?.y}:${JSON.stringify(clickReviewReport())}`))
     rawReport = paintBoard(prepare($<HTMLCanvasElement>("board2"), r), mainGeom(v, r), r, raw);
@@ -1639,7 +1734,7 @@ function independentInput(input: IndependentInput): void {
         if (input.button === 0 && input.point) scorePoint(input.point);
         return;
       }
-      floatSelecting = pressBoard(input.point, input.button, input.detail, input.alt, input.sx - clientOrigin.x, input.sy - clientOrigin.y);
+      floatSelecting = pressBoard(input.point, input.button, input.detail, input.alt, input.sx - clientOrigin.x, input.sy - clientOrigin.y, input.onNames);
       break;
     case "select":
       // The window reports every selection press; only one that started a selection moves it.
@@ -1689,9 +1784,13 @@ function renderDual(v: WorkbenchView, d: DualPanels, W: number, H: number, size:
     priority: [],
     // LizzieFrame.java:10160-10162: the right board's square is removed as soon as it is drawn.
     moveRect: null,
+    // The coach marks belong to the main board only (BoardRenderer: boardIndex 0).
+    coach: null,
   };
   const previewSig = scene.preview ? `${scene.preview.order}:${scene.preview.length}:${scene.preview.pv.length}` : "";
-  if (changed("board2", `${size}:${docSig}:${secondaryRevision}:${displaySig2}:${ui}:${scene.hovered}:${previewSig}:${scene.names}:${layerSignature("right", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}:${JSON.stringify(clickReviewReport())}`))
+  // The names' win rates are the node's reading, as on the main board (BoardRenderer.drawName).
+  const namesSig = `${scene.names}:${scene.nameWinrates?.black ?? ""}`;
+  if (changed("board2", `${size}:${docSig}:${secondaryRevision}:${displaySig2}:${ui}:${scene.hovered}:${previewSig}:${namesSig}:${layerSignature("right", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}:${JSON.stringify(clickReviewReport())}`))
     rightReport = paintBoard(prepare($("board2"), d.right), mainGeom(v, d.right), d.right, scene);
   // drawPonderingStateForExtraMode2 (LizzieFrame.java:6663-6719): each engine's name and 思考
   // state, then its visits and side-to-move win rate for this node when it has a result. The
@@ -1723,12 +1822,46 @@ const NO_POINTS = new Set<string>();
 
 // ------------------------------------------------------------------ acceptance probe
 
+/** The client rectangle of the element `id` (a panel canvas), for the acceptance probe. */
+function clientBox(id: string): Rect {
+  const r = $(id).getBoundingClientRect();
+  return { x: r.left, y: r.top, w: r.width, h: r.height };
+}
+
+/** uiReport's settingRows. */
+function settingRowsReport() {
+  const measure = document.createElement("canvas").getContext("2d")!;
+  return [...document.querySelectorAll<HTMLElement>("[data-setting-target]")]
+    .map((row) => ({ row, r: row.getBoundingClientRect() }))
+    .filter(({ r }) => r.width > 0 && r.height > 0)
+    .map(({ row, r }) => {
+      const cut: string[] = [];
+      for (const el of [row, ...row.querySelectorAll<HTMLElement>("*")]) {
+        const style = getComputedStyle(el);
+        if (el instanceof HTMLSelectElement) {
+          measure.font = style.font;
+          const room = el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+          for (const option of el.options) if (measure.measureText(option.text).width > room + 0.5) cut.push(option.text);
+        } else if (style.display !== "inline" && !(el instanceof HTMLOptionElement) && el.scrollWidth > el.clientWidth + 1) cut.push(el.textContent ?? "");
+      }
+      return {
+        target: row.dataset.settingTarget!,
+        text: row.textContent ?? "",
+        options: [...row.querySelectorAll("option")].map((o) => o.text),
+        box: { x: r.left, y: r.top, w: r.width, h: r.height },
+        cut,
+      };
+    });
+}
+
 /** Answers the acceptance channel's `{"query":"ui"}` with what the window shows. The event is only
  *  emitted by builds with the `acceptance` feature. */
 function uiReport() {
   const active = document.activeElement as HTMLElement | null;
   return {
     title: document.title,
+    /** The window bar's game part (players, result, file) as shown. */
+    windowBar: titleReport(),
     // `selected`: the text selected in a focused text field or text area.
     focus: active ? {
       tag: active.tagName.toLowerCase(), id: active.id, className: active.className, key: active.dataset.key ?? null,
@@ -1747,6 +1880,10 @@ function uiReport() {
         body: box.querySelector(".modal-body")?.textContent
           ?? [...box.children].filter((el) => !el.classList.contains("modal-title")).map((el) => el.textContent ?? "").join(""),
         rect: { x: r.left, y: r.top, w: r.width, h: r.height },
+        /** Where the scrolling content shows: below the title's bottom edge and above the footer's
+         *  top edge (null without a title or footer row). */
+        titleBottom: box.querySelector(".modal-title")?.getBoundingClientRect().bottom ?? null,
+        footerTop: box.querySelector(":scope > .ds-footer")?.getBoundingClientRect().top ?? null,
       };
     }),
     status: statusView().lines,
@@ -1769,9 +1906,13 @@ function uiReport() {
         panel: { x: r.left, y: r.top, w: r.width, h: r.height },
       };
     })(captionBox, state.view),
+    /** The 规则面板 while it is open (engine/rules.ts rulesPanelReport). */
+    rulesPanel: rulesPanelReport(),
     graphPointCount: graphReport?.pointCount ?? 0,
     graph: graphReport,
     statusLines: statusView().lines,
+    /** The status lines as drawn (cut with "..." where they did not fit) and their client box. */
+    statusDrawn: statusReport && { ...statusReport, box: clientBox("status") },
     candidates: state.view?.analysis?.candidates.map((c) => ({ order: c.order, point: c.point, visits: c.visits, pvLength: c.pv.length })) ?? [],
     /** Client-area geometry so automation points at real board / sub-board / graph / table spots. */
     geometry: panels && state.view && (() => {
@@ -1850,16 +1991,24 @@ function uiReport() {
     batch: batchReport(),
     /** 独立棋局控制面板: whether it is shown and its buttons as the window last drew them. */
     controlPanel: controlPanelReport(),
+    /** 黑白胜率大字: whether it is open, what it was last sent and how often, and what it drew. */
+    bigWinrate: bigWinrateReport(),
     /** 棋力评估 (T25): the dashboard, 详细数据 and HumanSL 40 progress dialogs as shown. */
     strength: strengthReport(),
+    /** AI 陪练's coach section: its card on the workbench, 实战后复盘's note, the popover. */
+    coach: coachReport(),
     /** AI 解说 (T26): whether its window is open and what it shows, settings dialog included. */
     commentary: commentaryReport(),
     /** 跑谱贡献 (T36): the KataGo分布式训练 window as drawn, or null when it is closed. */
     contribution: contributionReport(),
+    /** 远程算力's footer (智子 connections, 断开智子引擎, its note, the current engine), or null when closed. */
+    remoteCompute: remoteComputeReport(),
     /** 野狐棋谱 (T30): what its window last showed. */
     foxKifu: foxKifuReport(),
     /** 腾讯棋谱: what its window last showed. */
     tencentKifu: tencentKifuReport(),
+    /** OGS 棋谱: what its window last showed. */
+    ogsKifu: ogsKifuReport(),
     /** 弈客直播 / 打开在线链接 (T32): the link dialog, 弈客直播中心 as drawn and the web window's title. */
     online: { dialog: onlineDialogReport(), ...onlineReport() },
     /** Visible menu, toolbar, bottom-bar and dialog controls with client-area centres, so
@@ -1877,19 +2026,36 @@ function uiReport() {
         title: el.title || undefined,
         x: Math.round(r.left + r.width / 2),
         y: Math.round(r.top + r.height / 2),
+        /** The control's box, and for a button whether its label runs past it (cut off). */
+        w: Math.round(r.width),
+        h: Math.round(r.height),
+        overflows: (el instanceof HTMLButtonElement && el.scrollWidth > el.clientWidth + 1) || undefined,
       })),
+    /** The settings rows shown (data-setting-target): their text and client box, and what is cut
+     *  short in them: an element whose content is wider than its box, or a list item wider than
+     *  its list's field. */
+    settingRows: settingRowsReport(),
     /** What the boards draw (T10 display modes): `board` carries the coordinate labels, the best
      *  ring, unimportant circles, white badges, PV visits and the 下一手 详细 drawing. */
     display: {
       boardUi: { ...boardUi },
       rawNet: state.view?.rawNet ? { mode: state.view.rawNet.mode, node: state.view.rawNet.node, hasPolicy: !!state.view.rawNet.policy } : null,
       board: boardReport,
+      /** The main board canvas's client box: `board`'s name and coordinate boxes are within it. */
+      boardBox: clientBox("board"),
+      /** The main board's first-use hint: its text, lines, size and box (client coordinates). */
+      emptyHint: emptyHintReport && (() => {
+        const board = clientBox("board");
+        const { box } = emptyHintReport;
+        return { ...emptyHintReport, box: { ...box, x: board.x + box.x, y: board.y + box.y }, board };
+      })(),
       sub: subReport && { ...subReport, candidateIndex: subCandidate },
       /** Kata形势 / 统计 / AI总评分 / 终局点目 (T11) and the captured panel's rules caption: what
        *  the panels and overlays drew. */
       information: {
-        captured: capturedReport,
-        stat: statReport,
+        // Each with its canvas's client box (`client`).
+        captured: capturedReport && { ...capturedReport, client: clientBox("captured") },
+        stat: statReport && { ...statReport, client: clientBox("stat") },
         aiScore: state.view ? { black: state.view.statistics.ai_score_black === null ? null : aiScoreText(state.view.statistics.ai_score_black), white: state.view.statistics.ai_score_white === null ? null : aiScoreText(state.view.statistics.ai_score_white) } : null,
         kataEstimate: state.view ? { ...state.view.kata_estimate.state, hidden: state.view.kata_estimate.hidden, style: state.view.settings.display.kataEstimateStyle, mainBoard: boardReport?.estimate ?? null, subBoard: subReport?.ownership ?? null } : null,
         score: { overlay: boardReport?.score ?? null, result: state.view?.score?.result ?? null, dialog: scoreDialogReport() },
@@ -1995,6 +2161,8 @@ async function boot() {
   subscribe(schedule);
   bindScoreDialog(() => (panels ? $("board").getBoundingClientRect() : null));
   startTitleUpdates(schedule);
+  // The window bar's title row came or went: the workbench has another height.
+  onTitleRowChange(schedule);
   // F, holding Z, 延迟显示候选点 and T repaint both boards at once.
   onBoardUiChange(schedule);
   // 设置最大宽度 confirmed: the tree is laid out again even with the same width.
@@ -2058,10 +2226,12 @@ async function boot() {
   await startBatchTable();
   await startFoxKifu();
   await startTencentKifu();
+  await startOgsKifu();
   await startOnline();
   await getCurrentWindow().show();
   // Lizzie.java:1029: the control panel shown at the last exit opens over the shown workbench.
   await startControlPanel();
+  await startBigWinrate();
   await getCurrentWindow().setFocus();
   schedule();
   // First use (no settings of this product yet): offer the LizzieYzy Next import.

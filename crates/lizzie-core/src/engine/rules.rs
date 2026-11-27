@@ -6,6 +6,8 @@ use std::sync::LazyLock;
 
 use serde_json::{Map, Value};
 
+use super::profile::EngineSettings;
+
 const REQUIRED: [&str; 7] = [
     "ko",
     "scoring",
@@ -78,20 +80,118 @@ const ALIASES: [(&str, &str); 15] = [
     ("ing", "goe"),
 ];
 
-/// An engine-game rules choice: preset name and label key.
-pub type MatchRuleOption = (&'static str, &'static str);
+/// An engine-game rules choice (`MatchRuleOption`): rules, the dialog's entry and the komi that goes
+/// with them.
+#[derive(Debug)]
+pub struct MatchRuleOption {
+    /// How the engine-game settings remember the choice; the Chinese ones are their rule set's id.
+    pub id: &'static str,
+    /// The rules sent to the engines, as `KataRules::parse` takes them: a preset name or a JSON
+    /// object.
+    pub rules: &'static str,
+    /// Display-string key of the dialog's entry.
+    pub label_key: &'static str,
+    /// Display-string key of the game's rules name (本局规则), which the rules alone decide: the
+    /// options sharing the Chinese rules are all 中国规则.
+    pub name_key: &'static str,
+    /// The rule set whose komi the choice brings, if it has one.
+    rule_set: Option<&'static str>,
+}
 
-/// The engine game's standard rules choices in Java's order, each with its label
-/// (`MatchRuleOption`); anything else is 自定义.
-pub const MATCH_RULE_OPTIONS: [MatchRuleOption; 7] = [
-    ("chinese", "LizzieFrame.currentRules.chinese"),
-    ("stone-scoring", "LizzieFrame.currentRules.chn-ancient"),
-    ("japanese", "MatchRules.option.japaneseKorean"),
-    ("aga", "MatchRules.option.agaBga"),
-    ("new-zealand", "MatchRules.option.newZealand"),
-    ("tromp-taylor", "MatchRules.option.trompTaylor"),
-    ("goe", "LizzieFrame.currentRules.goe"),
+impl MatchRuleOption {
+    /// A rule set as a choice: its rules, its entry and its komi.
+    const fn of(set: &RuleSet, name_key: &'static str) -> MatchRuleOption {
+        MatchRuleOption {
+            id: set.id,
+            rules: set.rules,
+            label_key: set.label_key,
+            name_key,
+            rule_set: Some(set.id),
+        }
+    }
+}
+
+/// The engine game's standard rules choices; anything else is 自定义. Java offers one Chinese choice
+/// (the 2002 rules); here the Chinese rule sets come first, the rest follow in Java's order.
+pub const MATCH_RULE_OPTIONS: [MatchRuleOption; 10] = [
+    MatchRuleOption::of(&RULE_SETS[0], "LizzieFrame.currentRules.chinese"),
+    MatchRuleOption::of(&RULE_SETS[1], "LizzieFrame.currentRules.chinese"),
+    MatchRuleOption::of(&RULE_SETS[2], "LizzieFrame.currentRules.chinese2027DrawToFirstPass"),
+    MatchRuleOption::of(&RULE_SETS[3], "LizzieFrame.currentRules.chinese"),
+    MatchRuleOption {
+        id: "CHINESE_ANCIENT",
+        rules: "stone-scoring",
+        label_key: "LizzieFrame.currentRules.chn-ancient",
+        name_key: "LizzieFrame.currentRules.chn-ancient",
+        rule_set: Some("CHINESE_ANCIENT"),
+    },
+    MatchRuleOption {
+        id: "JAPANESE_KOREAN",
+        rules: "japanese",
+        label_key: "MatchRules.option.japaneseKorean",
+        name_key: "MatchRules.option.japaneseKorean",
+        rule_set: Some("JAPANESE"),
+    },
+    MatchRuleOption {
+        id: "AGA_BGA",
+        rules: "aga",
+        label_key: "MatchRules.option.agaBga",
+        name_key: "MatchRules.option.agaBga",
+        rule_set: None,
+    },
+    MatchRuleOption {
+        id: "NEW_ZEALAND",
+        rules: "new-zealand",
+        label_key: "MatchRules.option.newZealand",
+        name_key: "MatchRules.option.newZealand",
+        rule_set: None,
+    },
+    MatchRuleOption {
+        id: "TROMP_TAYLOR",
+        rules: "tromp-taylor",
+        label_key: "MatchRules.option.trompTaylor",
+        name_key: "MatchRules.option.trompTaylor",
+        rule_set: Some("TROMP_TAYLOR"),
+    },
+    MatchRuleOption {
+        id: "GOE",
+        rules: "goe",
+        label_key: "LizzieFrame.currentRules.goe",
+        name_key: "LizzieFrame.currentRules.goe",
+        rule_set: Some("GOE"),
+    },
 ];
+
+/// Each choice's parsed rules, in `MATCH_RULE_OPTIONS` order.
+static MATCH_RULE_OPTION_RULES: LazyLock<Vec<KataRules>> = LazyLock::new(|| {
+    MATCH_RULE_OPTIONS
+        .iter()
+        .map(|o| KataRules::parse(o.rules).expect("match rule option rules parse"))
+        .collect()
+});
+
+impl MatchRuleOption {
+    /// The choice these rules are (`MatchRuleOption.matching`). Choices with the same rules, the
+    /// Chinese ones, are told apart by the one `chosen` last; without it they are the 2002 rules,
+    /// Java's one Chinese choice, listed last of them.
+    pub fn matching(rules: &KataRules, chosen: Option<&str>) -> Option<&'static MatchRuleOption> {
+        let mut found = None;
+        for (option, own) in MATCH_RULE_OPTIONS.iter().zip(MATCH_RULE_OPTION_RULES.iter()) {
+            if rules.same_as(own) {
+                if chosen == Some(option.id) {
+                    return Some(option);
+                }
+                found = Some(option);
+            }
+        }
+        found
+    }
+
+    /// The komi of its rule set, which choosing it fills in; none for AGA/BGA and New Zealand.
+    pub fn komi(&self) -> Option<f64> {
+        RuleSet::by_id(self.rule_set?).map(|s| s.komi)
+    }
+}
 
 /// A rule set (`RulePreset`): KataGo rules together with the komi that belongs to them.
 ///
@@ -201,6 +301,18 @@ static RULE_SET_RULES: LazyLock<Vec<(KataRules, &'static str)>> = LazyLock::new(
 const NEW_GAME_KOMI: f64 = 7.5;
 
 impl RuleSet {
+    /// The rule set Java names `id` (`RulePreset.valueOf`).
+    pub fn by_id(id: &str) -> Option<&'static RuleSet> {
+        RULE_SETS.iter().find(|s| s.id == id)
+    }
+
+    /// The rule set picked last (`RulePreset.chosen`): it counts only while KataGo starts with
+    /// exactly its rules (启动时自动应用 on); once the startup rules are others, it is not chosen.
+    pub fn chosen(settings: &EngineSettings) -> Option<&'static RuleSet> {
+        let set = RuleSet::by_id(settings.rule_set.as_deref()?)?;
+        (settings.auto_load_kata_rules && KataRules::parse(&settings.kata_rules).as_ref() == Some(set.rules())).then_some(set)
+    }
+
     pub fn rules(&self) -> &'static KataRules {
         &self.parsed().0
     }
@@ -310,28 +422,31 @@ impl KataRules {
         KataRules::preset(&name)
     }
 
-    /// Whether these rules are preset `name`. Territory scoring does not use `friendlyPassOk`
-    /// (the rules editor disables it there), so a territory preset matches whatever that field
-    /// says (`matchesOfficialApartFromFriendlyPass`); other presets match field for field.
+    /// Whether these rules are preset `name` (see `same_as`).
     pub fn matches_preset(&self, name: &str) -> bool {
-        let Some(preset) = KataRules::preset(name) else {
-            return false;
-        };
-        if preset.0.get("scoring").and_then(Value::as_str) != Some("TERRITORY") {
-            return preset == *self;
+        KataRules::preset(name).is_some_and(|preset| self.same_as(&preset))
+    }
+
+    /// Whether these rules are `other`. Territory scoring does not use `friendlyPassOk` (the rules
+    /// editor disables it there), so territory rules match whatever that field says
+    /// (`matchesOfficialApartFromFriendlyPass`); other rules match field for field.
+    fn same_as(&self, other: &KataRules) -> bool {
+        if other.0.get("scoring").and_then(Value::as_str) != Some("TERRITORY") {
+            return other == self;
         }
         let others = |m: &Map<String, Value>| m.iter().filter(|(k, _)| *k != "friendlyPassOk").count();
-        others(&self.0) == others(&preset.0)
-            && preset
+        others(&self.0) == others(&other.0)
+            && other
                 .0
                 .iter()
                 .filter(|(k, _)| *k != "friendlyPassOk")
                 .all(|(k, v)| self.0.get(k) == Some(v))
     }
 
-    /// The engine-game choice (`MatchRuleOption.matching`) these rules are, if any.
-    pub fn match_option(&self) -> Option<&'static MatchRuleOption> {
-        MATCH_RULE_OPTIONS.iter().find(|o| self.matches_preset(o.0))
+    /// Display-string key of these rules as the game's rules (`MatchRuleOption.displayName`), else
+    /// 自定义.
+    pub fn match_name_key(&self) -> &'static str {
+        MatchRuleOption::matching(self, None).map_or("NewEngineGameDialog.matchRules.custom", |o| o.name_key)
     }
 
     /// KataGo's button: a drawn count goes to the first player to pass (`FirstPassDraw.applies`).

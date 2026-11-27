@@ -3,7 +3,7 @@
 // menu bar and toolbar popups (menubar.ts), the macOS system menu bar (nativeMenu.ts) and function
 // search read it; it builds nothing.
 import { run, state } from "../app";
-import { COMMANDS, type CommandEntry } from "../commands";
+import { COMMANDS, reasonText, type CommandEntry } from "../commands";
 import type { DisplaySettings, EngineState } from "../contract/generated";
 import { DARK_READY } from "../design/theme";
 import { chooseEngine } from "../engine/catalog";
@@ -175,7 +175,7 @@ function catalogRow(node: CatalogNode, uid: string): Row | null {
     checked: kind !== "item" && !!command?.checked?.(),
     enabled: command !== undefined && reason === null && (!command.enabled || command.enabled()),
     unavailable: command === undefined,
-    title: command === undefined ? product("unavailable") : reason !== null ? product(reason) : (recent ?? tip),
+    title: command === undefined ? product("unavailable") : reason !== null ? reasonText(reason) : (recent ?? tip),
     command,
   };
 }

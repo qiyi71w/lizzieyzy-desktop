@@ -4,15 +4,19 @@
 // holds 更多设置, 开始对局 and 取消. The dialog holds the draft only: the core owns the opponents,
 // the session and saves the settings once a game started; the model download is a resource job.
 import { registerViewHandler, run, state } from "../app";
-import type { HumanSlNotice, HumanSlStartupStage, HumanSlTrainingSettings, Pace, ResourceOutcome } from "../contract/generated";
+import type { HumanSlNotice, HumanSlStartupStage, HumanSlTrainingSettings, Pace, ResourceOutcome, TrainingMode } from "../contract/generated";
 import { icon } from "../design/icons";
 import { footer, groupTitle, row, segmented, switchRow } from "../engine/controls";
+import { diagnosisText } from "../engine/diagnosis";
 import { ask, closeBox, openModalLayer } from "../dialogs";
 import { format, product, registerProduct, t } from "../i18n";
 import { messageText } from "../errorText";
 import { openAutoSetup, resourceCommand, resourceView } from "../setup/dialog";
+import type { SetupCardKey } from "../setup/card";
 import { javaFormat, resourceText } from "../setup/setupText";
-import { humanSlSession, humanSlUi, humanSlUiChanged, levelFox, levelKataGo } from "./state";
+import { openRankTable } from "./rankTable";
+import { humanSlSession, humanSlUi, humanSlUiChanged, levelDetail, levelFox, levelKataGo } from "./state";
+import { locateControl } from "../search/highlight";
 import "./humansl.css";
 
 registerProduct({
@@ -24,6 +28,8 @@ registerProduct({
   ThTh: { humanSlStartFailedEngine: "{0} โปรดตรวจสอบไฟล์โมเดล HumanSL และการตั้งค่ากลไกการวิเคราะห์ แล้วลองอีกครั้ง" },
 });
 
+/** 训练方式 by its index: TrainingMode.CHOICES. */
+const MODES: readonly TrainingMode[] = ["LiveFeedback", "PostGameReview", "LiveAnalysis"];
 /** AI 思考时间 by its index: 自然, 快, 慢. */
 const PACES: readonly Pace[] = ["Natural", "Fast", "Slow"];
 const COLORS = ["Random", "Black", "White"] as const;
@@ -84,21 +90,36 @@ function failureReason(key: string): string {
     "HumanSlGame.error.liveUrlSgfActive": t("HumanSlGame.error.liveUrlSgfActive"),
     "HumanSlTraining.preparing.failedDetail": t("HumanSlTraining.preparing.failedDetail"),
     "AnalysisEngineCommandHelper.noEngineSelected": t("AnalysisEngineCommandHelper.noEngineSelected"),
+    "AnalysisEngineCommandHelper.noAnalysisConfig": t("AnalysisEngineCommandHelper.noAnalysisConfig"),
+    "AnalysisEngineCommandHelper.noWeight": t("AnalysisEngineCommandHelper.noWeight"),
   };
   return texts[key] ?? t(key);
 }
+
+/** The parts AI 陪练 cannot start without (AnalysisEngineCommandHelper.missingPart), by their
+ *  message key, and the page of 一键设置 that provides each: the weight is downloaded on its own
+ *  page, the engine and its analysis config are set up from the overview. */
+const MISSING_PARTS = new Map<string, SetupCardKey>([
+  ["AnalysisEngineCommandHelper.noEngineSelected", "overview"],
+  ["AnalysisEngineCommandHelper.noAnalysisConfig", "overview"],
+  ["AnalysisEngineCommandHelper.noWeight", "weights"],
+]);
 
 /** A start failure as the dialog shows it: one sentence in the interface language (Java's
  *  HumanSlGame.error.startFailed) and the core's detail, folded behind 查看详情. The detail is the
  *  engine's last output lines and the failure; a failure that is a core message (a settings write
  *  that failed: its key, then the system's cause) is the cause instead, shown with the system's
- *  cause as its text says ("the problem below"), and the engine's lines stay behind 查看详情. */
+ *  cause as its text says ("the problem below"), and the engine's lines stay behind 查看详情. A
+ *  start refused with an explanation (a packaged engine too new for this macOS) is that cause. */
 interface StartFailure {
   text: string;
   detail: string;
 }
 
 function startFailure(n: Extract<HumanSlNotice, { type: "StartFailed" }>): StartFailure {
+  if (n.diagnosis) return { text: javaFormat(t("HumanSlGame.error.startFailed"), diagnosisText(n.diagnosis)), detail: "" };
+  // A missing part is said as Java says it (showInlineError(detail)): its sentence alone.
+  if (MISSING_PARTS.has(n.reason)) return { text: failureReason(n.reason), detail: "" };
   const reason = javaFormat(t("HumanSlGame.error.startFailed"), failureReason(n.reason));
   if (!n.detail) return { text: reason, detail: "" };
   const lines = n.detail.split("\n");
@@ -140,8 +161,9 @@ export function humanSlDialogOpen(): boolean {
   return current !== null;
 }
 
-/** startHumanSlGameDialogReserved's dialog; an open one comes to the front instead. */
-export function openHumanSlDialog(): void {
+/** startHumanSlGameDialogReserved's dialog; an open one comes to the front instead. Function
+ *  search's 训练方式 opens it with the focus and the gold line on that choice. */
+export function openHumanSlDialog(locateMode = false): void {
   if (current) {
     current.focus();
     return;
@@ -166,6 +188,10 @@ export function openHumanSlDialog(): void {
   /** The start failure: the inline error with its detail, shown again once a pending cleanup
    *  succeeded. */
   let failure: StartFailure | null = null;
+  /** A start that lacked a part: the page of 一键设置 its link opens. */
+  let missingPart: SetupCardKey | null = null;
+  /** Closes the open rank table without a choice, else null. */
+  let closeRankTable: (() => void) | null = null;
 
   // ---------------------------------------------------------------- controls
   const overlay = el("div", "modal");
@@ -189,11 +215,21 @@ export function openHumanSlDialog(): void {
   moreButton.classList.add("hs-more");
   moreButton.append(el("span", "", t("HumanSlTraining.more")), moreIcon);
 
-  const mode = choice("mode", [t("HumanSlTraining.mode.review"), t("HumanSlTraining.mode.live")], s.mode === "LiveAnalysis" ? 1 : 0);
+  // TrainingMode.CHOICES, 边下边提醒 first; each with its description below (CoachSetupForm.description).
+  const mode = choice("mode", [t("HumanSlTraining.mode.feedback"), t("HumanSlTraining.mode.review"), t("HumanSlTraining.mode.live")], Math.max(0, MODES.indexOf(s.mode)));
   // 对手棋力: the 31 opponents, weakest first, each by its Fox / Tygem rank and KataGo level.
   const levels = saved.levels;
   const level = select("level", levels.map((l) => `${levelFox(l)}, KataGo ${levelKataGo(l)}`));
+  level.id = "hs-level";
   level.selectedIndex = Math.max(0, levels.findIndex((l) => l.level === s.level));
+  // CoachLevelText.detail beside the level, and 等级对照表 (CoachRankTable.Link) after it.
+  const levelNote = keyed(el("span", "hs-level-detail"), "levelDetail");
+  levelNote.id = "hs-level-detail";
+  const rankTableLink = button("rankTable", t("HumanSlTraining.rankTable"), openTable);
+  rankTableLink.classList.add("ds-link");
+  rankTableLink.title = t("HumanSlTraining.rankTable.tip");
+  rankTableLink.setAttribute("aria-description", t("HumanSlTraining.rankTable.tip"));
+  rankTableLink.setAttribute("aria-haspopup", "dialog");
   const color = choice("color", [t("HumanSlTraining.color.random"), t("HumanSlTraining.color.black"), t("HumanSlTraining.color.white")], Math.max(0, COLORS.indexOf(s.playerColor)));
   const pace = choice("pace", [t("HumanSlTraining.pace.natural"), t("HumanSlTraining.pace.fast"), t("HumanSlTraining.pace.slow")], Math.max(0, PACES.indexOf(s.pace)));
   const startIcon = icon("spark");
@@ -207,7 +243,11 @@ export function openHumanSlDialog(): void {
   status.setAttribute("role", "status");
   status.setAttribute("aria-live", "polite");
   const summary = el("div", "hs-summary");
-  summary.append(modelStatus, status);
+  // A missing part's sentence is followed by the way to 一键设置 (AnalysisEngineCommandHelper's
+  // messages name it), which opens the page that provides that part.
+  const setupLink = button("autoSetup", t("AutoSetup.title"), () => void openSetup());
+  setupLink.classList.add("ds-link");
+  summary.append(modelStatus, status, setupLink);
   // The failure's detail (the engine's output) below the inline error: folded, selectable.
   const failureDetail = keyed(el("details", "hs-failure-detail"), "failureDetail");
   const failureDetailText = el("pre");
@@ -228,11 +268,17 @@ export function openHumanSlDialog(): void {
   const downloadPanel = el("div", "hs-download");
   downloadPanel.append(progress, progressText, pauseButton, cancelDownloadButton);
 
-  // The training's rows; AI 思考时间's description is the chosen pace's hint (CoachSetupForm
-  // paceHint): it sets the pace, not the strength.
+  // The training's rows; 训练方式's description is the chosen mode's, AI 思考时间's the chosen
+  // pace's hint (CoachSetupForm paceHint): it sets the pace, not the strength.
   const form = el("div");
-  row(form, t("HumanSlTraining.mode"), "", mode.el);
-  row(form, t("HumanSlTraining.strength"), "", level);
+  const modeRow = row(form, t("HumanSlTraining.mode"), modeHintText(), mode.el);
+  const modeHint = modeRow.querySelector<HTMLElement>(".ds-row-sub")!;
+  const levelRow = row(form, t("HumanSlTraining.strength"), levelDetail(levels[level.selectedIndex]), level) as HTMLLabelElement;
+  // The row stays the select's label; the link inside it is a control of its own, and the select
+  // is described by the detail alone.
+  levelRow.htmlFor = level.id;
+  levelRow.querySelector<HTMLElement>(".ds-row-sub")!.replaceChildren(levelNote, rankTableLink);
+  level.setAttribute("aria-describedby", levelNote.id);
   const colorRow = row(form, t("HumanSlTraining.color"), t("HumanSlTraining.handicap.note"), color.el);
   // With a handicap the colour is Black; while 更多设置 is closed, the colour row says why.
   const colorNote = colorRow.querySelector<HTMLElement>(".ds-row-sub")!;
@@ -252,6 +298,15 @@ export function openHumanSlDialog(): void {
   box.append(title, root);
   footer(box, { start: [moreButton], primary: startButton, cancel: button("close", t("HumanSlTraining.close"), () => void closeDialog()) });
   overlay.append(box);
+
+  /** CoachSetupForm.description. */
+  function modeHintText(): string {
+    switch (MODES[Number(mode.value())]) {
+      case "LiveAnalysis": return t("HumanSlTraining.mode.live.desc");
+      case "PostGameReview": return t("HumanSlTraining.mode.review.desc");
+      default: return t("HumanSlTraining.mode.feedback.desc");
+    }
+  }
 
   /** CoachSetupForm.paceHint. */
   function paceHintText(): string {
@@ -282,7 +337,7 @@ export function openHumanSlDialog(): void {
   /** CoachSetupForm.config. */
   function settings(): HumanSlTrainingSettings {
     return {
-      mode: mode.value() === "1" ? "LiveAnalysis" : "PostGameReview",
+      mode: MODES[Number(mode.value())] ?? "LiveFeedback",
       level: levels[level.selectedIndex]?.level ?? s.level,
       playerColor: COLORS[Number(color.value())] ?? "Random",
       pace: PACES[Number(pace.value())] ?? "Natural",
@@ -334,7 +389,13 @@ export function openHumanSlDialog(): void {
     if (!canStartFromCurrent()) fromCurrent.checked = false;
     moreButton.setAttribute("aria-expanded", String(more));
     moreIcon.replaceChildren(icon(more ? "chevron-up" : "chevron-down"));
+    modeHint.textContent = modeHintText();
     paceHint.textContent = paceHintText();
+    // The detail follows the level; written only when it changes, like every text a view update
+    // renders.
+    const detail = levels[level.selectedIndex] ? levelDetail(levels[level.selectedIndex]) : "";
+    if (levelNote.textContent !== detail) levelNote.textContent = detail;
+    rankTableLink.disabled = !enabled;
     advanced.hidden = !more;
     const installed = modelInstalled();
     modelStatus.textContent = installed ? t("HumanSlTraining.model.ready") : t("HumanSlTraining.model.missing");
@@ -389,12 +450,14 @@ export function openHumanSlDialog(): void {
         progressText.textContent = "0%";
       }
     }
-    status.textContent = text;
+    if (status.textContent !== text) status.textContent = text;
     status.classList.toggle("error", statusError && (phase === "idle" || phase === "failing" || phase === "cleanup"));
     failureDetail.hidden = !failure?.detail || text !== failure.text;
+    setupLink.hidden = !(missingPart && phase === "idle" && failure && text === failure.text);
     // Java's ESC binding is on the dialog's root pane: a control disabled while it had the focus
-    // (开始训练 during a start) must not leave the keyboard outside the modal dialog.
-    if (box.isConnected && !box.contains(document.activeElement)) box.focus();
+    // (开始训练 during a start) must not leave the keyboard outside the modal dialog. The rank
+    // table above it keeps the focus while it is open.
+    if (box.isConnected && !closeRankTable && !box.contains(document.activeElement)) box.focus();
   }
 
   // ---------------------------------------------------------------- actions
@@ -421,6 +484,32 @@ export function openHumanSlDialog(): void {
     await startGame();
   }
 
+  /** CoachRankTable.show: the table over this dialog; a chosen row becomes the opponent. */
+  function openTable(): void {
+    if (phase !== "idle" || closeRankTable) return;
+    closeRankTable = openRankTable(
+      levels,
+      settings().level,
+      (picked) => {
+        level.selectedIndex = Math.max(0, levels.findIndex((l) => l.level === picked));
+        edited();
+      },
+      () => {
+        closeRankTable = null;
+        rankTableLink.focus();
+      },
+    );
+  }
+
+  /** The link after a missing part: 一键设置 at the page that provides it. Its window is not
+   *  modal, so this dialog closes first, as for the TensorRT repair. */
+  async function openSetup(): Promise<void> {
+    const card = missingPart;
+    if (!card || phase !== "idle") return;
+    dispose();
+    await openAutoSetup(card);
+  }
+
   /** startConfiguredGame: the core prepares the companion and reports the stages. A running batch
    *  analysis is stopped first once the user agrees (`stopBatch`). */
   async function startGame(stopBatch = false): Promise<void> {
@@ -428,6 +517,7 @@ export function openHumanSlDialog(): void {
     statusError = false;
     repair = false;
     failure = null;
+    missingPart = null;
     preparingBase = { secs: 0, at: performance.now() };
     setPhase("starting");
     render();
@@ -508,6 +598,7 @@ export function openHumanSlDialog(): void {
   }
 
   function dispose(): void {
+    closeRankTable?.();
     setPhase("idle");
     closeLayer();
     current = null;
@@ -573,6 +664,7 @@ export function openHumanSlDialog(): void {
         failureDetail.open = false;
         statusError = true;
         repair = n.reason === "HumanSlGame.error.tensorRtCompanionMissing";
+        missingPart = MISSING_PARTS.get(n.reason) ?? null;
         setPhase(humanSlSession() ? "failing" : "idle");
         render();
         return true;
@@ -615,7 +707,8 @@ export function openHumanSlDialog(): void {
   // A session already preparing (the dialog opened again) shows its startup.
   if (humanSlSession()?.phase === "Preparing") setPhase("preparing");
   render();
-  startButton.focus();
+  if (locateMode) locateControl(mode.inputs.find((input) => input.checked) ?? mode.inputs[0], modeRow);
+  else startButton.focus();
 }
 
 /** The notices of the current view the dialog took (its startup's outcome), so the session's

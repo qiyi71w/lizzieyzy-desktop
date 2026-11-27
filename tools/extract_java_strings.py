@@ -49,19 +49,13 @@ LOCALES = {
 #
 # The entries marked "held" keep PREVIOUS_SHA's wording where the fixed commit rewrote it for
 # behaviour this product does not have yet; each goes when its feature follows the fixed commit.
-# The online-link prompt names OGS links, which this product does not open. 评估此点 keeps naming
-# the reason itself when it is unavailable (Java now keeps the item's name and adds the reason in
-# brackets) and its tooltip keeps the conditions this product checks. The AI 陪练 subtitle
-# describes Java's live move feedback. The Chinese strength match tooltip drops 棋 because Java's
-# dialog now passes 黑棋/白棋 where this product passes 黑/白.
+# 评估此点 keeps naming the reason itself when it is unavailable (Java now keeps the item's name
+# and adds the reason in brackets) and its tooltip keeps the conditions this product checks.
 CORRECTIONS: dict[str, dict[str, str]] = {
     "ZhCn": {
         "ConfigDialog2.modern.proxy.subtitle": "控制程序自身网络请求使用的代理策略",
         "SetLeelaEngines.lblResign": "放弃胜利率(%,default -1,范围-1到30):",
         # Held (see above).
-        "HumanSlTraining.subtitle": "选择适合自己水平的人类棋风对手，在主棋盘实战并随时复盘",
-        "OnlineDialog.lblPrompt1.text": "请输入一个有效的链接。",
-        "PlayerStrengthEstimate.match.rankTooltip": "%1$s棋第 %2$d 手到第 %3$d 手下出了 %4$s 水平",
         "RightClickMenu.trackPoint.requiresCapability": "选点重点研究不可用（需要本地 KataGo 支持）",
         "RightClickMenu.trackPoint.unavailableTooltip": "需要稳定局面，以及当前前台本地 KataGo 已支持选点重点研究",
         "RightClickMenu.trackPoint.upgradeRequired": "选点评估需要升级引擎",
@@ -71,9 +65,6 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "SetLeelaEngines.lblResign": "放棄勝利率(%,default -1,範圍-1到30):",
         "YikeLiveDialog.syncFailed": "弈客同步失敗",
         # Held (see above).
-        "HumanSlTraining.subtitle": "選擇適合自己水平的人類棋風對手，在主棋盤實戰並隨時覆盤",
-        "OnlineDialog.lblPrompt1.text": "請輸入一個有效的連結。",
-        "PlayerStrengthEstimate.match.rankTooltip": "%1$s棋第 %2$d 手到第 %3$d 手下出了 %4$s 水平",
         "RightClickMenu.trackPoint.requiresCapability": "選點重點研究不可用（需要本地 KataGo 支援）",
         "RightClickMenu.trackPoint.unavailableTooltip": "需要穩定局面，以及目前前台本地 KataGo 已支援選點重點研究",
         "RightClickMenu.trackPoint.upgradeRequired": "選點評估需要升級引擎",
@@ -86,8 +77,6 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "Menu.leadJustScore": "Excluding komi",
         "Menu.leadWithKomi": "Including komi",
         # Held (see above).
-        "HumanSlTraining.subtitle": "Choose a fitting human-style opponent, play on the main board, and review the game there afterward.",
-        "OnlineDialog.lblPrompt1.text": "Please input an available url.",
         "RightClickMenu.trackPoint.requiresCapability": "Move focus unavailable (local KataGo capability required)",
         "RightClickMenu.trackPoint.unavailableTooltip": "Requires a stable position and the current foreground local KataGo with move-focus capability",
         "RightClickMenu.trackPoint.upgradeRequired": "Point evaluation requires an engine upgrade",
@@ -101,8 +90,6 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "WindowsUpdate.btnUpdate": "今すぐ更新",
         "YikeLiveDialog.syncFailed": "弈客の同期に失敗しました",
         # Held (see above).
-        "HumanSlTraining.subtitle": "自分の棋力に合う人間らしい相手とメイン盤面で対局し、そのまま振り返れます。",
-        "OnlineDialog.lblPrompt1.text": "使用可能なurlを入力してください。",
         "RightClickMenu.trackPoint.requiresCapability": "move focus は利用不可（ローカル KataGo の対応が必要）",
         "RightClickMenu.trackPoint.unavailableTooltip": "安定した局面と、move focus 対応の現在のフォアグラウンドローカル KataGo が必要です",
         "RightClickMenu.trackPoint.upgradeRequired": "選点評価にはエンジンの更新が必要です",
@@ -164,8 +151,6 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "TencentKifuDownload.stones": " 돌",
         "YikeLiveDialog.syncFailed": "Yike 동기화 실패",
         # Held (see above).
-        "HumanSlTraining.subtitle": "내 기력에 맞는 인간형 상대와 메인 바둑판에서 대국하고 그대로 복기합니다.",
-        "OnlineDialog.lblPrompt1.text": "유효한 URL을 입력하세요.",
         "RightClickMenu.trackPoint.requiresCapability": "move focus 사용 불가 (로컬 KataGo 지원 필요)",
         "RightClickMenu.trackPoint.unavailableTooltip": "안정된 국면과 move focus를 지원하는 현재 포그라운드 로컬 KataGo가 필요합니다",
         "RightClickMenu.trackPoint.upgradeRequired": "착점 평가에는 엔진 업데이트가 필요합니다",
@@ -290,8 +275,6 @@ CORRECTIONS: dict[str, dict[str, str]] = {
         "TencentKifuDownload.stones": " หิน",
         "menu.setFrameSizeRestart": "ตั้งค่าสำเร็จ โปรดรีสตาร์ท Lizzie!",
         # Held (see above).
-        "HumanSlTraining.subtitle": "เลือกคู่ต่อสู้สไตล์มนุษย์ที่เหมาะกับระดับ เล่นบนกระดานหลัก และทบทวนเกมต่อได้ทันที",
-        "OnlineDialog.lblPrompt1.text": "โปรดป้อน url ที่มีอยู่",
         "RightClickMenu.trackPoint.requiresCapability": "ใช้ move focus ไม่ได้ (ต้องใช้ KataGo ภายในเครื่องที่รองรับ)",
         "RightClickMenu.trackPoint.unavailableTooltip": "ต้องมีตำแหน่งที่เสถียรและ KataGo ภายในเครื่องที่อยู่เบื้องหน้าและรองรับ move focus",
         "RightClickMenu.trackPoint.upgradeRequired": "การประเมินจุดต้องอัปเกรดเอนจิน",

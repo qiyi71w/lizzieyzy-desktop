@@ -16,12 +16,11 @@
       <div id="comment">
         <div id="commentTabs" class="tabs" tabindex="0">
           <span id="commentsTab" class="tab on" data-key="problems.tab.comments"></span><span id="problemsTab" class="tab" data-key="problems.tab.problems"></span>
-          <span id="problemSides" hidden><span id="blackSide" class="side on" data-key="problems.side.black"></span><span id="whiteSide" class="side" data-key="problems.side.white"></span></span>
           <span id="problemProgress" hidden></span>
         </div>
         <div id="commentPage"><div id="commentText"></div></div>
         <div id="problemPage" hidden>
-          <div class="problem-toolbar"><span id="problemCount"></span><select id="problemSort" data-key="problems.sort"></select></div>
+          <div class="problem-toolbar"><span id="problemSides" role="radiogroup"><label id="blackSide" class="side on" data-key="problems.side.black"><input type="radio" name="problemSide" value="Black" checked /><span class="side-name"></span><span class="side-count"></span></label><label id="whiteSide" class="side" data-key="problems.side.white"><input type="radio" name="problemSide" value="White" /><span class="side-name"></span><span class="side-count"></span></label></span><select id="problemSort" data-key="problems.sort"></select></div>
           <div id="problemList" tabindex="0"></div>
           <div id="problemEmpty" hidden></div>
         </div>

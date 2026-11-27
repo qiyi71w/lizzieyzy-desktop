@@ -1,19 +1,40 @@
 // Board display entries of the command catalog: 显示 > 坐标 / 手数 / 落子评价标记 / 推荐点 / 下一手 /
 // 小棋盘设置 / 自动播放 / 主界面设置 > 棋盘下方显示黑白名字 / KataGo设置 > 形势判断 > 纯网络形势,
 // 分析 > 纯网络 / 策略网络, the top toolbar's 选点 黑 / 白 and 落子评价 button, the bottom toolbar's
-// 手数 / 坐标 / 纯网络 / 自动播放 and the display shortcuts. 设置最大宽度, 设置变化图回放间隔 and
-// 设置低计算量阈值 open their 综合设置 rows.
+// 手数 / 坐标 / 纯网络 / 自动播放, the display shortcuts and function search's 姓名旁胜率.
+// 设置最大宽度, 设置变化图回放间隔 and 设置低计算量阈值 open their 综合设置 rows.
 import { state } from "../app";
 import { COMMANDS, setDisplay, type CommandEntry } from "../commands";
 import type { DisplaySettings, MoveRankMode, SubBoardMode } from "../contract/generated";
 import { message } from "../dialogs";
 import { openSettingsAt } from "../engine/settingsTargets";
-import { t } from "../i18n";
+import { registerProduct, t } from "../i18n";
 import { openAutoPlayDialog } from "./autoplay";
 import { inputDialog, openInfoOrderDialog, openMoveNumberDialog, parseJavaInt } from "./dialogs";
 import { boardUi, setCandidates, togglePolicy, toggleRawNet } from "./state";
 
 const display = (): DisplaySettings | undefined => state.view?.settings.display;
+
+registerProduct({
+  ZhCn: { nameWinratesNoNames: "棋盘下方没有显示黑白名字，姓名旁胜率无处显示。棋谱有对局者名字时，打开“显示 › 主界面设置 › 棋盘下方显示黑白名字”后再试。" },
+  ZhTw: { nameWinratesNoNames: "棋盤下方沒有顯示黑白名字，姓名旁勝率無處顯示。棋譜有對局者名字時，開啟「顯示 › 主介面設定 › 棋盤下方顯示黑白名字」後再試。" },
+  EnUs: { nameWinratesNoNames: "The players' names are not shown under the board, so their win rates have nowhere to appear. With a game record that names its players, turn on “View › Main panel settings › Show name in board” and try again." },
+  JaJp: { nameWinratesNoNames: "碁盤の下に対局者名が表示されていないため、名前の横の勝率を表示できません。対局者名のある棋譜で「表示 › メインパネルの設定 › 碁盤に対局者名を表示」をオンにしてから、もう一度お試しください。" },
+  KoKr: { nameWinratesNoNames: "바둑판 아래에 대국자 이름이 표시되지 않아 이름 옆 승률을 보여 줄 수 없습니다. 대국자 이름이 있는 기보에서 [보기 › 메인 영역 설정 › 바둑판에 대국자 이름 표시]를 켠 뒤 다시 시도하세요." },
+  ThTh: { nameWinratesNoNames: "ไม่ได้แสดงชื่อผู้เล่นใต้กระดาน จึงแสดงอัตราชนะข้างชื่อไม่ได้ เมื่อบันทึกเกมมีชื่อผู้เล่น ให้เปิด “ดู › การตั้งค่าแผงหลัก › แสดงชื่อในกระดาน” แล้วลองอีกครั้ง" },
+});
+
+/** LizzieFrame.togglePlayerNameWinrates (clicking a name under the board) as function search's
+ *  姓名旁胜率: only while the names show there (BoardRenderer.isEmptyName), where a click reaches
+ *  them. */
+const nameWinrates: CommandEntry = {
+  run: () => setDisplay({ nameWinrates: !display()?.nameWinrates }),
+  disabledReason: () => {
+    const v = state.view;
+    const shown = !!v && v.settings.display.namesOnBoard && (v.document.info.black !== "" || v.document.info.white !== "");
+    return shown ? null : { key: "nameWinratesNoNames", product: true };
+  },
+};
 
 type Flag = { [K in keyof DisplaySettings]: DisplaySettings[K] extends boolean ? K : never }[keyof DisplaySettings];
 
@@ -225,6 +246,7 @@ Object.assign(COMMANDS, {
   "menu.makeAutoPlay": { run: openAutoPlayDialog },
   // 主界面设置 > 棋盘下方显示黑白名字 (show-name-in-board)
   "menu.showNameInBoard": flag("namesOnBoard"),
+  "board.name-winrates": nameWinrates,
   // 小棋盘设置 (Menu.java:1684-1827, checks 2912-2935)
   "Menu.showHeat": subBoard("Policy"),
   "Menu.showHeatAfterCalc": subBoard("Visits"),

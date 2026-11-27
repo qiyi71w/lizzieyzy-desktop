@@ -649,7 +649,7 @@ fn remote_compute_and_a_settings_import_wait_for_the_gma_hand() {
         identifier: "fixture-account".into(),
         ..Default::default()
     };
-    assert_eq!(r.wb.activate_cloud(zhizi, true).unwrap_err().message, "RemoteCompute.error.engineSwitchFailed");
+    assert_eq!(r.wb.activate_cloud(r.wb.cloud_ticket(), zhizi, true).unwrap_err().message, "RemoteCompute.error.engineSwitchFailed");
     assert_eq!(r.wb.config().engine.engines, engines);
 
     let java = r._dir.path().join("java");

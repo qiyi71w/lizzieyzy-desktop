@@ -114,7 +114,9 @@ pub struct AnalysisSettings {
     /// `limit-playout` [false] with `limit-playouts` [100000].
     pub limit_playout: bool,
     pub limit_playouts: u64,
-    /// `limit-max-suggestion` [10]; 0 shows every candidate.
+    /// `limit-max-suggestion` [10]; 0 shows every candidate. 综合设置's 候选点上限 and the top
+    /// toolbar's 候选点 field edit it; a stored value that is not such a count reads as 10.
+    #[serde(deserialize_with = "suggestion_limit_or_default")]
     pub limit_max_suggestion: u32,
     /// `limit-branch-length` [15]; 0 shows the whole variation.
     pub limit_branch_length: u32,
@@ -157,6 +159,18 @@ impl Default for AnalysisSettings {
     }
 }
 
+fn suggestion_limit_or_default<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u32, D::Error> {
+    let value = serde_json::Value::deserialize(d)?;
+    Ok(value.as_u64().and_then(|v| u32::try_from(v).ok()).unwrap_or(AnalysisSettings::default().limit_max_suggestion))
+}
+
+fn text_or_none<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    Ok(match serde_json::Value::deserialize(d)? {
+        serde_json::Value::String(text) => Some(text),
+        _ => None,
+    })
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct EngineSettings {
@@ -169,6 +183,11 @@ pub struct EngineSettings {
     pub kata_rules: String,
     /// `auto-load-kata-rules` [false]: apply `kata_rules` whenever KataGo starts.
     pub auto_load_kata_rules: bool,
+    /// `ui.rule-preset`: the id of the rule set (`RuleSet`) picked last in the 规则面板 with 启动时自动应用
+    /// on. It counts only while KataGo still starts with its rules (`RuleSet::chosen`). A stored
+    /// value that is no text is none, and the rest of the settings stays.
+    #[serde(deserialize_with = "text_or_none")]
+    pub rule_set: Option<String>,
     /// `ui.txt-kata-engine-pda`: last confirmed PDA; Java's empty default is unconfirmed.
     pub kata_pda: Option<f64>,
     /// `ui.chk-kata-engine-pda` [false]; confirmed nonzero PDA enables it.
@@ -232,8 +251,12 @@ pub struct KataParamSettings {
     /// `ui.autoload-kata-engine-wrn` [false] with `ui.auto-load-txt-kata-engine-wrn`.
     pub auto_load_wrn: bool,
     pub auto_load_wrn_value: Option<f64>,
-    /// `ui.show-pda-in-menu` / `ui.show-wrn-in-menu` [true]: the toolbar shows the group.
+    /// `ui.show-pda-in-menu` / `ui.show-wrn-in-menu` [true]: the toolbar shows the group. The
+    /// 引擎参数 window's 在工具栏中控制 and the top toolbar's 自定义内容 set them; a stored value
+    /// that is not a boolean reads as shown.
+    #[serde(deserialize_with = "crate::settings::bool_or_true")]
     pub show_pda: bool,
+    #[serde(deserialize_with = "crate::settings::bool_or_true")]
     pub show_wrn: bool,
 }
 

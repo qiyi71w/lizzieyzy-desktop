@@ -813,6 +813,7 @@
         "licenses/KataGo/external/"
       ],
       "externalLibraries": [],
+      "minimumMacOS": "15.0",
       "licenseSummary": "KataGo license (MIT-style) and the notices of its vendored components; bundled libzip, zstd, xz, protobuf, abseil and OpenSSL under their own licenses",
       "licenseTexts": [
         "licenses/KataGo/LICENSE",
@@ -849,6 +850,7 @@
         "licenses/KataGo/external/"
       ],
       "externalLibraries": [],
+      "minimumMacOS": "15.0",
       "licenseSummary": "KataGo license (MIT-style) and the notices of its vendored components; bundled libzip, zstd, xz, protobuf, abseil and OpenSSL under their own licenses",
       "licenseTexts": [
         "licenses/KataGo/LICENSE",

@@ -819,7 +819,7 @@ fn searching_the_position_again_begins_another_foreground_search() {
     assert!(wb.set_komi(6.5).unwrap());
     again(&mut wb, "komi");
     let chinese = r#"{"friendlyPassOk":true,"hasButton":false,"ko":"SIMPLE","scoring":"AREA","suicide":false,"tax":"NONE","whiteHandicapBonus":"N"}"#;
-    assert_eq!(wb.set_kata_rules(chinese, false).unwrap(), None);
+    assert!(matches!(wb.set_kata_rules(chinese, 6.5, None, false).unwrap(), lizzie_core::api::CommandResult::RulesApplied { .. }));
     again(&mut wb, "rules");
     wb.refresh_current_move();
     again(&mut wb, "refresh");
@@ -1037,6 +1037,8 @@ fn applying_rules_discards_analysis_and_late_results_of_the_old_rules() {
     out(&mut wb, a, &info("Q16", 500));
     wb.set_kata_rules(
         r#"{"friendlyPassOk":true,"hasButton":false,"ko":"SIMPLE","scoring":"TERRITORY","suicide":false,"tax":"SEKI","whiteHandicapBonus":"0"}"#,
+        7.5,
+        None,
         false,
     )
     .unwrap();
@@ -1608,6 +1610,7 @@ fn the_commented_export_summarises_only_analysed_moves_against_their_parent() {
         playouts: "计算量".into(),
         komi: "贴目:".into(),
         pda: "PDA:".into(),
+        wrn: "广度:".into(),
     };
     let text = wb.export_text(ExportKind::RawWithComments, &labels);
     // Black just moved: Black's 40 % is 20 points below Black's 60 % before the move, and its
@@ -1943,8 +1946,9 @@ fn engine_params(pda: &str, wrn: &str) -> [(&'static str, String); 2] {
     [("playoutDoublingAdvantage", pda.into()), ("analysisWideRootNoise", wrn.into())]
 }
 
+/// A row the user changed in full: every part of it applies.
 fn row(enabled: bool, value: Option<f64>, auto_load: bool) -> KataParamEdit {
-    KataParamEdit { enabled, value, auto_load }
+    KataParamEdit { enabled, value, auto_load, edited: true, auto_load_edited: true }
 }
 
 /// Without 自动加载 the engine keeps its own values; the toolbar shows what it reports.
@@ -2020,6 +2024,46 @@ fn the_parameter_window_applies_values_now_and_its_auto_load_on_every_start() {
     assert_eq!(wb.view(false).engine.kata_params.pda, Some(1.2));
 }
 
+/// SetKataEngines.applyExistingSettings: only what the user changed since the window loaded it is
+/// saved and sent; an unchanged row never overwrites newer engine or saved values.
+#[test]
+fn the_parameter_window_applies_only_the_rows_the_user_changed() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    wb.save_engine_settings(vec![profile("KataGo", "/opt/katago")], EngineStartup::Default).unwrap();
+    wb.start_engines();
+    let id = world.launched()[0].0;
+    let mut params = engine_params("0", "0");
+    answer_params(&mut wb, &world, id, "KataGo", &mut params);
+    let saved = KataEngineParamsEdit {
+        pda: Some(row(true, Some(0.5), true)),
+        wrn: row(true, Some(0.3), true),
+        show_pda: true,
+        show_wrn: true,
+    };
+    assert_eq!(wb.save_kata_engine_params(saved).unwrap(), None);
+    answer_params(&mut wb, &world, id, "KataGo", &mut params);
+    // 激进度 shows another value but was not touched; 广度 was changed, its 自动加载 was not.
+    let unchanged = |enabled, value| KataParamEdit { enabled, value, auto_load: false, edited: false, auto_load_edited: false };
+    let edit = KataEngineParamsEdit {
+        pda: Some(unchanged(true, Some(1.0))),
+        wrn: KataParamEdit { edited: true, ..unchanged(true, Some(0.4)) },
+        show_pda: false,
+        show_wrn: true,
+    };
+    assert_eq!(wb.save_kata_engine_params(edit).unwrap(), None);
+    let sent = answer_params(&mut wb, &world, id, "KataGo", &mut params);
+    let sets: Vec<&String> = sent.iter().filter(|c| c.starts_with("kata-set-param")).collect();
+    assert_eq!(sets, ["kata-set-param analysisWideRootNoise 0.4"]);
+    let e = &wb.config().engine;
+    assert_eq!((e.kata_pda_enabled, e.kata_pda), (true, Some(0.5)));
+    assert_eq!((e.kata_params.wrn_enabled, e.kata_params.wrn), (true, Some(0.4)));
+    let s = &e.kata_params;
+    assert_eq!((s.auto_load_pda, s.auto_load_pda_value, s.auto_load_wrn, s.auto_load_wrn_value), (true, Some(0.5), true, Some(0.3)));
+    assert_eq!((s.show_pda, s.show_wrn), (false, true), "the toolbar choices are always saved");
+}
+
 /// Toolbar 广度: a check or a value goes to the engine, which searches again; every stored
 /// result gives way to the next live one. Unchecking sends 0. Out-of-range values are sent.
 #[test]
@@ -2078,11 +2122,80 @@ fn live_results_carry_the_engine_pda_into_the_saved_record() {
     assert_eq!(wb.view(false).analysis.unwrap().visits, 20, "made with PDA 0, the stored result gives way");
     let text = wb.begin_save("pda.sgf", "interop:test").text;
     let header = text.split("LZOP[").nth(1).and_then(|t| t.lines().next()).unwrap_or_default();
-    assert!(header.ends_with(" 0.5 rootVisits=20"), "the PDA is the sixth header field: {text}");
+    assert!(
+        header.ends_with(" 0.5 rootVisits=20 wrn=0.0"),
+        "the PDA is the sixth header field: {text}"
+    );
     out(&mut wb, id, &info("Q16", 10));
     assert_eq!(wb.view(false).analysis.unwrap().visits, 20, "same PDA: the cache holds");
     let c = wb.config();
     assert_eq!((c.engine.kata_pda_enabled, c.engine.kata_pda), (true, Some(0.5)));
+}
+
+/// A KataGo line with a score uncertainty, as KataGo's summaries carry it.
+fn kata_info(mv: &str, visits: u64) -> String {
+    format!(
+        "info move {mv} visits {visits} winrate 0.6 scoreLead 1.5 scoreStdev 7 prior 0.2 order 0 pv {mv} D4 rootInfo visits {visits}"
+    )
+}
+
+/// The breadth of a stored result in a save of `wb`: the `wrn=` of the root's `LZOP` header.
+fn saved_breadth(wb: &mut Workbench) -> (String, Option<f64>) {
+    let text = wb.begin_save("wrn.sgf", "interop:test").text;
+    let rec = sgf::read(&text).unwrap();
+    let saved = lizzie_core::formats::saved_analysis::primary(&rec.node(lizzie_core::record::ROOT).properties);
+    (text, saved.expect("the root's analysis is saved").wrn)
+}
+
+/// Java `BoardDataWrnMetadataTest`: a live result records the breadth its engine confirmed, also
+/// a 0 (Java `BoardData.wrnKnown`/`wrn` of the source engine); a result of an engine that has
+/// confirmed none is unknown, never filled in from the toolbar. The summary shows only a known
+/// non-zero breadth.
+#[test]
+fn live_results_record_the_breadth_their_engine_confirmed() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    wb.save_engine_settings(vec![profile("KataGo", "/opt/katago")], EngineStartup::Default)
+        .unwrap();
+    wb.start_engines();
+    let id = world.launched()[0].0;
+    let mut params = engine_params("0", "0.5");
+    answer_params(&mut wb, &world, id, "KataGo", &mut params);
+    open(&mut wb, "(;SZ[9]KM[7.5];B[ee])");
+    answer_params(&mut wb, &world, id, "KataGo", &mut params);
+    out(&mut wb, id, &kata_info("D4", 200));
+    let (_, wrn) = saved_breadth(&mut wb);
+    assert_eq!(wrn, Some(0.5));
+    wb.navigate(Navigation::Forward(1));
+    answer_params(&mut wb, &world, id, "KataGo", &mut params);
+    out(&mut wb, id, &kata_info("D4", 200));
+    let comment = wb.view(false).comment_with_analysis.unwrap_or_default();
+    assert!(comment.ends_with("贴目: 7.5 广度:0.5"), "{comment}");
+    wb.navigate(Navigation::Back(1));
+    answer_params(&mut wb, &world, id, "KataGo", &mut params);
+
+    // Unchecked, the engine searches with 0: a known 0, saved but not shown.
+    wb.set_kata_param(KataParam::Wrn, false, 0.5).unwrap();
+    answer_params(&mut wb, &world, id, "KataGo", &mut params);
+    out(&mut wb, id, &kata_info("D4", 20));
+    let (text, wrn) = saved_breadth(&mut wb);
+    assert_eq!(wrn, Some(0.0), "{text}");
+    assert!(text.contains(" rootVisits=20 wrn=0.0"), "{text}");
+    wb.navigate(Navigation::Forward(1));
+    answer_params(&mut wb, &world, id, "KataGo", &mut params);
+    out(&mut wb, id, &kata_info("D4", 20));
+    let comment = wb.view(false).comment_with_analysis.unwrap_or_default();
+    assert!(comment.ends_with("贴目: 7.5"), "{comment}");
+
+    // An engine that confirmed no breadth: unknown.
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    out(&mut wb, id, &kata_info("Q16", 200));
+    let (text, wrn) = saved_breadth(&mut wb);
+    assert_eq!(wrn, None, "{text}");
+    assert!(!text.contains("wrn="), "{text}");
 }
 
 #[test]

@@ -9,27 +9,39 @@ import type { IconName } from "./design/icons";
 import { confirm, message } from "./dialogs";
 import { openDiagnostics } from "./diagnostics";
 import { openJavaImport } from "./javaImport";
-import { t } from "./i18n";
+import { product, t } from "./i18n";
 import { openMoreEngines } from "./engine/catalog";
 import { consoleVisible, toggleConsole } from "./engine/console";
 import { openRules } from "./engine/rules";
 import { openEngineParameters } from "./engine/kataParams";
 import { openAnalysisSettings } from "./engine/settings";
 import { openAutoSetup } from "./setup/dialog";
-import { openRemoteCompute } from "./cloud/center";
+import { openRemoteCompute, remoteComputeDisconnect, remoteComputeZhiziPending } from "./cloud/center";
 import "./engine/events";
 import { openContributionSettings } from "./contribution/settings";
 import "./contribution/window";
+
+/** A Java resource key, or with `product` this product's own message key. `shown`: the window the
+ *  item opened already says it in place, so no message repeats it. */
+export interface Reason {
+  key: string;
+  product?: boolean;
+  shown?: boolean;
+}
+
+export function reasonText(reason: Reason): string {
+  return reason.product ? product(reason.key) : t(reason.key);
+}
 
 export interface CommandEntry {
   run: () => void;
   checked?: () => boolean;
   /** A Java-faithful disabled state (not "unimplemented"). */
   enabled?: () => boolean;
-  /** Why the item cannot be used now, as this product's message key (`product(key)`), or null when
-   *  it can. A reason disables the item; the window's menus show it as the item's tooltip and
-   *  function search gives the same text. The system menu bar only greys the item. */
-  disabledReason?: () => string | null;
+  /** Why the item cannot be used now, or null when it can. A reason disables the item; the
+   *  window's menus show it as the item's tooltip and function search gives the same text. The
+   *  system menu bar only greys the item. */
+  disabledReason?: () => Reason | null;
   /** Java items hidden by a menu-open listener (setVisible(false)) while this is false. */
   visible?: () => boolean;
   /** Java items whose text a menu-open listener sets (启动/停止 Web 旁观, Menu.java:4301-4309). */
@@ -38,6 +50,9 @@ export interface CommandEntry {
    *  With `icon` it shows the icon, and `label` is its name and tooltip. `item` names it where a
    *  menu holds no buttons and it is an item of its own (the macOS menu bar); `label` by default. */
   button?: { label: () => string; run: () => void; icon?: IconName; item?: () => string };
+  /** Function search's way to a setting inside a dialog or a window: opens it at the control and
+   *  resolves with why the control could not be reached, or null once it has the focus. */
+  locate?: () => Promise<Reason | null>;
 }
 
 /** Settings > 语言 (Menu.java:7025-7034): saved now, applied after a restart. */
@@ -73,6 +88,12 @@ export const COMMANDS: Record<string, CommandEntry> = {
   "engine.parameters": { run: () => void openEngineParameters() },
   // 设置 > 远程算力 (Menu.java:5334-5342).
   "engine.remote": { run: openRemoteCompute },
+  // 远程算力 > 断开智子引擎 (ZhiziConnectionControls): the same action as the window's button, run
+  // through the open window so that its 智子 switch still under way is dropped first.
+  "engine.disconnect-zhizi": {
+    run: () => { if (!remoteComputeDisconnect()) void run({ type: "DisconnectZhizi" }); },
+    disabledReason: () => (state.view?.engine.zhizi === "Disconnected" && !remoteComputeZhiziPending() ? { key: "zhiziNothingToDisconnect", product: true } : null),
+  },
   // 综合设置 opens at its first page, 棋盘与显示 (Menu.java:5395-5399, ConfigDialog2.java:4168-4171).
   "settings.general": { run: () => void openAnalysisSettings("display") },
   "menu.gtpPanel": { run: toggleConsole, checked: consoleVisible },

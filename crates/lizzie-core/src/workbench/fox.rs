@@ -80,7 +80,7 @@ impl Workbench {
             | Command::SaveRecordTo { .. } | Command::CopyRecord | Command::ExportRecord { .. }
             | Command::ExportRecordTo { .. } | Command::ExportImage { .. } | Command::ExportImageTo { .. }
             | Command::CopyImage { .. } | Command::SetLanguage { .. } | Command::SetPlaySound { .. }
-            | Command::SetDisplaySettings { .. } | Command::SetFrameFontSize { .. }
+            | Command::SetDisplaySettings { .. } | Command::SetFrameFontSize { .. } | Command::SetBigWinrate { .. }
             | Command::CommitLayout { .. } | Command::ApplyCustomLayout { .. }
             | Command::ToggleIndependentBoard { .. } | Command::CloseIndependentBoard { .. }
             | Command::OpenLogFolder | Command::ExportDiagnostics | Command::SetReplaceFileHint { .. }

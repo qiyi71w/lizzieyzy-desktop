@@ -6,6 +6,7 @@ use crate::{
         ResourcePlanView, ResourceRepairView, ResourceResult, ResourceSetupView, ResourceTaskView, ResourcesView,
     },
     engine::{
+        diagnosis::HostSystem,
         gtp::split_command,
         profile::{EngineProfile, EngineStartup},
         runtime::Phase,
@@ -46,6 +47,8 @@ pub(super) struct ResourceFlow {
     next: u64,
     store: r::ResourceStore,
     catalog: r::Catalog,
+    /// The system engines start on (`Workbench::set_host_system`).
+    host: HostSystem,
     active: Option<Active>,
     plan: Option<Plan>,
     view: ResourcesView,
@@ -86,6 +89,7 @@ impl ResourceFlow {
             next: 0,
             store,
             catalog,
+            host: HostSystem::default(),
             active: None,
             plan: None,
             view,
@@ -120,6 +124,7 @@ pub struct ResourceJob {
     pub operation: ResourceCommand,
     pub store: r::ResourceStore,
     pub catalog: r::Catalog,
+    pub host: HostSystem,
     pub machine: Option<r::MachineFacts>,
     pub online: Vec<r::RemoteWeight>,
     pub active_executable: Option<(String, String)>,
@@ -148,6 +153,13 @@ fn refused(key: &str) -> ResourceResult {
     }
 }
 impl Workbench {
+    /// The system engines start on, read through [`HostSystem::detect`] (or given by a test):
+    /// from now on a packaged engine that needs a newer macOS is refused at every start
+    /// (Java `configureBundledProcessBuilder`) and by 校验引擎.
+    pub fn set_host_system(&mut self, host: HostSystem) {
+        self.engines.set_host_system(host.clone(), self.resources.catalog.clone());
+        self.resources.host = host;
+    }
     pub(crate) fn resource_task_active(&self) -> bool {
         self.resources.active.is_some()
     }
@@ -314,6 +326,7 @@ impl Workbench {
             operation,
             store: self.resources.store.clone(),
             catalog: self.resources.catalog.clone(),
+            host: self.resources.host.clone(),
             machine: self.resources.view.machine.clone(),
             online: self.resources.view.online_weights.clone(),
             active_executable,
@@ -347,6 +360,11 @@ impl Workbench {
         }
         let task = self.resources.active.take().expect("checked task");
         self.resources.view.detecting = false;
+        let diagnosis = result
+            .as_ref()
+            .ok()
+            .and_then(|done| done.validation.as_ref())
+            .and_then(|(_, v)| v.diagnosis.clone());
         let (status, key, detail) = match result {
             Ok(done) => {
                 let terminal = done
@@ -448,6 +466,7 @@ impl Workbench {
             status: status.into(),
             message_key: key.into(),
             detail: detail.clone(),
+            diagnosis,
         });
         self.log(
             status == "failed",
@@ -1094,6 +1113,24 @@ fn verify_target(
         .active_executable
         .as_ref()
         .filter(|(exe, _)| exe == &target.executable);
+    // Java validates through `configureBundledProcessBuilder`, whose macOS refusal escaped the
+    // check and left it unanswered; here the refusal is the check's answer.
+    let refusal = active
+        .is_none()
+        .then(|| job.host.refuse_engine(&job.catalog, Path::new(&target.executable)))
+        .flatten();
+    if let Some(refusal) = refusal {
+        out.validation = Some((
+            target.executable.clone(),
+            r::EngineValidation {
+                status: r::ValidationStatus::StartFailed,
+                version: None,
+                detail: refusal.to_string(),
+                diagnosis: Some(refusal),
+            },
+        ));
+        return;
+    }
     let mut validation = r::verify_engine(
         probe,
         Path::new(&target.executable),

@@ -27,7 +27,8 @@ use crate::api::{
 use crate::engine::analysis_command::{self, recommended_threads};
 use crate::engine::gtp::{join_command, prepare_launch, InfoLine};
 use crate::engine::kata_analysis::{self, QueryOptions, Response};
-use crate::engine::runtime::{InstanceId, LeaseAvailability, LeaseFailure, Phase, RulesOutcome, RuntimeEvent};
+use crate::engine::profile::EngineProfile;
+use crate::engine::runtime::{InstanceId, LaunchError, LeaseAvailability, LeaseFailure, Phase, RulesOutcome, RuntimeEvent};
 use crate::engine::ssh::SshSettings;
 use crate::formats::ReadError;
 use crate::record::{GameRecord, NodeId, RecordFormat, Stone, ROOT};
@@ -252,7 +253,7 @@ impl Workbench {
     /// (`kifuEngineSyncPending`).
     fn kifu_sync_pending(&self) -> bool {
         match (self.engines.foreground(), self.target_rules()) {
-            (Some(f), Some(rules)) => self.engines.rules_outcome(f, rules) == RulesOutcome::Pending,
+            (Some(f), Some(rules)) => self.engines.rules_outcome(f, rules, self.rules_revision) == RulesOutcome::Pending,
             _ => false,
         }
     }
@@ -360,7 +361,7 @@ impl Workbench {
     }
 
     /// Starts the analysis engine process for `command`, on the SSH host when 远程引擎 is on.
-    fn start_analysis_worker(&mut self, command: &str) -> Result<InstanceId, String> {
+    fn start_analysis_worker(&mut self, command: &str) -> Result<InstanceId, LaunchError> {
         let ssh = self.analysis_ssh().cloned();
         self.engines.start_worker_on(command, "AnalysisEngine", ssh.as_ref())
     }
@@ -403,23 +404,29 @@ impl Workbench {
         .then_some(Borrow::MissingEngine)
     }
 
-    /// 自动生成 / 选择引擎: the analysis command made from engine `index` (the foreground engine,
-    /// else the default one), creating the `analysis.cfg` it names when missing. Returns the
-    /// command and the created file.
-    pub fn generate_analysis_command(&self, index: Option<u32>) -> Result<(String, Option<String>), &'static str> {
+    /// The engine an analysis command is made from: engine `index`, else the foreground engine,
+    /// else the default one.
+    pub(super) fn analysis_source(&self, index: Option<u32>) -> Result<&EngineProfile, &'static str> {
         let engines = &self.config.engine;
-        let profile = match index {
+        match index {
             Some(i) => engines
                 .engines
                 .get(i as usize)
-                .ok_or("AnalysisEngineCommandHelper.noEngineSelected")?,
+                .ok_or("AnalysisEngineCommandHelper.noEngineSelected"),
             None => self
                 .engines
                 .foreground()
                 .and_then(|f| self.engines.profile_of(f))
                 .or_else(|| engines.default_index().and_then(|i| engines.engines.get(i)))
-                .ok_or("AnalysisEngineCommandHelper.noDefaultEngine")?,
-        };
+                .ok_or("AnalysisEngineCommandHelper.noDefaultEngine"),
+        }
+    }
+
+    /// 自动生成 / 选择引擎: the analysis command made from engine `index` (the foreground engine,
+    /// else the default one), creating the `analysis.cfg` it names when missing. Returns the
+    /// command and the created file.
+    pub fn generate_analysis_command(&self, index: Option<u32>) -> Result<(String, Option<String>), &'static str> {
+        let profile = self.analysis_source(index)?;
         if profile.is_remote() {
             return Err("AnalysisEngineCommandHelper.remoteUnsupported");
         }
@@ -643,7 +650,7 @@ impl Workbench {
 
     /// An analysis process running `command`: the idle one when it matches (`isAnalysisEngineReusable`)
     /// and runs where 远程引擎 says, else a new one (an idle one with another command ends).
-    pub(super) fn take_analysis_process(&mut self, command: &str) -> Result<InstanceId, String> {
+    pub(super) fn take_analysis_process(&mut self, command: &str) -> Result<InstanceId, LaunchError> {
         match self.quick.warm.take() {
             Some((id, warm))
                 if warm == command
@@ -1041,7 +1048,9 @@ impl Workbench {
             fill_pv_captures(&mut result, &rec.position(q.node), limit, !self.config.edit.no_capture);
             let tracked = if std::ptr::eq(rec, &*self.doc.record) { self.attended_points(q.node) } else { Vec::new() };
             store.update(q.node, q.stamp, result, ownership, self.suggestion_limit(), &tracked);
-            store.made_with_pda(q.node, pda);
+            // Analysis-process and borrowed results alike record no breadth (Java publishes
+            // them without a source engine, `tryToSetBestMovesWithStatus(..., false, ...)`).
+            store.made_with(q.node, pda, None);
         }
     }
 
@@ -1072,6 +1081,7 @@ impl Workbench {
                 rules_rev,
                 to_play,
                 line,
+                ..
             } if ours(lease) => {
                 if current_lease == Some((lease, false)) {
                     let q = Query {
@@ -1175,6 +1185,7 @@ impl Workbench {
         let doc = *doc;
         match kata_analysis::parse(line, size) {
             Response::Result { id, line } => {
+                self.engines.worker_answered(instance);
                 if let Some(q) = queries.remove(&id) {
                     *watchdog = Some(now + WATCHDOG);
                     self.quick_store(doc, &q, line, false);

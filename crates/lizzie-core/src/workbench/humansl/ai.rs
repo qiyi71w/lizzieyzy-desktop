@@ -1,4 +1,5 @@
 use super::*;
+use crate::humansl::feedback::Verdict;
 use crate::humansl::{choose, passing};
 use serde_json::json;
 
@@ -56,7 +57,7 @@ impl Workbench {
             Search::Ready => "ready",
             Search::Probe => "policy",
             Search::PassCheck => "pass",
-            Search::Play | Search::Pacing => "play",
+            Search::Play | Search::Pacing | Search::Held => "play",
             Search::Count => "count",
         };
         format!("humansl-{kind}-{}-{}", s.id, s.generation)
@@ -90,10 +91,12 @@ impl Workbench {
             selected: None,
             pace: now,
             button: false,
+            verdict: false,
+            verdict_wait: None,
         });
         self.human_sl_send(now);
     }
-    fn human_sl_ensure_worker(&mut self) -> Option<InstanceId> {
+    pub(super) fn human_sl_ensure_worker(&mut self) -> Option<InstanceId> {
         let s = self.human_sl.session.as_ref()?;
         if let Some(worker) = s.worker.filter(|&worker| self.engines.worker_alive(worker)) {
             return Some(worker);
@@ -132,7 +135,7 @@ impl Workbench {
             Search::PassCheck => protocol::pass_check_query(&r.id, at),
             Search::Play => protocol::play_query(&r.id, at, play),
             Search::Count => protocol::count_query(&r.id, at),
-            Search::Pacing => return,
+            Search::Pacing | Search::Held => return,
         };
         if let Some(r) = self.human_sl.session.as_mut().and_then(|s| s.request.as_mut()) {
             r.button = button;
@@ -155,6 +158,23 @@ impl Workbench {
             })
         })
     }
+    /// Drops the AI's turn in progress, and a failure to answer it: a search still running is
+    /// ended, and its answer, late or chosen and waiting for its think time, is never played
+    /// (Java `takeBack` moves `requestGeneration` on).
+    pub(super) fn human_sl_drop_request(&mut self) {
+        let Some(s) = self.human_sl.session.as_mut() else {
+            return;
+        };
+        s.generation += 1;
+        s.failed = false;
+        let Some(r) = s.request.take() else { return };
+        if let Some(worker) = s.worker.filter(|_| !matches!(r.phase, Search::Pacing | Search::Held)) {
+            let _ = self.engines.worker_send(
+                worker,
+                &json!({"id":format!("cancel-{}",r.id),"action":"terminate","terminateId":r.id}).to_string(),
+            );
+        }
+    }
     fn human_sl_request_failed(&mut self, now: Instant) {
         let Some(s) = self.human_sl.session.as_mut() else {
             return;
@@ -168,6 +188,14 @@ impl Workbench {
         }
         if let Some(worker) = s.worker.take() {
             self.engines.terminate(worker);
+            // A review running there gets no answer either.
+            self.human_sl_review_lost(now, false);
+        }
+        let Some(s) = self.human_sl.session.as_mut() else {
+            return;
+        };
+        if s.request.is_none() {
+            return;
         }
         // A count that fails or times out is not tried again: the game is not counted.
         if s.request.as_ref().is_some_and(|r| r.phase == Search::Count) {
@@ -188,6 +216,7 @@ impl Workbench {
             r.human_pass = false;
             r.top_share = None;
             r.evaluation = None;
+            r.verdict_wait = None;
             r.deadline = now + budget;
             self.human_sl_send(now);
         } else {
@@ -320,13 +349,54 @@ impl Workbench {
         r.selected = selected;
         r.phase = Search::Pacing;
         if now >= r.pace {
-            self.human_sl_apply_ai(now);
+            self.human_sl_reply_ready(now);
+        }
+    }
+    /// The reply's think time is over (`blunderToHoldFor`). When it answers a move being rated, it
+    /// waits for that rating, at most [`review::VERDICT_WAIT`]; a 恶手 rated by then holds it for
+    /// the player's decision, one rated later is only kept. A resignation is never held. Otherwise,
+    /// or once the wait is over, it is played.
+    fn human_sl_reply_ready(&mut self, now: Instant) {
+        let Some(s) = self.human_sl.session.as_mut() else {
+            return;
+        };
+        let Some(r) = s.request.as_mut().filter(|r| r.phase == Search::Pacing) else {
+            return;
+        };
+        if r.verdict && r.selected.as_deref() != Some(RESIGN) && r.verdict_wait.is_none_or(|wait| now < wait) {
+            if let Some(review) = s.review.as_mut() {
+                if review.judging() == Some(r.node) {
+                    if now < *r.verdict_wait.get_or_insert(now + review::VERDICT_WAIT) {
+                        return;
+                    }
+                } else if let Some(rating) = review.rating_of(r.node).filter(|f| f.verdict == Verdict::Blunder) {
+                    let rating = rating.clone();
+                    r.phase = Search::Held;
+                    s.ai_ms = s.ai_ms.saturating_add(now.saturating_duration_since(s.turn).as_millis() as u64);
+                    s.turn = now;
+                    review.assist.decide_about(rating);
+                    return;
+                }
+            }
+        }
+        self.human_sl_apply_ai(now);
+    }
+    /// A rating arrived: a reply past its think time that waits for it goes on.
+    pub(super) fn human_sl_verdict_arrived(&mut self, now: Instant) {
+        if self
+            .human_sl
+            .session
+            .as_ref()
+            .and_then(|s| s.request.as_ref())
+            .is_some_and(|r| r.phase == Search::Pacing && r.verdict_wait.is_some())
+        {
+            self.human_sl_reply_ready(now);
         }
     }
     /// The chosen reply is played on the game's position, which the board shows again if the
     /// player was browsing (Java `applyAiMoveIfCurrent`). The AI's resignation ends the game;
     /// its pass after the player's ends it too, and KataGo counts it (`applyAiMove`).
-    fn human_sl_apply_ai(&mut self, now: Instant) {
+    pub(super) fn human_sl_apply_ai(&mut self, now: Instant) {
         if !self.human_sl_request_current() {
             self.human_sl_lost_game();
             return;
@@ -348,6 +418,7 @@ impl Workbench {
         }
         let point = gtp::parse_vertex(self.doc.record.size, &vertex).ok().flatten();
         if point.is_some() && self.human_sl_commit(point) {
+            self.human_sl_review_turn(now);
             return;
         }
         // A stale or illegal reply passes too, but only the AI's own pass may end the game.
@@ -356,6 +427,7 @@ impl Workbench {
             self.human_sl_count(now);
         } else {
             self.human_sl.notices.push(HumanSlNotice::AiPassed);
+            self.human_sl_review_turn(now);
         }
     }
     fn human_sl_worker_line(&mut self, text: &str, now: Instant) {
@@ -387,6 +459,10 @@ impl Workbench {
             }
             return;
         };
+        // A review's answer goes to the reviewer, whatever the AI's turn is doing.
+        if self.human_sl_review_line(&response, now) {
+            return;
+        }
         let Some(s) = self.human_sl.session.as_ref() else {
             return;
         };
@@ -415,7 +491,7 @@ impl Workbench {
             Search::PassCheck => self.human_sl_pass_checked(&response, now),
             Search::Play => self.human_sl_searched(&response, now),
             Search::Count => self.human_sl_counted(Some(&response), now),
-            Search::Pacing => {}
+            Search::Pacing | Search::Held => {}
         }
     }
     pub(in crate::workbench) fn human_sl_deadline(&self) -> Option<Instant> {
@@ -426,7 +502,16 @@ impl Workbench {
         let request = s
             .request
             .as_ref()
-            .map(|r| if r.phase == Search::Pacing { r.pace } else { r.deadline });
+            .map(|r| match r.phase {
+                Search::Pacing => r.verdict_wait.unwrap_or(r.pace),
+                // A held reply waits for the player.
+                Search::Held => s.tick,
+                _ => r.deadline,
+            });
+        let request = match (request, self.human_sl_review_deadline()) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
         Some(request.map_or(s.tick, |d| d.min(s.tick)))
     }
     pub(in crate::workbench) fn human_sl_tick(&mut self, now: Instant) -> bool {
@@ -440,13 +525,23 @@ impl Workbench {
         if changed {
             s.tick = now + Duration::from_secs(1);
         }
+        if self.human_sl_review_deadline().is_some_and(|d| now >= d) {
+            self.human_sl_review_lost(now, true);
+        }
+        let Some(s) = self.human_sl.session.as_mut() else {
+            return false;
+        };
         let Some(r) = s.request.as_ref() else { return changed };
-        if r.phase == Search::Pacing {
-            if now >= r.pace {
-                self.human_sl_apply_ai(now);
-                return true;
+        match r.phase {
+            Search::Held => return changed,
+            Search::Pacing => {
+                if now >= r.pace && r.verdict_wait.is_none_or(|wait| now >= wait) {
+                    self.human_sl_reply_ready(now);
+                    return true;
+                }
+                return changed;
             }
-            return changed;
+            _ => {}
         }
         if now >= r.deadline {
             if let Some(worker) = s.worker {
@@ -464,7 +559,8 @@ impl Workbench {
         }
         changed
     }
-    pub(in crate::workbench) fn human_sl_event(&mut self, event: RuntimeEvent) -> Option<RuntimeEvent> {
+    /// The companion's `event`, which happened at `now`.
+    pub(in crate::workbench) fn human_sl_event(&mut self, event: RuntimeEvent, now: Instant) -> Option<RuntimeEvent> {
         let Some(s) = self.human_sl.session.as_ref() else {
             return Some(event);
         };
@@ -472,7 +568,7 @@ impl Workbench {
         let restore = s.restore;
         match event {
             RuntimeEvent::WorkerLine { instance, line } if Some(instance) == worker => {
-                self.human_sl_worker_line(&line, Instant::now());
+                self.human_sl_worker_line(&line, now);
                 None
             }
             RuntimeEvent::WorkerExited {
@@ -489,9 +585,10 @@ impl Workbench {
                 } else if s.phase == HumanSlPhase::Playing {
                     let s = self.human_sl.session.as_mut().unwrap();
                     s.worker = None;
-                    if s.request.as_ref().is_some_and(|r| r.phase != Search::Pacing) {
-                        self.human_sl_request_failed(Instant::now());
+                    if s.request.as_ref().is_some_and(|r| !matches!(r.phase, Search::Pacing | Search::Held)) {
+                        self.human_sl_request_failed(now);
                     }
+                    self.human_sl_review_lost(now, false);
                 }
                 None
             }

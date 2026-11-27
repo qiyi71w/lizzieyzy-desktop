@@ -1,5 +1,6 @@
 //! The HumanSL companion: a KataGo analysis engine with the human model, and the queries AI 陪练
 //! sends it (Java `analysis/HumanSlAnalysisRunner`).
+use super::feedback::{normalize, PositionReview, ReviewCandidate};
 use super::{Candidate, PlaySettings};
 use crate::engine::{gtp, kata_analysis};
 use crate::record::{GameRecord, NodeId, Point};
@@ -77,17 +78,75 @@ fn base(id: &str, at: Position<'_>, max_visits: u32) -> Value {
     q
 }
 
-/// The human policy of `profile` from one visit: the readiness check (one symmetry) and a policy
-/// level's move (two).
-pub fn policy_query(id: &str, at: Position<'_>, profile: &str, symmetries: u32) -> String {
-    let mut q = base(id, at, 1);
+/// A HumanSL request of `profile` with at most `visits` and `symmetries` root symmetries
+/// (`HumanSlAnalysisRunner.buildHumanSlRequest`).
+fn human_query(id: &str, at: Position<'_>, profile: &str, visits: u32, symmetries: u32) -> Value {
+    let mut q = base(id, at, visits);
     q["includePolicy"] = json!(true);
     let settings = &mut q["overrideSettings"];
     settings["humanSLProfile"] = json!(profile);
     settings["ignorePreRootHistory"] = json!(false);
     settings["humanSLRootExploreProbWeightless"] = json!(if elite(profile) { 0.8 } else { 0.5 });
     settings["rootNumSymmetriesToSample"] = json!(symmetries.clamp(1, 8));
+    q
+}
+
+/// The human policy of `profile` from one visit: the readiness check (one symmetry) and a policy
+/// level's move (two).
+pub fn policy_query(id: &str, at: Position<'_>, profile: &str, symmetries: u32) -> String {
+    human_query(id, at, profile, 1, symmetries).to_string()
+}
+
+/// 边下边提醒's review of a position with the opponent's profile: KataGo's search of at most
+/// `visits` for `max_time` seconds from one symmetry, and the human policy
+/// (`HumanSlAnalysisRunner.reviewPosition`).
+pub fn review_query(id: &str, at: Position<'_>, profile: &str, visits: u32, max_time: f64) -> String {
+    let mut q = human_query(id, at, profile, visits, 1);
+    q["overrideSettings"]["maxTime"] = json!(max_time);
     q.to_string()
+}
+
+/// A review's answer about `node` (`HumanSlAnalysisRunner.parseReview`): the root's score lead and
+/// HumanSL score spread, the searched moves in KataGo's order with their leads (`scoreMean` when
+/// there is no `scoreLead`), and the human policy's legal moves, the pass included.
+pub fn review(response: &Value, record: &GameRecord, node: NodeId) -> PositionReview {
+    let root = response.get("rootInfo");
+    let number = |v: Option<&Value>, key: &str| v.and_then(|v| v.get(key)).and_then(Value::as_f64);
+    let mut infos: Vec<(i64, &Value)> = response["moveInfos"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+        .iter()
+        .enumerate()
+        .filter(|(_, info)| info["move"].as_str().is_some_and(|m| !m.trim().is_empty()))
+        .map(|(i, info)| (info["order"].as_i64().unwrap_or(i as i64), info))
+        .collect();
+    infos.sort_by_key(|(order, _)| *order);
+    let candidates = infos
+        .into_iter()
+        .filter_map(|(_, info)| {
+            let lead = number(Some(info), "scoreLead").or_else(|| number(Some(info), "scoreMean"))?;
+            lead.is_finite().then(|| ReviewCandidate {
+                vertex: info["move"].as_str().unwrap_or_default().trim().into(),
+                visits: info["visits"].as_u64().unwrap_or(0).min(u64::from(u32::MAX)) as u32,
+                lead,
+            })
+        })
+        .collect();
+    let mut human_shares: Vec<(String, f64)> = Vec::new();
+    for c in policy(response, record, node, true) {
+        let name = normalize(&c.vertex);
+        match human_shares.iter_mut().find(|(m, _)| *m == name) {
+            Some((_, share)) => *share += c.probability,
+            None => human_shares.push((name, c.probability)),
+        }
+    }
+    PositionReview {
+        root_lead: number(root, "scoreLead").unwrap_or(f64::NAN),
+        score_stdev: number(root, "humanScoreStdev"),
+        candidates,
+        human_shares,
+    }
 }
 
 /// A search level's move: one search with every setting of the level. The chosen-move keys only

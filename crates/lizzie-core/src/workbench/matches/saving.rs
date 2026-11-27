@@ -150,7 +150,14 @@ impl Workbench {
         ));
         if self.engines.is_katago(run.sides[index].instance) && result.score_lead.is_some() {
             let participant = &run.sides[index];
-            for (value, key) in [(participant.pda, "SGFParse.pda"), (participant.wrn, "SGFParse.wrn")] {
+            // An analysis match leaves a `KataGoPda` engine's aggressiveness to the engine, which
+            // reports it itself (`BoardData` takes the engine's `pda`).
+            let pda = if run.values.kind == GameKind::Analysis && self.engines.is_kata_go_pda(participant.instance) {
+                self.engines.custom_pda(participant.instance).0
+            } else {
+                participant.pda
+            };
+            for (value, key) in [(pda, "SGFParse.pda"), (participant.wrn, "SGFParse.wrn")] {
                 if let Some(value) = value.filter(|value| *value != 0.0) {
                     comment.push_str(&format!(" {}{value:?}", text(key)));
                 }

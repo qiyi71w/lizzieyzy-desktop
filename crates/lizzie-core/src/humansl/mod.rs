@@ -1,14 +1,18 @@
 //! AI 陪练's opponent: its levels, how a level picks a move from KataGo's HumanSL answer, how
-//! long the AI appears to think, when it resigns, and the analysis protocol. No application or
+//! long the AI appears to think, when it resigns, what a take-back withdraws, how 边下边提醒 rates
+//! the player's moves and helps within a turn, and the analysis protocol. No application or
 //! process state.
+pub mod assist;
 pub mod choose;
+pub mod feedback;
 mod level;
 pub mod passing;
 pub mod protocol;
 mod resign;
+pub(crate) mod take_back;
 mod think_time;
 
-pub use level::{CoachLevel, CoachLevelKind, PlaySettings};
+pub use level::{CoachGrade, CoachLevel, CoachLevelKind, PlaySettings};
 pub use resign::Resignation;
 pub use think_time::{think_time, Pace};
 

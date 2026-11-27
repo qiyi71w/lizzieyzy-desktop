@@ -60,9 +60,9 @@ body {
 #top td {
   height: max(calc(var(--af-row, 20px) - 4px), 22px);
 }
-/* The actual move's row shows all its figures: its rank with a smaller 实战 note under it, a
-   smaller change before each value (actualParts). A figure cell too narrow for both breaks
-   between them, and only there. */
+/* The actual move's row shows all its figures: its rank with a smaller 实战 note under it, each
+   value with its change after it in smaller type (actualParts). A figure cell too narrow for both
+   breaks between them, and only there. */
 #top tr.actual td {
   padding-block: 3px;
   line-height: 1.25;
@@ -70,12 +70,12 @@ body {
   word-break: keep-all;
 }
 #top .actual-note {
-  margin-right: 4px;
+  margin-left: 4px;
   font-size: var(--ds-size-s);
 }
 #top td:first-child .actual-note {
   display: block;
-  margin-right: 0;
+  margin-left: 0;
   word-break: normal;
 }
 /* 序号 and 坐标 read as words. */

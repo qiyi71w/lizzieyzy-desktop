@@ -2,13 +2,13 @@
 // shortcut isolation, focus restore after a cancelled search, and the final activation admission.
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { state } from "../app";
-import { COMMANDS } from "../commands";
+import { COMMANDS, reasonText } from "../commands";
 import { searchFunctions } from "../contract/client";
 import { dialogOpen, message, ownerIsDisabled } from "../dialogs";
 import { t } from "../i18n";
 import { focusIndependent, keyFromIndependent } from "../workbench/independent";
 import { openSearchDialog, type SearchDialog } from "./dialog";
-import { activateFunction, focusBoard, reasonKey, reasonText, resolveFunction, type DestinationKind } from "./targets";
+import { activateFunction, focusBoard, reasonKey, resolveFunction, type DestinationKind } from "./targets";
 
 let dialog: SearchDialog | null = null;
 let openQueued = false;
@@ -94,7 +94,7 @@ export async function openFunctionSearch(fromFloating = false): Promise<void> {
   if (selected) {
     const reason = await activateFunction(selected);
     lastActivation = { id: selected.id, kind: resolveFunction(selected).kind, reason: reasonKey(reason) };
-    if (reason) await message(t("FunctionSearch.title"), reasonText(reason));
+    if (reason && !reason.shown) await message(t("FunctionSearch.title"), reasonText(reason));
   } else if (!(fromFloating && generation === restoreGeneration && (await focusIndependent("Main")))) restoreFocus(previous, generation);
 }
 
@@ -147,14 +147,17 @@ export function bindFunctionSearch(refuse: (target: EventTarget | null) => boole
   window.addEventListener("blur", () => swallowedKeys.clear());
 }
 
-/** Acceptance probe: the open search, the last activation, and every catalog entry's destination
- *  as resolved now (read-only). `registered` marks ids the command catalog implements, so a check
- *  can require each to reach a real destination. */
+/** Acceptance probe: the open search, the last activation, the control the gold line is round in
+ *  this window, and every catalog entry's destination as resolved now (read-only). `registered`
+ *  marks ids the command catalog implements, so a check can require each to reach a real
+ *  destination. */
 export async function functionSearchReport() {
   const entries = await searchFunctions("", state.view?.settings.active_language ?? "ZhCn");
+  const located = document.querySelector<HTMLElement>(".located");
   return {
     open: dialog?.report() ?? null,
     lastActivation,
+    located: located ? located.dataset.key || located.dataset.settingTarget || located.id || located.className : null,
     entries: entries.map((m) => {
       const r = resolveFunction(m, dialog?.layer ?? null);
       return {

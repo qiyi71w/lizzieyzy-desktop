@@ -109,12 +109,50 @@
   color: var(--ds-text-3);
   font-size: var(--ds-size-s);
 }
-/* 测评 / 吻合度 / 发挥水准: joined text segments, the shown one on. */
+/* 测评 / 吻合度 / 发挥水准 / 分阶段: joined text segments, the shown one on, in one row (Java's
+   StrengthTabs). A window too narrow for the row scrolls it across, without a bar; a fade marks
+   the side that hides more (dashboard.ts scrollingTabs sets more-start / more-end). */
 .ps-tabs {
   display: inline-flex;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.ps-tabs::-webkit-scrollbar {
+  display: none;
+}
+.ps-tabs::before,
+.ps-tabs::after {
+  content: "";
+  position: sticky;
+  z-index: 1;
+  flex: none;
+  width: 24px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease-out;
+}
+.ps-tabs::before {
+  left: 0;
+  margin-right: -24px;
+  background: linear-gradient(to right, var(--ds-panel), transparent);
+}
+.ps-tabs::after {
+  right: 0;
+  margin-left: -24px;
+  background: linear-gradient(to left, var(--ds-panel), transparent);
+}
+.ps-tabs.more-start::before,
+.ps-tabs.more-end::after {
+  opacity: 1;
 }
 .ps-tab {
   border-radius: 0;
+}
+/* Inside the row, which clips across: the focus ring is drawn within the segment. */
+.ps-tab:focus-visible {
+  outline-offset: -3px;
 }
 .ps-tab + .ps-tab {
   margin-left: -1px;
@@ -132,46 +170,73 @@
   color: var(--ds-accent-text);
   font-weight: 600;
 }
+/* A tab waits for the figures. */
+.ps-tab:disabled {
+  color: var(--ds-text-off);
+}
 .ps-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
-/* 棋力模型: its name before a button that opens the list below it. */
+/* 棋力模型: its name before a field with the chosen model's everyday name, opening the model
+   menu below it (StrengthModelPicker). */
 .ps-combo {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
-  --ps-combo-row: 25px;
+  gap: 4px 8px;
+  max-width: 100%;
 }
-.ps-combo-anchor {
-  position: relative;
+.ps-combo > .ps-label {
+  white-space: nowrap;
 }
 .ps-combo-button {
   display: inline-flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  min-width: calc(var(--ds-size) * 14);
+  min-width: calc(var(--ds-size) * 10);
   padding: 0 8px;
   border-color: var(--ds-line-strong);
   background-color: var(--ds-field);
 }
 .ps-combo-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-weight: 600;
+  white-space: nowrap;
 }
-.ps-combo-button .icon {
+.ps-combo-button > .icon {
+  flex: none;
   width: 12px;
   height: 12px;
   color: var(--ds-text-2);
 }
+/* 推荐 / 实验. */
+.ps-badge {
+  flex: none;
+  padding: 0 6px;
+  border-radius: var(--ds-radius-s);
+  background: var(--ds-warning-soft);
+  color: var(--ds-warning-text);
+  font-size: var(--ds-size-s);
+  font-weight: 400;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.ps-badge.recommended {
+  background: var(--ds-accent-soft);
+  color: var(--ds-accent-text);
+}
+/* Placed by the picker within the window, like a popup menu (fixed: past the dialog's edges). */
 .ps-combo-list {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
+  position: fixed;
   z-index: 3;
-  min-width: 100%;
-  padding: 4px;
+  width: min(30em, calc(100vw - 16px));
+  padding: 5px;
   overflow-y: auto;
   border-radius: var(--ds-radius-menu);
   background: var(--ds-popup);
@@ -180,17 +245,86 @@
 .ps-combo-list[hidden] {
   display: none;
 }
-.ps-combo-row {
-  height: var(--ps-combo-row);
+/* One model: the check of the current one, its name with badge and technical name, then what it
+   does; or 导入模型… with its icon. */
+.ps-model-row {
   display: flex;
-  align-items: center;
-  padding: 0 10px;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
   border-radius: var(--ds-radius-s);
-  white-space: nowrap;
+  cursor: default;
 }
-.ps-combo-row.selected {
+.ps-model-row.active {
   background: var(--ds-accent-soft);
+}
+.ps-model-row > .icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 0.2em;
+}
+.ps-model-check {
   color: var(--ds-accent-text);
+  visibility: hidden;
+}
+.ps-model-row.current > .ps-model-check {
+  visibility: visible;
+}
+.ps-model-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ps-model-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.ps-model-title {
+  font-weight: 600;
+}
+.ps-model-technical {
+  margin-left: auto;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+}
+.ps-model-description {
+  color: var(--ds-text-2);
+  font-size: var(--ds-size-s);
+}
+.ps-combo-separator {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--ds-line);
+}
+.ps-model-import {
+  align-items: center;
+}
+.ps-model-import > .icon {
+  margin-top: 0;
+  color: var(--ds-text-2);
+}
+
+/* StrengthBanner: a running analysis, or that only part of the game is analysed with 分析整盘棋
+   for the rest, between the toolbar and the figures. */
+.ps-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 16px;
+  margin: 0 20px 12px;
+}
+.ps-banner > p {
+  flex: 1 1 16em;
+}
+.ps-banner > button {
+  flex: none;
+  font-weight: 400;
 }
 
 /* The tabs' panels: one shown, scrolling inside when taller than the window allows. */
@@ -214,6 +348,53 @@
 }
 .ps-dash[hidden] {
   display: none;
+}
+/* The toolbar, the banner and the tabs' panels; no box of its own in a taller window. */
+.ps-middle {
+  display: contents;
+}
+/* A short window (the 520 x 400 floor, large type): instead of squeezing the shown tab, or the
+   page that stands in for it, to nothing, everything between the tabs and the strip scrolls as
+   one (the subtitle, the model and 详细数据, the banner, the panel); the tabs stay at its top and
+   the strip below it, as a form dialog keeps its title and footer. */
+@media (max-height: 560px) {
+  .ps-middle {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: auto;
+    /* A control scrolled into view clears the tab row: its measured height (dashboard.ts), until
+       measured its padding and base.css's button. */
+    scroll-padding-top: var(--ps-tabs-h, calc(max(var(--ds-control-h-l), calc(var(--ds-size) * 1.4 + 6px)) + 20px));
+  }
+  .ps-header {
+    display: contents;
+  }
+  /* The header's padding and row gap, now on its parts. */
+  .ps-tabs {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    flex: none;
+    padding: 12px 20px 8px;
+    background: var(--ds-panel);
+  }
+  .ps-subtitle {
+    flex: none;
+    padding: 0 20px 8px;
+  }
+  .ps-actions {
+    flex: none;
+    padding: 0 20px 12px;
+  }
+  .ps-cards {
+    flex: none;
+  }
+  .ps-dash {
+    position: static;
+    overflow: visible;
+  }
 }
 /* Black and white side by side, split by a hairline. */
 .ps-two {
@@ -249,7 +430,7 @@
   gap: 4px 10px;
 }
 
-/* 测评: the five metrics with their bars, the 段位标尺 scale beside them. */
+/* 测评: the rank, the 段位标尺 ruler under it, then the five metrics with their bars. */
 .ps-dash-assessment > .ps-two {
   flex: 1 0 auto;
 }
@@ -273,15 +454,10 @@
     white-space: nowrap;
   }
 }
-.ps-side-body {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  column-gap: 24px;
-}
 .ps-metrics {
   display: grid;
-  grid-template-columns: max-content max-content minmax(48px, 1fr);
+  /* A long metric name wraps before the figures and bars pass the side's edge. */
+  grid-template-columns: minmax(0, max-content) max-content minmax(48px, 1fr);
   align-items: center;
   column-gap: 12px;
 }
@@ -317,42 +493,12 @@
 .ps-fill-rank {
   background: var(--ps-rank-color);
 }
+/* StrengthScale: one unbroken track with its ticks and tier labels under the rank. */
 .ps-scale {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  min-width: calc(var(--ds-size) * 10);
-}
-.ps-scale > .ps-label {
-  margin-bottom: 4px;
-}
-.ps-scale-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 24px;
-  padding: 0 8px;
-  border-radius: var(--ds-radius-s);
-  white-space: nowrap;
-}
-.ps-scale-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--ds-text-3);
-}
-.ps-scale-key {
-  min-width: calc(var(--ds-size) * 2.2);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-.ps-scale-row.selected {
-  background: var(--ds-accent-soft);
-  color: var(--ds-accent-text);
-  font-weight: 600;
-}
-.ps-scale-row.selected .ps-scale-dot {
-  background: var(--ds-accent-text);
+  gap: 4px;
+  padding-bottom: 4px;
 }
 
 /* 吻合度: each side's ring with its figure and four small figures, then the hit map. */
@@ -401,7 +547,9 @@
   font-size: var(--ds-size-l);
 }
 .ps-chart {
-  flex: 1 0 200px;
+  /* At least as tall as its title and the map's least height, so a narrow window never lets the
+     map run under the note below. */
+  flex: 1 0 auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -506,7 +654,7 @@
   padding: 8px 0;
 }
 /* Neither side has data: the empty states keep their height, the note follows them. */
-.ps-dash-assessment > .ps-two:not(:has(.ps-side-body)) {
+.ps-dash-assessment > .ps-two:not(:has(.ps-metrics)) {
   flex: none;
 }
 
@@ -540,6 +688,317 @@
   color: var(--ds-text-3);
   font-size: var(--ds-size-s);
   font-variant-numeric: tabular-nums;
+}
+
+/* StrengthEmptyState: what to do before the figures can be shown, a centred column in place of
+   the tabs' panels: the stone pair, the state, what it means, the one action, its progress; for
+   the human-style model below a hairline also 分析棋局时自动准备, its cost and the download. */
+.ps-dash.ps-empty-page {
+  align-items: center;
+  justify-content: safe center;
+  padding: 24px 20px;
+}
+.ps-empty-column {
+  width: min(540px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.ps-empty-stones {
+  flex: none;
+  width: 48px;
+  height: 48px;
+}
+.ps-window .ps-empty-title {
+  margin-top: 16px;
+  font-size: var(--ds-size-l);
+  font-weight: 600;
+  text-wrap: balance;
+}
+/* Paragraphs: above `.ps-window p`'s zero margin. */
+.ps-empty-column .ps-empty-body {
+  margin-top: 8px;
+  max-width: 34em;
+  color: var(--ds-text-2);
+  line-height: 1.6;
+}
+.ps-empty-action {
+  margin-top: 22px;
+}
+.ps-empty-column .ps-empty-status {
+  margin-top: 16px;
+  color: var(--ds-text-2);
+  font-size: var(--ds-size-s);
+  font-variant-numeric: tabular-nums;
+}
+.ps-empty-progress {
+  width: min(320px, 100%);
+  height: 6px;
+  margin-top: 8px;
+}
+.ps-empty-divider {
+  width: min(420px, 100%);
+  height: 1px;
+  margin-top: 24px;
+  background: var(--ds-line);
+}
+.ps-empty-toggle {
+  margin-top: 18px;
+}
+.ps-empty-column .ps-empty-note {
+  margin-top: 6px;
+  max-width: 34em;
+  color: var(--ds-text-2);
+  font-size: var(--ds-size-s);
+  line-height: 1.5;
+}
+.ps-empty-column .ps-empty-download {
+  margin-top: 14px;
+  color: var(--ds-text-3);
+}
+
+/* 分阶段 (StrengthPhaseView): the game as a bar with two dividers, a section per phase split by
+   hairlines, then what is worth a review and why phase estimates vary more. */
+.ps-phase-timeline {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ps-phase-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+.ps-phase-hint {
+  flex: 1 1 12em;
+  min-width: 0;
+}
+.ps-phase-reset {
+  margin-left: auto;
+}
+.ps-phase-reset[hidden] {
+  display: none;
+}
+/* The bar paints on its canvas; the dividers are controls over it. */
+.ps-timeline {
+  position: relative;
+}
+.ps-divider {
+  position: absolute;
+  top: 0;
+  width: 16px;
+  height: 44px;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.ps-divider:focus-visible {
+  outline: none;
+}
+/* The grip: a narrow raised bar with a short line in its middle, in the accent while held. */
+.ps-divider::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 0;
+  width: 8px;
+  height: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--ds-line-strong);
+  border-radius: 4px;
+  background: var(--ds-raised);
+}
+.ps-divider::after {
+  content: "";
+  position: absolute;
+  left: 7.5px;
+  top: calc(50% - 3px);
+  width: 1px;
+  height: 6px;
+  background: var(--ds-text-3);
+}
+.ps-divider:hover::before,
+.ps-divider.dragging::before {
+  border-color: var(--ds-accent);
+}
+.ps-divider:hover::after,
+.ps-divider.dragging::after {
+  background: var(--ds-accent);
+}
+.ps-divider:focus-visible::before {
+  outline: 2px solid var(--ds-ring);
+  outline-offset: 1px;
+}
+.ps-phase-cards {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding-top: 12px;
+  border-top: 1px solid var(--ds-line);
+}
+.ps-phase-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 0 16px;
+}
+.ps-phase-card:first-child {
+  padding-left: 0;
+}
+.ps-phase-card:last-child {
+  padding-right: 0;
+}
+.ps-phase-card + .ps-phase-card {
+  border-left: 1px solid var(--ds-line);
+}
+.ps-phase-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+}
+.ps-phase-range {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+/* Each phase's tint, as on the bar (StrengthPhaseCard.tint). */
+.ps-phase-dot {
+  flex: none;
+  align-self: center;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ds-accent);
+}
+.ps-phase-dot.tint-0 {
+  opacity: 0.35;
+}
+.ps-phase-dot.tint-1 {
+  opacity: 0.63;
+}
+.ps-phase-dot.tint-2 {
+  opacity: 0.92;
+}
+.ps-phase-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+/* The game ended before this phase. */
+.ps-phase-card.unplayed .ps-phase-card-body {
+  opacity: 0.45;
+}
+/* A side: stone, name, rank, best / weakest, confidence at the right; wraps rather than clips. */
+.ps-phase-side {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  min-height: 28px;
+}
+.ps-phase-rank {
+  font-size: var(--ds-size-l);
+}
+.ps-phase-rank.none {
+  color: var(--ds-text-3);
+}
+.ps-phase-badge {
+  padding: 0 7px;
+  border-radius: var(--ds-radius-s);
+  background: var(--ds-warning-soft);
+  color: var(--ds-warning-text);
+  font-size: var(--ds-size-s);
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+.ps-phase-badge.best {
+  background: var(--ds-accent-soft);
+  color: var(--ds-accent-text);
+}
+.ps-phase-confidence {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+  white-space: nowrap;
+}
+.ps-confidence-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ds-danger);
+}
+.ps-phase-confidence.high .ps-confidence-dot {
+  background: var(--ds-accent);
+}
+.ps-phase-confidence.medium .ps-confidence-dot {
+  background: var(--ds-warning-text);
+}
+.ps-phase-ruler {
+  padding-top: 4px;
+}
+.ps-phase-verdict {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding-top: 10px;
+  border-top: 1px solid var(--ds-line);
+  color: var(--ds-text-2);
+}
+.ps-phase-verdict.decided {
+  color: var(--ds-text);
+}
+.ps-phase-notes {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/* StrengthNote without caution: an outlined mark and the text, no strip. */
+.ps-phase-review {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--ds-text-2);
+}
+.ps-phase-review[hidden] {
+  display: none;
+}
+.ps-info-mark {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin-top: 0.2em;
+  color: var(--ds-text-3);
+}
+/* Under the review line's text. */
+.ps-window .ps-phase-caveat {
+  padding-left: 23px;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+  line-height: 1.5;
+}
+@media (max-width: 700px) {
+  .ps-phase-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ps-phase-card,
+  .ps-phase-card:first-child,
+  .ps-phase-card:last-child {
+    padding: 0;
+  }
+  .ps-phase-card + .ps-phase-card {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-left: 0;
+    border-top: 1px solid var(--ds-line);
+  }
 }
 
 /* ---- 详细数据: the two sides' figures and the note, or the match chart */
@@ -617,4 +1076,91 @@
 }
 .ps-progress-actions button {
   min-width: 76px;
+}
+
+/* 分阶段's 详细数据 (StrengthPhaseTable): a row per figure, Black's and White's value in each
+   phase. Wide, the phases stand side by side under their names with one column of labels; in a
+   narrow window each phase's name, stones and rows follow one another. Each cell names its place
+   in both arrangements (detail.ts). */
+.ps-phase-table {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) repeat(6, minmax(0, 1fr));
+  align-items: stretch;
+}
+.ps-phase-table > * {
+  grid-column: var(--wide-col);
+  grid-row: var(--wide-row);
+  min-width: 0;
+}
+.ps-phase-table > .ps-pt-span {
+  grid-column: var(--wide-col) / span 2;
+}
+.ps-pt-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px 4px;
+  text-align: center;
+}
+.ps-pt-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--ds-size-l);
+  font-weight: 600;
+}
+.ps-pt-stone {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 8px;
+}
+.ps-pt-label,
+.ps-pt-value {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  border-top: 1px solid var(--ds-line);
+}
+.ps-pt-label {
+  padding-right: 8px;
+  color: var(--ds-text-2);
+}
+.ps-pt-value {
+  justify-content: center;
+  padding: 0 4px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.ps-phase-table > .ps-pt-repeat {
+  display: none;
+}
+.ps-pt-sep {
+  border-left: 1px solid var(--ds-line);
+}
+@media (max-width: 700px) {
+  .ps-phase-table {
+    grid-template-columns: minmax(0, 1fr) repeat(2, max-content);
+    column-gap: 16px;
+  }
+  .ps-phase-table > * {
+    grid-column: var(--narrow-col);
+    grid-row: var(--narrow-row);
+  }
+  .ps-phase-table > .ps-pt-span {
+    grid-column: 1 / -1;
+  }
+  .ps-phase-table > .ps-pt-repeat {
+    display: flex;
+  }
+  .ps-pt-head {
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    padding: 12px 0 0;
+  }
+  .ps-pt-sep {
+    border-left: 0;
+  }
 }

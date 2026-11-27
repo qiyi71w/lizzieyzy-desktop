@@ -1,7 +1,9 @@
 //! Single writer of profile tuning and benchmark task identity (`commitBenchmarkResult`).
 use super::Workbench;
+use super::exporting::java_text;
 use crate::api::{ApiError, BenchmarkTaskView, ErrorKind, TuningOutcome, TuningProfileView, TuningView};
 use crate::engine::benchmark::BenchmarkJob;
+use crate::engine::diagnosis::StartupDiagnosis;
 use crate::engine::{
     benchmark::{self, Observation, Target},
     tuning::{self, GtpConfiguration, ThreadPolicy, ThreadSource},
@@ -48,7 +50,27 @@ impl Drop for TuningFlow {
 fn error(key: &str) -> ApiError {
     ApiError::new(ErrorKind::InvalidArgument, key)
 }
+/// A refused start's explanation as display text in `language` (the Java text the interface shows
+/// for it), for a command error, which carries text only. Starts are refused for the system alone;
+/// a path error is read from a started engine's output and never refuses one.
+fn refusal_text(language: crate::settings::Language, refusal: &StartupDiagnosis) -> String {
+    match refusal {
+        StartupDiagnosis::MacOsTooOld { minimum, actual } => java_text(language, "KataGoSetup.macos.minimumVersion")
+            .replace("{0}", minimum)
+            .replace("{1}", actual),
+        StartupDiagnosis::PathTooLong => refusal.to_string(),
+    }
+}
 impl Workbench {
+    /// A packaged engine this system is too old for is not started for a benchmark or the GTP
+    /// configuration either (Java `BenchmarkExecution` goes through
+    /// `configureBundledProcessBuilder`). The command error shows the explanation as it is.
+    fn refuse(&self, spec: &crate::engine::gtp::LaunchSpec) -> Result<(), ApiError> {
+        match self.engines.launch_refusal(spec) {
+            Some(refusal) => Err(error(&refusal_text(self.active_language, &refusal))),
+            None => Ok(()),
+        }
+    }
     pub fn set_measured_hardware(&mut self, hardware: Option<(String, String, u64)>) {
         let available = hardware.is_some();
         let changed = self.engines.set_measured_hardware(hardware);
@@ -192,6 +214,7 @@ impl Workbench {
         }
         let mut target = Target::capture(&profile.command, self.engines.roots()).map_err(|e| error(&e))?;
         target.launch.library_dirs = self.engines.library_dirs().to_vec();
+        self.refuse(&target.launch)?;
         let policy = profile.thread_policy.clone().unwrap_or_default();
         self.tuning.next += 1;
         let job = BenchmarkJob {
@@ -375,6 +398,7 @@ impl Workbench {
         }
         let mut target = Target::capture(&p.command, self.engines.roots()).map_err(|e| error(&e))?;
         target.launch.library_dirs = self.engines.library_dirs().to_vec();
+        self.refuse(&target.launch)?;
         Ok(target)
     }
     pub fn gtp_configuration_target(
@@ -395,6 +419,7 @@ impl Workbench {
         let mut spec = crate::engine::gtp::prepare_launch(&p.command, self.engines.roots())
             .ok_or_else(|| error("EngineThreadPolicy.unknownBenchmarkTarget"))?;
         spec.library_dirs = self.engines.library_dirs().to_vec();
+        self.refuse(&spec)?;
         Ok((p.command.clone(), spec))
     }
     pub fn save_gtp_configuration(

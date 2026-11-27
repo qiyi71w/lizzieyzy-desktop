@@ -187,6 +187,7 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, () => string>> = {
   AnalysisEngine: () => t("Menu.flashAnalyzeSettings"),
   QuickModel: () => t("AutoSetup.quickAnalysisModel"),
   StrengthBackground: () => t("HumanSL40.backgroundToggle"),
+  StrengthPhaseBounds: () => `${t("PlayerStrengthEstimate.title")} · ${t("PlayerStrengthEstimate.phase.title")}`,
   StrengthModels: () => t("PlayerStrengthEstimate.model"),
   Tsumego: () => t("TsumeGoFrame.title"),
   CaptureTsumego: () => t("CaptureTsumeGoFrame.title"),
@@ -202,6 +203,8 @@ const JAVA_TARGET_LABELS: Partial<Record<ImportTarget, () => string>> = {
   ClickReview: () => t("ConfigDialog2.modern.play.clickReview"),
   // The top toolbar's 自由涂鸦 button (Menu.java:8639-8643), whose layer opens with this pen.
   PaintingColor: () => t("Menu.drawPainting.toolTipText"),
+  // 显示 > 黑白胜率大字's style, 窗口置顶 and bounds (BigWinrateSettings).
+  BigWinrate: () => t("Menu.bigWinrateWindow"),
 };
 
 function targetLabel(target: ImportTarget): string {

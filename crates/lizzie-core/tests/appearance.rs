@@ -120,11 +120,66 @@ fn every_value_the_theme_page_edits_survives_a_save_and_a_reload() {
         font_name:"Serif".into(), ui_font_name:"Sans".into(), winrate_font_name:"Mono".into(),
         blunder_winrate_thresholds:vec![-20.0,-5.0,0.0], blunder_node_colors:vec![vec![1,1,1],vec![2,2,2],vec![3,3,3]],
         ui_chrome_color:vec![33,34,35], ui_control_color:vec![36,37,38], ui_accent_color:vec![39,40,41], ui_text_color:vec![42,43,44],
+        coordinate_size:200, coordinate_bold:!theme.coordinate_bold,
         board_image:"/themes/sabaki/board.png".into(), black_stone_image:"/assets/black0.png".into(), white_stone_image:"/assets/white0.png".into(),
         ..theme.clone()
     };
     wb.set_appearance_settings(AppearanceSettings { theme:"Personal".into(), ..Default::default() },edited.clone()).unwrap();
     assert_eq!(appearance::load_theme(wb.storage(),"Personal",&ThemeSettings::default()),edited);
+}
+/// 棋盘坐标 (Theme.coordinateSize / coordinateBold): standard and plain by default; a theme's own
+/// value comes before the 默认 theme's, which a theme without one follows; both survive a
+/// restart. A size the page does not offer, or a value that does not read, is 标准 / plain.
+#[test]
+fn coordinate_labels_follow_the_theme_before_the_default_theme_and_unusable_values_read_as_standard() {
+    let dir=tempfile::tempdir().unwrap(); let mut wb=workbench(dir.path());
+    let labels=|t:&ThemeSettings| (t.coordinate_size,t.coordinate_bold);
+    assert_eq!(labels(&wb.view(true).settings.theme),(100,false));
+    // The 默认 theme's values are the global ones (ui.coordinate-size / -bold).
+    let global=ThemeSettings { coordinate_size:140, coordinate_bold:true, ..ThemeSettings::default() };
+    wb.set_appearance_settings(AppearanceSettings::default(),global.clone()).unwrap();
+    assert_eq!(labels(&workbench(dir.path()).view(true).settings.theme),(140,true));
+    // A theme without its own values follows them.
+    wb.add_theme("Personal").unwrap();
+    let personal=AppearanceSettings { theme:"Personal".into(), ..Default::default() };
+    let theme=appearance::load_theme(wb.storage(),"Personal",&wb.config().appearance_defaults);
+    assert_eq!(labels(&theme),(140,true));
+    // Its own values come first.
+    let file=appearance::theme_file(wb.storage(),"Personal").unwrap();
+    let write=|size:serde_json::Value,bold:serde_json::Value| {
+        let mut raw:serde_json::Map<String,serde_json::Value>=serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        raw.insert("coordinate-size".into(),size); raw.insert("coordinate-bold".into(),bold);
+        std::fs::write(&file,serde_json::to_vec(&raw).unwrap()).unwrap();
+    };
+    write(serde_json::json!(200),serde_json::json!(false));
+    let theme=appearance::load_theme(wb.storage(),"Personal",&wb.config().appearance_defaults);
+    wb.set_appearance_settings(personal.clone(),theme).unwrap();
+    assert_eq!(labels(&wb.view(false).settings.theme),(200,false));
+    assert_eq!(labels(&wb.config().appearance_defaults),(140,true));
+    assert_eq!(labels(&workbench(dir.path()).view(true).settings.theme),(200,false));
+    // Saving the theme on the page writes its values into its file.
+    let theme=ThemeSettings { coordinate_size:140, ..wb.view(false).settings.theme };
+    wb.set_appearance_settings(personal,theme).unwrap();
+    let saved:serde_json::Value=serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    assert_eq!((&saved["coordinate-size"],&saved["coordinate-bold"]),(&serde_json::json!(140),&serde_json::json!(false)));
+    // A size the page does not offer reads as 标准; an unreadable bold as plain.
+    for (size,bold) in [(serde_json::json!(150),serde_json::json!("maybe")),(serde_json::json!("large"),serde_json::json!(1))] {
+        write(size.clone(),bold.clone());
+        assert_eq!(labels(&workbench(dir.path()).view(true).settings.theme),(100,false),"{size} {bold}");
+    }
+    // So do they in the settings file, the other values loading as they are.
+    let config=storage(dir.path()).config_file;
+    let mut raw:serde_json::Value=serde_json::from_slice(&std::fs::read(&config).unwrap()).unwrap();
+    raw["appearance"]["theme"]=serde_json::json!("default");
+    raw["appearanceDefaults"]["coordinateSize"]=serde_json::json!(300);
+    raw["appearanceDefaults"]["coordinateBold"]=serde_json::json!("yes");
+    raw["appearanceDefaults"]["shadowSize"]=serde_json::json!(61);
+    std::fs::write(&config,serde_json::to_vec(&raw).unwrap()).unwrap();
+    let mut reopened=workbench(dir.path());
+    let theme=reopened.view(true).settings.theme;
+    assert_eq!((labels(&theme),theme.shadow_size),((100,false),61));
+    // The page cannot save a size it does not offer.
+    assert!(reopened.set_appearance_settings(AppearanceSettings::default(),ThemeSettings { coordinate_size:150, ..theme }).is_err());
 }
 #[cfg(unix)]
 #[test]

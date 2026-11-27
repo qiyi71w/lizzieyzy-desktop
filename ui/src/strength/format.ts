@@ -143,11 +143,37 @@ export function confidenceText(confidence: StrengthConfidence): string {
   }
 }
 
-/** playerStrengthModelDisplayName. */
+/** StrengthText.modelName: the model's technical name. */
 export function modelDisplayName(model: StrengthModelView | null | undefined): string {
   if (!model) return "-";
   if (model.name.toLowerCase() === "xgboost20tun") return "XGBoost 20TUN";
   return model.name.trim() || "-";
+}
+
+/** The bundled standard model (PlayerStrengthEstimator.StrengthModel.XGBOOST20TUN). */
+function isStandard(model: StrengthModelView): boolean {
+  return model.id === "bundled:xgboost20tun";
+}
+
+/** StrengthText.modelTitle: the everyday name, 标准模型 and 人类风格模型 for the bundled ones. */
+export function modelTitle(model: StrengthModelView): string {
+  if (isStandard(model)) return t("PlayerStrengthEstimate.model.standard");
+  if (model.human_sl) return t("PlayerStrengthEstimate.model.humanStyle");
+  return modelDisplayName(model);
+}
+
+/** StrengthText.modelDescription: one sentence on what a model looks at and what it costs. */
+export function modelDescription(model: StrengthModelView): string {
+  if (isStandard(model)) return t("PlayerStrengthEstimate.model.standard.description");
+  if (model.human_sl) return t("PlayerStrengthEstimate.model.humanStyle.description");
+  return t("PlayerStrengthEstimate.model.imported.description");
+}
+
+/** StrengthText.modelBadge: 推荐 for the standard model, 实验 for human style, else none. */
+export function modelBadge(model: StrengthModelView): { text: string; recommended: boolean } | null {
+  if (isStandard(model)) return { text: t("PlayerStrengthEstimate.model.recommended"), recommended: true };
+  if (model.human_sl) return { text: t("PlayerStrengthEstimate.model.experimental"), recommended: false };
+  return null;
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -174,18 +200,11 @@ export function rankScaleRows(): [string, string][] {
   ];
 }
 
-/** playerStrengthRankScaleSelectedIndex. */
-export function rankScaleSelectedIndex(rankValue: number | null): number {
-  if (rankValue === null || !Number.isFinite(rankValue)) return 3;
-  if (rankValue >= 12) return 0;
-  if (rankValue >= 11) return 1;
-  return rankValue >= 10 ? 2 : 3;
-}
-
-/** playerStrengthRankScaleTooltip, as the lines of its HTML. */
+/** StrengthText.scaleTooltip: what the estimated rank means, then the side's rank and the rank
+ *  scale, one tier per line. */
 export function rankScaleTooltip(side: StrengthSideReport): string {
   const current = hasSamples(side.summary) ? rankText(side.summary.rank_value) : "-";
-  return [`${t("PlayerStrengthEstimate.rank.scale")}: ${current}`, ...rankScaleRows().map(([a, b]) => `${a} ${b}`)].join("\n");
+  return [t("PlayerStrengthEstimate.help.rank"), "", `${t("PlayerStrengthEstimate.rank.scale")}: ${current}`, ...rankScaleRows().map(([a, b]) => `${a} ${b}`)].join("\n");
 }
 
 /** playerStrengthRankScalePlainText (the card's accessible description). */

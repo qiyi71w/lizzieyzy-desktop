@@ -6,7 +6,7 @@ use super::analysis::AnalysisStore;
 use super::Workbench;
 use crate::api::{
     ApiError, ErrorKind, KataEstimateMode, KataEstimateView, MoveChange, MoveEvaluation, ProblemListView,
-    ProblemMoveView, ScoreCommand, ScoreView, StatisticsView,
+    ProblemMoveView, ScoreCommand, ScoreView, StatisticsView, WinrateReading,
 };
 use crate::record::{DocumentEdit, GameRecord, NodeId, NodeKind, Stone, ROOT};
 use crate::scoring::Marks;
@@ -274,7 +274,24 @@ impl Workbench {
             ai_score_black: mean(black),
             ai_score_white: mean(white),
             last_move,
+            reading: self.winrate_reading(),
         }
+    }
+
+    /// Java `WinrateReading.of`: the current node, its parent, then its grandparent; the first
+    /// with analysis (visits and a finite win rate) gives Black's win rate, 0–100.
+    fn winrate_reading(&self) -> Option<WinrateReading> {
+        let rec = &self.doc.record;
+        let mut node = Some(self.cursor);
+        for _ in 0..3 {
+            let at = node?;
+            if let Some(a) = self.store.get(rec, at).filter(|a| a.visits > 0 && a.winrate.is_finite()) {
+                let black = if a.to_play == Stone::Black { a.winrate } else { 100.0 - a.winrate };
+                return Some(WinrateReading { node: at, black: black.clamp(0.0, 100.0), current: at == self.cursor });
+            }
+            node = rec.parent(at);
+        }
+        None
     }
 
     // -------------------------------------------------------------------- 问题手

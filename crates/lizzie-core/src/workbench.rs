@@ -37,6 +37,7 @@ mod strength;
 mod online;
 mod matches;
 mod panels;
+mod ogs_kifu;
 mod play;
 mod quick;
 mod quick_links;
@@ -57,12 +58,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use analysis::AnalysisStore;
+pub use cloud::{CloudTicket, ZHIZI_ACTIVATION_RETIRED, ZHIZI_BUSY};
 pub use analysis::LogLine;
 pub use editing::{NOT_SQUARE, SETUP_ENGINE_RUNNING, SETUP_MODE_ROOT_ONLY, SETUP_ROOT_ONLY};
 pub use flash::ANALYSIS_COMMAND_MISSING;
 pub use readboard::ReadBoardInstall;
 pub use fox_kifu::FoxKifuJob;
 pub use tencent_kifu::TencentKifuJob;
+pub use ogs_kifu::{OgsKifuJob, OgsKifuTask, OGS_LINK_FAILED, OGS_LINK_RATE_LIMITED};
 pub use importing::{IMPORT_NEEDS_REPLACE, IMPORT_STALE};
 pub use quick_links::QUICK_LINK_FAILED;
 pub use recovery::RecoveryStep;
@@ -180,7 +183,8 @@ pub enum OpenOrigin {
         source: OpenSource,
     },
     Clipboard,
-    /// A record downloaded by 野狐棋谱 or 腾讯棋谱 (`loadDownloadedSgfString`): no file of its own.
+    /// A record downloaded by 野狐棋谱, 腾讯棋谱 or OGS 棋谱 (`loadDownloadedSgfString`): no file
+    /// of its own.
     Downloaded(KifuSource),
     /// A 存档与读档 slot (`loadFile(file, fromTemp = true)`): the record gets no file of its own and
     /// the recent list and last folder stay; `name` is the slot file shown in the title.
@@ -194,11 +198,13 @@ pub enum OpenOrigin {
     Online { follow: bool },
 }
 
-/// The kifu window a downloaded record came from.
+/// The kifu source a downloaded record came from: its window, or for OGS also an
+/// 打开在线链接 address.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KifuSource {
     Fox,
     Tencent,
+    Ogs,
 }
 
 /// Where browsing starts after a slot is loaded.
@@ -380,12 +386,15 @@ pub struct Workbench {
     /// 跑谱贡献: the KataGo distributed-training session.
     contribution: contribution::ContributionFlow,
     cloud_activation: Option<String>,
+    /// 断开智子引擎 so far: a [`cloud::CloudTicket`] taken before the last one is retired.
+    zhizi_disconnects: u64,
     /// Session credential availability; never persisted with cloud settings.
     cloud_authenticated: bool,
     /// 棋盘同步工具 and its GMA auto-play.
     readboard: readboard::ReadBoardState,
     fox_kifu: fox_kifu::FoxKifuFlow,
     tencent_kifu: tencent_kifu::TencentKifuFlow,
+    ogs_kifu: ogs_kifu::OgsKifuFlow,
     /// Web 旁观's running session and a viewer's 试下.
     web_board: web_board::WebBoardFlow,
     /// 检查更新: the check, offer, package preparation and installation handover.
@@ -536,10 +545,12 @@ impl Workbench {
             commentary: commentary::CommentaryFlow::default(),
             contribution: contribution::ContributionFlow::default(),
             cloud_activation: None,
+            zhizi_disconnects: 0,
             cloud_authenticated: false,
             readboard: readboard::ReadBoardState::default(),
             fox_kifu: fox_kifu::FoxKifuFlow::default(),
             tencent_kifu: tencent_kifu::TencentKifuFlow::default(),
+            ogs_kifu: ogs_kifu::OgsKifuFlow::default(),
             web_board: web_board::WebBoardFlow::default(),
             update: update::UpdateFlow::default(),
         }
@@ -645,6 +656,7 @@ impl Workbench {
         match origin {
             OpenOrigin::Downloaded(KifuSource::Fox) => self.fox_kifu_open_ended(ticket, adopted),
             OpenOrigin::Downloaded(KifuSource::Tencent) => self.tencent_kifu_open_ended(ticket, adopted),
+            OpenOrigin::Downloaded(KifuSource::Ogs) => self.ogs_kifu_open_ended(ticket, adopted),
             _ => {}
         }
     }
@@ -694,9 +706,11 @@ impl Workbench {
                 };
                 // Java applies a record komi when automatic loading is on or the game starts
                 // from setup/handicap; otherwise the session komi stays (`resetAllNoKomi`). A
-                // 腾讯棋谱 record is read with automatic loading off (its KM is komi × 100).
+                // 腾讯棋谱 record is read with automatic loading off (its KM is komi × 100), an OGS
+                // record with it on (`OgsKifuImport.loadDownloaded`).
                 let read_komi = match pending.origin {
                     OpenOrigin::Downloaded(KifuSource::Tencent) => false,
+                    OpenOrigin::Downloaded(KifuSource::Ogs) => true,
                     _ => self.config.record.read_komi,
                 };
                 let use_record_komi = record.komi_declared && (read_komi || record.has_setup_or_handicap);
@@ -1143,15 +1157,18 @@ impl Workbench {
     }
 
     /// Help > "清除所有个人数据": the personal data this product stores so far is the recent
-    /// record list and 野狐棋谱's 近期搜索 (`fox-recent-searches`). (Java removed a mistyped
+    /// record list, 野狐棋谱's 近期搜索 (`fox-recent-searches`) and OGS 棋谱's 近期搜索 (kept only
+    /// by this product; Java forgets them with the window). (Java removed a mistyped
     /// `recent-files` key and left the record list in place; the list is actually cleared here.)
     pub fn clear_personal_data(&mut self) -> Result<bool, ApiError> {
-        if self.config.recent_files.is_empty() && self.config.fox_kifu.recent.is_empty() {
+        let c = &self.config;
+        if c.recent_files.is_empty() && c.fox_kifu.recent.is_empty() && c.ogs_kifu.recent.is_empty() {
             return Ok(false);
         }
         self.commit_config(|c| {
             c.recent_files.clear();
             c.fox_kifu.recent.clear();
+            c.ogs_kifu.recent.clear();
         })?;
         Ok(true)
     }
@@ -1340,6 +1357,7 @@ impl Workbench {
                 matches: self.match_settings_view(),
                 tsumego: self.config.tsumego,
                 contribution: self.config.contribution.clone(),
+                big_winrate: self.config.big_winrate,
             },
             recent_files: self.config.recent_files.iter().rev().cloned().collect(),
             komi: self.komi,
@@ -1356,6 +1374,7 @@ impl Workbench {
             whole_game: self.whole_game_view(),
             problems: self.problem_list(),
             analysis: self.current_analysis(),
+            empty_board_hint: self.empty_board_hint(),
             board: self.board_overlay(),
             raw_net: self.raw_net_view(),
             history: self.history(),
@@ -1390,6 +1409,7 @@ impl Workbench {
             commentary: self.commentary_view(),
             fox_kifu: self.fox_kifu_view(),
             tencent_kifu: self.tencent_kifu_view(),
+            ogs_kifu: self.ogs_kifu_view(),
             web_board: self.web_board_view(),
             update: self.update_view(),
             human_sl_notices: Vec::new(),

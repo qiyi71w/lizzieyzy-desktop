@@ -125,6 +125,21 @@ fn baseline_then_deep_use_exact_visits_progress_and_clean_result_storage() {
     wb.navigate(Navigation::Last); let v = wb.view(false); assert!(v.whole_game.show_results);
     assert_eq!(v.analysis.unwrap().engine,"整盘精析");
 }
+/// 规则面板 确定 while 整盘分析 runs is refused with its message: nothing is saved, the foreground
+/// KataGo is told nothing.
+#[test]
+fn the_rules_panel_is_refused_during_whole_game_analysis() {
+    let dir = tempfile::tempdir().unwrap(); let world = World::default(); let mut wb = make(dir.path(), &world);
+    let fg = foreground(&mut wb, &world);
+    open(&mut wb, RECORD); serve(&mut wb, &world, fg, 0); start(&mut wb); serve(&mut wb, &world, fg, 0);
+    assert_eq!(
+        wb.set_kata_rules(RULES, 7.0, None, true).unwrap(),
+        lizzie_core::api::CommandResult::Refused { message_key: "WholeGameAnalysis.conflict.analysis".into() }
+    );
+    assert!(world.take(fg).is_empty(), "the engine was told something");
+    assert!(!wb.config().engine.auto_load_kata_rules);
+    assert_eq!(wb.view(false).komi, 7.5);
+}
 #[test]
 fn only_real_main_trunk_actions_are_planned_and_browsing_is_free() {
     let dir = tempfile::tempdir().unwrap(); let world = World::default(); let mut wb = make(dir.path(), &world);

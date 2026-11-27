@@ -124,6 +124,7 @@ export function reviewScene(scene: BoardScene): BoardScene | null {
     priority: [],
     moveRect: null,
     review: r.ranks ? "ranks" : "last",
+    coach: null,
   };
 }
 

@@ -14,18 +14,19 @@ import { button, footer, groupNote, groupTitle, primaryButton, row, segmented, s
 import { composeMatchRules } from "../engine/rules";
 import { plainJava } from "../engine/tuningText";
 import { product, registerProduct, t } from "../i18n";
-import { javaDouble } from "../workbench/paint";
+import { javaDouble, parseJavaDouble } from "../workbench/paint";
 import { engineIdentity as identity, matchValues } from "./state";
 import { endHumanSlFirst, registerHumanSlContinuation } from "../humansl/state";
+import { locateControl } from "../search/highlight";
 import "./match.css";
 
 registerProduct({
-  ZhCn: { matchGroupGame: "对局", matchGroupOptions: "选项", matchGroupKifu: "棋谱", matchGroupRandomMove: "随机落子", matchMoveMethod: "落子方式", matchCandidatesOf: "显示哪一手的选点" },
-  ZhTw: { matchGroupGame: "對局", matchGroupOptions: "選項", matchGroupKifu: "棋譜", matchGroupRandomMove: "隨機落子", matchMoveMethod: "落子方式", matchCandidatesOf: "顯示哪一手的選點" },
-  EnUs: { matchGroupGame: "Game", matchGroupOptions: "Options", matchGroupKifu: "Game records", matchGroupRandomMove: "Random moves", matchMoveMethod: "Move selection", matchCandidatesOf: "Show candidates of" },
-  JaJp: { matchGroupGame: "対局", matchGroupOptions: "オプション", matchGroupKifu: "棋譜", matchGroupRandomMove: "ランダム着手", matchMoveMethod: "着手方式", matchCandidatesOf: "候補手を表示する手" },
-  KoKr: { matchGroupGame: "대국", matchGroupOptions: "옵션", matchGroupKifu: "기보", matchGroupRandomMove: "무작위 착수", matchMoveMethod: "착수 방식", matchCandidatesOf: "후보수를 표시할 수" },
-  ThTh: { matchGroupGame: "เกม", matchGroupOptions: "ตัวเลือก", matchGroupKifu: "บันทึกหมาก", matchGroupRandomMove: "เดินสุ่ม", matchMoveMethod: "วิธีเดินหมาก", matchCandidatesOf: "แสดงตัวเลือกของตา" },
+  ZhCn: { matchGroupGame: "对局", matchGroupOptions: "选项", matchGroupKifu: "棋谱", matchGroupRandomMove: "随机落子", matchMoveMethod: "落子方式", matchCandidatesOf: "显示哪一手的选点", matchOpeningFailed: "开局参数未能确认，引擎对局未能开始。{0}" },
+  ZhTw: { matchGroupGame: "對局", matchGroupOptions: "選項", matchGroupKifu: "棋譜", matchGroupRandomMove: "隨機落子", matchMoveMethod: "落子方式", matchCandidatesOf: "顯示哪一手的選點", matchOpeningFailed: "開局參數未能確認，引擎對局未能開始。{0}" },
+  EnUs: { matchGroupGame: "Game", matchGroupOptions: "Options", matchGroupKifu: "Game records", matchGroupRandomMove: "Random moves", matchMoveMethod: "Move selection", matchCandidatesOf: "Show candidates of", matchOpeningFailed: "The opening parameters could not be confirmed, so the engine game did not start. {0}" },
+  JaJp: { matchGroupGame: "対局", matchGroupOptions: "オプション", matchGroupKifu: "棋譜", matchGroupRandomMove: "ランダム着手", matchMoveMethod: "着手方式", matchCandidatesOf: "候補手を表示する手", matchOpeningFailed: "開始時のパラメータを確認できなかったため、エンジン対局を開始できませんでした。{0}" },
+  KoKr: { matchGroupGame: "대국", matchGroupOptions: "옵션", matchGroupKifu: "기보", matchGroupRandomMove: "무작위 착수", matchMoveMethod: "착수 방식", matchCandidatesOf: "후보수를 표시할 수", matchOpeningFailed: "시작 매개변수를 확인하지 못해 엔진 대국을 시작하지 못했습니다. {0}" },
+  ThTh: { matchGroupGame: "เกม", matchGroupOptions: "ตัวเลือก", matchGroupKifu: "บันทึกหมาก", matchGroupRandomMove: "เดินสุ่ม", matchMoveMethod: "วิธีเดินหมาก", matchCandidatesOf: "แสดงตัวเลือกของตา", matchOpeningFailed: "ยืนยันพารามิเตอร์เริ่มต้นไม่ได้ จึงไม่สามารถเริ่มเกมเอนจินได้ {0}" },
 });
 
 function match(op: MatchCommand) {
@@ -152,38 +153,34 @@ function helpButton(key: string, title: string, text: string): HTMLButtonElement
   return help;
 }
 
-/** MatchRuleOption.options() with their labels, in Java's order, as the core defines them. */
-export function matchRuleOptions(): [string, string][] {
-  return MATCH_RULE_OPTIONS.map(([preset, key]) => [preset, t(key)]);
-}
+type MatchRuleOption = (typeof MATCH_RULE_OPTIONS)[number];
 
-/** MatchRulesPicker: the standard choices, then 自定义. A standard choice is sent as its preset
- *  name, 自定义 as the composed rules (SetKataRules compose mode); cancelling the editor returns to
- *  the previous choice. */
-function rulesPicker(prefill: string, choice: string | null) {
-  const options = matchRuleOptions();
-  const s = select([...options.map(([, label]) => label), t("NewEngineGameDialog.matchRules.custom")], 0, "match.rules");
-  let selected = choice ?? prefill;
+/** MatchRulesPicker: the standard choices as the core defines them (the Chinese rule sets first,
+ *  then Java's order), then 自定义. A standard choice is sent as its rules and remembered by its id,
+ *  which tells the Chinese choices with the same rules apart; 自定义 as the composed rules
+ *  (SetKataRules compose mode); cancelling the editor returns to the previous choice. `picked` hears
+ *  of every standard choice the user makes. */
+function rulesPicker(prefill: string, choice: string | null, picked: (option: MatchRuleOption) => void) {
+  const s = select([...MATCH_RULE_OPTIONS.map((o) => t(o.labelKey)), t("NewEngineGameDialog.matchRules.custom")], 0, "match.rules");
+  let chosen = MATCH_RULE_OPTIONS.find((o) => o.id === choice) ?? null;
   let custom = prefill;
-  const index = () => {
-    const k = options.findIndex(([name]) => name === selected);
-    return k >= 0 ? k : options.length;
-  };
+  const index = () => (chosen ? MATCH_RULE_OPTIONS.indexOf(chosen) : MATCH_RULE_OPTIONS.length);
   s.selectedIndex = index();
   s.onchange = async () => {
-    const k = s.selectedIndex;
-    if (k < options.length) {
-      selected = options[k][0];
+    const option = MATCH_RULE_OPTIONS[s.selectedIndex];
+    if (option) {
+      chosen = option;
+      picked(option);
       return;
     }
     const edited = await composeMatchRules(custom);
     if (edited !== null) {
       custom = edited;
-      selected = edited;
+      chosen = null;
     }
     s.selectedIndex = index();
   };
-  return { el: s, value: () => selected };
+  return { el: s, rules: () => chosen?.rules ?? custom, choice: () => chosen?.id ?? null };
 }
 
 const TIME_MODES: MatchTimeMode[] = ["EngineOwned", "Fixed", "RawAdvanced"];
@@ -191,8 +188,10 @@ const TIME_MODES: MatchTimeMode[] = ["EngineOwned", "Fixed", "RawAdvanced"];
 /** The open 引擎对局 dialog, so a second Alt+E does not stack another. */
 let dialogOpen = false;
 
-/** LizzieFrame.startEngineGameDialog (13412-13457) and NewEngineGameDialog. */
-export async function openEngineGameDialog(): Promise<void> {
+/** LizzieFrame.startEngineGameDialog (13412-13457) and NewEngineGameDialog. Function search's
+ *  开局广度 / 开局激进度 open it with the focus on 引擎 1's field of that row and the gold line
+ *  round the row. */
+export async function openEngineGameDialog(locate: "wrn" | "pda" | null = null): Promise<void> {
   if (!state.view || dialogOpen) return;
   // deferUntilHumanSlExit (LizzieFrame.java:13412-13415): during an AI 陪练 session the dialog is
   // the exit's continuation; the core publishes it once the session is gone.
@@ -230,6 +229,20 @@ export async function openEngineGameDialog(): Promise<void> {
   const modeW = select(timeModes, TIME_MODES.indexOf(cfg.secondTimeMode), "match.timeModeWhite");
   const advB = field(cfg.firstTimeCommand, "match.advancedBlack");
   const advW = field(cfg.secondTimeCommand, "match.advancedWhite");
+  // 开局广度 / 开局激进度 (Java NewEngineGameDialog): saved for 引擎 1 and 引擎 2, the two columns, and
+  // applied at the start of every analysis-mode game; exchanging colours does not exchange them.
+  // Plain text fields like Java's: 确定 parses what was typed, a sign or an exponent included.
+  const openingTip = t("NewEngineGameDialog.openingParametersTip");
+  const openingField = (value: number, key: string) => {
+    const input = field(String(value), key);
+    input.inputMode = "decimal";
+    input.title = openingTip;
+    return input;
+  };
+  const wrnFirst = openingField(cfg.opening.firstWrn, "match.openingWrnFirst");
+  const wrnSecond = openingField(cfg.opening.secondWrn, "match.openingWrnSecond");
+  const pdaFirst = openingField(cfg.opening.firstPda, "match.openingPdaFirst");
+  const pdaSecond = openingField(cfg.opening.secondPda, "match.openingPdaSecond");
   // The two columns share each row's name; every control also says whose side it sets.
   const sideNames = [t("NewEngineGameDialog.lblB"), t("NewEngineGameDialog.lblW")];
   for (const [name, pair] of [
@@ -241,6 +254,13 @@ export async function openEngineGameDialog(): Promise<void> {
     [t("NewEngineGameDialog.lblFirstPlayout"), [firstBlack, firstWhite]],
   ] as const) {
     pair.forEach((control, k) => control.setAttribute("aria-label", `${sideNames[k]} · ${name}`));
+  }
+  const positionNames = [t("EngineGameParameters.position1"), t("EngineGameParameters.position2")];
+  for (const [name, pair] of [
+    [t("NewEngineGameDialog.lblOpeningWrn"), [wrnFirst, wrnSecond]],
+    [t("NewEngineGameDialog.lblOpeningPda"), [pdaFirst, pdaSecond]],
+  ] as const) {
+    pair.forEach((control, k) => control.setAttribute("aria-label", `${positionNames[k]} · ${name}`));
   }
 
   // 黑方设置 / 白方设置: a column each at the end of the rows, under its stone. A row that one of the
@@ -265,6 +285,9 @@ export async function openEngineGameDialog(): Promise<void> {
   row(sides, advName, "", advB, advW, el("span", "match-slot"));
   const visitsOn = toggle(sides, t("NewEngineGameDialog.lblPlayout"), "", s.visitsEnabled, "match.visitsOn", visitsBlack, visitsWhite);
   const firstOn = toggle(sides, t("NewEngineGameDialog.lblFirstPlayout"), "", s.firstMoveVisitsEnabled, "match.firstVisitsOn", firstBlack, firstWhite);
+  const wrnRow = row(sides, t("NewEngineGameDialog.lblOpeningWrn"), "", wrnFirst, wrnSecond, el("span", "match-slot"));
+  const pdaRow = row(sides, t("NewEngineGameDialog.lblOpeningPda"), "", pdaFirst, pdaSecond, el("span", "match-slot"));
+  wrnRow.title = pdaRow.title = openingTip;
 
   // 认输预置: hidden in Genmove mode, where the note takes its place.
   const resignHint = groupNote(body, t("EnginePkConfig.lblresignGenmove"));
@@ -276,7 +299,14 @@ export async function openEngineGameDialog(): Promise<void> {
   row(body, t("NewEngineGameDialog.komi"), "", komi);
   const handicap = field(String(cfg.handicap), "match.handicap", "int");
   const handicapRow = row(body, t("NewEngineGameDialog.handicap"), "", handicap);
-  const rules = rulesPicker(m.rules_prefill, m.rules_choice);
+  // Picking rules fills in their komi, which stays editable; a handicap game (as the start counts
+  // its stones) keeps its komi, and AGA/BGA or New Zealand have none to give.
+  const rules = rulesPicker(m.rules_prefill, m.rules_choice, (option) => {
+    const stones = handicap.disabled || handicap.value.trim() === "" ? 0 : leadingInt(handicap.value) ?? 0;
+    if (option.komi === null || stones > 0) return;
+    const text = javaDouble(option.komi);
+    if (komi.value !== text) komi.value = text;
+  });
   row(body, t("NewEngineGameDialog.matchRules"), "", rules.el);
   const batch = field(shown(s.batchLimit), "match.batch", "int");
   const batchOn = toggle(body, t("NewEngineGameDialog.lblBatchGame").trim(), "", s.batchEnabled, "match.batchOn", batch);
@@ -290,8 +320,6 @@ export async function openEngineGameDialog(): Promise<void> {
   const sgf = toggle(body, t("NewEngineGameDialog.lblsgf").trim(), "", cfg.sgfStart, "match.sgfStart", random, chooseSgf);
   groupTitle(body, product("matchGroupOptions"));
   const ponder = toggle(body, t("NewEngineGameDialog.checkBoxAllowPonder"), "", cfg.ponder, "match.ponder");
-  const wrn = switchRow(body, t("NewAnaGameDialog.lblDisableWRNInGame"), "", m.disable_wrn);
-  wrn.input.dataset.key = "match.disableWrn";
   const f: SharedFields = { black, white, timeOn, timeBlack, timeWhite, visitsOn, visitsBlack, visitsWhite, firstOn, firstBlack, firstWhite, batchOn, batch, continuePlay };
 
   // Enable rules (initContentPanel, updateModeDependentControls, setGenmove).
@@ -313,7 +341,8 @@ export async function openEngineGameDialog(): Promise<void> {
     handicapRow.classList.toggle("disabled", handicap.disabled);
   };
   function modeChanged(): void {
-    wrn.row.hidden = genmove();
+    // The opening parameters only count in an analysis-mode game.
+    wrnRow.hidden = pdaRow.hidden = genmove();
     resign.rows.hidden = genmove();
     resignHint.hidden = !genmove();
     enableRows();
@@ -332,8 +361,8 @@ export async function openEngineGameDialog(): Promise<void> {
   modeB.onchange = modeW.onchange = enableRows;
   black.onchange = () => void run(matchValues({ settings: { first: identity(black.selectedIndex) } }));
   white.onchange = () => void run(matchValues({ settings: { second: identity(white.selectedIndex) } }));
-  // 当前局面续弈 and 加载开局SGF exclude each other; 加载开局SGF, 顺序/随机, 允许后台计算 and 禁用WRN
-  // are saved as they change.
+  // 当前局面续弈 and 加载开局SGF exclude each other; 加载开局SGF, 顺序/随机 and 允许后台计算 are
+  // saved as they change.
   f.continuePlay.onchange = () => {
     const clearSgf = f.continuePlay.checked && sgf.checked;
     if (clearSgf) sgf.checked = false;
@@ -349,7 +378,6 @@ export async function openEngineGameDialog(): Promise<void> {
   };
   random.onchange = () => void run(matchValues({ settings: { sgfRandom: random.selectedIndex === 1 } }));
   ponder.onchange = () => void run(matchValues({ settings: { ponder: ponder.checked } }));
-  wrn.input.onchange = () => void run(matchValues({ disable_wrn: wrn.input.checked }));
   if (f.continuePlay.checked) sgf.checked = false;
   openingRows();
   modeChanged();
@@ -373,6 +401,8 @@ export async function openEngineGameDialog(): Promise<void> {
   const cancel = button(product("cancel"), () => void dialog.close());
   cancel.dataset.key = "match.cancel";
   footer(body, { start: [more], primary: ok, cancel });
+  if (locate === "wrn") locateControl(wrnFirst, wrnRow);
+  else if (locate === "pda") locateControl(pdaFirst, pdaRow);
   subscribe(() => {
     if (!pending) return;
     const phase = state.view?.engine_match?.phase;
@@ -406,6 +436,26 @@ export async function openEngineGameDialog(): Promise<void> {
       await message(t("Message.title"), t("Menu.inputDoubleTip"));
       return;
     }
+    // EngineGameOpeningParameters.parseWrn / parsePda: a number within range, else the message;
+    // a Genmove game keeps the saved values.
+    let opening = now.settings.opening;
+    if (!genmove()) {
+      const parse = (input: HTMLInputElement, max: number, min: number): number | null => {
+        const value = parseJavaDouble(input.value);
+        return value !== null && value >= min && value <= max ? value : null;
+      };
+      const [firstWrn, secondWrn] = [parse(wrnFirst, 2, 0), parse(wrnSecond, 2, 0)];
+      if (firstWrn === null || secondWrn === null) {
+        await message(t("Message.title"), t("EngineGameParameters.invalidWrn"));
+        return;
+      }
+      const [firstPda, secondPda] = [parse(pdaFirst, 3, -3), parse(pdaSecond, 3, -3)];
+      if (firstPda === null || secondPda === null) {
+        await message(t("Message.title"), t("EngineGameParameters.invalidPda"));
+        return;
+      }
+      opening = { firstWrn, secondWrn, firstPda, secondPda };
+    }
     // parseEngineGameHandicap: a disabled or blank field is an even game.
     const handicapValue = handicap.disabled || handicap.value.trim() === "" ? 0 : leadingInt(handicap.value);
     if (handicapValue === null) {
@@ -422,7 +472,8 @@ export async function openEngineGameDialog(): Promise<void> {
       second: identity(white.selectedIndex),
       komi: komiValue,
       handicap: Math.max(0, handicapValue),
-      rules: rules.value(),
+      rules: rules.rules(),
+      rulesChoice: rules.choice(),
       sgfStart: sgf.checked,
       ponder: ponder.checked,
       firstTimeMode: firstMode,
@@ -430,9 +481,10 @@ export async function openEngineGameDialog(): Promise<void> {
       advancedTime: firstMode === "RawAdvanced" || secondMode === "RawAdvanced",
       firstTimeCommand: firstMode === "RawAdvanced" ? advB.value.trim() : base.firstTimeCommand,
       secondTimeCommand: secondMode === "RawAdvanced" ? advW.value.trim() : base.secondTimeCommand,
+      opening,
     };
     ok.disabled = true;
-    const r = await match({ type: "Start", settings, session: sharedSession(f, now.session), first_engine: black.selectedIndex, second_engine: white.selectedIndex, disable_wrn: wrn.input.checked });
+    const r = await match({ type: "Start", settings, session: sharedSession(f, now.session), first_engine: black.selectedIndex, second_engine: white.selectedIndex });
     if (r && r.type !== "Refused") {
       pending = true;
       seen = !!state.view?.engine_match;

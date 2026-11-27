@@ -5,7 +5,7 @@ use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{CustomPdaMode, CustomPdaSettings, EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
 use lizzie_core::record::{DocumentEdit, NodeKind, Point, Stone, ROOT};
-use lizzie_core::settings::{MatchSettings, Storage};
+use lizzie_core::settings::{MatchOpeningParameters, MatchSettings, Storage};
 use lizzie_core::workbench::Workbench;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -62,6 +62,8 @@ struct Match {
     world: World,
     held: Vec<(InstanceId, String, String)>,
     streams: HashSet<InstanceId>,
+    /// `kata-set-param` values each controlled KataGo holds; an unset one reads 1.5.
+    params: std::collections::HashMap<(InstanceId, String), String>,
     _dir: tempfile::TempDir,
 }
 impl Match {
@@ -105,6 +107,7 @@ impl Match {
             world,
             held: Vec::new(),
             streams: HashSet::new(),
+            params: Default::default(),
             _dir: dir,
         }
     }
@@ -121,7 +124,6 @@ impl Match {
                 session: values,
                 first_engine: 0,
                 second_engine: 1,
-                disable_wrn: true
             }),
             CommandResult::Done
         );
@@ -162,12 +164,27 @@ impl Match {
                         }
                         continue;
                     }
-                    let text = usual_answer(cmd);
+                    let mut words = cmd.split(' ');
+                    let text = match words.next().unwrap() {
+                        "kata-set-param" => {
+                            let name = words.next().unwrap().to_string();
+                            self.params.insert((instance, name), words.next().unwrap().into());
+                            String::new()
+                        }
+                        "kata-get-param" => {
+                            let name = words.next().unwrap().to_string();
+                            self.params
+                                .get(&(instance, name))
+                                .cloned()
+                                .unwrap_or_else(|| "1.5".into())
+                        }
+                        _ => usual_answer(cmd).to_string(),
+                    };
                     if cmd.starts_with("kata-analyze") {
                         self.out(instance, &format!("={id}"));
                         self.streams.insert(instance);
                     } else {
-                        self.reply(instance, id, text);
+                        self.reply(instance, id, &text);
                     }
                 }
             }
@@ -260,6 +277,26 @@ fn acceptance_is_not_start_and_only_the_mover_is_asked() {
     m.finish_turn("Q16");
     assert_eq!(m.mover(), first);
     assert_eq!(m.wb.inspect().engine.foreground.unwrap().index, 0);
+}
+
+/// 规则面板 确定 while an engine game holds the engines is refused with its message (the gate every
+/// engine-taking command passes); nothing is saved.
+#[test]
+fn the_rules_panel_is_refused_during_an_engine_game() {
+    let mut m = Match::new();
+    m.start(genmove());
+    m.serve(&|_, _| None);
+    let command = lizzie_core::api::Command::SetKataRules {
+        rules: RULES.into(),
+        komi: 7.0,
+        rule_set: Some("CHINESE_2027".into()),
+        auto_load: true,
+    };
+    assert_eq!(
+        m.wb.game_gate(&command),
+        Some(CommandResult::Refused { message_key: "LizzieFrame.engineGameStopFirstHint".into() })
+    );
+    assert!(!m.wb.config().engine.auto_load_kata_rules);
 }
 
 #[test]
@@ -666,7 +703,6 @@ fn winrate_confirmation_fences_successor_and_opening_is_replayed() {
         session: values,
         first_engine: 0,
         second_engine: 1,
-        disable_wrn: true,
     });
     m.serve(&|_, _| None);
     assert_eq!(m.wb.document().record.node(m.wb.cursor()).move_number, 2);
@@ -719,7 +755,6 @@ fn a_match_opening_at_a_mid_game_setup_keeps_its_stones_and_side_to_play_for_the
             session,
             first_engine: 0,
             second_engine: 1,
-            disable_wrn: true,
         });
         let sent = m.serve(&|_, _| None);
         let rec = m.wb.document().record.clone();
@@ -767,7 +802,6 @@ fn unverifiable_rules_require_consent_and_verified_mismatch_is_not_consent() {
         session: genmove(),
         first_engine: 0,
         second_engine: 1,
-        disable_wrn: true,
     });
     // Both engines claim to accept the overlay but still report Chinese rules.
     m.serve(&|_, _| None);
@@ -786,12 +820,12 @@ fn territory_match_rules_keep_their_name_whatever_friendly_pass_says() {
             r#"{{"ko":"SIMPLE","scoring":"TERRITORY","tax":"{tax}","suicide":false,"hasButton":false,"whiteHandicapBonus":"0","friendlyPassOk":{friendly}}}"#
         )
     };
-    for (rules, choice) in [
-        (japanese(true, "SEKI"), Some("japanese")),
-        (japanese(false, "SEKI"), Some("japanese")),
-        (japanese(true, "NONE"), None),
+    for (rules, name) in [
+        (japanese(true, "SEKI"), "Japanese / Korean"),
+        (japanese(false, "SEKI"), "Japanese / Korean"),
+        (japanese(true, "NONE"), "Custom"),
     ] {
-        let mut m = Match::new();
+        let mut m = Match::with_locale(Some("en-US"));
         m.command(MatchCommand::Start {
             settings: MatchSettings {
                 rules,
@@ -800,10 +834,9 @@ fn territory_match_rules_keep_their_name_whatever_friendly_pass_says() {
             session: genmove(),
             first_engine: 0,
             second_engine: 1,
-            disable_wrn: true,
         });
         let view = m.wb.inspect().engine_match.unwrap();
-        assert_eq!(view.rules_target_choice.as_deref(), choice);
+        assert_eq!(view.rules_target_name, name);
     }
 }
 
@@ -984,6 +1017,10 @@ fn analysis_intervention_uses_current_candidates_while_previous_candidates_are_s
         previous_bestmove_only: true,
         check_random_visits: true,
         random_visits_percent: 25.0,
+        opening: MatchOpeningParameters {
+            first_pda: 2.5,
+            ..MatchOpeningParameters::default()
+        },
         ..MatchSettings::default()
     };
     m.command(MatchCommand::Start {
@@ -991,7 +1028,6 @@ fn analysis_intervention_uses_current_candidates_while_previous_candidates_are_s
         session: values,
         first_engine: 0,
         second_engine: 1,
-        disable_wrn: true,
     });
     m.serve(&|_, _| None);
     let first = m.world.ids()[0];
@@ -1017,8 +1053,8 @@ fn analysis_intervention_uses_current_candidates_while_previous_candidates_are_s
         "Java PK comments are live document edits"
     );
     assert!(
-        m.wb.document().record.node(ROOT).comment.contains("1.5"),
-        "the captured nonzero PDA is included in the PK comment; disabled WRN is zero"
+        m.wb.document().record.node(ROOT).comment.contains("2.5"),
+        "the mover's confirmed nonzero opening PDA is in the PK comment, not its value before the batch"
     );
     assert!(!m.wb.navigate(lizzie_core::browse::Navigation::First));
     m.command(MatchCommand::Intervention {
@@ -1078,7 +1114,6 @@ fn a_batch_folder_must_not_resolve_to_the_parent_directory() {
             },
             first_engine: 0,
             second_engine: 1,
-            disable_wrn: true,
         });
         assert!(result.is_err(), "{folder}");
         assert!(m.world.ids().is_empty(), "reject before starting either participant");
@@ -1183,7 +1218,6 @@ fn spec_04_previous_only_first_candidate_means_the_move_actually_played() {
             },
             first_engine: 0,
             second_engine: 1,
-            disable_wrn: true,
         });
         m.serve(&|_, _| None);
         let first = m.world.ids()[0];
@@ -1295,7 +1329,6 @@ fn spec_06_filling_a_no_capture_board_ends_immediately_in_both_modes() {
             },
             first_engine: 0,
             second_engine: 1,
-            disable_wrn: true,
         });
         m.serve(&|_, _| None);
         let first = m.world.ids()[0];
@@ -1333,7 +1366,6 @@ fn spec_06_filling_a_no_capture_board_ends_immediately_in_both_modes() {
         session: genmove(),
         first_engine: 0,
         second_engine: 1,
-        disable_wrn: true,
     });
     m.serve(&|_, _| None);
     m.finish_turn("pass");
@@ -1549,11 +1581,24 @@ fn a_custom_websocket_participant_takes_its_fixed_time_as_the_katago_move_limit(
 #[test]
 fn a_fixed_handicap_is_set_only_on_a_nineteen_line_match_board() {
     for (size, handicap, stones, to_play) in [(9, 0, 0, Stone::Black), (19, 2, 2, Stone::White)] {
-        let black = EngineProfile { width: size, height: size, ..participant("one", "First") };
+        let black = EngineProfile {
+            width: size,
+            height: size,
+            ..participant("one", "First")
+        };
         let mut m = Match::with_profiles(None, vec![black, participant("two", "Second")]);
         assert_eq!(m.wb.document().record.size.width, 19, "the open record is 19x19");
-        let settings = MatchSettings { rules: "chinese".into(), handicap: 2, ..MatchSettings::default() };
-        let start = MatchCommand::Start { settings, session: genmove(), first_engine: 0, second_engine: 1, disable_wrn: true };
+        let settings = MatchSettings {
+            rules: "chinese".into(),
+            handicap: 2,
+            ..MatchSettings::default()
+        };
+        let start = MatchCommand::Start {
+            settings,
+            session: genmove(),
+            first_engine: 0,
+            second_engine: 1,
+        };
         assert_eq!(m.command(start), CommandResult::Done);
         m.serve(&|_, _| None);
         let rec = &m.wb.document().record;
@@ -1577,7 +1622,6 @@ fn the_pda_dialog_reaches_the_kata_go_pda_participant_whichever_engine_is_in_fro
     let world = m.world.clone();
     m.serve(&move |i, c| (c == "name" && i == world.ids()[0]).then(|| "KataGoPda 1.16.4".to_string()));
     assert_eq!(m.phase(), Some(MatchPhase::Playing));
-    assert!(m.wb.inspect().engine_match.unwrap().kata_go_pda_participant);
     let (pda, standard) = (m.world.ids()[0], m.world.ids()[1]);
     // The standard KataGo is the one in front (the side to move).
     if m.mover() == pda {
@@ -1598,11 +1642,10 @@ fn the_pda_dialog_reaches_the_kata_go_pda_participant_whichever_engine_is_in_fro
     assert_eq!(sent(&m, pda), ["pda 1.5"]);
     assert!(sent(&m, standard).is_empty());
 
-    // Two standard KataGo participants: no KataGoPda flag, and no engine gets pda.
+    // Two standard KataGo participants: no engine gets pda.
     let mut plain = Match::new();
     plain.start(genmove());
     plain.serve(&|_, _| None);
-    assert!(!plain.wb.inspect().engine_match.unwrap().kata_go_pda_participant);
     assert_eq!(plain.wb.save_custom_pda(fixed(2.0)).unwrap(), None);
     for id in plain.world.ids() {
         assert!(sent(&plain, id).is_empty());
@@ -1751,6 +1794,24 @@ fn a_failed_preparation_stays_inspectable_with_the_last_observation() {
     // The failed start is shown until another game starts.
     m.start(genmove());
     assert_eq!(caption(&m).as_deref(), Some("Checking match rules"));
+}
+
+#[test]
+fn a_start_whose_opening_values_fail_keeps_the_name_of_its_confirmed_rules() {
+    let mut m = Match::with_locale(Some("en-US"));
+    start_analysis(&mut m, OPENING, analysis());
+    let one = m.world.ids()[0];
+    m.serve(&move |i, c| (i == one && c == get(WRN)).then(|| "0.25".into()));
+    assert_eq!(m.phase(), None);
+    assert_eq!(notices(&m, "product.matchOpeningFailed").len(), 1);
+    // Both engines confirmed the rules: the start failed for its parameters, not its rules.
+    assert_eq!(caption(&m).as_deref(), Some("Chinese"));
+    assert_eq!(
+        details(&m),
+        Some(format!(
+            "Target: Chinese\nMatch rules could not be prepared.\nBlack: First (/opt/katago gtp)\nStatus: confirmed\nEffective rules: {CHINESE_FIELDS}\nWhite: Second (/opt/katago gtp)\nStatus: confirmed\nEffective rules: {CHINESE_FIELDS}"
+        ))
+    );
 }
 
 #[test]
@@ -1974,4 +2035,1380 @@ fn a_start_ending_after_a_rules_answer_keeps_it_as_the_last_observation() {
             assert!(m.world.take(id).is_empty());
         }
     }
+}
+
+// ---- 对局参数会话: Java EngineGameParameterSession / EngineGameParticipantCommands -----------
+
+const WRN: &str = "analysisWideRootNoise";
+const PDA: &str = "playoutDoublingAdvantage";
+/// 引擎 1 breadth 0.5 and aggressiveness 1, 引擎 2 breadth 0 and aggressiveness -1.
+const OPENING: MatchOpeningParameters = MatchOpeningParameters {
+    first_wrn: 0.5,
+    second_wrn: 0.0,
+    first_pda: 1.0,
+    second_pda: -1.0,
+};
+
+fn analysis() -> MatchSessionSettings {
+    MatchSessionSettings {
+        kind: GameKind::Analysis,
+        auto_save: false,
+        exchange_colors: false,
+        ..MatchSessionSettings::default()
+    }
+}
+
+fn start_analysis(m: &mut Match, opening: MatchOpeningParameters, values: MatchSessionSettings) -> CommandResult {
+    m.command(MatchCommand::Start {
+        settings: MatchSettings {
+            rules: "chinese".into(),
+            opening,
+            ..MatchSettings::default()
+        },
+        session: values,
+        first_engine: 0,
+        second_engine: 1,
+    })
+}
+
+/// The breadth / aggressiveness commands among `sent`, in order.
+fn parameter_commands(sent: &[(InstanceId, String)]) -> Vec<(InstanceId, String)> {
+    sent.iter()
+        .filter(|(_, c)| c.contains(WRN) || c.contains(PDA))
+        .cloned()
+        .collect()
+}
+
+/// Those the match sends: after its setup begins, past each engine's own start-up read-back
+/// and the foreground analysis before the match took the engines.
+fn match_commands(sent: &[(InstanceId, String)]) -> &[(InstanceId, String)] {
+    let setup = sent
+        .iter()
+        .position(|(_, c)| c.starts_with("kata-set-rules"))
+        .expect("the match sets its rules");
+    &sent[setup..]
+}
+
+fn get(name: &str) -> String {
+    format!("kata-get-param {name}")
+}
+
+fn set(name: &str, value: &str) -> String {
+    format!("kata-set-param {name} {value}")
+}
+
+fn notices(m: &Match, key: &str) -> Vec<Vec<MatchParameterFailure>> {
+    m.wb.inspect()
+        .match_notices
+        .into_iter()
+        .filter(|n| n.message_key == key)
+        .map(|n| n.parameter_failures)
+        .collect()
+}
+
+fn failure(first: bool, reason: MatchParameterFailureReason) -> MatchParameterFailure {
+    MatchParameterFailure { first: Some(first), reason }
+}
+
+#[test]
+fn the_opening_sets_each_participant_breadth_then_aggressiveness_and_reads_them_back() {
+    let mut m = Match::new();
+    assert_eq!(start_analysis(&mut m, OPENING, analysis()), CommandResult::Done);
+    let world = m.world.clone();
+    // 引擎 2 already holds breadth 0: the 0 is still written and read back (Java applyOpening).
+    let sent = m.serve(&move |i, c| (i == world.ids()[1] && c == get(WRN)).then(|| "0".into()));
+    let (one, two) = (m.world.ids()[0], m.world.ids()[1]);
+    // Both processes are captured before the first write; breadth goes to both and is read back
+    // before aggressiveness is written to either.
+    let expected: Vec<(InstanceId, String)> = vec![
+        (one, get(WRN)),
+        (two, get(WRN)),
+        (one, get(PDA)),
+        (two, get(PDA)),
+        (one, set(WRN, "0.5")),
+        (two, set(WRN, "0")),
+        (one, get(WRN)),
+        (two, get(WRN)),
+        (one, set(PDA, "1")),
+        (two, set(PDA, "-1")),
+        (one, get(PDA)),
+        (two, get(PDA)),
+    ];
+    let sent = match_commands(&sent);
+    assert_eq!(parameter_commands(sent), expected);
+    let last = sent.iter().rposition(|(_, c)| c.contains(PDA)).unwrap();
+    let search = sent
+        .iter()
+        .position(|(_, c)| c.starts_with("kata-analyze"))
+        .expect("the game searches");
+    assert!(
+        search > last,
+        "the game searches only after both participants confirmed"
+    );
+    assert_eq!(m.phase(), Some(MatchPhase::Playing));
+    let p = m.wb.inspect().engine_match.unwrap().parameters.unwrap();
+    assert!(!p.pending && p.failures.is_empty());
+    let confirmed = |v: MatchParameterValue| (v.supported, v.confirmed, v.target);
+    assert_eq!(confirmed(p.first.wrn), (true, Some(0.5), None));
+    assert_eq!(confirmed(p.first.pda), (true, Some(1.0), None));
+    assert_eq!(confirmed(p.second.wrn), (true, Some(0.0), None));
+    assert_eq!(confirmed(p.second.pda), (true, Some(-1.0), None));
+}
+
+#[test]
+fn a_genmove_match_leaves_breadth_and_aggressiveness_alone() {
+    let mut m = Match::new();
+    let start = MatchCommand::Start {
+        settings: MatchSettings {
+            rules: "chinese".into(),
+            opening: OPENING,
+            ..MatchSettings::default()
+        },
+        session: genmove(),
+        first_engine: 0,
+        second_engine: 1,
+    };
+    assert_eq!(m.command(start), CommandResult::Done);
+    let sent = m.serve(&|_, _| None);
+    assert_eq!(m.phase(), Some(MatchPhase::Playing));
+    assert!(!sent.iter().any(|(_, c)| c.starts_with("kata-set-param")), "{sent:?}");
+    assert!(m.wb.inspect().engine_match.unwrap().parameters.is_none());
+}
+
+#[test]
+fn the_end_of_the_batch_gives_each_process_its_values_from_before() {
+    for stop in [true, false] {
+        let mut m = Match::new();
+        start_analysis(&mut m, OPENING, analysis());
+        let (one, two) = (m.world.ids()[0], m.world.ids()[1]);
+        // 引擎 2 held breadth 0.25 before the batch.
+        m.params.insert((two, WRN.into()), "0.25".into());
+        m.serve(&|_, _| None);
+        assert_eq!(m.params[&(one, WRN.to_string())], "0.5");
+        if stop {
+            m.command(MatchCommand::Stop);
+        } else {
+            // The single game ends; so does its batch.
+            m.command(MatchCommand::Intervention {
+                op: MatchIntervention::Resign { side: Stone::Black },
+            });
+        }
+        let sent = m.serve(&|_, _| None);
+        // One command at a time: each process, breadth then aggressiveness, set then read back.
+        let expected: Vec<(InstanceId, String)> = vec![
+            (one, set(WRN, "1.5")),
+            (one, get(WRN)),
+            (one, set(PDA, "1.5")),
+            (one, get(PDA)),
+            (two, set(WRN, "0.25")),
+            (two, get(WRN)),
+            (two, set(PDA, "1.5")),
+            (two, get(PDA)),
+        ];
+        assert_eq!(parameter_commands(&sent), expected, "stop: {stop}");
+        assert_eq!(m.params[&(one, WRN.to_string())], "1.5");
+        assert_eq!(m.params[&(one, PDA.to_string())], "1.5");
+        assert_eq!(m.params[&(two, PDA.to_string())], "1.5");
+        // The engines are given back after the restore.
+        for id in [one, two] {
+            let restore = sent.iter().rposition(|(i, c)| *i == id && c.contains(PDA)).unwrap();
+            let name = sent.iter().rposition(|(i, c)| *i == id && c == "name").unwrap();
+            assert!(name > restore, "stop: {stop}");
+        }
+        assert_eq!(m.phase(), None, "stop: {stop}");
+        assert!(notices(&m, "EngineGameParameters.restoreFailed").is_empty());
+    }
+}
+
+#[test]
+fn the_games_of_a_batch_keep_the_values_and_capture_each_process_once() {
+    for stop_between in [false, true] {
+        let mut m = Match::new();
+        let values = MatchSessionSettings {
+            batch_enabled: true,
+            batch_limit: 2,
+            exchange_colors: true,
+            ..analysis()
+        };
+        start_analysis(&mut m, OPENING, values);
+        m.serve(&|_, _| None);
+        let (one, two) = (m.world.ids()[0], m.world.ids()[1]);
+        m.command(MatchCommand::Intervention {
+            op: MatchIntervention::Resign { side: Stone::Black },
+        });
+        let between = m.serve(&|_, _| None);
+        assert_eq!(m.phase(), Some(MatchPhase::BetweenGames));
+        assert!(
+            parameter_commands(&between).is_empty(),
+            "nothing is restored between games: {between:?}"
+        );
+        if stop_between {
+            // A batch stopped between its games takes its engines back for the restore.
+            m.command(MatchCommand::Stop);
+            let sent = m.serve(&|_, _| None);
+            assert_eq!(
+                parameter_commands(&sent)
+                    .iter()
+                    .filter(|(_, c)| c.starts_with("kata-set-param"))
+                    .count(),
+                4
+            );
+            assert_eq!(m.params[&(one, WRN.to_string())], "1.5");
+            assert_eq!(m.phase(), None);
+            continue;
+        }
+        m.wb.engine_tick(Instant::now() + Duration::from_secs(1));
+        let second = m.serve(&|_, _| None);
+        assert_eq!(m.phase(), Some(MatchPhase::Playing));
+        // Positions, not colours: 引擎 1 keeps its values after the colours are exchanged.
+        let expected: Vec<(InstanceId, String)> = vec![
+            (one, set(WRN, "0.5")),
+            (two, set(WRN, "0")),
+            (one, get(WRN)),
+            (two, get(WRN)),
+            (one, set(PDA, "1")),
+            (two, set(PDA, "-1")),
+            (one, get(PDA)),
+            (two, get(PDA)),
+        ];
+        assert_eq!(
+            parameter_commands(&second),
+            expected,
+            "the same processes are not captured again"
+        );
+        m.command(MatchCommand::Intervention {
+            op: MatchIntervention::Resign { side: Stone::Black },
+        });
+        let end = m.serve(&|_, _| None);
+        assert_eq!(
+            parameter_commands(&end)
+                .iter()
+                .filter(|(_, c)| c.starts_with("kata-set-param"))
+                .count(),
+            4
+        );
+        assert_eq!(
+            (
+                m.params[&(one, WRN.to_string())].as_str(),
+                m.params[&(two, PDA.to_string())].as_str()
+            ),
+            ("1.5", "1.5")
+        );
+        assert_eq!(m.phase(), None);
+    }
+}
+
+#[test]
+fn an_unconfirmed_opening_names_the_participant_and_reason_and_the_game_never_searches() {
+    use std::cell::Cell;
+    let timeout = Duration::from_secs(9);
+    let cases: Vec<(
+        &str,
+        Box<dyn Fn(&World) -> Box<dyn Fn(InstanceId, &str) -> Option<String>>>,
+        Vec<MatchParameterFailure>,
+    )> = vec![
+        (
+            "read-back mismatch",
+            Box::new(|w: &World| {
+                let one = w.ids()[0];
+                Box::new(move |i, c| (i == one && c == get(WRN)).then(|| "0.25".into()))
+            }),
+            vec![failure(
+                true,
+                MatchParameterFailureReason::Mismatch {
+                    actual: "0.25".into(),
+                    expected: "0.5".into(),
+                },
+            )],
+        ),
+        (
+            "set refused",
+            Box::new(|w: &World| {
+                let one = w.ids()[0];
+                Box::new(move |i, c| (i == one && c == set(WRN, "0.5")).then(|| "?unknown parameter".into()))
+            }),
+            vec![failure(
+                true,
+                MatchParameterFailureReason::Rejected {
+                    command: set(WRN, "0.5"),
+                    response: "unknown parameter".into(),
+                },
+            )],
+        ),
+        (
+            "read-back timeout",
+            Box::new(|w: &World| {
+                let two = w.ids()[1];
+                let written = Cell::new(false);
+                let held = Cell::new(false);
+                Box::new(move |i, c| {
+                    if i == two && c.starts_with(&set(PDA, "")) {
+                        written.set(true);
+                    }
+                    // The first read-back after the write does not answer.
+                    let hold = i == two && c == get(PDA) && written.get() && !held.replace(true);
+                    hold.then(|| "HOLD".into())
+                })
+            }),
+            vec![failure(false, MatchParameterFailureReason::Timeout)],
+        ),
+    ];
+    for (case, answer, expected) in cases {
+        let mut m = Match::new();
+        start_analysis(&mut m, OPENING, analysis());
+        let answer = answer(&m.world);
+        let mut sent = m.serve(&*answer);
+        if case == "read-back timeout" {
+            assert_eq!(m.phase(), Some(MatchPhase::Starting), "{case}: waiting for the answer");
+            m.wb.engine_tick(Instant::now() + timeout);
+            sent.extend(m.serve(&*answer));
+        }
+        assert_eq!(notices(&m, "product.matchOpeningFailed"), vec![expected], "{case}");
+        let searches = |c: &str| c.starts_with("kata-analyze") || c.starts_with("genmove");
+        assert!(
+            !match_commands(&sent).iter().any(|(_, c)| searches(c)),
+            "{case}: no search"
+        );
+        assert_eq!(m.phase(), None, "{case}: the batch ends");
+        let outcome = m.wb.view(false).match_outcome.unwrap();
+        assert_eq!(outcome.end, MatchEnd::Retired, "{case}");
+        // The values written before the failure are given back.
+        let one = m.world.ids()[0];
+        let pda = m.params.get(&(one, PDA.to_string())).map(String::as_str);
+        assert_eq!(
+            pda,
+            Some("1.5"),
+            "{case}: {:?}",
+            parameter_commands(match_commands(&sent))
+        );
+    }
+}
+
+#[test]
+fn an_opening_cut_short_by_a_stop_or_an_ended_game_names_who_still_owed_an_answer() {
+    use std::cell::Cell;
+    for stop in [true, false] {
+        let mut m = Match::new();
+        start_analysis(&mut m, OPENING, analysis());
+        let (one, two) = (m.world.ids()[0], m.world.ids()[1]);
+        // 引擎 2 does not answer its aggressiveness read-back.
+        let written = Cell::new(false);
+        let held = Cell::new(false);
+        let answer = move |i: InstanceId, c: &str| {
+            if i == two && c.starts_with(&set(PDA, "")) {
+                written.set(true);
+            }
+            let hold = i == two && c == get(PDA) && written.get() && !held.replace(true);
+            hold.then(|| "HOLD".into())
+        };
+        let sent = m.serve(&answer);
+        assert_eq!(m.phase(), Some(MatchPhase::Starting), "waiting for 引擎 2");
+        let searches = |c: &str| c.starts_with("kata-analyze") || c.starts_with("genmove");
+        assert!(
+            !match_commands(&sent).iter().any(|(_, c)| searches(c)),
+            "no search: {sent:?}"
+        );
+        let expected = if stop {
+            m.command(MatchCommand::Stop);
+            MatchParameterFailureReason::Interrupted
+        } else {
+            m.wb.engine_input(one, EngineInput::Exited(Some(1)));
+            MatchParameterFailureReason::GameEnded
+        };
+        // Afterwards the engines go back to the foreground, which may analyse again.
+        m.serve(&answer);
+        m.wb.engine_tick(Instant::now() + Duration::from_secs(30));
+        m.serve(&answer);
+        assert_eq!(
+            notices(&m, "product.matchOpeningFailed"),
+            vec![vec![failure(false, expected)]],
+            "stop: {stop}"
+        );
+        assert_eq!(m.phase(), None, "stop: {stop}");
+        if stop {
+            assert_eq!(
+                m.params[&(one, PDA.to_string())],
+                "1.5",
+                "引擎 1 is given its value back"
+            );
+        }
+    }
+}
+
+/// Answers 引擎 2's `name` with `name`; a plain aggressiveness query made of it after its own
+/// start-up read-back is never answered.
+fn second_engine_named(world: World, name: &'static str) -> impl Fn(InstanceId, &str) -> Option<String> {
+    let reads = std::cell::Cell::new(0);
+    move |i, c| {
+        if i != world.ids()[1] {
+            return None;
+        }
+        if c == "name" {
+            return Some(name.into());
+        }
+        if c == get(PDA) {
+            reads.set(reads.get() + 1);
+            return (reads.get() > 1).then(|| "HOLD".into());
+        }
+        None
+    }
+}
+
+#[test]
+fn a_participant_that_cannot_take_a_nonzero_value_is_refused_before_any_command() {
+    let cases = [
+        (
+            "Leela Zero",
+            MatchOpeningParameters {
+                second_wrn: 0.5,
+                ..MatchOpeningParameters::default()
+            },
+            MatchParameter::Wrn,
+        ),
+        (
+            "KataGoPda 1.16.4",
+            MatchOpeningParameters {
+                second_pda: 1.0,
+                ..MatchOpeningParameters::default()
+            },
+            MatchParameter::Pda,
+        ),
+    ];
+    for (name, opening, parameter) in cases {
+        let mut m = Match::new();
+        start_analysis(&mut m, opening, analysis());
+        let sent = m.serve(&second_engine_named(m.world.clone(), name));
+        assert_eq!(
+            notices(&m, "product.matchOpeningFailed"),
+            vec![vec![failure(
+                false,
+                MatchParameterFailureReason::Unsupported { parameter }
+            )]],
+            "{name}"
+        );
+        assert!(
+            parameter_commands(match_commands(&sent)).is_empty(),
+            "{name}: nothing about the parameters goes to either engine: {sent:?}"
+        );
+        assert!(!sent.iter().any(|(_, c)| c.starts_with("kata-set-param")), "{name}");
+        assert_eq!(m.phase(), None, "{name}");
+    }
+    // Zero is left alone: a KataGoPda participant takes breadth only, and its own aggressiveness
+    // is neither read nor written, so a query it would never answer cannot hold the start.
+    let mut m = Match::new();
+    start_analysis(
+        &mut m,
+        MatchOpeningParameters {
+            second_wrn: 0.5,
+            ..MatchOpeningParameters::default()
+        },
+        analysis(),
+    );
+    let sent = m.serve(&second_engine_named(m.world.clone(), "KataGoPda 1.16.4"));
+    assert_eq!(m.phase(), Some(MatchPhase::Playing));
+    let two = m.world.ids()[1];
+    let to_two: Vec<String> = parameter_commands(match_commands(&sent))
+        .into_iter()
+        .filter(|(i, _)| *i == two)
+        .map(|(_, c)| c)
+        .collect();
+    assert_eq!(to_two, [get(WRN), set(WRN, "0.5"), get(WRN)]);
+    assert!(
+        match_commands(&sent).iter().any(|(_, c)| c.starts_with("kata-analyze")),
+        "the game searches: {sent:?}"
+    );
+    let p = m.wb.inspect().engine_match.unwrap().parameters.unwrap();
+    assert!(p.second.wrn.supported && !p.second.pda.supported && p.first.pda.supported);
+}
+
+#[test]
+fn a_kata_go_pda_participant_comments_the_aggressiveness_it_reports_itself() {
+    let mut m = Match::new();
+    start_analysis(&mut m, MatchOpeningParameters::default(), analysis());
+    let world = m.world.clone();
+    let sent = m.serve(&move |i, c| match c {
+        _ if i != world.ids()[0] => None,
+        "name" => Some("KataGoPda 1.16.4".into()),
+        "getpda" => Some("pda: 0.25".into()),
+        _ => None,
+    });
+    assert_eq!(m.phase(), Some(MatchPhase::Playing));
+    let first = m.world.ids()[0];
+    assert_eq!(
+        sent.iter().filter(|(i, c)| *i == first && *c == get(PDA)).count(),
+        1,
+        "only its own start-up read-back asks it for the plain value: {sent:?}"
+    );
+    m.out(
+        first,
+        "info move D4 visits 10 winrate 0.5 scoreLead 0.5 prior 0.5 order 0 pv D4",
+    );
+    m.command(MatchCommand::Intervention {
+        op: MatchIntervention::PlayNow,
+    });
+    m.serve(&|_, _| None);
+    let comment = &m.wb.document().record.node(ROOT).comment;
+    assert!(comment.contains("0.25"), "{comment}");
+}
+
+#[test]
+fn a_process_that_ended_is_not_written_and_a_failed_restore_stops_its_process() {
+    // The captured process ended: its replacement is never written; the other is restored.
+    let mut m = Match::new();
+    start_analysis(
+        &mut m,
+        OPENING,
+        MatchSessionSettings {
+            batch_enabled: true,
+            batch_limit: 2,
+            ..analysis()
+        },
+    );
+    m.serve(&|_, _| None);
+    let (one, two) = (m.world.ids()[0], m.world.ids()[1]);
+    m.wb.engine_input(two, EngineInput::Exited(Some(1)));
+    let sent = m.serve(&|_, _| None);
+    assert_eq!(m.phase(), None);
+    assert_eq!(
+        notices(&m, "EngineGameParameters.restoreFailed"),
+        vec![vec![failure(false, MatchParameterFailureReason::ProcessChanged)]]
+    );
+    let replacement = *m.world.ids().last().unwrap();
+    assert!(
+        replacement != one && replacement != two,
+        "引擎 2 starts again after the match"
+    );
+    assert!(
+        !sent
+            .iter()
+            .any(|(i, c)| *i == replacement && c.starts_with("kata-set-param")),
+        "{sent:?}"
+    );
+    assert_eq!(m.params[&(one, WRN.to_string())], "1.5", "引擎 1 is restored");
+
+    // A refused restore is reported and that exact process is stopped instead of given back.
+    let mut m = Match::new();
+    start_analysis(&mut m, OPENING, analysis());
+    m.serve(&|_, _| None);
+    let one = m.world.ids()[0];
+    m.command(MatchCommand::Stop);
+    let sent = m.serve(&move |i, c| (i == one && c == set(WRN, "1.5")).then(|| "?busy".into()));
+    assert_eq!(
+        notices(&m, "EngineGameParameters.restoreFailed"),
+        vec![vec![failure(
+            true,
+            MatchParameterFailureReason::Rejected {
+                command: set(WRN, "1.5"),
+                response: "busy".into()
+            }
+        )]]
+    );
+    let after = sent
+        .iter()
+        .position(|(i, c)| *i == one && *c == set(WRN, "1.5"))
+        .unwrap();
+    assert!(
+        !sent[after + 1..].iter().any(|(i, _)| *i == one),
+        "nothing else goes to it: {sent:?}"
+    );
+    let engines = m.wb.inspect().engine.engines;
+    assert!(engines[0].state.is_none(), "引擎 1 is stopped");
+    assert!(engines[1].state.is_some(), "引擎 2 was restored and keeps running");
+    assert!(
+        m.wb.view(false).match_outcome.unwrap().unrestored.is_empty(),
+        "reported once, by the restore"
+    );
+    assert_eq!(m.phase(), None);
+}
+
+#[test]
+fn a_new_batch_starts_only_after_the_previous_one_gave_its_values_back() {
+    let mut m = Match::new();
+    start_analysis(&mut m, OPENING, analysis());
+    m.serve(&|_, _| None);
+    let one = m.world.ids()[0];
+    m.command(MatchCommand::Stop);
+    m.serve(&move |i, c| (i == one && c == set(PDA, "1.5")).then(|| "HOLD".into()));
+    assert_eq!(m.phase(), Some(MatchPhase::Ending), "the restore waits for 引擎 1");
+    assert!(matches!(
+        start_analysis(&mut m, OPENING, analysis()),
+        CommandResult::Refused { .. }
+    ));
+    assert!(
+        parameter_commands(&m.serve(&|_, _| None)).is_empty(),
+        "no opening of the new batch yet"
+    );
+    m.params.insert((one, PDA.into()), "1.5".into());
+    m.answer(one, &set(PDA, "1.5"), "");
+    let restored = m.serve(&|_, _| None);
+    assert_eq!(parameter_commands(&restored).last().unwrap().1, get(PDA));
+    assert_eq!(m.phase(), None);
+    assert!(notices(&m, "EngineGameParameters.restoreFailed").is_empty());
+    assert_eq!(m.world.ids().len(), 2, "both processes stay up");
+    assert_eq!(start_analysis(&mut m, OPENING, analysis()), CommandResult::Done);
+    let sent = m.serve(&|_, _| None);
+    let first = parameter_commands(match_commands(&sent))
+        .first()
+        .map(|(_, c)| c.clone());
+    assert_eq!(first, Some(get(WRN)), "the new batch captures first: {sent:?}");
+    assert_eq!(m.phase(), Some(MatchPhase::Playing));
+}
+
+fn batch_of_two() -> MatchSessionSettings {
+    MatchSessionSettings {
+        batch_enabled: true,
+        batch_limit: 2,
+        ..analysis()
+    }
+}
+
+#[test]
+fn a_stop_while_a_game_gives_its_engines_back_restores_both_processes_afterwards() {
+    // The game's rules handback: its own rules, their read-back, then `name`.
+    fn give_back(m: &mut Match, instance: InstanceId, commands: &[&str]) {
+        for &command in commands {
+            let text = match command {
+                "kata-get-rules" => RULES,
+                "name" => "KataGo",
+                _ => "",
+            };
+            m.answer(instance, command, text);
+        }
+    }
+    const ALL: [&str; 3] = ["kata-set-rules {", "kata-get-rules", "name"];
+    for other_seat_first in [false, true] {
+        let mut m = Match::new();
+        start_analysis(&mut m, OPENING, batch_of_two());
+        let (one, two) = (m.world.ids()[0], m.world.ids()[1]);
+        m.params.insert((one, PDA.into()), "0.75".into());
+        m.params.insert((two, WRN.into()), "0.25".into());
+        m.serve(&|_, _| None);
+        // The first game ends; its engines are being given back for the second one.
+        m.command(MatchCommand::Intervention {
+            op: MatchIntervention::Resign { side: Stone::Black },
+        });
+        m.serve(&|_, c| {
+            (c.starts_with("kata-set-rules {") || c == "kata-get-rules" || c == "name").then(|| "HOLD".into())
+        });
+        assert_eq!(m.phase(), Some(MatchPhase::Ending));
+        if other_seat_first {
+            give_back(&mut m, two, &ALL[..2]);
+        }
+        assert_eq!(m.command(MatchCommand::Stop), CommandResult::Done);
+        let mut sent = m.serve(&|_, _| None);
+        if other_seat_first {
+            give_back(&mut m, two, &ALL[2..]);
+            give_back(&mut m, one, &ALL);
+        } else {
+            give_back(&mut m, one, &ALL);
+            give_back(&mut m, two, &ALL);
+        }
+        sent.extend(m.serve(&|_, _| None));
+        m.wb.engine_tick(Instant::now() + Duration::from_secs(1));
+        sent.extend(m.serve(&|_, _| None));
+        let case = format!("other seat first: {other_seat_first}");
+        assert_eq!(m.phase(), None, "{case}");
+        assert!(
+            !sent.iter().any(|(_, c)| c == "kata-set-rules chinese"),
+            "{case}: no second game: {sent:?}"
+        );
+        assert_eq!(
+            parameter_commands(&sent),
+            vec![
+                (one, set(WRN, "1.5")),
+                (one, get(WRN)),
+                (one, set(PDA, "0.75")),
+                (one, get(PDA)),
+                (two, set(WRN, "0.25")),
+                (two, get(WRN)),
+                (two, set(PDA, "1.5")),
+                (two, get(PDA)),
+            ],
+            "{case}: each process gets its values from before the batch back"
+        );
+        assert!(notices(&m, "EngineGameParameters.restoreFailed").is_empty(), "{case}");
+        assert!(m.wb.view(false).match_outcome.unwrap().unrestored.is_empty(), "{case}");
+        let engines = m.wb.inspect().engine.engines;
+        assert!(
+            engines.iter().all(|e| e.state.is_some()),
+            "{case}: both processes keep running"
+        );
+        assert_eq!(m.world.ids(), [one, two], "{case}: no process was replaced");
+    }
+}
+
+#[test]
+fn the_start_up_limit_of_a_game_gives_both_processes_their_values_back_first() {
+    let mut m = Match::new();
+    start_analysis(&mut m, OPENING, batch_of_two());
+    let (one, two) = (m.world.ids()[0], m.world.ids()[1]);
+    m.params.insert((two, WRN.into()), "0.25".into());
+    m.serve(&|_, _| None);
+    m.command(MatchCommand::Intervention {
+        op: MatchIntervention::Resign { side: Stone::Black },
+    });
+    m.serve(&|_, _| None);
+    assert_eq!(m.phase(), Some(MatchPhase::BetweenGames));
+    // The second game: 引擎 1 does not answer its rules query before the start-up limit.
+    let next = Instant::now() + Duration::from_secs(1);
+    m.wb.engine_tick(next);
+    let held = std::cell::Cell::new(false);
+    m.serve(&|i, c| (i == one && c == "kata-get-rules" && !held.replace(true)).then(|| "HOLD".into()));
+    assert_eq!(m.phase(), Some(MatchPhase::Starting));
+    m.wb.engine_tick(next + Duration::from_secs(181));
+    let mut sent = m.serve(&|_, _| None);
+    m.answer(one, "kata-get-rules", RULES);
+    sent.extend(m.serve(&|_, _| None));
+    assert_eq!(
+        parameter_commands(&sent),
+        vec![
+            (one, set(WRN, "1.5")),
+            (one, get(WRN)),
+            (one, set(PDA, "1.5")),
+            (one, get(PDA)),
+            (two, set(WRN, "0.25")),
+            (two, get(WRN)),
+            (two, set(PDA, "1.5")),
+            (two, get(PDA)),
+        ],
+        "each process gets its values from before the batch back"
+    );
+    assert_eq!(m.params[&(two, WRN.to_string())], "0.25");
+    assert!(notices(&m, "EngineGameParameters.restoreFailed").is_empty());
+    assert_eq!(m.phase(), None);
+    let engines = m.wb.inspect().engine.engines;
+    assert!(engines.iter().all(|e| e.state.is_some()), "both processes keep running");
+}
+
+/// 对局参数 for the current game: [引擎 1 广度, 引擎 2 广度, 引擎 1 激进度, 引擎 2 激进度].
+fn revise(m: &mut Match, values: [Option<f64>; 4]) -> CommandResult {
+    let game = m.wb.inspect().engine_match.unwrap().game;
+    let [first_wrn, second_wrn, first_pda, second_pda] = values;
+    m.command(MatchCommand::ReviseParameters {
+        game,
+        first_wrn,
+        second_wrn,
+        first_pda,
+        second_pda,
+    })
+}
+
+fn parameters(m: &Match) -> MatchParametersView {
+    m.wb.inspect().engine_match.unwrap().parameters.unwrap()
+}
+
+fn refusal(result: CommandResult) -> String {
+    match result {
+        CommandResult::Refused { message_key } => message_key,
+        other => panic!("not refused: {other:?}"),
+    }
+}
+
+#[test]
+fn a_revision_writes_and_reads_back_only_the_changed_value_of_that_participant() {
+    let mut m = Match::new();
+    start_analysis(&mut m, OPENING, analysis());
+    m.serve(&|_, _| None);
+    let two = m.world.ids()[1];
+    // 引擎 2's breadth from 0 to 0.5.
+    assert!(matches!(revise(&mut m, [None, Some(0.5), None, None]), CommandResult::ParametersRevised { .. }));
+    let p = parameters(&m);
+    assert!(p.pending);
+    // The value being written is unknown until its read-back (Java `runUpdate` clears it).
+    assert_eq!((p.second.wrn.confirmed, p.second.wrn.target), (None, Some(0.5)));
+    let sent = m.serve(&|_, _| None);
+    assert_eq!(
+        parameter_commands(&sent),
+        vec![(two, set(WRN, "0.5")), (two, get(WRN))]
+    );
+    let last = sent.iter().rposition(|(_, c)| c.contains(WRN)).unwrap();
+    assert!(
+        sent[last..].iter().any(|(_, c)| c.starts_with("kata-analyze")),
+        "the game searches again once confirmed: {sent:?}"
+    );
+    let p = parameters(&m);
+    assert!(!p.pending && p.failures.is_empty());
+    assert_eq!((p.second.wrn.confirmed, p.second.wrn.target), (Some(0.5), None));
+    assert_eq!((p.first.wrn.confirmed, p.first.pda.confirmed, p.second.pda.confirmed), (Some(0.5), Some(1.0), Some(-1.0)));
+    assert_eq!(m.phase(), Some(MatchPhase::Playing));
+}
+
+#[test]
+fn a_revision_without_a_changed_value_sends_nothing() {
+    let mut m = Match::new();
+    start_analysis(&mut m, OPENING, analysis());
+    m.serve(&|_, _| None);
+    assert_eq!(revise(&mut m, [None; 4]), CommandResult::Unchanged);
+    // The values the engines confirmed at the opening.
+    assert_eq!(
+        revise(&mut m, [Some(0.5), Some(0.0), Some(1.0), Some(-1.0)]),
+        CommandResult::Unchanged
+    );
+    assert!(parameter_commands(&m.serve(&|_, _| None)).is_empty());
+    assert!(!parameters(&m).pending);
+    // Out of range, or no game of that number: refused before anything is recorded.
+    assert_eq!(refusal(revise(&mut m, [None, Some(2.5), None, None])), "EngineGameParameters.invalidWrn");
+    assert_eq!(refusal(revise(&mut m, [None, None, Some(-3.5), None])), "EngineGameParameters.invalidPda");
+    let game = m.wb.inspect().engine_match.unwrap().game;
+    let stale = MatchCommand::ReviseParameters {
+        game: game + 1,
+        first_wrn: Some(1.0),
+        second_wrn: None,
+        first_pda: None,
+        second_pda: None,
+    };
+    assert_eq!(refusal(m.command(stale)), "EngineGameParameters.notPlaying");
+    assert!(parameter_commands(&m.serve(&|_, _| None)).is_empty());
+}
+
+#[test]
+fn a_read_back_mismatch_pauses_the_game_until_a_revision_is_confirmed() {
+    let mut m = Match::new();
+    start_analysis(&mut m, OPENING, analysis());
+    m.serve(&|_, _| None);
+    let two = m.world.ids()[1];
+    revise(&mut m, [None, Some(0.5), None, None]);
+    m.serve(&move |i, c| (i == two && c == get(WRN)).then(|| "0.25".into()));
+    let expected = vec![failure(
+        false,
+        MatchParameterFailureReason::Mismatch {
+            actual: "0.25".into(),
+            expected: "0.5".into(),
+        },
+    )];
+    assert_eq!(m.phase(), Some(MatchPhase::Paused));
+    let p = parameters(&m);
+    assert!(!p.pending);
+    assert_eq!(p.failures, expected);
+    assert_eq!(p.second.wrn.confirmed, None, "the value is unknown");
+    assert_eq!(notices(&m, "EngineGameParameters.failed"), vec![expected.clone()]);
+    // 继续 is refused while the values are not confirmed.
+    assert_eq!(refusal(m.command(MatchCommand::Pause)), "EngineGameParameters.resumeBlocked");
+    assert_eq!(m.phase(), Some(MatchPhase::Paused));
+    // Applying the same value again writes it again; once confirmed the game may continue.
+    assert!(matches!(revise(&mut m, [None, Some(0.5), None, None]), CommandResult::ParametersRevised { .. }));
+    let sent = m.serve(&|_, _| None);
+    assert_eq!(
+        parameter_commands(&sent),
+        vec![(two, set(WRN, "0.5")), (two, get(WRN))]
+    );
+    let p = parameters(&m);
+    assert!(!p.pending && p.failures.is_empty());
+    assert_eq!(p.second.wrn.confirmed, Some(0.5));
+    assert_eq!(m.phase(), Some(MatchPhase::Paused), "a revision does not resume the game");
+    assert_eq!(m.command(MatchCommand::Pause), CommandResult::Done);
+    assert_eq!(m.phase(), Some(MatchPhase::Playing));
+}
+
+#[test]
+fn a_late_refusal_of_a_timed_out_revision_leaves_the_paused_game_as_it_was() {
+    let mut m = Match::new();
+    start_analysis(&mut m, OPENING, analysis());
+    m.serve(&|_, _| None);
+    let two = m.world.ids()[1];
+    let game = m.wb.inspect().engine_match.unwrap().game;
+    revise(&mut m, [None, Some(0.5), None, None]);
+    m.serve(&move |i, c| (i == two && c == set(WRN, "0.5")).then(|| "HOLD".into()));
+    m.wb.engine_tick(Instant::now() + Duration::from_secs(9));
+    m.serve(&|_, _| None);
+    let timeout = vec![failure(false, MatchParameterFailureReason::Timeout)];
+    assert_eq!(m.phase(), Some(MatchPhase::Paused));
+    assert_eq!(parameters(&m).failures, timeout);
+    // The engine refuses the timed-out write only now: that answer belongs to nobody.
+    m.answer(two, "kata-set-param", "?too late");
+    let after = m.serve(&|_, _| None);
+    let view = m.wb.inspect().engine_match.unwrap();
+    assert_eq!((view.game, view.phase), (game, MatchPhase::Paused));
+    assert_eq!(parameters(&m).failures, timeout, "the reason stays the time-out");
+    assert_eq!(m.wb.view(false).match_outcome, None, "the game did not end");
+    assert!(parameter_commands(&after).is_empty(), "nothing is restored: {after:?}");
+    // A new submission is confirmed and the game continues.
+    assert!(matches!(revise(&mut m, [None, Some(0.5), None, None]), CommandResult::ParametersRevised { .. }));
+    let sent = m.serve(&|_, _| None);
+    assert_eq!(parameter_commands(&sent), vec![(two, set(WRN, "0.5")), (two, get(WRN))]);
+    let p = parameters(&m);
+    assert!(!p.pending && p.failures.is_empty());
+    assert_eq!(m.command(MatchCommand::Pause), CommandResult::Done);
+    assert_eq!(m.phase(), Some(MatchPhase::Playing));
+}
+
+#[test]
+fn a_revision_waiting_for_a_komi_change_too_long_fails_for_the_game() {
+    let mut m = Match::new();
+    start_analysis(&mut m, OPENING, analysis());
+    m.serve(&|_, _| None);
+    m.command(MatchCommand::Pause);
+    // A komi change is waiting for the engines' answers.
+    assert!(m.wb.set_komi(6.5).unwrap());
+    m.serve(&|_, c| (c == "komi 6.5").then(|| "HOLD".into()));
+    assert!(matches!(revise(&mut m, [None, Some(0.5), None, None]), CommandResult::ParametersRevised { .. }));
+    assert!(parameter_commands(&m.serve(&|_, _| None)).is_empty(), "nothing is written meanwhile");
+    assert!(parameters(&m).pending);
+    m.wb.engine_tick(Instant::now() + Duration::from_secs(31));
+    let expected = vec![MatchParameterFailure {
+        first: None,
+        reason: MatchParameterFailureReason::TurnTimeout,
+    }];
+    let p = parameters(&m);
+    assert!(!p.pending);
+    assert_eq!(p.failures, expected);
+    assert_eq!(notices(&m, "EngineGameParameters.failed"), vec![expected]);
+    assert_eq!(m.phase(), Some(MatchPhase::Paused));
+    assert!(parameter_commands(&m.serve(&|_, _| None)).is_empty());
+}
+
+#[test]
+fn a_game_ending_before_the_engines_answer_keeps_the_reason_with_its_parameters() {
+    for stop in [false, true] {
+        let mut m = Match::new();
+        start_analysis(&mut m, OPENING, analysis());
+        m.serve(&|_, _| None);
+        let two = m.world.ids()[1];
+        revise(&mut m, [None, Some(0.5), None, None]);
+        // 引擎 2 does not answer the write.
+        m.serve(&move |i, c| (i == two && c == set(WRN, "0.5")).then(|| "HOLD".into()));
+        let expected = if stop {
+            m.command(MatchCommand::Stop);
+            MatchParameterFailureReason::Interrupted
+        } else {
+            m.command(MatchCommand::Intervention {
+                op: MatchIntervention::Resign { side: Stone::Black },
+            });
+            MatchParameterFailureReason::GameEnded
+        };
+        // The batch holds the parameters until it gave them back; until then the game's
+        // parameters say why the value was not confirmed.
+        let view = m.wb.inspect().engine_match.expect("the batch is giving its values back");
+        assert_eq!(view.phase, MatchPhase::Ending, "stop: {stop}");
+        let p = view.parameters.unwrap();
+        assert!(!p.pending, "stop: {stop}");
+        assert_eq!(p.failures, vec![failure(false, expected)], "stop: {stop}");
+        assert!(notices(&m, "EngineGameParameters.failed").is_empty(), "the game is over: no pause");
+        m.answer(two, &set(WRN, "0.5"), "");
+        m.serve(&|_, _| None);
+        assert_eq!(m.phase(), None, "stop: {stop}");
+        assert_eq!(m.params[&(two, WRN.to_string())], "1.5", "stop: {stop}: given back");
+    }
+}
+
+#[test]
+fn the_next_game_of_a_batch_starts_from_the_opening_values_and_refuses_the_last_games_revision() {
+    let mut m = Match::new();
+    let values = MatchSessionSettings {
+        batch_enabled: true,
+        batch_limit: 2,
+        ..analysis()
+    };
+    start_analysis(&mut m, OPENING, values);
+    m.serve(&|_, _| None);
+    let previous = m.wb.inspect().engine_match.unwrap().game;
+    revise(&mut m, [None, Some(0.5), None, None]);
+    m.serve(&|_, _| None);
+    assert_eq!(parameters(&m).second.wrn.confirmed, Some(0.5));
+    m.command(MatchCommand::Intervention {
+        op: MatchIntervention::Resign { side: Stone::Black },
+    });
+    m.serve(&|_, _| None);
+    assert_eq!(m.phase(), Some(MatchPhase::BetweenGames));
+    m.successor();
+    assert_eq!(m.phase(), Some(MatchPhase::Playing));
+    let view = m.wb.inspect().engine_match.unwrap();
+    assert_ne!(view.game, previous);
+    let p = view.parameters.unwrap();
+    assert_eq!((p.second.wrn.confirmed, p.second.wrn.target), (Some(0.0), None));
+    let stale = MatchCommand::ReviseParameters {
+        game: previous,
+        first_wrn: None,
+        second_wrn: Some(1.0),
+        first_pda: None,
+        second_pda: None,
+    };
+    assert_eq!(refusal(m.command(stale)), "EngineGameParameters.notPlaying");
+}
+
+/// The 引擎参数 window during an engine match, until the batch gave its parameters back: the
+/// toolbar choices and 自动加载 are saved, 修改 and the values are left alone and nothing is sent.
+#[test]
+fn the_engine_parameter_window_saves_only_preferences_until_the_batch_gave_its_values_back() {
+    let mut m = Match::new();
+    start_analysis(&mut m, OPENING, analysis());
+    m.serve(&|_, _| None);
+    let one = m.world.ids()[0];
+    m.command(MatchCommand::Stop);
+    m.serve(&move |i, c| (i == one && c == set(PDA, "1.5")).then(|| "HOLD".into()));
+    assert_eq!(m.phase(), Some(MatchPhase::Ending), "the restore waits for 引擎 1");
+    let row = KataParamEdit {
+        enabled: true,
+        value: Some(0.25),
+        auto_load: true,
+        edited: true,
+        auto_load_edited: true,
+    };
+    let edit = KataEngineParamsEdit {
+        pda: Some(row),
+        wrn: row,
+        show_pda: true,
+        show_wrn: true,
+    };
+    let values = |m: &Match| {
+        let e = &m.wb.config().engine;
+        (e.kata_pda_enabled, e.kata_pda, e.kata_params.wrn_enabled, e.kata_params.wrn)
+    };
+    let before = values(&m);
+    assert_eq!(m.wb.save_kata_engine_params(edit).unwrap(), None);
+    assert_eq!(values(&m), before, "修改 and the values are left alone");
+    let s = &m.wb.config().engine.kata_params;
+    assert_eq!((s.auto_load_wrn, s.auto_load_wrn_value), (true, Some(0.25)));
+    assert_eq!((s.show_pda, s.show_wrn), (true, true));
+    let sent = m.serve(&|_, _| None);
+    assert!(!sent.iter().any(|(_, c)| c.contains("0.25")), "{sent:?}");
+}
+
+#[test]
+fn opening_values_are_saved_and_unreadable_ones_read_as_zero() {
+    let dir = tempfile::tempdir().unwrap();
+    let storage = || Storage::in_dirs(&dir.path().join("config"), &dir.path().join("data"));
+    let workbench = || Workbench::new(storage(), None, Box::new(Launch(World::default())), vec![]);
+    let saved = MatchOpeningParameters {
+        first_wrn: 2.0,
+        second_wrn: 0.5,
+        first_pda: -3.0,
+        second_pda: 1.25,
+    };
+    let mut wb = workbench();
+    let mut settings = wb.config().matches.clone();
+    settings.opening = saved;
+    let session = MatchSessionSettings::default();
+    wb.engine_match(MatchCommand::SetValues {
+        settings: settings.clone(),
+        session: session.clone(),
+    })
+    .unwrap();
+    for bad in [
+        MatchOpeningParameters {
+            first_wrn: 2.5,
+            ..saved
+        },
+        MatchOpeningParameters {
+            second_wrn: -0.1,
+            ..saved
+        },
+        MatchOpeningParameters {
+            first_pda: 3.5,
+            ..saved
+        },
+    ] {
+        let refused = wb.engine_match(MatchCommand::SetValues {
+            settings: MatchSettings {
+                opening: bad,
+                ..settings.clone()
+            },
+            session: session.clone(),
+        });
+        assert!(refused.is_err(), "{bad:?}");
+    }
+    drop(wb);
+    assert_eq!(workbench().config().matches.opening, saved, "read back after a restart");
+
+    let file = storage().config_file;
+    let mut json: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    // Missing, unreadable and out-of-range values are 0; the old 禁用WRN plays no part.
+    let zero = MatchOpeningParameters::default();
+    for (game_wrn, opening, expected) in [
+        (
+            true,
+            serde_json::json!({"firstWrn": "wide", "secondWrn": 2.5, "firstPda": -3.5, "secondPda": 2}),
+            MatchOpeningParameters {
+                second_pda: 2.0,
+                ..zero
+            },
+        ),
+        (false, serde_json::json!({"firstWrn": null}), zero),
+        (true, serde_json::json!("not an object"), zero),
+    ] {
+        json["matches"]["opening"] = opening;
+        json["game"]["disableWrn"] = serde_json::Value::Bool(game_wrn);
+        std::fs::write(&file, serde_json::to_vec(&json).unwrap()).unwrap();
+        let wb = workbench();
+        assert_eq!(wb.config().matches.opening, expected, "{}", json["matches"]["opening"]);
+        assert_eq!(
+            wb.config().matches.komi,
+            settings.komi,
+            "the other values stay readable"
+        );
+    }
+    json["matches"].as_object_mut().unwrap().remove("opening");
+    std::fs::write(&file, serde_json::to_vec(&json).unwrap()).unwrap();
+    assert_eq!(
+        workbench().config().matches.opening,
+        MatchOpeningParameters::default(),
+        "a file from before has none"
+    );
+}
+
+// 本局规则 choices: the Chinese rule sets of the rules panel (`RulePreset`) before Java's other
+// `MatchRuleOption`s. Expected names are the English bundle's `MatchRuleOption` labels and
+// `LizzieFrame.currentRules.*` short names.
+
+/// What KataGo answers `kata-get-rules` with after `kata-set-rules <preset>`: the fields of its
+/// official presets as Java `KataGoRules.officialPresets` lists them, written out here.
+fn katago_preset(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "chinese" => {
+            r#"{"ko":"SIMPLE","scoring":"AREA","tax":"NONE","suicide":false,"hasButton":false,"whiteHandicapBonus":"N","friendlyPassOk":true}"#
+        }
+        "japanese" => {
+            r#"{"ko":"SIMPLE","scoring":"TERRITORY","tax":"SEKI","suicide":false,"hasButton":false,"whiteHandicapBonus":"0","friendlyPassOk":false}"#
+        }
+        "stone-scoring" => {
+            r#"{"ko":"SIMPLE","scoring":"AREA","tax":"ALL","suicide":false,"hasButton":false,"whiteHandicapBonus":"0","friendlyPassOk":true}"#
+        }
+        "aga" => {
+            r#"{"ko":"SITUATIONAL","scoring":"AREA","tax":"NONE","suicide":false,"hasButton":false,"whiteHandicapBonus":"N-1","friendlyPassOk":true}"#
+        }
+        "new-zealand" => {
+            r#"{"ko":"SITUATIONAL","scoring":"AREA","tax":"NONE","suicide":true,"hasButton":false,"whiteHandicapBonus":"0","friendlyPassOk":true}"#
+        }
+        "tromp-taylor" => {
+            r#"{"ko":"POSITIONAL","scoring":"AREA","tax":"NONE","suicide":true,"hasButton":false,"whiteHandicapBonus":"0","friendlyPassOk":false}"#
+        }
+        "goe" => {
+            r#"{"ko":"POSITIONAL","scoring":"AREA","tax":"NONE","suicide":true,"hasButton":false,"whiteHandicapBonus":"0","friendlyPassOk":true}"#
+        }
+        _ => return None,
+    })
+}
+
+/// The rules each 本局规则 entry gives the engines, as KataGo reports them: Java `RulePreset` for
+/// the Chinese rule sets, `MatchRuleOption` for the others.
+fn rules_of_choice(id: &str) -> serde_json::Value {
+    let rules = match id {
+        "CHINESE_2027" | "CHINESE_2027_DRAW_TO_WHITE" | "CHINESE" => katago_preset("chinese").unwrap(),
+        "CHINESE_2027_DRAW_TO_FIRST_PASS" => {
+            r#"{"ko":"SIMPLE","scoring":"AREA","tax":"NONE","suicide":false,"hasButton":true,"whiteHandicapBonus":"N","friendlyPassOk":true}"#
+        }
+        "CHINESE_ANCIENT" => katago_preset("stone-scoring").unwrap(),
+        "JAPANESE_KOREAN" => katago_preset("japanese").unwrap(),
+        "AGA_BGA" => katago_preset("aga").unwrap(),
+        "NEW_ZEALAND" => katago_preset("new-zealand").unwrap(),
+        "TROMP_TAYLOR" => katago_preset("tromp-taylor").unwrap(),
+        "GOE" => katago_preset("goe").unwrap(),
+        other => panic!("no rules written out for {other}"),
+    };
+    serde_json::from_str(rules).unwrap()
+}
+
+/// A `kata-set-rules` argument as KataGo takes it: a preset's fields or a JSON object.
+fn rules_given(argument: &str) -> serde_json::Value {
+    let json = katago_preset(argument).unwrap_or(argument);
+    serde_json::from_str(json).unwrap_or_else(|_| panic!("not KataGo rules: {argument}"))
+}
+
+/// A started game with the 本局规则 entry `id`; the engines start with Japanese rules, take what
+/// `kata-set-rules` gives them and report it.
+fn start_with_rules_choice(m: &mut Match, id: &str, values: MatchSessionSettings) -> Vec<(InstanceId, String)> {
+    let option = lizzie_core::engine::rules::MATCH_RULE_OPTIONS
+        .iter()
+        .find(|o| o.id == id)
+        .unwrap();
+    let result = m.command(MatchCommand::Start {
+        settings: MatchSettings {
+            rules: option.rules.into(),
+            rules_choice: Some(id.into()),
+            ..MatchSettings::default()
+        },
+        session: values,
+        first_engine: 0,
+        second_engine: 1,
+    });
+    assert_eq!(result, CommandResult::Done, "{id}");
+    let kept = KeptRules::default();
+    let sent = m.serve(&|i, command| match command.strip_prefix("kata-set-rules ") {
+        // As KataGo, an engine given a preset reports it as its JSON fields.
+        Some(rules) => kept.run(i, &format!("kata-set-rules {}", rules_given(rules))),
+        None => kept.run(i, command),
+    });
+    assert_eq!(
+        m.phase(),
+        Some(MatchPhase::Playing),
+        "{id}: both engines confirmed the rules"
+    );
+    // Besides each engine's overlay, the foreground engine is given its analysis target, which
+    // during a game is the game's rules: the same rules, written as JSON.
+    let target = rules_of_choice(id);
+    for (_, command) in &sent {
+        if let Some(rules) = command.strip_prefix("kata-set-rules ") {
+            assert_eq!(rules_given(rules), target, "{id}: {command}");
+        }
+    }
+    sent
+}
+
+/// The game's rules overlay each engine was sent: its first `kata-set-rules`.
+fn rules_sent(sent: &[(InstanceId, String)]) -> Vec<String> {
+    let mut engines = HashSet::new();
+    sent.iter()
+        .filter(|(i, c)| c.starts_with("kata-set-rules ") && engines.insert(*i))
+        .map(|(_, c)| c["kata-set-rules ".len()..].to_string())
+        .collect()
+}
+
+#[test]
+fn the_first_pass_draw_rule_set_sends_the_button_and_is_named_by_its_short_name() {
+    let button = r#"{"ko":"SIMPLE","scoring":"AREA","tax":"NONE","suicide":false,"hasButton":true,"whiteHandicapBonus":"N","friendlyPassOk":true}"#;
+    let mut m = Match::with_locale(Some("en-US"));
+    let sent = start_with_rules_choice(&mut m, "CHINESE_2027_DRAW_TO_FIRST_PASS", batch());
+    let given = rules_sent(&sent);
+    assert_eq!(given.len(), 2, "each engine is given the game's rules: {sent:?}");
+    for rules in &given {
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(rules).unwrap(),
+            serde_json::from_str::<serde_json::Value>(button).unwrap()
+        );
+    }
+    let name = "2027, tie to 1st pass";
+    assert_eq!(caption(&m).as_deref(), Some(name));
+    let fields = format!("{name} (ko=SIMPLE, scoring=AREA, tax=NONE, suicide=false, hasButton=true, whiteHandicapBonus=N, friendlyPassOk=true)");
+    let expected = format!(
+        "Target: {name}\nconfirmed\nBlack: First (/opt/katago gtp)\nStatus: confirmed\nEffective rules: {fields}\nWhite: Second (/opt/katago gtp)\nStatus: confirmed\nEffective rules: {fields}"
+    );
+    assert_eq!(details(&m), Some(expected.clone()));
+    assert_eq!(m.wb.inspect().engine_match.unwrap().rules_target_name, name);
+
+    // The saved record's block and the batch summary use the same name.
+    m.finish_turn("resign");
+    let jobs = m.wb.take_background_saves();
+    let sgf = jobs
+        .iter()
+        .find(|j| j.path.extension().is_some_and(|e| e == "sgf"))
+        .unwrap();
+    let record = lizzie_core::formats::parse(lizzie_core::record::RecordFormat::Sgf, &sgf.text, false).unwrap();
+    assert!(
+        record
+            .node(ROOT)
+            .comment
+            .contains(&format!("Match rules\n{expected}\nEnd of match rules")),
+        "{}",
+        record.node(ROOT).comment
+    );
+    let summary = jobs
+        .iter()
+        .find(|j| j.path.extension().is_some_and(|e| e == "txt"))
+        .unwrap();
+    assert_eq!(
+        summary.text.matches(&format!("\r\nRules: {name}")).count(),
+        2,
+        "{}",
+        summary.text
+    );
+
+    let mut m = Match::with_locale(Some("zh-CN"));
+    start_with_rules_choice(&mut m, "CHINESE_2027_DRAW_TO_FIRST_PASS", genmove());
+    assert_eq!(caption(&m).as_deref(), Some("2027·平局先停胜"));
+}
+
+#[test]
+fn the_other_chinese_rule_sets_send_the_chinese_rules_and_are_all_named_chinese() {
+    for id in ["CHINESE_2027", "CHINESE_2027_DRAW_TO_WHITE", "CHINESE"] {
+        let mut m = Match::with_locale(Some("en-US"));
+        let sent = start_with_rules_choice(&mut m, id, genmove());
+        assert_eq!(rules_sent(&sent), ["chinese", "chinese"], "{id}");
+        assert_eq!(caption(&m).as_deref(), Some("Chinese"), "{id}");
+        assert!(details(&m).unwrap().starts_with("Target: Chinese\nconfirmed\n"), "{id}");
+        assert_eq!(
+            m.wb.inspect().engine_match.unwrap().rules_target_name,
+            "Chinese",
+            "{id}"
+        );
+    }
+}
+
+#[test]
+fn javas_other_rules_choices_are_sent_and_named_as_before() {
+    for (id, preset, name) in [
+        ("CHINESE_ANCIENT", "stone-scoring", "ChnAncient"),
+        ("JAPANESE_KOREAN", "japanese", "Japanese / Korean"),
+        ("AGA_BGA", "aga", "AGA / BGA"),
+        ("NEW_ZEALAND", "new-zealand", "New Zealand"),
+        ("TROMP_TAYLOR", "tromp-taylor", "Tromp-Taylor"),
+        ("GOE", "goe", "Ing (GOE)"),
+    ] {
+        let mut m = Match::with_locale(Some("en-US"));
+        let sent = start_with_rules_choice(&mut m, id, genmove());
+        assert_eq!(rules_sent(&sent), [preset, preset], "{id}");
+        assert_eq!(caption(&m).as_deref(), Some(name), "{id}");
+        assert_eq!(m.wb.inspect().engine_match.unwrap().rules_target_name, name, "{id}");
+    }
+}
+
+/// The entry is remembered with the start; the Chinese entries share their rules, so only the
+/// remembered entry tells them apart, and one that does not name them is the 2002 rules.
+#[test]
+fn the_rules_entry_is_remembered_and_an_unreadable_one_is_the_2002_rules() {
+    let dir = tempfile::tempdir().unwrap();
+    let storage = || Storage::in_dirs(&dir.path().join("config"), &dir.path().join("data"));
+    let workbench = || Workbench::new(storage(), None, Box::new(Launch(World::default())), vec![]);
+    let shown = |wb: &Workbench| wb.inspect().settings.matches.rules_choice;
+    let mut wb = workbench();
+    assert_eq!(
+        shown(&wb).as_deref(),
+        Some("CHINESE"),
+        "nothing saved yet: Chinese rules, the 2002 entry"
+    );
+    for (rules, choice, expected) in [
+        (
+            "chinese",
+            Some("CHINESE_2027_DRAW_TO_WHITE"),
+            Some("CHINESE_2027_DRAW_TO_WHITE"),
+        ),
+        ("chinese", Some("CHINESE_2027"), Some("CHINESE_2027")),
+        ("japanese", Some("JAPANESE_KOREAN"), Some("JAPANESE_KOREAN")),
+        ("chinese", Some("JAPANESE_KOREAN"), Some("CHINESE")),
+        ("chinese", Some("CHINESE_2028"), Some("CHINESE")),
+        ("chinese", None, Some("CHINESE")),
+        (
+            r#"{"ko":"SIMPLE","scoring":"AREA","tax":"NONE","suicide":false,"hasButton":true,"whiteHandicapBonus":"N","friendlyPassOk":true}"#,
+            None,
+            Some("CHINESE_2027_DRAW_TO_FIRST_PASS"),
+        ),
+        (JAPANESE_RULES.replace("SEKI", "NONE").as_str(), None, None),
+    ] {
+        let settings = MatchSettings {
+            rules: rules.into(),
+            rules_choice: choice.map(String::from),
+            ..wb.config().matches.clone()
+        };
+        wb.engine_match(MatchCommand::SetValues {
+            settings,
+            session: MatchSessionSettings::default(),
+        })
+        .unwrap();
+        assert_eq!(shown(&wb).as_deref(), expected, "{rules} {choice:?}");
+    }
+    let settings = MatchSettings {
+        rules: "chinese".into(),
+        rules_choice: Some("CHINESE_2027_DRAW_TO_WHITE".into()),
+        ..wb.config().matches.clone()
+    };
+    wb.engine_match(MatchCommand::SetValues {
+        settings,
+        session: MatchSessionSettings::default(),
+    })
+    .unwrap();
+    drop(wb);
+    assert_eq!(
+        shown(&workbench()).as_deref(),
+        Some("CHINESE_2027_DRAW_TO_WHITE"),
+        "read back after a restart"
+    );
+
+    // A settings file whose entry is no text keeps everything else.
+    let file = storage().config_file;
+    let mut json: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    json["matches"]["rulesChoice"] = serde_json::json!(7);
+    json["matches"]["komi"] = serde_json::json!(6.5);
+    std::fs::write(&file, serde_json::to_vec(&json).unwrap()).unwrap();
+    let wb = workbench();
+    assert_eq!(wb.config().matches.komi, 6.5);
+    assert_eq!(shown(&wb).as_deref(), Some("CHINESE"));
 }

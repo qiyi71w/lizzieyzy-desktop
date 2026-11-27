@@ -30,6 +30,8 @@ pub struct NodeEval {
     pub komi: f64,
     /// KataGo's PDA (`playoutDoublingAdvantage`) saved with the analysis; 0 when none.
     pub pda: f64,
+    /// The breadth (`analysisWideRootNoise`) saved with the analysis; `None` when unknown.
+    pub wrn: Option<f64>,
     pub to_play: Stone,
 }
 
@@ -93,12 +95,9 @@ pub fn format(
                     labels.playouts,
                     labels.komi,
                     eval.komi,
-                    // Java appends a non-zero PDA as `Double.toString` writes it.
-                    if eval.pda != 0.0 {
-                        format!(" {}{}", labels.pda, java_double(eval.pda))
-                    } else {
-                        String::new()
-                    }
+                    // Java appends a non-zero PDA and a known non-zero breadth as `Double.toString`
+                    // writes them (`getPdaWrnString`).
+                    params(labels, eval)
                 ),
                 None => format!(
                     "{who} {} {winrate} {last_move_diff}\n{lead_label} {score} {diff_score}\n({engine} / {playouts} {})\n{} {:.1}",
@@ -133,8 +132,20 @@ pub fn format(
     format!("{comment}\n\n{summary}")
 }
 
-/// `Double.toString` for the values a PDA takes (a whole number keeps `.0`).
-fn java_double(v: f64) -> String {
+/// `getPdaWrnString`: a non-zero PDA, then a known non-zero breadth, each with its own label.
+fn params(labels: &CommentLabels, eval: &NodeEval) -> String {
+    let mut out = String::new();
+    if eval.pda != 0.0 {
+        out.push_str(&format!(" {}{}", labels.pda, java_double(eval.pda)));
+    }
+    if let Some(wrn) = eval.wrn.filter(|w| *w != 0.0) {
+        out.push_str(&format!(" {}{}", labels.wrn, java_double(wrn)));
+    }
+    out
+}
+
+/// `Double.toString` for the values a PDA or a breadth takes (a whole number keeps `.0`).
+pub(crate) fn java_double(v: f64) -> String {
     if v.fract() == 0.0 && v.abs() < 1e7 {
         format!("{v:.1}")
     } else {
@@ -215,6 +226,7 @@ mod tests {
             playouts: "计算量".into(),
             komi: "贴目:".into(),
             pda: "PDA:".into(),
+            wrn: "广度:".into(),
         }
     }
 
@@ -227,6 +239,7 @@ mod tests {
             score_stdev: lead.map(|_| 11.96),
             komi: 7.5,
             pda: 0.0,
+            wrn: None,
             to_play,
         }
     }
@@ -271,13 +284,32 @@ mod tests {
         assert_eq!(again, first);
     }
 
+    /// Java `AnalysisParameterSummaryTest`: a non-zero PDA and a known non-zero breadth each show,
+    /// neither hides the other, and an unknown breadth shows nothing.
     #[test]
-    fn a_saved_pda_follows_the_komi() {
-        let cur = NodeEval {
-            pda: 1.0,
-            ..eval(70.0, Some(1.2), Stone::White)
-        };
-        let text = format(&labels(), Viewpoint::default(), &cur, None, "");
-        assert!(text.ends_with("贴目: 7.5 PDA:1.0"), "{text}");
+    fn a_saved_pda_and_known_breadth_follow_the_komi() {
+        let cases = [
+            (0.0, Some(0.0), ""),
+            (2.0, Some(0.0), " PDA:2.0"),
+            (0.0, Some(0.04), " 广度:0.04"),
+            (2.0, Some(0.1), " PDA:2.0 广度:0.1"),
+            (-2.0, Some(0.04), " PDA:-2.0 广度:0.04"),
+            (0.0, Some(2.0), " 广度:2.0"),
+            (-1.0, None, " PDA:-1.0"),
+        ];
+        for (pda, wrn, tail) in cases {
+            let cur = NodeEval {
+                pda,
+                wrn,
+                ..eval(70.0, Some(1.2), Stone::White)
+            };
+            let text = format(&labels(), Viewpoint::default(), &cur, None, "note");
+            assert!(text.ends_with(&format!("贴目: 7.5{tail}")), "{pda} {wrn:?}: {text}");
+            assert_eq!(
+                format(&labels(), Viewpoint::default(), &cur, None, &text),
+                text,
+                "the summary is replaced"
+            );
+        }
     }
 }

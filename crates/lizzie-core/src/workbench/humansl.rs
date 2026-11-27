@@ -1,6 +1,7 @@
 //! HumanSL owns a training session, not the user's committed display settings. The companion
 //! speaks analysis JSON; the foreground engine is only paused and later resynchronized.
 mod ai;
+mod review;
 use super::exporting::java_text;
 use super::Workbench;
 use crate::api::*;
@@ -9,11 +10,12 @@ use crate::engine::{
     rules::{KataRules, RuleSet},
     runtime::{InstanceId, LeaseAvailability, RuntimeEvent},
 };
-use crate::humansl::{self, protocol, CoachLevelKind};
-use crate::record::{DocumentEdit, NodeId, NodeKind, Point, Stone};
+use crate::humansl::{self, protocol, take_back, CoachLevelKind};
+use crate::record::{DocumentEdit, NodeId, NodeKind, Point, Stone, StoneChange};
 use crate::scoring;
 use crate::settings::{HumanSlTrainingSettings, PlayerColor, TrainingMode};
 use serde_json::Value;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 #[derive(Default)]
@@ -29,6 +31,8 @@ pub(super) struct HumanSlFlow {
 enum ExitContinuation {
     Command(Box<Command>),
     Ui(HumanSlContinuation),
+    /// The board goes to this position of the finished game, when it is still in the game's record.
+    ReviewAt { doc: u64, node: Option<NodeId> },
 }
 struct Session {
     id: u64,
@@ -67,6 +71,13 @@ struct Session {
     counting: bool,
     /// How the game ended; the session stays on for review until it is finished.
     result: Option<HumanSlResult>,
+    /// Take-backs in this game (`takeBacks`).
+    take_backs: u32,
+    /// The continuations this game's take-backs withdrew (`takenBackLine`); the game's alone.
+    taken_back: take_back::TakenBack,
+    /// 边下边提醒's ratings and help (Java `MoveReviewer`, `CoachAssist`); only in that mode, and
+    /// gone once the session ends, which drops whatever answer is still to come.
+    review: Option<review::Reviewer>,
     restore: Option<u64>,
     resume: bool,
     started_game: bool,
@@ -97,10 +108,16 @@ struct Request {
     /// Whether the rules last sent with the request have KataGo's button: a count is judged under
     /// the rules it was asked under, whatever the foreground plays when the answer comes.
     button: bool,
+    /// The reply answers a move of the player's that is being rated: once its think time is over
+    /// it waits for that rating, and a 恶手 holds it (Java `lastJudgement`).
+    verdict: bool,
+    /// Until when the reply waits for that rating.
+    verdict_wait: Option<Instant>,
 }
 /// What the companion is asked: readiness, a policy level's one-visit probe and, when the AI may
-/// pass, KataGo's own pass check, or a search level's search; then the reply waits for its pace.
-/// Once both players passed, KataGo's count of the game.
+/// pass, KataGo's own pass check, or a search level's search; then the reply waits for its pace,
+/// and after a 恶手 it is held for the player's decision. Once both players passed, KataGo's count
+/// of the game.
 #[derive(PartialEq)]
 enum Search {
     Ready,
@@ -108,6 +125,7 @@ enum Search {
     PassCheck,
     Play,
     Pacing,
+    Held,
     Count,
 }
 /// Where the board stood for an action on the game: on the game's position, brought back to it
@@ -121,6 +139,22 @@ enum GameShown {
 fn refused(key: &str) -> CommandResult {
     CommandResult::Refused {
         message_key: key.into(),
+    }
+}
+
+/// An edit other than the player's move during a session: deleting moves says to use 悔棋
+/// instead (Java `HumanSlGameController.showDeleteBlockedHint`, which the UI shows for 3 s);
+/// anything else is refused as the game holds the record.
+pub(super) fn human_sl_edit_refusal(op: &EditCommand) -> CommandResult {
+    match op {
+        EditCommand::DeleteMove { .. }
+        | EditCommand::DeleteMoveNoHint
+        | EditCommand::DeleteBranch { .. }
+        | EditCommand::EditStone {
+            change: StoneChange::Delete,
+            ..
+        } => refused("HumanSlGame.deleteBlocked"),
+        _ => refused("AnalysisSettings.reuseStatus.human_sl_game"),
     }
 }
 impl Workbench {
@@ -159,6 +193,7 @@ impl Workbench {
                 Ok(self.human_sl_queue_exit(ExitContinuation::Ui(continuation)))
             }
             HumanSlCommand::Pass => Ok(self.human_sl_human_move(None)),
+            HumanSlCommand::TakeBack => Ok(self.human_sl_take_back()),
             HumanSlCommand::Resign => Ok(self.human_sl_resign()),
             HumanSlCommand::RetryAi => {
                 if self
@@ -171,6 +206,9 @@ impl Workbench {
                 }
                 Ok(CommandResult::Done)
             }
+            HumanSlCommand::Hint => Ok(self.human_sl_hint()),
+            HumanSlCommand::Decide { choice } => Ok(self.human_sl_decide(choice)),
+            HumanSlCommand::ReviewFrom { move_number } => Ok(self.human_sl_review_from(move_number)),
         }
     }
 
@@ -204,13 +242,16 @@ impl Workbench {
         let Some(model) = self.human_sl_model_path() else {
             return Ok(refused("HumanSlGame.missingModelDownloadPrompt"));
         };
-        let base = self.analysis_command_base(false);
-        let command = match self.human_sl_command(&base, &model) {
+        let command = match self
+            .human_sl_base()
+            .and_then(|base| self.human_sl_command(&base, &model))
+        {
             Ok(c) => c,
             Err(reason) => {
                 self.human_sl.notices.push(HumanSlNotice::StartFailed {
                     reason: reason.into(),
                     detail: None,
+                    diagnosis: None,
                 });
                 return Ok(CommandResult::Done);
             }
@@ -248,13 +289,14 @@ impl Workbench {
         self.sync_engine();
         let worker = match self.engines.start_worker(&command, "HumanSL") {
             Ok(w) => w,
-            Err(detail) => {
+            Err(error) => {
                 self.engines.set_human_sl(false);
                 self.paused = old_paused;
                 self.sync_engine();
                 self.human_sl.notices.push(HumanSlNotice::StartFailed {
                     reason: "HumanSlTraining.preparing.failedDetail".into(),
-                    detail: Some(redact_detail(&detail)),
+                    detail: error.diagnosis.is_none().then(|| redact_detail(&error.message)),
+                    diagnosis: error.diagnosis,
                 });
                 self.human_sl.notices.push(HumanSlNotice::Ended);
                 return Ok(CommandResult::Done);
@@ -281,6 +323,7 @@ impl Workbench {
             self.human_sl_even_komi()
         };
         let resignation = humansl::Resignation::for_play(settings.level.play());
+        let review = (settings.mode == TrainingMode::LiveFeedback).then(review::Reviewer::default);
         let now = Instant::now();
         self.human_sl.session = Some(Session {
             id,
@@ -311,6 +354,9 @@ impl Workbench {
             resignation,
             counting: false,
             result: None,
+            take_backs: 0,
+            taken_back: Default::default(),
+            review,
             restore: None,
             resume: false,
             started_game: false,
@@ -322,16 +368,79 @@ impl Workbench {
 
     /// The komi of an even game under the rules the foreground KataGo plays
     /// (`CoachSetupContext.ofMainWindow`, `RulePreset.evenGameKomi`): that of the rule set they
-    /// are; else, after a handicap game, the komi new games start with; else the current komi.
+    /// are, the rule set chosen last telling apart those with the same rules; else, after a
+    /// handicap game, the komi new games start with (the chosen rule set's, or 7.5); else the
+    /// current komi.
     pub(super) fn human_sl_even_komi(&self) -> f64 {
         let rules = self.engines.foreground().and_then(|f| self.engines.confirmed_rules(f));
-        RuleSet::even_game_komi(rules, self.komi, self.doc.record.info.handicap > 0, None)
+        let chosen = RuleSet::chosen(&self.config.engine);
+        RuleSet::even_game_komi(rules, self.komi, self.doc.record.info.handicap > 0, chosen)
     }
 
-    fn human_sl_command(&self, base: &str, model: &std::path::Path) -> Result<String, &'static str> {
-        if base.trim() == crate::settings::DEFAULT_ANALYSIS_COMMAND {
-            return Err("AnalysisEngineCommandHelper.noEngineSelected");
+    /// The companion's analysis command before the HumanSL model is added, or the key of the first
+    /// part it lacks, in Java's order: the engine, its analysis config, its weight
+    /// (`AnalysisEngineCommandHelper.resolveHumanSlCommand`, `missingPart`). The command is 精析设置's
+    /// own or the one made from the foreground (else default) engine. As in Java, only a command of
+    /// this application's KataGo (Java's bundled engine; here one 一键设置 installed in the resource
+    /// directory) has its files checked; a command of the user's own runs as written, since its
+    /// paths may be the engine's own (a Windows engine run from WSL reads `D:\…`). An engine set up
+    /// for play only gets its `analysis.cfg` made beside its config and is not reported; when that
+    /// file cannot be made, the analysis config is what is missing.
+    fn human_sl_base(&self) -> Result<String, &'static str> {
+        const NO_ENGINE: &str = "AnalysisEngineCommandHelper.noEngineSelected";
+        const NO_ANALYSIS_CONFIG: &str = "AnalysisEngineCommandHelper.noAnalysisConfig";
+        const NO_WEIGHT: &str = "AnalysisEngineCommandHelper.noWeight";
+        let a = &self.config.analysis_engine;
+        let base = if a.command_customized {
+            a.command.clone()
+        } else {
+            match self.generate_analysis_command(None) {
+                Ok((command, _)) => command,
+                Err("AnalysisEngineCommandHelper.generateConfigFailed") => {
+                    let engine = self.analysis_source(None).map_or("", |p| p.command.as_str());
+                    let missing = self
+                        .own_launch(engine)
+                        .is_some_and(|spec| !Path::new(&spec.program).is_file());
+                    return Err(if missing { NO_ENGINE } else { NO_ANALYSIS_CONFIG });
+                }
+                Err(_) => a.command.clone(),
+            }
+        };
+        if base.trim().is_empty() || base.trim() == crate::settings::DEFAULT_ANALYSIS_COMMAND {
+            return Err(NO_ENGINE);
         }
+        let Some(spec) = self.own_launch(&base) else {
+            return Ok(base);
+        };
+        // The value after the first `-config`/`--config` (or model) option, as the launch resolves it.
+        let file = |options: [&str; 2]| {
+            spec.args
+                .windows(2)
+                .find(|w| options.contains(&w[0].as_str()))
+                .map(|w| match &spec.working_dir {
+                    Some(dir) => dir.join(&w[1]),
+                    None => PathBuf::from(&w[1]),
+                })
+                .is_some_and(|path| path.is_file())
+        };
+        if !Path::new(&spec.program).is_file() {
+            Err(NO_ENGINE)
+        } else if !file(["-config", "--config"]) {
+            Err(NO_ANALYSIS_CONFIG)
+        } else if !file(["-model", "--model"]) {
+            Err(NO_WEIGHT)
+        } else {
+            Ok(base)
+        }
+    }
+
+    /// How `command` launches, when its program is in this application's resource directory.
+    fn own_launch(&self, command: &str) -> Option<gtp::LaunchSpec> {
+        gtp::prepare_launch(command, self.engines.roots())
+            .filter(|spec| Path::new(&spec.program).starts_with(self.resources.store().root()))
+    }
+
+    fn human_sl_command(&self, base: &str, model: &Path) -> Result<String, &'static str> {
         let mut parts = gtp::split_command(base);
         let tensorrt = self
             .engines
@@ -439,6 +548,7 @@ impl Workbench {
         self.paused = settings.mode != TrainingMode::LiveAnalysis;
         self.sync_engine();
         self.human_sl_schedule(now);
+        self.human_sl_review_turn(now);
     }
 
     fn human_sl_start_failed(&mut self, detail: String) {
@@ -463,6 +573,7 @@ impl Workbench {
         self.human_sl.notices.push(HumanSlNotice::StartFailed {
             reason: "HumanSlTraining.preparing.failedDetail".into(),
             detail: Some(detail),
+            diagnosis: None,
         });
         self.human_sl_exit(false);
     }
@@ -484,6 +595,7 @@ impl Workbench {
             GameShown::Already => {}
         }
         let s = self.human_sl.session.as_ref().unwrap();
+        let before = s.live;
         if s.request.is_some() || self.doc.record.node(s.live).to_play != s.human || !self.human_sl_commit(point) {
             return CommandResult::Unchanged;
         }
@@ -491,12 +603,103 @@ impl Workbench {
         let s = self.human_sl.session.as_mut().unwrap();
         s.human_ms = s.human_ms.saturating_add(now.duration_since(s.turn).as_millis() as u64);
         s.turn = now;
+        let (after, judged) = (s.live, s.review.is_some());
+        self.human_sl_judge(before, after, now);
         if point.is_none() && self.human_sl_both_passed() {
             self.human_sl_count(now);
         } else {
             self.human_sl_schedule(now);
+            if let Some(r) = self.human_sl.session.as_mut().and_then(|s| s.request.as_mut()) {
+                r.verdict = judged;
+            }
         }
         CommandResult::Done
+    }
+
+    /// 提示 / H (`HumanSlGameController.hint`): in 边下边提醒 the next step of the turn's hint on
+    /// the game's position, which a browsing board first goes back to (saying so, without a
+    /// hint); in 实战后复盘 a message that analysis stays hidden. 边下边分析 has no hint.
+    fn human_sl_hint(&mut self) -> CommandResult {
+        let Some(s) = self.human_sl.session.as_ref() else {
+            return CommandResult::Unchanged;
+        };
+        if s.phase != HumanSlPhase::Playing {
+            return CommandResult::Unchanged;
+        }
+        match s.settings.mode {
+            TrainingMode::LiveAnalysis => return CommandResult::Unchanged,
+            TrainingMode::PostGameReview => {
+                self.human_sl.notices.push(HumanSlNotice::AnalysisHidden);
+                return CommandResult::Done;
+            }
+            TrainingMode::LiveFeedback => {}
+        }
+        if !self.human_sl_can_hint() {
+            return CommandResult::Unchanged;
+        }
+        match self.human_sl_to_game() {
+            GameShown::Ended => return CommandResult::Done,
+            GameShown::Returned => {
+                self.human_sl.notices.push(HumanSlNotice::BackToLiveGame);
+                return CommandResult::Done;
+            }
+            GameShown::Already => {}
+        }
+        let size = self.doc.record.size;
+        if let Some(s) = self.human_sl.session.as_mut() {
+            let live = s.live;
+            if let Some(r) = s.review.as_mut() {
+                r.hint(live, size);
+            }
+        }
+        CommandResult::Done
+    }
+
+    /// A hint can be asked for: 边下边提醒, the game on, the player to move and no reply held
+    /// (`canHint`).
+    fn human_sl_can_hint(&self) -> bool {
+        self.human_sl_game_on()
+            && self.human_sl.session.as_ref().is_some_and(|s| {
+                s.review.is_some() && s.request.is_none() && self.doc.record.node(s.live).to_play == s.human
+            })
+    }
+
+    /// The player's answer while the AI holds its reply to a 恶手: 重下这手 is the 悔棋 of the
+    /// 恶手, 看 AI 推荐 marks KataGo's choice before it, and 不重下，继续对局 plays the reply, the
+    /// time of the decision counting for the player (`retryBlunder`, `showBestMove`,
+    /// `continueAfterBlunder`).
+    fn human_sl_decide(&mut self, choice: HumanSlDecision) -> CommandResult {
+        let held = self.human_sl_game_on()
+            && self
+                .human_sl
+                .session
+                .as_ref()
+                .is_some_and(|s| s.request.as_ref().is_some_and(|r| r.phase == Search::Held));
+        if !held {
+            return CommandResult::Unchanged;
+        }
+        let size = self.doc.record.size;
+        let now = Instant::now();
+        match choice {
+            HumanSlDecision::Retry => self.human_sl_take_back(),
+            HumanSlDecision::ShowBest => {
+                let s = self.human_sl.session.as_mut().unwrap();
+                if let Some(r) = s.review.as_mut() {
+                    r.assist.show_best(size);
+                }
+                CommandResult::Done
+            }
+            HumanSlDecision::PlayOn => {
+                let s = self.human_sl.session.as_mut().unwrap();
+                s.human_ms = s.human_ms.saturating_add(now.saturating_duration_since(s.turn).as_millis() as u64);
+                s.turn = now;
+                if let Some(r) = s.review.as_mut() {
+                    r.assist.clear_turn();
+                }
+                self.human_sl_apply_ai(now);
+                CommandResult::Done
+            }
+        }
     }
 
     /// The game is being played: the session plays, KataGo is not counting it and it has no
@@ -526,6 +729,70 @@ impl Workbench {
         let winner = self.human_sl.session.as_ref().unwrap().human.opposite();
         self.human_sl_end_game(HumanSlResult::Resigned { winner }, Instant::now());
         CommandResult::Done
+    }
+
+    /// 悔棋 (`HumanSlGameController.takeBack`): the game's position goes back before the
+    /// player's last move and the AI's reply, or only the player's move while the AI thinks or
+    /// its reply waits for its think time, which is dropped. The moves stay in the record as the
+    /// game's withdrawn continuations; the board goes back with the game, and only an analysing
+    /// foreground engine follows it (in the hidden modes it is not told). From a browsed position
+    /// the board only goes back to the game's. The time of the turn withdrawn counts for nobody.
+    fn human_sl_take_back(&mut self) -> CommandResult {
+        if !self.human_sl_game_on() {
+            return CommandResult::Unchanged;
+        }
+        match self.human_sl_to_game() {
+            GameShown::Ended => return CommandResult::Done,
+            GameShown::Returned => {
+                self.human_sl.notices.push(HumanSlNotice::BackToLiveGame);
+                return CommandResult::Done;
+            }
+            GameShown::Already => {}
+        }
+        let moves = self.human_sl_take_back_moves();
+        if moves == 0 {
+            return CommandResult::Unchanged;
+        }
+        // A reply on its way, or chosen and waiting, belongs to the position taken back.
+        self.human_sl_drop_request();
+        let now = Instant::now();
+        let record = &self.doc.record;
+        let Some(s) = self.human_sl.session.as_mut() else {
+            return CommandResult::Unchanged;
+        };
+        s.taken_back.capture(record, s.live, moves);
+        let mut target = s.live;
+        for _ in 0..moves {
+            target = record.parent(target).expect("a withdrawn move has a parent");
+        }
+        s.live = target;
+        s.take_backs += 1;
+        s.turn = now;
+        if let Some(r) = s.review.as_mut() {
+            r.assist.clear_turn();
+        }
+        // What was said about the withdrawn moves goes with them, and so does a review of them
+        // still running (`takenBack`).
+        self.human_sl_review_taken_back(now);
+        self.move_to(target);
+        self.human_sl_review_turn(now);
+        CommandResult::Done
+    }
+
+    /// How many moves 悔棋 withdraws now (`takeBackMoves`); none outside the game's line.
+    fn human_sl_take_back_moves(&self) -> usize {
+        let Some(s) = self.human_sl.session.as_ref() else {
+            return 0;
+        };
+        let record = &self.doc.record;
+        if s.doc != self.doc.id || !record.contains(s.live) {
+            return 0;
+        }
+        let path = record.path_to(s.live);
+        let Some(start) = path.iter().position(|&n| n == s.start_node) else {
+            return 0;
+        };
+        take_back::moves(record.node(s.live).to_play == s.human, path.len() - 1 - start)
     }
 
     /// Both players passed one after the other since the game started
@@ -591,7 +858,9 @@ impl Workbench {
         };
         if !s.counting {
             let elapsed = now.saturating_duration_since(s.turn).as_millis() as u64;
-            if to_play == Some(s.human) {
+            // A held reply waits for the player's decision.
+            let held = s.request.as_ref().is_some_and(|r| r.phase == Search::Held);
+            if to_play == Some(s.human) || held {
                 s.human_ms = s.human_ms.saturating_add(elapsed);
             } else {
                 s.ai_ms = s.ai_ms.saturating_add(elapsed);
@@ -609,6 +878,11 @@ impl Workbench {
             HumanSlResult::Uncounted => None,
         };
         s.result = Some(result);
+        // What the game withdrew is the game's alone.
+        s.taken_back = Default::default();
+        if let Some(r) = s.review.as_mut() {
+            r.assist.clear_turn();
+        }
         if let Some(result) = record {
             let _ = self.apply_edit(DocumentEdit::SetResult { result });
         }
@@ -647,7 +921,9 @@ impl Workbench {
     }
 
     /// Plays `point` (`None` a pass) for the side to move at the game's position, which the board
-    /// shows, and moves the game on to it.
+    /// shows, and moves the game on to it. A move this game withdrew is followed again with what
+    /// came after it (`replayMatching`); a different one takes the slot the game's line had
+    /// among the position's continuations, the withdrawn line staying beside it (`resumeWith`).
     fn human_sl_commit(&mut self, point: Option<Point>) -> bool {
         let Some(s) = self.human_sl.session.as_ref() else {
             return false;
@@ -655,28 +931,52 @@ impl Workbench {
         let at = s.live;
         let force = s.training_start_node == Some(at);
         let color = self.doc.record.node(at).to_play;
-        let rules = self.play_rules();
-        let edit = match (point, force) {
-            (Some(point), true) => DocumentEdit::PlayBranch {
-                at,
-                color,
-                point,
-                rules,
-            },
-            (Some(point), false) => DocumentEdit::Play {
-                at,
-                color,
-                point,
-                alternate: false,
-                rules,
-            },
-            (None, true) => DocumentEdit::PassBranch { at, color },
-            (None, false) => DocumentEdit::Pass { at, color },
+        let kind = match point {
+            Some(point) => NodeKind::Move { color, point },
+            None => NodeKind::Pass { color },
         };
-        let Ok(applied) = self.apply_edit(edit) else {
+        let node = match s.taken_back.replay(&self.doc.record, at, kind) {
+            Some(node) => node,
+            None => {
+                let rules = self.play_rules();
+                let edit = match (point, force) {
+                    (Some(point), true) => DocumentEdit::PlayBranch {
+                        at,
+                        color,
+                        point,
+                        rules,
+                    },
+                    (Some(point), false) => DocumentEdit::Play {
+                        at,
+                        color,
+                        point,
+                        alternate: false,
+                        rules,
+                    },
+                    (None, true) => DocumentEdit::PassBranch { at, color },
+                    (None, false) => DocumentEdit::Pass { at, color },
+                };
+                let Ok(applied) = self.apply_edit(edit) else {
+                    return false;
+                };
+                let Some(node) = applied.node else { return false };
+                node
+            }
+        };
+        let Some(s) = self.human_sl.session.as_mut() else {
             return false;
         };
-        let Some(node) = applied.node else { return false };
+        if let Some(slot) = s.taken_back.resume(&self.doc.record, at, node) {
+            while let Some(index) = self.doc.record.node(at).children.iter().position(|&c| c == node) {
+                if index == slot
+                    || !self
+                        .apply_edit(DocumentEdit::MoveBranch { node, up: index > slot })
+                        .is_ok_and(|a| a.changed)
+                {
+                    break;
+                }
+            }
+        }
         self.move_to(node);
         if let Some(s) = self.human_sl.session.as_mut() {
             s.live = node;
@@ -695,6 +995,8 @@ impl Workbench {
         s.phase = HumanSlPhase::Stopping;
         s.generation += 1;
         s.request = None;
+        // The ratings end with the session: an answer still to come finds nothing (`close`).
+        s.review = None;
         if let Some(worker) = s.worker.take() {
             self.engines.terminate(worker);
         }
@@ -736,8 +1038,9 @@ impl Workbench {
     fn human_sl_ended(&mut self) {
         let Some(s) = self.human_sl.session.take() else { return };
         self.engines.set_human_sl(false);
+        // Analysis resumes on the finished game after the modes that hid it.
         let resume_review =
-            self.human_sl.continuation.is_none() && s.resume && s.settings.mode == TrainingMode::PostGameReview;
+            self.human_sl.continuation.is_none() && s.resume && s.settings.mode != TrainingMode::LiveAnalysis;
         self.paused = if resume_review { false } else { s.old_paused };
         self.limit_stop = if resume_review { None } else { s.old_limit_stop };
         self.secondary_limit_stop = if resume_review { None } else { s.old_secondary_limit_stop };
@@ -747,7 +1050,90 @@ impl Workbench {
             Some(ExitContinuation::Ui(continuation)) => {
                 self.human_sl.ready_continuation = Some(continuation);
             }
+            Some(ExitContinuation::ReviewAt { doc, node }) => {
+                if let Some(node) = node.filter(|&n| doc == self.doc.id && self.doc.record.contains(n)) {
+                    self.browse_to(node);
+                }
+            }
             command => self.human_sl.continuation = command,
+        }
+    }
+
+    /// After the game in 边下边提醒: ends the session and then shows the game's position before
+    /// move `move_number`, found going back from the game's position no further than its start
+    /// (`reviewFrom`). Without that position the session still ends.
+    fn human_sl_review_from(&mut self, move_number: u32) -> CommandResult {
+        let Some(s) = self.human_sl.session.as_ref() else {
+            return CommandResult::Unchanged;
+        };
+        if s.phase != HumanSlPhase::Playing || s.result.is_none() || s.settings.mode != TrainingMode::LiveFeedback {
+            return CommandResult::Unchanged;
+        }
+        let record = &self.doc.record;
+        let mut node = (s.doc == self.doc.id && record.contains(s.live)).then_some(s.live);
+        let target = loop {
+            let Some(n) = node else { break None };
+            if record.node(n).move_number + 1 == move_number {
+                break Some(n);
+            }
+            if n == s.start_node {
+                break None;
+            }
+            node = record.parent(n);
+        };
+        let doc = s.doc;
+        self.human_sl_queue_exit(ExitContinuation::ReviewAt { doc, node: target })
+    }
+
+    /// The game's line: its start, then each position up to the game's position; empty when the
+    /// game's document is no longer open.
+    fn human_sl_game_line(&self, s: &Session) -> Vec<NodeId> {
+        let record = &self.doc.record;
+        if s.doc != self.doc.id || !record.contains(s.live) {
+            return Vec::new();
+        }
+        let mut path = record.path_to(s.live);
+        let start = path.iter().position(|&n| n == s.start_node).unwrap_or(0);
+        path.drain(..start);
+        path
+    }
+
+    /// The player's last move on the game's `line`, rated in 边下边提醒 (`lastHumanMove`,
+    /// `CoachPanelState.moveCard`).
+    fn human_sl_last_move(&self, s: &Session, line: &[NodeId]) -> Option<HumanSlLastMove> {
+        let record = &self.doc.record;
+        line.iter().skip(1).rev().find_map(|&node| {
+            let n = record.node(node);
+            let vertex = match n.kind {
+                NodeKind::Move { color, point } if color == s.human => gtp::vertex(record.size, point),
+                NodeKind::Pass { color } if color == s.human => "pass".to_string(),
+                _ => return None,
+            };
+            Some(HumanSlLastMove {
+                move_number: n.move_number,
+                vertex,
+                verdict: s.review.as_ref().and_then(|r| r.verdict_of(n.move_number)),
+            })
+        })
+    }
+
+    /// The player's win chance through the game in percent (`humanWinrates`): 边下边提醒's
+    /// rank-aware chances, or in 边下边分析 the foreground analysis of each analysed position on the
+    /// game's `line`, turned to the player's side.
+    fn human_sl_win_chances(&self, s: &Session, line: &[NodeId], ratings: Option<&[humansl::feedback::MoveFeedback]>) -> Option<Vec<f64>> {
+        match s.settings.mode {
+            TrainingMode::LiveFeedback => {
+                let turn = s.review.as_ref().and_then(|r| r.turn_review_at(s.live));
+                Some(humansl::feedback::win_chances(ratings.unwrap_or_default(), turn))
+            }
+            TrainingMode::LiveAnalysis => Some(
+                line.iter()
+                    .filter_map(|&n| self.store.get(&self.doc.record, n))
+                    .filter(|a| a.visits > 0)
+                    .map(|a| if a.to_play == s.human { a.winrate } else { 100.0 - a.winrate })
+                    .collect(),
+            ),
+            TrainingMode::PostGameReview => None,
         }
     }
     pub fn take_human_sl_deferred(&mut self) -> Option<Command> {
@@ -779,9 +1165,16 @@ impl Workbench {
         // While KataGo counts and after the game, nobody is to move and the clocks stand.
         let playing = s.phase == HumanSlPhase::Playing && !s.counting && s.result.is_none();
         let human_turn = playing && self.doc.record.node(s.live).to_play == s.human;
+        // While the AI holds its reply to a 恶手, the player decides on their clock.
+        let held = s.request.as_ref().is_some_and(|r| r.phase == Search::Held);
+        let line = self.human_sl_game_line(s);
+        // The game's position, not the one the board shows while the player browses.
+        let position = line.last().map(|&live| self.doc.record.position(live));
+        let feedback = self.human_sl_feedback_view(s);
         Some(HumanSlView {
             id: s.id,
             phase: s.phase,
+            game_started: s.started_game,
             stage: (s.phase == HumanSlPhase::Preparing).then_some(s.stage),
             preparing_secs: s.start.elapsed().as_secs().min(u64::from(u32::MAX)) as u32,
             mode: s.settings.mode,
@@ -789,13 +1182,13 @@ impl Workbench {
             human_is_black: s.human == Stone::Black,
             human_ms: s.human_ms,
             ai_ms: s.ai_ms,
-            clock: playing.then_some(if human_turn {
+            clock: playing.then_some(if human_turn || held {
                 HumanSlSide::Human
             } else {
                 HumanSlSide::Ai
             }),
             human_turn,
-            ai_thinking: s.request.as_ref().is_some_and(|r| r.phase != Search::Count),
+            ai_thinking: s.request.as_ref().is_some_and(|r| r.phase != Search::Count && r.phase != Search::Held),
             ai_failed: s.failed,
             analysis_display: if s.settings.mode == TrainingMode::LiveAnalysis {
                 HumanSlAnalysisDisplay::Show
@@ -804,6 +1197,17 @@ impl Workbench {
             },
             counting: s.counting,
             result: s.result.clone(),
+            // canTakeBack: also while the AI thinks, not while KataGo counts or after the game.
+            can_take_back: playing && self.human_sl_take_back_moves() > 0,
+            take_backs: s.take_backs,
+            last_move: self.human_sl_last_move(s, &line),
+            // movesPlayed: the positions after the game's start, passes included.
+            moves: line.len().saturating_sub(1) as u32,
+            komi: s.komi,
+            black_captures: position.as_ref().map_or(0, |p| p.black_captures),
+            white_captures: position.as_ref().map_or(0, |p| p.white_captures),
+            win_chances: self.human_sl_win_chances(s, &line, feedback.as_ref().map(|f| f.ratings.as_slice())),
+            feedback,
         })
     }
     pub(super) fn human_sl_notices(&self) -> Vec<HumanSlNotice> {
@@ -846,8 +1250,29 @@ impl Workbench {
             Command::Edit {
                 op: EditCommand::Play { .. } | EditCommand::Pass,
             } => None,
-            Command::Edit { .. }
-            | Command::SetKomi { .. }
+            Command::Edit { op } => Some(human_sl_edit_refusal(op)),
+            // H (Java `Input` with `activeCoachGame`): from the game's start until the session is
+            // over, a mode that hides analysis keeps the raw network off (H asks for a hint there);
+            // 实时分析, the preparation and a session that never started a game leave it to the
+            // player.
+            Command::ToggleRawNet => self
+                .human_sl
+                .session
+                .as_ref()
+                .is_some_and(|s| s.started_game && s.settings.mode != TrainingMode::LiveAnalysis)
+                .then(|| refused("AnalysisSettings.reuseStatus.human_sl_game")),
+            // A click on the players' names toggles their win rates, also during the game (Java
+            // `Input` hands the game's clicks to `LizzieFrame.onClicked`, whose
+            // `togglePlayerNameWinratesAt` comes first); the other display settings stay put.
+            Command::SetDisplaySettings { settings }
+                if crate::settings::DisplaySettings {
+                    name_winrates: self.config.display.name_winrates,
+                    ..settings.clone()
+                } == self.config.display =>
+            {
+                None
+            }
+            Command::SetKomi { .. }
             | Command::SetKataRules { .. }
             | Command::SwitchEngine { .. }
             | Command::CloudActivate { .. }
@@ -864,7 +1289,6 @@ impl Workbench {
             | Command::SetClassicMode
             | Command::Score { .. }
             | Command::ToggleAnalysis
-            | Command::ToggleRawNet
             | Command::StartFlashAnalysis { .. }
             | Command::StartAutoAnalysis { .. }
             | Command::StartWholeGameAnalysis { .. }

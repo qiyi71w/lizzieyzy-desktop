@@ -8,6 +8,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
+    "test": "node --test \"ui/tests/*.test.ts\"",
     "tauri": "tauri",
     "contract": "cargo test -p lizzie-core --test contract"
   },

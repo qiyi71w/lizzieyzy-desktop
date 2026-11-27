@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use super::diagnosis::{HostSystem, StartupDiagnosis};
 use super::gtp::{self, Dialect, Frame, Framer, InfoLine, LaunchSpec};
 use super::profile::{CustomPdaMode, CustomPdaSettings, EngineProfile};
 use super::raw_net::{self, RawNetMode, RawNetView};
@@ -28,6 +29,7 @@ use super::rules::KataRules;
 use super::ssh::{RemoteFailure, SshSettings};
 use crate::diagnostics::{DiagnosticModule, Diagnostics, TraceScope};
 use crate::record::{BoardSize, GameRecord, NodeId, NodeKind, Point, Stone, ROOT};
+use crate::resources::Catalog;
 
 mod game;
 mod fox;
@@ -67,6 +69,30 @@ pub trait EngineIo: Send {
 /// Starts engine processes. The real launcher spawns OS processes; tests use a controlled one.
 pub trait Launcher: Send {
     fn launch(&self, instance: InstanceId, spec: &LaunchSpec) -> std::io::Result<Box<dyn EngineIo>>;
+}
+
+/// Why [`Engines`] could not start a process: the log text, and the explanation when the start
+/// was refused before the process existed (Java `configureBundledProcessBuilder`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct LaunchError {
+    pub message: String,
+    pub diagnosis: Option<StartupDiagnosis>,
+}
+
+impl LaunchError {
+    fn failed(message: impl Into<String>) -> LaunchError {
+        LaunchError { message: message.into(), diagnosis: None }
+    }
+
+    fn refused(diagnosis: StartupDiagnosis) -> LaunchError {
+        LaunchError { message: diagnosis.to_string(), diagnosis: Some(diagnosis) }
+    }
+}
+
+impl std::fmt::Display for LaunchError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
 }
 
 /// The engine kind decided from `name` (`checkNameAndVersionForCurrentReader`).
@@ -220,6 +246,23 @@ pub enum RulesOutcome {
     Failed(&'static str),
 }
 
+/// Session rules sent to an engine: the rules, the session rules revision ([`Target::rules_rev`])
+/// that asked for them last, and how that went.
+struct RulesRequest {
+    rules: KataRules,
+    rev: u64,
+    outcome: RulesOutcome,
+}
+
+impl RulesRequest {
+    /// Whether this is the answer to `rules` asked for at revision `rev`. A failure answers only
+    /// the revision it was sent for: a later request of the same rules (another 确定 in the 规则面板,
+    /// another record declaring them) tries them again.
+    fn answers(&self, rules: &KataRules, rev: u64) -> bool {
+        self.rules == *rules && (self.rev == rev || !matches!(self.outcome, RulesOutcome::Failed(_)))
+    }
+}
+
 impl Target {
     fn key(&self) -> TargetKey {
         TargetKey {
@@ -257,6 +300,9 @@ pub struct EngineFailure {
     pub remote: Option<super::ssh::RemoteFailure>,
     /// Why a 智子 engine never became ready.
     pub cloud: Option<super::cloud::CloudStartFailure>,
+    /// The start was refused for a reason with its own explanation (a packaged engine too new
+    /// for this macOS).
+    pub diagnosis: Option<StartupDiagnosis>,
     /// It held the foreground seat when it ended.
     pub foreground: bool,
     /// It held the 双引擎模式 secondary seat when it ended, or was being started for it.
@@ -315,6 +361,9 @@ pub enum RuntimeEvent {
     /// The foreground engine was asked to search a position (Java `Leelaz.ponder` of the
     /// primary engine, which calls `onMainEnginePonder`).
     Pondering { instance: InstanceId },
+    /// The engine answered its first board sync, or refused one: whether it is complete
+    /// ([`Engines::complete`]) or refused its wish ([`Engines::sync_refused`]) changed.
+    Synced { instance: InstanceId },
     /// The borrowed foreground engine stopped and its rules were captured: searches may start.
     LeaseReady { lease: u64 },
     /// A finite search of the borrowed engine reached its visits, for the position it was made
@@ -328,6 +377,9 @@ pub enum RuntimeEvent {
         rules_rev: u64,
         to_play: Stone,
         line: InfoLine,
+        /// 整盘速览 already searches the position it was told to follow
+        /// ([`Engines::lease_overview_follow`]): the moves to it replaced the `stop`.
+        continued: bool,
     },
     /// A finite search of the borrowed engine stalled, was refused or produced nothing.
     LeaseSearchFailed { lease: u64 },
@@ -340,7 +392,8 @@ pub enum RuntimeEvent {
     WorkerErrorLine { instance: InstanceId, line: String },
     /// A deferred analysis worker's fingerprint check and process launch completed.
     WorkerReady { instance: InstanceId },
-    WorkerLaunchFailed { instance: InstanceId, message: String },
+    /// `diagnosis`: the launch was refused for a reason with its own explanation.
+    WorkerLaunchFailed { instance: InstanceId, message: String, diagnosis: Option<StartupDiagnosis> },
     /// An analysis process ended by itself (or could not be written to); it is gone.
     WorkerExited {
         instance: InstanceId,
@@ -348,6 +401,8 @@ pub enum RuntimeEvent {
         output: Vec<String>,
         /// A remote process's connection failure or end.
         remote: Option<RemoteFailure>,
+        /// It never answered a query ([`Engines::worker_answered`]): it ended while starting up.
+        during_startup: bool,
     },
     /// The focus points an instance's analysis stream searches changed: a stream with them was
     /// accepted, or the stream that searched them ended.
@@ -429,6 +484,8 @@ const LEASE_ACK: Duration = Duration::from_millis(8000);
 const LEASE_STOP_ACK: Duration = Duration::from_millis(1200);
 /// Java's foreground restore watchdog.
 const LEASE_RESTORE: Duration = Duration::from_millis(30_000);
+/// Java `REMOTE_GTP_PREPARATION_WINDOW`: replayed moves of 整盘速览 written before their answers.
+const OVERVIEW_WINDOW: usize = 8;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum LeaseStep {
@@ -437,10 +494,21 @@ enum LeaseStep {
     /// `kata-get-rules`, kept for giving the engine back.
     Capture(u64),
     Idle,
+    /// 整盘速览's position being set up; its search is written once all of it is answered.
+    Setup,
     /// A finite search in flight.
     Search,
     /// The `stop` that ends a search.
     SearchStop(u64),
+    /// 整盘速览's finished search `finished` ended by the move `play` to the next position, whose
+    /// search is written behind it: the finished one is published once its stream `ended` and
+    /// the move was answered (`acked`), in either order.
+    Advance {
+        finished: u64,
+        play: u64,
+        ended: bool,
+        acked: Option<bool>,
+    },
     /// The `stop` that starts giving the engine back.
     FinalStop(u64),
     /// Rules and position restored; `name` confirms the engine follows again.
@@ -458,6 +526,33 @@ struct LeaseSearch {
     last_activity: Instant,
 }
 
+/// A search 整盘速览 writes once its position is set up.
+struct Prepared {
+    command: String,
+    request: Request,
+    target_visits: u64,
+}
+
+/// 整盘速览's protocol on a borrowed 智子 engine (Java `usesManualZhiziOverview`).
+#[derive(Default)]
+struct Overview {
+    /// Setup not written yet for the search being prepared, and that search.
+    pending: VecDeque<String>,
+    prepared: Option<Prepared>,
+    /// Setup written and not answered yet: GTP id and whether it replays a move.
+    in_flight: VecDeque<(u64, bool)>,
+    /// A setup command was refused or could not be written: the search is not written.
+    failed: bool,
+    /// The position the search in flight may advance to instead of stopping.
+    follow: Option<Target>,
+    /// The search ended by the move to the next position, while its boundaries are awaited.
+    finished: Option<LeaseSearch>,
+    /// The `kata-set-rules` argument this lease gave the engine.
+    rules: Option<String>,
+    /// The engine holds a position an overview search of this lease set up.
+    positioned: bool,
+}
+
 /// The foreground engine lent to a background task (Java `ForegroundAnalysisLease`): the seat's
 /// wish is not followed until the engine is given back.
 struct Lease {
@@ -470,6 +565,7 @@ struct Lease {
     releasing: bool,
     restore_failed: bool,
     search: Option<LeaseSearch>,
+    overview: Option<Overview>,
 }
 
 /// A KataGo analysis process (`katago analysis`): JSON lines in and out, no GTP.
@@ -480,10 +576,13 @@ struct Worker {
     tail: VecDeque<String>,
     queued: Option<Vec<String>>,
     report_diagnostics: bool,
-    /// Report stderr as its own event (stdout and stderr stay distinguishable).
+    /// Report stderr as its own event (stdout and stderr stay distinguishable); its exit output
+    /// is then its stderr alone.
     separate_stderr: bool,
     /// The SSH host it runs on (精析设置's 远程引擎).
     remote: Option<SshSettings>,
+    /// A consumer read an answer from it ([`Engines::worker_answered`]).
+    answered: bool,
 }
 
 /// A console entry (GtpConsolePane): sent commands, engine output and errors.
@@ -622,7 +721,7 @@ struct Instance {
     /// Rules the engine last reported (`kata-get-rules`).
     confirmed_rules: Option<KataRules>,
     /// Session rules sent to it and how that went.
-    rules_request: Option<(KataRules, RulesOutcome)>,
+    rules_request: Option<RulesRequest>,
     raw_mode: RawNetMode,
     raw_revision: u64,
     raw_requested: Option<(TargetKey, u64)>,
@@ -840,6 +939,8 @@ pub struct Engines {
     launcher: Box<dyn Launcher>,
     roots: Vec<PathBuf>,
     library_dirs: Vec<PathBuf>,
+    /// The system processes start on and the catalog of what packaged engines need of it.
+    host: Option<(HostSystem, Catalog)>,
     measured_hardware: Option<(String, String, u64)>,
     apple_hardware: Option<serde_json::Value>,
     instances: Vec<Instance>,
@@ -977,6 +1078,7 @@ impl Instance {
             output: self.output_tail.iter().cloned().collect(),
             remote: None,
             cloud: None,
+            diagnosis: None,
             // Filled in by `Engines::fail`, which knows the seats.
             foreground: false,
             secondary: false,
@@ -994,6 +1096,7 @@ impl Engines {
             launcher,
             roots,
             library_dirs: Vec::new(),
+            host: None,
             measured_hardware: None,
             apple_hardware: None,
             instances: Vec::new(),
@@ -1220,6 +1323,31 @@ impl Engines {
     /// Java `KataGoRuntimeHelper`: Windows NVIDIA DLL lookup for subsequent starts.
     pub fn set_library_dirs(&mut self, dirs: Vec<PathBuf>) {
         self.library_dirs = dirs;
+    }
+    /// The system engine processes start on, and the resource catalog that records what the
+    /// packaged engines need of it: every later start of a packaged engine is checked against it.
+    pub fn set_host_system(&mut self, host: HostSystem, catalog: Catalog) {
+        self.host = Some((host, catalog));
+    }
+
+    /// Java `MacOsEngineCompatibility` before every bundled launch: the explanation that refuses
+    /// to start `spec`'s packaged engine on this system, if any. Engine processes this runtime
+    /// does not start itself (benchmarks, the GTP configuration) ask before they start.
+    pub fn launch_refusal(&self, spec: &LaunchSpec) -> Option<StartupDiagnosis> {
+        if spec.remote.is_some() || spec.cloud.is_some() {
+            return None;
+        }
+        let (host, catalog) = self.host.as_ref()?;
+        host.refuse_engine(catalog, std::path::Path::new(&spec.program))
+    }
+
+    /// Every engine process of this runtime starts here, after [`Self::launch_refusal`] (Java
+    /// `configureBundledProcessBuilder`): a refused engine's process never exists.
+    fn launch(&self, id: InstanceId, spec: &LaunchSpec) -> Result<Box<dyn EngineIo>, LaunchError> {
+        if let Some(refusal) = self.launch_refusal(spec) {
+            return Err(LaunchError::refused(refusal));
+        }
+        self.launcher.launch(id, spec).map_err(|e| LaunchError::failed(e.to_string()))
     }
 
     pub fn roots(&self) -> &[PathBuf] {
@@ -1463,6 +1591,7 @@ impl Engines {
             output: Vec::new(),
             remote: None,
             cloud: None,
+            diagnosis: None,
             foreground: false,
             secondary: false,
             held: false,
@@ -1527,7 +1656,11 @@ impl Engines {
                 (None, Some(Vec::new()))
             }
             None => (
-                Some(self.launcher.launch(id, &spec).map_err(|e| fail(e.to_string()))?),
+                Some(self.launch(id, &spec).map_err(|e| {
+                    let mut failure = fail(e.message);
+                    failure.diagnosis = e.diagnosis;
+                    failure
+                })?),
                 None,
             ),
         };
@@ -1644,13 +1777,13 @@ impl Engines {
     pub fn finish_launch(&mut self, checked: CheckedLaunch) -> Vec<RuntimeEvent> {
         let id = checked.instance;
         if let Some(index) = self.workers.iter().position(|w| w.id == id && w.queued.is_some()) {
-            let launched = self.launcher.launch(id, &checked.spec);
+            let launched = self.launch(id, &checked.spec);
             match launched {
                 Ok(mut io) => {
                     for line in self.workers[index].queued.take().unwrap_or_default() {
                         if let Err(e) = io.send(&line) {
                             io.terminate(); self.terminate(id);
-                            return vec![RuntimeEvent::WorkerExited { instance: id, message: e.to_string(), output: vec![], remote: None }];
+                            return vec![RuntimeEvent::WorkerExited { instance: id, message: e.to_string(), output: vec![], remote: None, during_startup: true }];
                         }
                     }
                     self.workers[index].io = Some(io);
@@ -1658,7 +1791,7 @@ impl Engines {
                 }
                 Err(e) => {
                     self.terminate(id);
-                    return vec![RuntimeEvent::WorkerLaunchFailed { instance: id, message: e.to_string() }];
+                    return vec![RuntimeEvent::WorkerLaunchFailed { instance: id, message: e.message, diagnosis: e.diagnosis }];
                 }
             }
         }
@@ -1666,14 +1799,15 @@ impl Engines {
             return Vec::new();
         };
         let fox_pda_compatibility = fox::inspect(&checked.spec);
-        let launched = self.launcher.launch(id, &checked.spec);
+        let launched = self.launch(id, &checked.spec);
         let Some(inst) = self.get_mut(id) else {
             return Vec::new();
         };
         match launched {
             Err(e) => {
-                let failure = inst.failure(e.to_string());
-                self.trace(&name, "--", &format!("launch failed: {e}"));
+                let mut failure = inst.failure(e.message.clone());
+                failure.diagnosis = e.diagnosis;
+                self.trace(&name, "--", &format!("launch failed: {}", e.message));
                 vec![self.fail(id, failure)]
             }
             Ok(mut io) => {
@@ -2030,9 +2164,7 @@ impl Engines {
             }
             Some((target, analyse)) => {
                 let key = target.key();
-                if let Some(r) = &target.rules {
-                    self.request_rules(id, r);
-                }
+                self.request_rules(id, &target);
                 let inst = self.get(id).unwrap();
                 if inst.rejected == Some(key) {
                     self.stop_stream(id);
@@ -2514,22 +2646,46 @@ impl Engines {
         self.fence_last(id);
     }
 
-    /// Sends `kata-set-rules` and the confirming `kata-get-rules` once per requested rules value;
-    /// an engine without the commands fails at once (`OPERATION_REJECTED`).
-    fn request_rules(&mut self, id: InstanceId, rules: &KataRules) {
+    /// Sends `kata-set-rules` and the confirming `kata-get-rules` once per requested rules value,
+    /// again for a later request of rules that failed; an engine without the commands fails at
+    /// once (`OPERATION_REJECTED`). A new komi of the same game goes first
+    /// (`RulesQuickSwitch.apply`), so the engine never holds the new rules with the old komi; when
+    /// its board is unknown (an earlier position was refused) the position, with its komi, is set
+    /// up first, unless it is the refused one.
+    fn request_rules(&mut self, id: InstanceId, target: &Target) {
+        let Some(rules) = &target.rules else { return };
         let Some(inst) = self.get_mut(id) else { return };
+        let rev = target.rules_rev;
+        let request = |outcome| Some(RulesRequest { rules: rules.clone(), rev, outcome });
         if inst.confirmed_rules.as_ref() == Some(rules) {
-            inst.rules_request = Some((rules.clone(), RulesOutcome::Confirmed));
+            inst.rules_request = request(RulesOutcome::Confirmed);
             return;
         }
-        if inst.rules_request.as_ref().is_some_and(|(r, _)| r == rules) {
+        if let Some(sent) = inst.rules_request.as_mut().filter(|r| r.answers(rules, rev)) {
+            // Its answer is this revision's too.
+            sent.rev = rev;
             return;
         }
         if inst.kind != EngineKind::KataGo || !inst.has("kata-set-rules") || !inst.has("kata-get-rules") {
-            inst.rules_request = Some((rules.clone(), RulesOutcome::Failed("OPERATION_REJECTED")));
+            inst.rules_request = request(RulesOutcome::Failed("OPERATION_REJECTED"));
             return;
         }
-        inst.rules_request = Some((rules.clone(), RulesOutcome::Pending));
+        inst.rules_request = request(RulesOutcome::Pending);
+        let key = target.key();
+        let komi = target.komi.to_bits();
+        if inst.board.is_none() && inst.rejected.is_some() && inst.rejected != Some(key) {
+            let (commands, board) = rebuild_commands(inst, target);
+            inst.board = Some(board);
+            inst.syncing = Some(key);
+            for c in commands {
+                self.send(id, &c, Purpose::Sync);
+            }
+        } else if let Some(board) = inst.board.as_mut().filter(|b| b.doc == target.doc && b.komi_bits != komi) {
+            board.komi_bits = komi;
+            // It syncs this position: a refusal is this target's, which is then not tried again.
+            inst.syncing = Some(key);
+            self.send(id, &format!("komi {}", komi_text(target.komi)), Purpose::Sync);
+        }
         self.send(
             id,
             &format!("kata-set-rules {}", rules.to_gtp_argument()),
@@ -2538,8 +2694,8 @@ impl Engines {
         self.send(id, "kata-get-rules", Purpose::GetRules);
     }
 
-    /// How making engine `id` use `rules` went.
-    pub fn rules_outcome(&self, id: InstanceId, rules: &KataRules) -> RulesOutcome {
+    /// How making engine `id` use `rules`, asked for at session rules revision `rev`, went.
+    pub fn rules_outcome(&self, id: InstanceId, rules: &KataRules, rev: u64) -> RulesOutcome {
         let Some(inst) = self.get(id) else {
             return RulesOutcome::Failed("ENGINE_UNAVAILABLE");
         };
@@ -2547,7 +2703,7 @@ impl Engines {
             return RulesOutcome::Confirmed;
         }
         match &inst.rules_request {
-            Some((r, outcome)) if r == rules => *outcome,
+            Some(r) if r.answers(rules, rev) => r.outcome,
             _ => RulesOutcome::Pending,
         }
     }
@@ -2694,7 +2850,7 @@ impl Engines {
                 events.push(RuntimeEvent::RawNet { instance: id });
             }
         }
-        self.answered(id, raw.id);
+        self.answered(id, raw.id, events);
     }
 
     /// Leela 0.11's stderr has no GTP ids. Each `time_left` cycle owns exactly one table,
@@ -2757,7 +2913,7 @@ impl Engines {
                             events.push(RuntimeEvent::FocusConfirmed { instance: id });
                         }
                     }
-                    self.answered(id, n);
+                    self.answered(id, n, events);
                 }
             }
             Frame::Info { id: n, line } => {
@@ -2866,20 +3022,21 @@ impl Engines {
                         inst.rejected = inst.syncing;
                         inst.requests.retain(|(m, _)| *m < n);
                         inst.raw_data = None;
+                        events.push(RuntimeEvent::Synced { instance: id });
                         self.game_position_refused(id, n, &text, events);
                     }
                     Some(Purpose::SetRules) if !ok => {
-                        if let Some((_, outcome)) = inst.rules_request.as_mut() {
-                            *outcome = RulesOutcome::Failed("OPERATION_REJECTED");
+                        if let Some(r) = inst.rules_request.as_mut() {
+                            r.outcome = RulesOutcome::Failed("OPERATION_REJECTED");
                         }
                         events.push(RuntimeEvent::Rules { instance: id });
                     }
                     Some(Purpose::GetRules) => {
                         let observed = if ok { KataRules::parse(&text) } else { None };
-                        if let Some((requested, outcome @ RulesOutcome::Pending)) = inst.rules_request.as_mut() {
-                            *outcome = match &observed {
+                        if let Some(r) = inst.rules_request.as_mut().filter(|r| r.outcome == RulesOutcome::Pending) {
+                            r.outcome = match &observed {
                                 None => RulesOutcome::Failed("UNCONFIRMED"),
-                                Some(o) if o == requested => RulesOutcome::Confirmed,
+                                Some(o) if *o == r.rules => RulesOutcome::Confirmed,
                                 Some(_) => RulesOutcome::Failed("TARGET_MISMATCH"),
                             };
                         }
@@ -2922,18 +3079,21 @@ impl Engines {
                         self.pump_seat(id);
                     }
                 }
-                self.answered(id, n);
+                self.answered(id, n, events);
             }
         }
     }
 
-    fn answered(&mut self, id: InstanceId, n: u64) {
+    fn answered(&mut self, id: InstanceId, n: u64, events: &mut Vec<RuntimeEvent>) {
         let Some(inst) = self.get_mut(id) else { return };
         if inst.fence != Some(n) {
             return;
         }
         inst.fence = None;
         if inst.board.is_some() {
+            if !inst.synced {
+                events.push(RuntimeEvent::Synced { instance: id });
+            }
             inst.synced = true;
         }
         if self.seated(id) {
@@ -3046,6 +3206,16 @@ impl Engines {
         self.lease.as_ref().is_some_and(|l| l.instance == id)
     }
 
+    /// Whether instance `id` is starting or a task holds it: the foreground lease, a play mode, a
+    /// match, HumanSL, ReadBoard GMA or 野狐 AI 直连, or Web 试下 driving the foreground engine
+    /// (Java `Leelaz.zhiziConnectionBusy`: starting, a GMA reservation, exclusive GTP work).
+    pub fn occupied(&self, id: InstanceId) -> bool {
+        self.get(id).is_some_and(|i| i.phase == Phase::Starting)
+            || self.leased(id)
+            || self.in_game(id)
+            || (self.foreground == Some(id) && self.application_exclusive)
+    }
+
     /// Whether the foreground engine can be borrowed now (`previewForegroundAnalysisLeaseAvailability`).
     pub fn lease_availability(&self) -> LeaseAvailability {
         // Java's mode order is play, HumanSL, then ordinary foreground availability.
@@ -3145,6 +3315,7 @@ impl Engines {
             releasing: false,
             restore_failed: false,
             search: None,
+            overview: None,
         });
         Ok(lease)
     }
@@ -3160,16 +3331,21 @@ impl Engines {
         self.lease.as_ref().filter(|l| l.id == lease)?.captured_rules.clone()
     }
 
-    /// Whether lease `lease` is ready for a search.
+    /// Whether lease `lease` is ready for a search. A failed 整盘速览 attempt is not: it reports
+    /// the finished search's result before its failure, and nothing more is written until the
+    /// engine is given back.
     pub fn lease_idle(&self, lease: u64) -> bool {
-        self.lease
-            .as_ref()
-            .is_some_and(|l| l.id == lease && l.step == LeaseStep::Idle && !l.releasing)
+        self.lease.as_ref().is_some_and(|l| {
+            l.id == lease
+                && l.step == LeaseStep::Idle
+                && !l.releasing
+                && !l.overview.as_ref().is_some_and(|o| o.failed)
+        })
     }
 
     /// A finite search of `target` on the borrowed engine: its position, `rules` (a
     /// `kata-set-rules` argument) when given, then `kata-analyze … 1 maxmoves 1 rootInfo true`
-    /// stopped once the root has `visits` visits.
+    /// stopped once the root has `visits` visits. Everything is written at once.
     pub fn lease_search(&mut self, lease: u64, target: &Target, visits: u64, rules: Option<&str>) -> bool {
         // Rules are changed only when the engine's own can be put back.
         if !self.lease_idle(lease)
@@ -3188,11 +3364,7 @@ impl Engines {
             self.send(id, &format!("kata-set-rules {r}"), Purpose::Lease);
         }
         let to_play = target.record.node(target.node).to_play;
-        let Some(n) = self.send(
-            id,
-            &format!("kata-analyze {} 1 maxmoves 1 rootInfo true", color_letter(to_play)),
-            Purpose::Lease,
-        ) else {
+        let Some(n) = self.send(id, &lease_analyze_command(to_play), Purpose::Lease) else {
             return false;
         };
         let l = self.lease.as_mut().unwrap();
@@ -3214,6 +3386,310 @@ impl Engines {
             last_activity: now,
         });
         true
+    }
+
+    /// 整盘速览's search of `target` on a borrowed 智子 engine (Java `usesManualZhiziOverview`), the
+    /// same search as [`Self::lease_search`] written another way: the lease's first position is
+    /// rebuilt and later ones are played forward when they can be; replayed moves are written up
+    /// to [`OVERVIEW_WINDOW`] unanswered, any other setup alone, and the search once all of it is
+    /// answered (`sendNextSharedForegroundSetupCommand`). `rules` are written when the engine does
+    /// not hold them from this lease already. A refused setup fails the search
+    /// ([`RuntimeEvent::LeaseSearchFailed`]).
+    pub fn lease_overview_search(&mut self, lease: u64, target: &Target, visits: u64, rules: Option<&str>) -> bool {
+        if !self.lease_idle(lease)
+            || (rules.is_some() && self.lease.as_ref().is_some_and(|l| l.captured_rules.is_none()))
+        {
+            return false;
+        }
+        let l = self.lease.as_ref().unwrap();
+        let id = l.instance;
+        let (positioned, held) = l
+            .overview
+            .as_ref()
+            .map_or((false, None), |o| (o.positioned, o.rules.clone()));
+        let Some(inst) = self.get(id) else { return false };
+        let forward = inst
+            .board
+            .as_ref()
+            .filter(|_| positioned)
+            .and_then(|have| forward_plays(have, target));
+        let (mut commands, board) = forward.unwrap_or_else(|| rebuild_commands(inst, target));
+        let rules = rules.filter(|r| held.as_deref() != Some(*r));
+        if let Some(r) = rules {
+            commands.push(format!("kata-set-rules {r}"));
+        }
+        let to_play = target.record.node(target.node).to_play;
+        let now = Instant::now();
+        self.get_mut(id).unwrap().board = Some(board);
+        let l = self.lease.as_mut().unwrap();
+        l.rules_changed |= rules.is_some();
+        l.step = LeaseStep::Setup;
+        let ov = l.overview.get_or_insert_with(Overview::default);
+        if let Some(r) = rules {
+            ov.rules = Some(r.to_string());
+        }
+        ov.positioned = true;
+        ov.pending = commands.into();
+        ov.prepared = Some(Prepared {
+            command: lease_analyze_command(to_play),
+            request: Request {
+                key: target.key(),
+                to_play,
+                size: target.record.size,
+                started: now,
+            },
+            target_visits: visits,
+        });
+        ov.in_flight.clear();
+        ov.failed = false;
+        ov.follow = None;
+        let mut events = Vec::new();
+        self.lease_overview_pump(now, &mut events);
+        self.pending.append(&mut events);
+        true
+    }
+
+    /// The position 整盘速览's search in flight may continue with (`None`: none). Reaching its
+    /// visits, the moves to it replace `stop` when it lies forward on the same board under the
+    /// same rules revision (`GtpAnalysisProtocol.advanceCommand`): up to [`OVERVIEW_WINDOW`]
+    /// moves are written together with its search; further ahead only the first move is, and
+    /// the rest is set up as a replay once that move and the finished stream were answered. The
+    /// finished search is published once its stream ended and the first move was answered, as a
+    /// [`RuntimeEvent::LeaseResult`] that says it `continued`. Any other position, or none, ends
+    /// the search with `stop`.
+    pub fn lease_overview_follow(&mut self, lease: u64, follow: Option<Target>) {
+        if let Some(ov) = self
+            .lease
+            .as_mut()
+            .filter(|l| l.id == lease && !l.releasing)
+            .and_then(|l| l.overview.as_mut())
+        {
+            ov.follow = follow;
+        }
+    }
+
+    /// Writes 整盘速览's setup as far as the window allows, then its search once every setup
+    /// command is answered. A refused or unwritten setup, or the engine being given back, ends
+    /// the attempt once nothing is in flight.
+    fn lease_overview_pump(&mut self, now: Instant, events: &mut Vec<RuntimeEvent>) {
+        loop {
+            let l = self.lease.as_mut().unwrap();
+            let (lease, id, releasing) = (l.id, l.instance, l.releasing);
+            let ov = l.overview.as_mut().unwrap();
+            if ov.failed || releasing {
+                if !ov.in_flight.is_empty() {
+                    return;
+                }
+                // A refused setup, or one given up before all of it was written, leaves what the
+                // engine holds unknown: the next search, or giving the engine back, rebuilds it.
+                let unknown = ov.failed || !ov.pending.is_empty();
+                ov.pending.clear();
+                ov.prepared = None;
+                if unknown {
+                    ov.positioned = false;
+                    ov.rules = None;
+                }
+                l.step = LeaseStep::Idle;
+                l.deadline = None;
+                if unknown {
+                    if let Some(inst) = self.get_mut(id) {
+                        inst.board = None;
+                    }
+                }
+                if releasing {
+                    self.lease_final_stop();
+                } else {
+                    events.push(RuntimeEvent::LeaseSearchFailed { lease });
+                }
+                return;
+            }
+            if let Some(next) = ov.pending.front() {
+                let replay = next.starts_with("play ");
+                let window = if replay { OVERVIEW_WINDOW } else { 1 };
+                // A non-move waits for everything before it and holds everything after it.
+                if ov.in_flight.len() >= window || ov.in_flight.front().is_some_and(|&(_, r)| !replay || !r) {
+                    return;
+                }
+                let command = ov.pending.pop_front().unwrap();
+                let sent = self.send(id, &command, Purpose::Lease);
+                let l = self.lease.as_mut().unwrap();
+                let ov = l.overview.as_mut().unwrap();
+                match sent {
+                    Some(n) => {
+                        ov.in_flight.push_back((n, replay));
+                        l.deadline = Some(now + LEASE_ACK);
+                    }
+                    None => ov.failed = true,
+                }
+                continue;
+            }
+            if !ov.in_flight.is_empty() {
+                return;
+            }
+            let Some(prepared) = ov.prepared.take() else { return };
+            let sent = self.send(id, &prepared.command, Purpose::Lease);
+            let l = self.lease.as_mut().unwrap();
+            let Some(n) = sent else {
+                l.overview.as_mut().unwrap().failed = true;
+                continue;
+            };
+            l.step = LeaseStep::Search;
+            l.deadline = Some(now + LEASE_ACK);
+            l.search = Some(LeaseSearch {
+                analyze: n,
+                request: Request {
+                    started: now,
+                    ..prepared.request
+                },
+                target_visits: prepared.target_visits,
+                best: None,
+                failed: false,
+                last_activity: now,
+            });
+            return;
+        }
+    }
+
+    /// 整盘速览's search reached its visits: when it may continue with the position it follows,
+    /// the first move there ends the finished search (KataGo ends an analysis before it reads the
+    /// next command). Within [`OVERVIEW_WINDOW`] moves the rest and that position's search are
+    /// written with it; further ahead they wait to be set up as a replay
+    /// ([`Self::lease_overview_resolve`]). `false`: it is stopped instead.
+    fn lease_overview_advance(&mut self, now: Instant) -> bool {
+        let l = self.lease.as_mut().unwrap();
+        let id = l.instance;
+        let (Some(ov), Some(search)) = (l.overview.as_mut(), l.search.as_ref()) else {
+            return false;
+        };
+        if l.releasing {
+            return false;
+        }
+        let Some(follow) = ov.follow.take() else { return false };
+        let visits = search.target_visits;
+        if follow.rules_rev != search.request.key.rules_rev {
+            return false;
+        }
+        let Some((mut plays, board)) = self
+            .get(id)
+            .and_then(|i| i.board.as_ref())
+            .and_then(|have| forward_plays(have, &follow))
+            .filter(|(plays, _)| !plays.is_empty())
+        else {
+            return false;
+        };
+        let Some(play) = self.send(id, &plays[0], Purpose::Lease) else {
+            return false;
+        };
+        let to_play = follow.record.node(follow.node).to_play;
+        let request = Request {
+            key: follow.key(),
+            to_play,
+            size: follow.record.size,
+            started: now,
+        };
+        let next = if plays.len() <= OVERVIEW_WINDOW {
+            let mut written = true;
+            for p in &plays[1..] {
+                written &= self.send(id, p, Purpose::Lease).is_some();
+            }
+            let analyze = self.send(id, &lease_analyze_command(to_play), Purpose::Lease);
+            Ok(LeaseSearch {
+                // GTP ids start at 1: an unwritten search matches no answer.
+                analyze: analyze.unwrap_or(0),
+                request,
+                target_visits: visits,
+                best: None,
+                failed: !written || analyze.is_none(),
+                last_activity: now,
+            })
+        } else {
+            plays.remove(0);
+            Err(Prepared {
+                command: lease_analyze_command(to_play),
+                request,
+                target_visits: visits,
+            })
+        };
+        self.get_mut(id).unwrap().board = Some(board);
+        let l = self.lease.as_mut().unwrap();
+        let finished = l.search.take().unwrap();
+        l.step = LeaseStep::Advance {
+            finished: finished.analyze,
+            play,
+            ended: false,
+            acked: None,
+        };
+        l.deadline = Some(now + LEASE_STOP_ACK);
+        let ov = l.overview.as_mut().unwrap();
+        ov.finished = Some(finished);
+        match next {
+            Ok(search) => l.search = Some(search),
+            Err(prepared) => {
+                ov.pending = plays.into();
+                ov.prepared = Some(prepared);
+            }
+        }
+        true
+    }
+
+    /// An advance once both of its boundaries arrived. The finished search is published — also
+    /// when the move was refused, as the engine's board is still the finished position — and
+    /// the next search goes on, or the rest of its replay is set up first; a refused move fails
+    /// the attempt and its search is stopped unpublished. While the engine is being given back
+    /// nothing is published.
+    fn lease_overview_resolve(&mut self, now: Instant, events: &mut Vec<RuntimeEvent>) {
+        let l = self.lease.as_mut().unwrap();
+        let LeaseStep::Advance {
+            ended: true,
+            acked: Some(accepted),
+            ..
+        } = l.step
+        else {
+            return;
+        };
+        let lease = l.id;
+        let finished = l.overview.as_mut().unwrap().finished.take();
+        let Some(search) = l.search.as_mut() else {
+            // The replay to the next position is still to be written.
+            if !l.releasing {
+                let published = finished.and_then(|f| lease_result(lease, f, accepted));
+                if published.is_none() && accepted {
+                    events.push(RuntimeEvent::LeaseSearchFailed { lease });
+                }
+                events.extend(published);
+            }
+            l.overview.as_mut().unwrap().failed |= !accepted;
+            l.step = LeaseStep::Setup;
+            l.deadline = None;
+            return self.lease_overview_pump(now, events);
+        };
+        if l.releasing || !accepted {
+            search.failed = true;
+        }
+        if l.releasing {
+            return self.lease_stop_search(now);
+        }
+        let published = finished.and_then(|f| lease_result(lease, f, accepted));
+        let found = published.is_some();
+        events.extend(published);
+        if !accepted {
+            // The refused move left nothing to search: the attempt fails once it is stopped.
+            return self.lease_stop_search(now);
+        }
+        if !found {
+            events.push(RuntimeEvent::LeaseSearchFailed { lease });
+        }
+        l.step = LeaseStep::Search;
+        l.deadline = Some(search.last_activity + LEASE_ACK);
+        // Its reports may already have reached the visits while the boundaries were awaited.
+        if search
+            .best
+            .as_ref()
+            .is_some_and(|b| reported_visits(b) >= search.target_visits)
+            && !self.lease_overview_advance(now)
+        {
+            self.lease_stop_search(now);
+        }
     }
 
     /// Gives the engine back (`endForegroundAnalysisLease`): a search is stopped, then `stop`,
@@ -3329,23 +3805,11 @@ impl Engines {
         l.step = LeaseStep::Idle;
         l.deadline = None;
         let releasing = l.releasing;
-        let search = l.search.take();
-        match search {
-            Some(s) if !s.failed && s.best.as_ref().is_some_and(|b| !b.candidates.is_empty()) => {
-                let line = s.best.unwrap();
-                events.push(RuntimeEvent::LeaseResult {
-                    lease,
-                    doc: s.request.key.doc,
-                    node: s.request.key.node,
-                    stamp: s.request.key.stamp,
-                    komi: f64::from_bits(s.request.key.komi_bits),
-                    rules_rev: s.request.key.rules_rev,
-                    to_play: s.request.to_play,
-                    line,
-                });
-            }
-            _ if releasing => {}
-            _ => events.push(RuntimeEvent::LeaseSearchFailed { lease }),
+        let result = l.search.take().and_then(|s| lease_result(lease, s, false));
+        match result {
+            Some(event) => events.push(event),
+            None if releasing => {}
+            None => events.push(RuntimeEvent::LeaseSearchFailed { lease }),
         }
         if releasing {
             self.lease_final_stop();
@@ -3361,25 +3825,28 @@ impl Engines {
         match frame {
             Frame::Header { id: n } => matches!(self.get(id).and_then(|i| i.waiting.get(n)), Some(Purpose::Lease)),
             Frame::Info { id: n, line } => {
-                if analyze != Some(*n) {
-                    return false;
-                }
                 let l = self.lease.as_mut().unwrap();
-                let s = l.search.as_mut().unwrap();
+                let finished = l.overview.as_ref().and_then(|o| o.finished.as_ref()).map(|s| s.analyze);
+                // A search 整盘速览 ended by moving on still reports until its stream ends.
+                let s = if analyze == Some(*n) {
+                    l.search.as_mut().unwrap()
+                } else if finished == Some(*n) {
+                    l.overview.as_mut().unwrap().finished.as_mut().unwrap()
+                } else {
+                    return false;
+                };
                 let info = gtp::parse_info(line, Dialect::Kata, s.request.size);
-                let total = info
-                    .root_visits
-                    .unwrap_or_else(|| info.candidates.iter().map(|c| c.visits).sum());
+                let total = reported_visits(&info);
                 let accepted = !s.failed && !info.candidates.is_empty();
                 s.last_activity = now;
                 if accepted {
                     s.best = Some(info);
                 }
-                let complete = total >= s.target_visits && step == LeaseStep::Search;
+                let complete = total >= s.target_visits && step == LeaseStep::Search && analyze == Some(*n);
                 if accepted {
                     self.analysis_progress_accepted(id, total);
                 }
-                if complete {
+                if complete && !self.lease_overview_advance(now) {
                     self.lease_stop_search(now);
                 }
                 true
@@ -3430,8 +3897,12 @@ impl Engines {
                         self.lease_search_done(events);
                     }
                     LeaseStep::SearchStop(s) if s == n => {
+                        // An advance that timed out before its replay was written has no search
+                        // of its own: the stop only ends the finished one, and the attempt fails.
                         if !ok {
-                            self.lease.as_mut().unwrap().search.as_mut().unwrap().failed = true;
+                            if let Some(search) = self.lease.as_mut().unwrap().search.as_mut() {
+                                search.failed = true;
+                            }
                         }
                         self.lease_search_done(events);
                     }
@@ -3458,13 +3929,52 @@ impl Engines {
                             self.lease_failed(LeaseFailure::RestoreFailed, events);
                         }
                     }
+                    LeaseStep::Setup
+                        if self
+                            .lease
+                            .as_ref()
+                            .and_then(|l| l.overview.as_ref())
+                            .is_some_and(|o| o.in_flight.iter().any(|&(m, _)| m == n)) =>
+                    {
+                        let ov = self.lease.as_mut().unwrap().overview.as_mut().unwrap();
+                        ov.in_flight.retain(|&(m, _)| m != n);
+                        ov.failed |= !ok;
+                        self.lease_overview_pump(now, events);
+                    }
+                    LeaseStep::Advance {
+                        finished,
+                        play,
+                        ended,
+                        acked,
+                    } if n == finished || n == play => {
+                        let (ended, acked) = if n == finished {
+                            (true, acked)
+                        } else {
+                            (ended, Some(ok))
+                        };
+                        self.lease.as_mut().unwrap().step = LeaseStep::Advance {
+                            finished,
+                            play,
+                            ended,
+                            acked,
+                        };
+                        if !ok {
+                            if let Some(inst) = self.get_mut(id) {
+                                inst.board = None;
+                            }
+                        }
+                        self.lease_overview_resolve(now, events);
+                    }
                     // Position, rules and other answers within a step. A refused position leaves
                     // the engine's board unknown: giving it back rebuilds the position.
                     _ if !ok => {
                         let l = self.lease.as_mut().unwrap();
-                        let searching = matches!(l.step, LeaseStep::Search | LeaseStep::SearchStop(_));
+                        let searching = matches!(
+                            l.step,
+                            LeaseStep::Search | LeaseStep::SearchStop(_) | LeaseStep::Advance { .. }
+                        );
                         match l.step {
-                            LeaseStep::Search | LeaseStep::SearchStop(_) => {
+                            LeaseStep::Search | LeaseStep::SearchStop(_) | LeaseStep::Advance { .. } => {
                                 if let Some(s) = l.search.as_mut() {
                                     s.failed = true;
                                 }
@@ -3518,6 +4028,31 @@ impl Engines {
                 }
                 self.lease_search_done(events);
             }
+            // The setup was not answered: what the engine holds is unknown.
+            LeaseStep::Setup => {
+                let ov = l.overview.as_mut().unwrap();
+                ov.in_flight.clear();
+                ov.failed = true;
+                self.lease_overview_pump(now, events);
+            }
+            // A boundary of an advance never came: nothing is published and no search goes on
+            // (`manualZhiziOverviewTimesOutMissingAdvanceBoundaryWithoutStartingAnotherSearch`).
+            // Whether the moves were played is unknown: giving the engine back rebuilds it.
+            LeaseStep::Advance { .. } => {
+                let id = l.instance;
+                let ov = l.overview.as_mut().unwrap();
+                ov.finished = None;
+                ov.pending.clear();
+                ov.prepared = None;
+                ov.positioned = false;
+                if let Some(s) = l.search.as_mut() {
+                    s.failed = true;
+                }
+                if let Some(inst) = self.get_mut(id) {
+                    inst.board = None;
+                }
+                self.lease_stop_search(now);
+            }
             LeaseStep::FinalStop(_) => self.lease_failed(LeaseFailure::FinalStopTimeout, events),
             LeaseStep::Restore(_) => self.lease_failed(LeaseFailure::RestoreFailed, events),
             LeaseStep::Idle => {}
@@ -3554,13 +4089,13 @@ impl Engines {
 
     /// Starts a KataGo analysis process for `command` (`AnalysisEngine.startEngine`); relative
     /// paths resolve like an engine's. Its stdout lines arrive as [`RuntimeEvent::WorkerLine`].
-    pub fn start_worker(&mut self, command: &str, name: &str) -> Result<InstanceId, String> {
+    pub fn start_worker(&mut self, command: &str, name: &str) -> Result<InstanceId, LaunchError> {
         self.start_worker_on(command, name, None)
     }
 
     /// [`Self::start_worker`] on the SSH host `ssh` when given (精析设置's 远程引擎,
     /// `AnalysisEngineSSHController`): the command runs there as written.
-    pub fn start_worker_on(&mut self, command: &str, name: &str, ssh: Option<&SshSettings>) -> Result<InstanceId, String> {
+    pub fn start_worker_on(&mut self, command: &str, name: &str, ssh: Option<&SshSettings>) -> Result<InstanceId, LaunchError> {
         self.start_worker_in_dir(command, command, name, ssh, None)
     }
 
@@ -3574,12 +4109,12 @@ impl Engines {
         name: &str,
         ssh: Option<&SshSettings>,
         working_dir: Option<&std::path::Path>,
-    ) -> Result<InstanceId, String> {
+    ) -> Result<InstanceId, LaunchError> {
         let spec = match ssh {
-            Some(_) if command.trim().is_empty() => return Err("empty command".to_string()),
+            Some(_) if command.trim().is_empty() => return Err(LaunchError::failed("empty command")),
             Some(ssh) => gtp::LaunchSpec::remote(command, ssh),
             None => {
-                let mut spec = gtp::prepare_launch(command, &self.roots).ok_or_else(|| "empty command".to_string())?;
+                let mut spec = gtp::prepare_launch(command, &self.roots).ok_or_else(|| LaunchError::failed("empty command"))?;
                 spec.library_dirs = self.library_dirs.clone();
                 if let Some(directory) = working_dir {
                     spec.working_dir = Some(directory.to_path_buf());
@@ -3590,7 +4125,7 @@ impl Engines {
         let id = self.next_instance;
         self.next_instance += 1;
         self.trace(name, "--", &format!("start {shown}"));
-        let io = self.launcher.launch(id, &spec).map_err(|e| e.to_string())?;
+        let io = self.launch(id, &spec)?;
         // Java `AnalysisResourceCoordinator` `process-started` (the sanitizer removes secrets).
         self.diagnostics.debug(DiagnosticModule::Engine, || {
             format!("engine event=process-started purpose={name} pid=-1 command={shown}")
@@ -3604,6 +4139,7 @@ impl Engines {
             report_diagnostics: false,
             separate_stderr: false,
             remote: ssh.cloned(),
+            answered: false,
         });
         Ok(id)
     }
@@ -3618,10 +4154,18 @@ impl Engines {
         if let Some(worker) = self.workers.iter_mut().find(|w| w.id == id) { worker.report_diagnostics = true; }
     }
 
-    /// Report `id`'s stderr as [`RuntimeEvent::WorkerErrorLine`] instead of folding it into the
-    /// diagnostics tail: a consumer that must tell the two streams apart.
+    /// Report `id`'s stderr as [`RuntimeEvent::WorkerErrorLine`]: a consumer that tells the two
+    /// streams apart and reads every stdout line itself (跑谱贡献). Its exit output stays its
+    /// stderr, so stdout it prints afterwards cannot push a stderr error out; the consumer
+    /// diagnoses its stdout on its own, as Java's start-up diagnostics keep a tail per stream.
     pub fn report_worker_stderr(&mut self, id: InstanceId) {
         if let Some(worker) = self.workers.iter_mut().find(|w| w.id == id) { worker.separate_stderr = true; }
+    }
+
+    /// A consumer read an answer to one of its queries from analysis process `id`: the process
+    /// started up, and a later end is no start-up failure.
+    pub fn worker_answered(&mut self, id: InstanceId) {
+        if let Some(worker) = self.workers.iter_mut().find(|w| w.id == id) { worker.answered = true; }
     }
 
     /// Adds one console line under `engine` (a process that is not a GTP engine, e.g. 跑谱贡献).
@@ -3646,16 +4190,16 @@ impl Engines {
 
     /// A whole-game process can defer its launch for an accepted measured-scene fingerprint
     /// check. JSON requests queue until the existing off-lock LaunchCheck returns.
-    pub fn start_whole_game_worker(&mut self, command: &str, configured: &str, saved: Option<&EngineProfile>) -> Result<InstanceId, String> {
+    pub fn start_whole_game_worker(&mut self, command: &str, configured: &str, saved: Option<&EngineProfile>) -> Result<InstanceId, LaunchError> {
         let measured = saved.and_then(|p| p.thread_policy.as_ref()).zip(self.measured_hardware.as_ref());
         let Some((policy, hardware)) = measured else { return self.start_worker(command, "整盘精析") };
-        let mut spec = gtp::prepare_launch(command, &self.roots).ok_or_else(|| "empty command".to_string())?;
+        let mut spec = gtp::prepare_launch(command, &self.roots).ok_or_else(|| LaunchError::failed("empty command"))?;
         spec.library_dirs = self.library_dirs.clone();
         let id = self.next_instance; self.next_instance += 1;
         self.checks.push(LaunchCheck { instance: id, command: configured.into(), policy: policy.clone(),
             roots: self.roots.clone(), spec, apple: None, measured: Some(hardware.clone()),
             whole_game: saved.map(|p| p.command.clone()) });
-        self.workers.push(Worker { id, name: "整盘精析".into(), io: None, tail: VecDeque::new(), queued: Some(Vec::new()), report_diagnostics: false, separate_stderr: false, remote: None });
+        self.workers.push(Worker { id, name: "整盘精析".into(), io: None, tail: VecDeque::new(), queued: Some(Vec::new()), report_diagnostics: false, separate_stderr: false, remote: None, answered: false });
         Ok(id)
     }
 
@@ -3682,8 +4226,15 @@ impl Engines {
     fn worker_input(&mut self, id: InstanceId, input: EngineInput, events: &mut Vec<RuntimeEvent>) {
         let w = self.workers.iter_mut().find(|w| w.id == id).unwrap();
         let name = w.name.clone();
+        let during_startup = !w.answered;
         match input {
             EngineInput::Stdout(line) => {
+                // Answers are JSON objects; anything else it prints there (a loader error before
+                // its first answer, as `AnalysisEngine.read` records) is output like stderr,
+                // unless its consumer keeps the streams apart.
+                if !w.separate_stderr && !line.trim().is_empty() && !line.trim_start().starts_with('{') {
+                    push_tail(&mut w.tail, &line);
+                }
                 self.trace(&name, "<<", &line);
                 events.push(RuntimeEvent::WorkerLine { instance: id, line });
             }
@@ -3711,6 +4262,7 @@ impl Engines {
                     message,
                     output,
                     remote: None,
+                    during_startup,
                 });
             }
             EngineInput::Remote(remote) => {
@@ -3723,19 +4275,20 @@ impl Engines {
                     message,
                     output,
                     remote: Some(remote),
+                    during_startup,
                 });
             }
             EngineInput::CloudRecovery { message } => {
                 let output = w.tail.iter().cloned().collect();
                 self.terminate(id);
-                events.push(RuntimeEvent::WorkerExited { instance: id, message, output, remote: None });
+                events.push(RuntimeEvent::WorkerExited { instance: id, message, output, remote: None, during_startup });
             }
             EngineInput::CloudStartFailed(reason) => {
                 let message = reason.to_string();
                 let output = w.tail.iter().cloned().collect();
                 self.trace(&name, "--", &message);
                 self.terminate(id);
-                events.push(RuntimeEvent::WorkerExited { instance: id, message, output, remote: None });
+                events.push(RuntimeEvent::WorkerExited { instance: id, message, output, remote: None, during_startup });
             }
         }
     }
@@ -3786,11 +4339,46 @@ fn color_letter(c: Stone) -> &'static str {
     }
 }
 
-/// Commands that bring the engine from what it holds to `target`, and what it holds then.
-/// Within one document and anchor, `undo` back to the common moves and `play` forward; anything
-/// else rebuilds: board size, `clear_board`, komi, the anchor position, then the moves. Nodes are
-/// compared by stamp, so an edited anchor or replayed moves are synced again.
-fn sync_commands(inst: &Instance, target: &Target) -> (Vec<String>, EngineBoard) {
+/// The command of a borrowed engine's finite search (Java's silent remote form): reports every
+/// centisecond, within 整盘速览's cap of 10 (`GtpAnalysisProtocol.overviewCommand`).
+fn lease_analyze_command(to_play: Stone) -> String {
+    format!("kata-analyze {} 1 maxmoves 1 rootInfo true", color_letter(to_play))
+}
+
+/// The root visits a report gives, else its candidates' visits together.
+fn reported_visits(info: &InfoLine) -> u64 {
+    info.root_visits
+        .unwrap_or_else(|| info.candidates.iter().map(|c| c.visits).sum())
+}
+
+/// The result of a finished lease search, when it has one.
+fn lease_result(lease: u64, s: LeaseSearch, continued: bool) -> Option<RuntimeEvent> {
+    if s.failed {
+        return None;
+    }
+    let line = s.best.filter(|b| !b.candidates.is_empty())?;
+    Some(RuntimeEvent::LeaseResult {
+        lease,
+        doc: s.request.key.doc,
+        node: s.request.key.node,
+        stamp: s.request.key.stamp,
+        komi: f64::from_bits(s.request.key.komi_bits),
+        rules_rev: s.request.key.rules_rev,
+        to_play: s.request.to_play,
+        line,
+        continued,
+    })
+}
+
+/// What the engine must hold for `target`: the anchor position (the root or the last node with
+/// setup stones) and the actions after it.
+struct Wanted {
+    anchor: NodeId,
+    actions: Vec<NodeId>,
+    board: EngineBoard,
+}
+
+fn wanted(target: &Target) -> Wanted {
     let rec = &target.record;
     let path = rec.path_to(target.node);
     let anchor_at = path
@@ -3798,43 +4386,70 @@ fn sync_commands(inst: &Instance, target: &Target) -> (Vec<String>, EngineBoard)
         .rposition(|&n| n == ROOT || !rec.node(n).setup.is_empty())
         .unwrap_or(0);
     let anchor = path[anchor_at];
-    let action_nodes: Vec<NodeId> = path[anchor_at + 1..]
+    let actions: Vec<NodeId> = path[anchor_at + 1..]
         .iter()
         .copied()
         .filter(|&n| rec.node(n).kind.is_action())
         .collect();
-    let want = EngineBoard {
+    let board = EngineBoard {
         doc: target.doc,
         size: rec.size,
         komi_bits: target.komi.to_bits(),
         anchor: rec.node(anchor).stamp,
-        actions: action_nodes.iter().map(|&n| rec.node(n).stamp).collect(),
+        actions: actions.iter().map(|&n| rec.node(n).stamp).collect(),
     };
-    let play = |n: NodeId| match rec.node(n).kind {
+    Wanted { anchor, actions, board }
+}
+
+fn play_command(rec: &GameRecord, n: NodeId) -> String {
+    match rec.node(n).kind {
         NodeKind::Move { color, point } => format!("play {} {}", color_letter(color), gtp::vertex(rec.size, point)),
         NodeKind::Pass { color } => format!("play {} pass", color_letter(color)),
         _ => unreachable!("only actions are replayed"),
-    };
-    let mut cmds = Vec::new();
+    }
+}
+
+/// Commands that bring the engine from what it holds to `target`, and what it holds then.
+/// Within one document and anchor, `undo` back to the common moves and `play` forward; anything
+/// else rebuilds: board size, `clear_board`, komi, the anchor position, then the moves. Nodes are
+/// compared by stamp, so an edited anchor or replayed moves are synced again.
+fn sync_commands(inst: &Instance, target: &Target) -> (Vec<String>, EngineBoard) {
+    let want = wanted(target);
+    let rec = &target.record;
     if let Some(have) = &inst.board {
-        if have == &want {
-            return (cmds, want);
+        if have == &want.board {
+            return (Vec::new(), want.board);
         }
-        if have.doc == want.doc && have.size == want.size && have.anchor == want.anchor && inst.has("undo") {
+        if have.doc == want.board.doc
+            && have.size == want.board.size
+            && have.anchor == want.board.anchor
+            && inst.has("undo")
+        {
             let common = have
                 .actions
                 .iter()
-                .zip(&want.actions)
+                .zip(&want.board.actions)
                 .take_while(|(a, b)| a == b)
                 .count();
-            cmds.extend(std::iter::repeat_n("undo".to_string(), have.actions.len() - common));
-            if have.komi_bits != want.komi_bits {
+            let mut cmds: Vec<String> = std::iter::repeat_n("undo".to_string(), have.actions.len() - common).collect();
+            if have.komi_bits != want.board.komi_bits {
                 cmds.push(format!("komi {}", komi_text(target.komi)));
             }
-            cmds.extend(action_nodes[common..].iter().map(|&n| play(n)));
-            return (cmds, want);
+            cmds.extend(want.actions[common..].iter().map(|&n| play_command(rec, n)));
+            return (cmds, want.board);
         }
     }
+    rebuild(inst, target, want)
+}
+
+/// The commands that rebuild `target` whatever the engine holds (see [`sync_commands`]).
+fn rebuild_commands(inst: &Instance, target: &Target) -> (Vec<String>, EngineBoard) {
+    rebuild(inst, target, wanted(target))
+}
+
+fn rebuild(inst: &Instance, target: &Target, want: Wanted) -> (Vec<String>, EngineBoard) {
+    let rec = &target.record;
+    let mut cmds = Vec::new();
     let (w, h) = (rec.size.width, rec.size.height);
     cmds.push(if w == h {
         format!("boardsize {w}")
@@ -3843,7 +4458,7 @@ fn sync_commands(inst: &Instance, target: &Target) -> (Vec<String>, EngineBoard)
     });
     cmds.push("clear_board".to_string());
     cmds.push(format!("komi {}", komi_text(target.komi)));
-    let pos = rec.position(anchor);
+    let pos = rec.position(want.anchor);
     let stones: Vec<String> = pos
         .stones
         .iter()
@@ -3863,8 +4478,28 @@ fn sync_commands(inst: &Instance, target: &Target) -> (Vec<String>, EngineBoard)
             cmds.extend(stones.iter().map(|s| format!("play {s}")));
         }
     }
-    cmds.extend(action_nodes.iter().map(|&n| play(n)));
-    (cmds, want)
+    cmds.extend(want.actions.iter().map(|&n| play_command(rec, n)));
+    (cmds, want.board)
+}
+
+/// The moves from what the engine holds to `target` when `target` only plays on from it: same
+/// document, size, komi and anchor, and its actions extend the held ones
+/// (`collectRemoteGtpAdvanceCommands`). `None` when it would need anything else.
+fn forward_plays(have: &EngineBoard, target: &Target) -> Option<(Vec<String>, EngineBoard)> {
+    let want = wanted(target);
+    let b = &want.board;
+    let extends = have.doc == b.doc
+        && have.size == b.size
+        && have.komi_bits == b.komi_bits
+        && have.anchor == b.anchor
+        && b.actions.starts_with(&have.actions);
+    extends.then(|| {
+        let plays = want.actions[have.actions.len()..]
+            .iter()
+            .map(|&n| play_command(&target.record, n))
+            .collect();
+        (plays, want.board)
+    })
 }
 
 /// One value of a `KataGoPda` private answer (`Leelaz` `pda :` / `PDACap:` handling).

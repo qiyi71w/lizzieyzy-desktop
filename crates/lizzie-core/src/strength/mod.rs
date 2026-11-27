@@ -9,13 +9,18 @@ mod calibrator;
 mod estimator;
 mod humansl40;
 mod models;
+mod phases;
 mod policy;
 mod xgboost;
 
 use crate::{display::MoveRank, record::Stone};
-pub use estimator::{estimate, estimate_with_model, summarize_samples};
+pub use estimator::{context, estimate, estimate_with_model, summarize_samples};
 pub use humansl40::{human_features, HumanMove, HUMAN_SHA, PROFILES};
 pub use models::{copy_java_models, effective_model, import_model, java_models, selectable_models, StrengthModel};
+pub use phases::{
+    parse_phase_bounds, phases, usable_phase_bounds, PhaseBadge, PhaseReview, PhaseSide, PhaseVerdict, StrengthPhase,
+    StrengthPhases, DEFAULT_PHASE_BOUNDS, MIN_PHASE_MOVES,
+};
 pub use policy::{
     cache_key, canonical, capture, fingerprint, has_analysis, policy_command, position_snapshot, preparation_snapshot,
     report, request, validate_game, validate_history, validate_policy, Capture, POLICY_CONFIG,
@@ -59,6 +64,9 @@ pub struct AnalysisInput {
     pub score_lead: Option<f64>,
     pub kata: bool,
     pub has_payload: bool,
+    /// The candidates' total visits (Java `BoardData.getPlayouts()`); a position counts as analysed
+    /// for the strength dialog's progress when it is above zero.
+    pub visits: u64,
     pub candidates: Vec<CandidateInput>,
     pub extra_candidates: Vec<CandidateInput>,
 }
@@ -89,6 +97,33 @@ pub struct StrengthReport {
     pub white: StrengthSideReport,
     pub overall: StrengthSideReport,
     pub enough_data: bool,
+}
+/// What the strength dialog shows for a game besides the figures (Java `StrengthDashboard.Context`
+/// and `stageFor`): whether they can be shown, how much of the main line has analysis, and what
+/// stands in the way.
+#[derive(Clone, Debug, PartialEq, Serialize, TS)]
+pub struct StrengthContext {
+    pub stage: StrengthStage,
+    /// Main-line moves with analysis, of all main-line moves (the root position not counted).
+    pub analyzed: u32,
+    pub total: u32,
+    /// A whole-game, flash or automatic quick analysis is running.
+    pub analyzing: bool,
+    /// The size in bytes of the human-style weights the first one-time calculation downloads;
+    /// `None` once they are on this computer.
+    pub human_style_download: Option<u64>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+#[serde(tag = "type")]
+pub enum StrengthStage {
+    /// The figures. `partial`: no analysis is running and fewer than nine in ten moves have one.
+    Ready { partial: bool },
+    /// The game needs (more) analysis before anything can be estimated.
+    NeedsAnalysis,
+    /// Every move is analysed and no analysis is running, yet there are too few moves to estimate.
+    TooShort,
+    /// The human-style model needs its one-time calculation; the analysis itself is enough.
+    NeedsHumanStyle,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, TS)]
 pub struct StrengthSideReport {

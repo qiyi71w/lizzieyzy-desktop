@@ -304,7 +304,6 @@ fn engine_match() -> Command {
             },
             first_engine: 0,
             second_engine: 1,
-            disable_wrn: true,
         },
     }
 }

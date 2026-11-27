@@ -11,6 +11,7 @@ use lizzie_core::api::{
 };
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::gtp::LaunchSpec;
+use lizzie_core::engine::diagnosis::StartupDiagnosis;
 use lizzie_core::engine::profile::{EngineProfile, EngineSettings};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
 use lizzie_core::formats::sgf;
@@ -564,6 +565,73 @@ fn the_retry_budget_ends_with_a_failure_notice() {
     assert!(!failure.command.contains("s3cret"));
 }
 
+/// The start-up explanation judges the last launch alone: one that never started a game and
+/// printed the loader's error 206, on either stream, explains a path too long, whatever an
+/// earlier launch did; one that started a game does not.
+#[test]
+fn only_a_last_launch_that_never_started_a_game_explains_error_206() {
+    const PATH_ERROR: &str = "Could not load library cudnn_engines_precompiled64_9.dll. Error code 206";
+    // `first` runs on the first launch, `last` on the fourth, which then ends the session.
+    let ended = |first: &dyn Fn(&mut Fixture, InstanceId), last: &dyn Fn(&mut Fixture, InstanceId)| {
+        let mut fixture = Fixture::new();
+        fixture.configure(Fixture::settings("/opt/katago"));
+        let mut id = fixture.start();
+        first(&mut fixture, id);
+        for _ in 0..3 {
+            fixture.exited(id);
+            id = fixture.world.last().0;
+        }
+        last(&mut fixture, id);
+        fixture.exited(id);
+        assert_eq!(fixture.world.launched(), 4);
+        failure(&fixture.view()).expect("a failure notice")
+    };
+    let game = |f: &mut Fixture, id: InstanceId| {
+        f.stdout(id, &snapshot("g1", json!([]), json!(["B", "Q16"]), 0.6, 1.5, None));
+    };
+    let nothing = |_: &mut Fixture, _: InstanceId| {};
+    let error_on_stderr = |f: &mut Fixture, id: InstanceId| f.stderr(id, PATH_ERROR);
+    let error_on_stdout = |f: &mut Fixture, id: InstanceId| f.stdout(id, PATH_ERROR);
+    let started_then_error = |f: &mut Fixture, id: InstanceId| {
+        f.stdout(id, "Starting game 1 (training)");
+        f.stderr(id, PATH_ERROR);
+    };
+
+    let after_a_game = ended(&game, &error_on_stderr);
+    assert!(after_a_game.during_startup);
+    assert_eq!(after_a_game.diagnosis, Some(StartupDiagnosis::PathTooLong), "an earlier game does not count");
+    let on_stdout = ended(&nothing, &error_on_stdout);
+    assert_eq!(on_stdout.diagnosis, Some(StartupDiagnosis::PathTooLong), "stdout is read too");
+    let started = ended(&nothing, &started_then_error);
+    assert!(!started.during_startup);
+    assert_eq!(started.diagnosis, None, "a launch that started a game is past its start-up");
+}
+
+/// The two streams are kept apart, as Java's start-up diagnostics keep a tail per stream: error
+/// 206 on stderr still explains a last launch, and stays in the failure's output, however much
+/// progress the launch printed on stdout after it.
+#[test]
+fn an_error_206_on_stderr_outlasts_later_progress_on_stdout() {
+    const PATH_ERROR: &str = "Could not load library cudnn_engines_precompiled64_9.dll. Error code 206";
+    let mut fixture = Fixture::new();
+    fixture.configure(Fixture::settings("/opt/katago"));
+    let mut id = fixture.start();
+    for _ in 0..3 {
+        fixture.exited(id);
+        id = fixture.world.last().0;
+    }
+    fixture.stderr(id, PATH_ERROR);
+    for n in 0..30 {
+        fixture.stdout(id, &format!("progress {n}"));
+    }
+    fixture.exited(id);
+    assert_eq!(fixture.world.launched(), 4);
+    let failure = failure(&fixture.view()).expect("a failure notice");
+    assert!(failure.during_startup);
+    assert_eq!(failure.diagnosis, Some(StartupDiagnosis::PathTooLong));
+    assert!(failure.output.iter().any(|line| line == PATH_ERROR), "{:?}", failure.output);
+}
+
 #[test]
 fn a_permanent_failure_ends_without_a_retry() {
     let mut fixture = Fixture::new();
@@ -780,7 +848,7 @@ fn remote_compute_and_a_settings_import_start_no_engine_while_contributing() {
         identifier: "fixture-account".into(),
         ..Default::default()
     };
-    assert_eq!(fixture.wb.activate_cloud(zhizi, true).unwrap_err().message, "RemoteCompute.error.engineSwitchFailed");
+    assert_eq!(fixture.wb.activate_cloud(fixture.wb.cloud_ticket(), zhizi, true).unwrap_err().message, "RemoteCompute.error.engineSwitchFailed");
     assert!(fixture.wb.config().engine.engines.is_empty(), "no remote profile is committed");
 
     let java = fixture.dir.path().join("java");
@@ -1067,7 +1135,9 @@ fn the_kept_window_still_plays_after_a_clean_exit() {
     assert_eq!(fixture.contribution().phase, ContributionPhase::Exited);
     let before = fixture.view().position.node;
     let due = fixture.wb.engine_timer().expect("the watch clock keeps running");
-    fixture.wb.engine_tick(due + std::time::Duration::from_secs(3));
+    // The earliest timer may be one set before the watch clock started; three seconds after now
+    // are three seconds of the watch clock too.
+    fixture.wb.engine_tick(std::time::Instant::now().max(due) + std::time::Duration::from_secs(3));
     assert_ne!(fixture.view().position.node, before, "auto play moved on");
 }
 
