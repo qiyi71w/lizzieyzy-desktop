@@ -2774,7 +2774,8 @@ binary with its output and exits non-zero, like `cargo test --no-fail-fast`.
 
 Each window's file in `src-tauri/capabilities` grants only the Tauri core commands its own page
 calls (for most child windows `core:event:allow-listen` and `core:event:allow-emit-to`, plus the
-window or menu calls it makes); the main window keeps `core:default`. The application's own
+window or menu calls it makes); the main window keeps `core:default`, and `devtools.json` lets
+debug builds' developer-tools shortcut work in the child windows. The application's own
 `#[tauri::command]`s need no entry: without an app permission manifest, Tauri lets local pages
 call them. A child page that starts calling another `@tauri-apps/api` function (a window method,
 a menu, `listen`) needs that command added to its capability, or the call is refused.
