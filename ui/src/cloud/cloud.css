@@ -410,13 +410,15 @@
   color: var(--ds-text-3);
   font-size: var(--ds-size-s);
 }
-/* The model refresh refused the catalog's SSH server: the reason (its lines and fingerprints
-   kept, wrapped anywhere in a narrow column) above or beside 信任新密钥并重试. */
+/* The model refresh refused the catalog's SSH server: the reason on its own lines (fingerprints
+   wrapped anywhere in a narrow column), then 信任新密钥并重试 at the end, the whole set apart from
+   the actions below by a closing hairline. */
 .rc-host-key {
-  align-items: flex-end;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--ds-line);
 }
 .rc-host-key-text {
-  flex: 1 1 calc(var(--ds-size) * 14);
+  flex: 1 1 100%;
   min-width: 0;
   margin: 0;
   white-space: pre-line;
@@ -425,6 +427,7 @@
 .rc-host-key button {
   flex: none;
   max-width: 100%;
+  margin-left: auto;
   white-space: normal;
 }
 
