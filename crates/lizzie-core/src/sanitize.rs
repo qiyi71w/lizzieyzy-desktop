@@ -8,6 +8,11 @@
 //! Unlike Java, canonicalization only rewrites the result when it exposes a credential
 //! the text as written hid behind escapes. Otherwise the first pass's result is kept,
 //! so `\\server\share`, `\u0041` and `\"` stay as typed instead of being decoded.
+//!
+//! Also unlike Java, a value written between escaped quotes (`password=\"a b\"`,
+//! `-pw \"a b\"`) is masked up to the closing escaped quote, and `\u0025` decodes to
+//! `%` so a percent-encoded assignment hidden behind it is found. Java masked only
+//! the text before the first escape or space and left the rest of the value visible.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -22,6 +27,11 @@ const MAX_PERCENT_ENCODING_SCAN_LAYERS: usize = 64;
 const MAX_CREDENTIAL_NAME_CHARS: usize = 64;
 const CREDENTIAL_NAME: &str = r"(?:pw|password|passwd|token|secret|connectPassword|zhizi-account-token|zz-socketio-token|machine[-_]?key|(?:x[-_]?)?api[-_]?key|(?:x[-_]?)?access[-_]?token|refresh[-_]?token|client[-_]?secret)";
 const HEADER_NAME: &str = r"(?:proxy-authorization|authorization|set-cookie|cookie)";
+// A value between escaped quotes, read the way canonicalization would decode it:
+// `\\` is one backslash and `\\\"` an escaped quote inside the value, so the value
+// never ends before the quote canonicalization would end it at.
+const ESCAPED_DOUBLE_BODY: &str = r#"(?>\\\\\\["']|\\\\|(?!\\")[\s\S])*(?:\\"|$)"#;
+const ESCAPED_SINGLE_BODY: &str = r#"(?>\\\\\\["']|\\\\|(?!\\')[\s\S])*(?:\\'|$)"#;
 
 struct Rule {
     pattern: Regex,
@@ -50,14 +60,14 @@ impl Rule {
 
 struct Patterns {
     command: Rule,
-    remaining: [Rule; 9],
+    remaining: [Rule; 10],
     credential_name: Regex,
     header_name: Regex,
 }
 
 static PATTERNS: LazyLock<Patterns> = LazyLock::new(|| Patterns {
     command: Rule::new(
-        r#"(?i)((?<![A-Za-z0-9_-])["']?(?:--?|/){NAME}["']?\s+)(?>(?:"(?>(?:\\[\s\S])|[^"\\])*(?:"|$))|(?:'(?>(?:\\[\s\S])|[^'\\])*(?:'|$))|\\[\s\S]|[^ "'\\])+"#,
+        r#"(?i)((?<![A-Za-z0-9_-])["']?(?:--?|/){NAME}["']?\s+)(?>(?:"(?>(?:\\[\s\S])|[^"\\])*(?:"|$))|(?:'(?>(?:\\[\s\S])|[^'\\])*(?:'|$))|{ESCAPED_QUOTED}|\\[\s\S]|[^ "'\\])+"#,
         "${1}<redacted>",
     ),
     remaining: [
@@ -77,8 +87,13 @@ static PATTERNS: LazyLock<Patterns> = LazyLock::new(|| Patterns {
             r#"(?i)((?<![A-Za-z0-9_-])(?:--?|/)?["']?{NAME}["']?(?![A-Za-z0-9_-])\s*(?:[=:]\s*|\s+))(["'])(?>(?:\\[\s\S])|(?!\2)[\s\S])*(?:\2|$)"#,
             "${1}${2}<redacted>${2}",
         ),
+        // Before the unquoted rule, which leaves values opened by `\"` or `\'` to this one.
         Rule::new(
-            r#"(?i)((?<![A-Za-z0-9_-])(?:--?|/)?["']?{NAME}["']?(?![A-Za-z0-9_-])\s*(?:[=:]\s*|\s+))([^"'\s,;}&]+)"#,
+            r#"(?i)((?<![A-Za-z0-9_-])(?:--?|/)?["']?{NAME}["']?(?![A-Za-z0-9_-])\s*(?:[=:]\s*|\s+))(?:(\\"){ESCAPED_DOUBLE}|(\\'){ESCAPED_SINGLE})"#,
+            "${1}${2}${3}<redacted>${2}${3}",
+        ),
+        Rule::new(
+            r#"(?i)((?<![A-Za-z0-9_-])(?:--?|/)?["']?{NAME}["']?(?![A-Za-z0-9_-])\s*(?:[=:]\s*|\s+))(?!\\["'])([^"'\s,;}&]+)"#,
             "${1}<redacted>",
         ),
         Rule::new(
@@ -95,6 +110,9 @@ static PATTERNS: LazyLock<Patterns> = LazyLock::new(|| Patterns {
 
 fn compile(pattern: &str) -> Regex {
     let pattern = pattern
+        .replace("{ESCAPED_QUOTED}", r#"(?:\\"{ESCAPED_DOUBLE}|\\'{ESCAPED_SINGLE})"#)
+        .replace("{ESCAPED_DOUBLE}", ESCAPED_DOUBLE_BODY)
+        .replace("{ESCAPED_SINGLE}", ESCAPED_SINGLE_BODY)
         .replace("{NAME}", CREDENTIAL_NAME)
         .replace("{HEADER}", HEADER_NAME)
         .replace(r"[\s\S]", "(?s:.)");
@@ -477,6 +495,8 @@ fn decode_structural_escape(text: &str, digits: usize) -> Option<char> {
     }
     match value {
         0x0009 | 0x000a | 0x000d | 0x0020 => Some(' '),
+        // Lets `\u0025` reveal a percent-encoded name or delimiter to the percent scan.
+        0x0025 => Some('%'),
         0x0022 => Some('"'),
         0x0027 => Some('\''),
         0x003a => Some(':'),

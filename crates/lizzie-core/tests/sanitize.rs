@@ -452,3 +452,26 @@ fn escaped_delimiters_beside_a_path_still_mask_the_value() {
         assert_eq!(output, expected, "input: {input:?}");
     }
 }
+
+// Java left part of each of these values visible: `SECRET`, `RET`, and the whole value.
+#[test]
+fn values_between_escaped_quotes_or_behind_an_escaped_percent_are_masked_whole() {
+    assert_cases(&[
+        (r#"password=\"SECRET RET\""#, r#"password=\"<redacted>\""#),
+        (r#"-pw \"SEC RET\""#, "-pw <redacted>"),
+        (r"password\u0025\u0033dSECRET", "password%3d<redacted>"),
+        (
+            r#"\\wsl.localhost\Ubuntu\katago gtp -override-config password=\"SECRET RET\" -model m.bin"#,
+            r#"\\wsl.localhost\Ubuntu\katago gtp -override-config password=\"<redacted>\" -model m.bin"#,
+        ),
+        (
+            r#"plink -pw \"SEC RET\" user@host \\wsl.localhost\Ubuntu\katago gtp"#,
+            r"plink -pw <redacted> user@host \\wsl.localhost\Ubuntu\katago gtp",
+        ),
+        (r#"plink -pw CANARY\"SEC RET\" user@host"#, "plink -pw <redacted> user@host"),
+        (r"token: \'SEC RET\' next", r"token: \'<redacted>\' next"),
+        (r#"password=\"SEC\\\"RET TAIL\" next"#, r#"password=\"<redacted>\" next"#),
+        (r#"password=\"SEC RET"#, r#"password=\"<redacted>\""#),
+        (r"note=\u0025 kept", r"note=\u0025 kept"),
+    ]);
+}
