@@ -310,7 +310,8 @@ impl KnownHosts {
     /// fingerprint `shown` the user was shown. `true` as well when that key is trusted already
     /// (another refusal of it was confirmed); `false` when another key was offered since: that
     /// one has its own refusal to confirm. A file of trusted keys that cannot be read is an error
-    /// and is left as it is.
+    /// and is left as it is; so is one that cannot be written, and the key stays offered so the
+    /// same confirmation can be repeated once it can.
     pub fn trust_offered(&self, host: &str, port: u16, shown: &str) -> io::Result<bool> {
         let has_shown = |text: &String| PublicKey::from_openssh(text).is_ok_and(|key| fingerprint(&key) == shown);
         let name = host_key(host, port);
@@ -320,11 +321,12 @@ impl KnownHosts {
             return Ok(true);
         }
         let mut offered = self.offered.lock().unwrap();
-        if !offered.get(&name).is_some_and(has_shown) {
+        let Some(key) = offered.get(&name).filter(|text| has_shown(text)) else {
             return Ok(false);
-        }
-        hosts.insert(name.clone(), offered.remove(&name).unwrap());
+        };
+        hosts.insert(name.clone(), key.clone());
         self.store(&hosts)?;
+        offered.remove(&name);
         Ok(true)
     }
 }
@@ -733,6 +735,35 @@ mod tests {
         assert!(hosts.check("h", 22, &a).is_ok(), "A is still the trusted key");
         assert!(hosts.trust_offered("h", 22, &shown_c).unwrap());
         assert!(hosts.check("h", 22, &c).is_ok() && hosts.check("h", 22, &a).is_err());
+    }
+
+    /// 信任新密钥 that cannot be saved (the folder is read-only) fails and keeps the trusted key;
+    /// the same confirmation succeeds once the folder can be written again.
+    #[cfg(unix)]
+    #[test]
+    fn a_trust_that_could_not_be_saved_can_be_confirmed_again() {
+        use std::os::unix::fs::PermissionsExt;
+        let key = |s: &str| PublicKey::from_openssh(s).unwrap();
+        let a = key("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC86sYXFL25W92Pzq2/xqryr7bk/CTjx5Rxp/fBxiY9t");
+        let b = key("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ9gRqlnqviY7yC5fr94J5rkV4YBWbqfPn4+LEd6xZx+");
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("config");
+        std::fs::create_dir(&folder).unwrap();
+        let hosts = KnownHosts::new(folder.join("hosts.json"));
+        hosts.check("h", 22, &a).unwrap();
+        let Err(RemoteFailure::HostKeyChanged { offered, .. }) = hosts.check("h", 22, &b) else {
+            panic!()
+        };
+        std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let saved = hosts.trust_offered("h", 22, &offered);
+        std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+        // Skipped where permissions do not stop writing (running as root).
+        if saved.is_err() {
+            assert!(hosts.check("h", 22, &a).is_ok(), "A is still the trusted key");
+            // No new refusal in between: the confirmation itself must still be valid.
+            assert!(hosts.trust_offered("h", 22, &offered).unwrap());
+        }
+        assert!(hosts.check("h", 22, &b).is_ok() && hosts.check("h", 22, &a).is_err());
     }
 
     /// A file of trusted keys that is a symbolic link stays one: first use and 信任新密钥 write
