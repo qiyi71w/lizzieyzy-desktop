@@ -473,5 +473,15 @@ fn values_between_escaped_quotes_or_behind_an_escaped_percent_are_masked_whole()
         (r#"password=\"SEC\\\"RET TAIL\" next"#, r#"password=\"<redacted>\" next"#),
         (r#"password=\"SEC RET"#, r#"password=\"<redacted>\""#),
         (r"note=\u0025 kept", r"note=\u0025 kept"),
+        // A comma inside the escaped quotes belongs to the value; the next setting stays.
+        (r#"-override-config password=\"SEC,RET\",maxVisits=5"#, "-override-config password=<redacted>,maxVisits=5"),
+        (r"-override-config password=\'SEC,RET\',maxVisits=5", "-override-config password=<redacted>,maxVisits=5"),
+        // A percent-encoded assignment before escaped quotes.
+        (r#"body=password%3D\"SEC RET\"&stage=done"#, r#"body=password%3D\"<redacted>\"&stage=done"#),
+        (r"body=token%3D\'SEC RET\' stage=done", r"body=token%3D\'<redacted>\' stage=done"),
+        (r#"password\u0025\u0033d\"SEC RET\" stage=done"#, r#"password%3d"<redacted>" stage=done"#),
+        // An escaped backslash ending the value (`\\\\\"` decodes to `\\"`) closes it: the rest stays.
+        (r#"plink -pw \"SEC\\\\\" -P 22 user@host"#, "plink -pw <redacted> -P 22 user@host"),
+        (r#"password=\"SEC\\\\\" -P 22 user@host"#, r#"password=\"<redacted>\" -P 22 user@host"#),
     ]);
 }

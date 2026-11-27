@@ -27,11 +27,13 @@ const MAX_PERCENT_ENCODING_SCAN_LAYERS: usize = 64;
 const MAX_CREDENTIAL_NAME_CHARS: usize = 64;
 const CREDENTIAL_NAME: &str = r"(?:pw|password|passwd|token|secret|connectPassword|zhizi-account-token|zz-socketio-token|machine[-_]?key|(?:x[-_]?)?api[-_]?key|(?:x[-_]?)?access[-_]?token|refresh[-_]?token|client[-_]?secret)";
 const HEADER_NAME: &str = r"(?:proxy-authorization|authorization|set-cookie|cookie)";
-// A value between escaped quotes, read the way canonicalization would decode it:
-// `\\` is one backslash and `\\\"` an escaped quote inside the value, so the value
-// never ends before the quote canonicalization would end it at.
-const ESCAPED_DOUBLE_BODY: &str = r#"(?>\\\\\\["']|\\\\|(?!\\")[\s\S])*(?:\\"|$)"#;
-const ESCAPED_SINGLE_BODY: &str = r#"(?>\\\\\\["']|\\\\|(?!\\')[\s\S])*(?:\\'|$)"#;
+// A value between escaped quotes, read the way canonicalization would decode it: a run of n
+// backslashes before a quote decodes to n/2 backslashes and a quote, so the value ends where
+// n is 1, 5, 9, … (the decoded quote is not itself escaped) and goes on through `\\\"` (an
+// escaped quote inside it) and an unescaped quote. It never ends before the quote
+// canonicalization ends it at, and not after it for text written with one level of escapes.
+const ESCAPED_DOUBLE_BODY: &str = r#"(?>\\\\\\\\|\\\\\\["']|\\\\|(?!\\")[\s\S])*(?:\\"|$)"#;
+const ESCAPED_SINGLE_BODY: &str = r#"(?>\\\\\\\\|\\\\\\["']|\\\\|(?!\\')[\s\S])*(?:\\'|$)"#;
 
 struct Rule {
     pattern: Regex,
@@ -61,6 +63,7 @@ impl Rule {
 struct Patterns {
     command: Rule,
     remaining: [Rule; 10],
+    escaped_value: Regex,
     credential_name: Regex,
     header_name: Regex,
 }
@@ -75,6 +78,13 @@ static PATTERNS: LazyLock<Patterns> = LazyLock::new(|| Patterns {
             r#"(?i)(?<![A-Za-z0-9_-])(["']?{HEADER}["']?\s*(?:[:=]\s*|\s+))[^\r\n]*"#,
             "${1}<redacted>",
         ),
+        // Before the rules that read `\"` as one escaped character of a longer value: they would
+        // end it at a comma or a space inside the quotes. The unquoted rule leaves values opened
+        // by `\"` or `\'` to this one.
+        Rule::new(
+            r#"(?i)((?<![A-Za-z0-9_-])(?:--?|/)?["']?{NAME}["']?(?![A-Za-z0-9_-])\s*(?:[=:]\s*|\s+))(?:(\\"){ESCAPED_DOUBLE}|(\\'){ESCAPED_SINGLE})"#,
+            "${1}${2}${3}<redacted>${2}${3}",
+        ),
         Rule::new(
             r#"(?i)(?<![A-Za-z0-9_-])(["'])((?:--?|/)?{NAME}\s*=\s*)(?>(?:\\[\s\S])|(?!\1)[^,\r\n])*(\1|,|$)"#,
             "${1}${2}<redacted>${3}",
@@ -86,11 +96,6 @@ static PATTERNS: LazyLock<Patterns> = LazyLock::new(|| Patterns {
         Rule::new(
             r#"(?i)((?<![A-Za-z0-9_-])(?:--?|/)?["']?{NAME}["']?(?![A-Za-z0-9_-])\s*(?:[=:]\s*|\s+))(["'])(?>(?:\\[\s\S])|(?!\2)[\s\S])*(?:\2|$)"#,
             "${1}${2}<redacted>${2}",
-        ),
-        // Before the unquoted rule, which leaves values opened by `\"` or `\'` to this one.
-        Rule::new(
-            r#"(?i)((?<![A-Za-z0-9_-])(?:--?|/)?["']?{NAME}["']?(?![A-Za-z0-9_-])\s*(?:[=:]\s*|\s+))(?:(\\"){ESCAPED_DOUBLE}|(\\'){ESCAPED_SINGLE})"#,
-            "${1}${2}${3}<redacted>${2}${3}",
         ),
         Rule::new(
             r#"(?i)((?<![A-Za-z0-9_-])(?:--?|/)?["']?{NAME}["']?(?![A-Za-z0-9_-])\s*(?:[=:]\s*|\s+))(?!\\["'])([^"'\s,;}&]+)"#,
@@ -104,6 +109,7 @@ static PATTERNS: LazyLock<Patterns> = LazyLock::new(|| Patterns {
         Rule::new(r#"(?i)(?<![A-Za-z0-9_-])(bearer\s+)[^\s,;"'<>}\]]+"#, "${1}<redacted>"),
         Rule::new(r"(?i)(?<![A-Za-z0-9_-])(basic\s+)[A-Za-z0-9+/=_-]+", "${1}<redacted>"),
     ],
+    escaped_value: compile(r"^{ESCAPED_QUOTED}"),
     credential_name: compile(r"(?i)^{NAME}$"),
     header_name: compile(r"(?i)^{HEADER}$"),
 });
@@ -370,14 +376,18 @@ fn is_unquoted_delimiter(value: char) -> bool {
     matches!(value, '"' | '\'' | ',' | ';' | '}' | '&') || java_whitespace(value)
 }
 
-fn credential_value_end(text: &str, prefix: &PercentCredentialPrefix) -> Option<usize> {
+/// Where the value after `prefix` ends, and the quote around it (`"`, `'`, `\"`, `\'` or none)
+/// that the masked value keeps.
+fn credential_value_end<'a>(text: &'a str, prefix: &PercentCredentialPrefix) -> Result<Option<(usize, &'a str)>, ()> {
     let start = prefix.end;
-    let first = text.get(start..)?.chars().next()?;
+    let Some(first) = text.get(start..).and_then(|rest| rest.chars().next()) else {
+        return Ok(None);
+    };
     if matches!(first, '\r' | '\n') {
-        return None;
+        return Ok(None);
     }
     if prefix.header {
-        return Some(text[start..].find(['\r', '\n']).map_or(text.len(), |end| start + end));
+        return Ok(Some((text[start..].find(['\r', '\n']).map_or(text.len(), |end| start + end), "")));
     }
     if matches!(first, '"' | '\'') {
         let mut chars = text[start + 1..].char_indices();
@@ -385,19 +395,23 @@ fn credential_value_end(text: &str, prefix: &PercentCredentialPrefix) -> Option<
             if current == '\\' {
                 chars.next();
             } else if current == first {
-                return Some(start + 1 + offset + 1);
+                return Ok(Some((start + 1 + offset + 1, &text[start..start + 1])));
             }
         }
-        return Some(text.len());
+        return Ok(Some((text.len(), &text[start..start + 1])));
+    }
+    if let Some(escaped) = PATTERNS.escaped_value.find(&text[start..]).map_err(|_| ())? {
+        return Ok(Some((start + escaped.end(), &text[start..start + 2])));
     }
     if is_unquoted_delimiter(first) {
-        return None;
+        return Ok(None);
     }
-    Some(
+    Ok(Some((
         text[start..]
             .find(is_unquoted_delimiter)
             .map_or(text.len(), |end| start + end),
-    )
+        "",
+    )))
 }
 
 fn redact_percent_encoded_credentials(text: &str) -> Result<Option<String>, ()> {
@@ -415,20 +429,15 @@ fn redact_percent_encoded_credentials(text: &str) -> Result<Option<String>, ()> 
             index += text[index..].chars().next().expect("index in text").len_utf8();
             continue;
         };
-        let Some(value_end) = credential_value_end(text, &prefix) else {
+        let Some((value_end, quote)) = credential_value_end(text, &prefix)? else {
             index += text[index..].chars().next().expect("index in text").len_utf8();
             continue;
         };
         let output = redacted.get_or_insert_with(|| String::with_capacity(text.len()));
         output.push_str(&text[copied_through..prefix.end]);
-        let first = text.as_bytes()[prefix.end];
-        if !prefix.header && matches!(first, b'"' | b'\'') {
-            output.push(char::from(first));
-            output.push_str(REDACTED);
-            output.push(char::from(first));
-        } else {
-            output.push_str(REDACTED);
-        }
+        output.push_str(quote);
+        output.push_str(REDACTED);
+        output.push_str(quote);
         copied_through = value_end;
         index = value_end;
     }
