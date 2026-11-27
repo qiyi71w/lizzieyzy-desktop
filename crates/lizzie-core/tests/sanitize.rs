@@ -474,8 +474,8 @@ fn values_between_escaped_quotes_or_behind_an_escaped_percent_are_masked_whole()
         (r#"password=\"SEC RET"#, r#"password=\"<redacted>\""#),
         (r"note=\u0025 kept", r"note=\u0025 kept"),
         // A comma inside the escaped quotes belongs to the value; the next setting stays.
-        (r#"-override-config password=\"SEC,RET\",maxVisits=5"#, "-override-config password=<redacted>,maxVisits=5"),
-        (r"-override-config password=\'SEC,RET\',maxVisits=5", "-override-config password=<redacted>,maxVisits=5"),
+        (r#"-override-config password=\"SEC,RET\",maxVisits=5"#, r#"-override-config password=\"<redacted>\",maxVisits=5"#),
+        (r"-override-config password=\'SEC,RET\',maxVisits=5", r"-override-config password=\'<redacted>\',maxVisits=5"),
         // A percent-encoded assignment before escaped quotes.
         (r#"body=password%3D\"SEC RET\"&stage=done"#, r#"body=password%3D\"<redacted>\"&stage=done"#),
         (r"body=token%3D\'SEC RET\' stage=done", r"body=token%3D\'<redacted>\' stage=done"),
@@ -483,5 +483,14 @@ fn values_between_escaped_quotes_or_behind_an_escaped_percent_are_masked_whole()
         // An escaped backslash ending the value (`\\\\\"` decodes to `\\"`) closes it: the rest stays.
         (r#"plink -pw \"SEC\\\\\" -P 22 user@host"#, "plink -pw <redacted> -P 22 user@host"),
         (r#"password=\"SEC\\\\\" -P 22 user@host"#, r#"password=\"<redacted>\" -P 22 user@host"#),
+        // The masked value ends at its closing quote: a later comma is not part of it.
+        (
+            r#"password=\"SEC,RET\" -model m.bin -override-config maxVisits=5,numSearchThreads=2"#,
+            r#"password=\"<redacted>\" -model m.bin -override-config maxVisits=5,numSearchThreads=2"#,
+        ),
+        // Inside a quoted assignment, escaped quotes that close bound the value; ones that never
+        // close end at the outer quote.
+        (r#""password=\"SEC,RET\",maxVisits=5""#, r#""password=\"<redacted>\",maxVisits=5""#),
+        (r#"'password=\"SEC' -model m.bin"#, "'password=<redacted>' -model m.bin"),
     ]);
 }

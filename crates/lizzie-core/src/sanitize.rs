@@ -32,8 +32,8 @@ const HEADER_NAME: &str = r"(?:proxy-authorization|authorization|set-cookie|cook
 // n is 1, 5, 9, … (the decoded quote is not itself escaped) and goes on through `\\\"` (an
 // escaped quote inside it) and an unescaped quote. It never ends before the quote
 // canonicalization ends it at, and not after it for text written with one level of escapes.
-const ESCAPED_DOUBLE_BODY: &str = r#"(?>\\\\\\\\|\\\\\\["']|\\\\|(?!\\")[\s\S])*(?:\\"|$)"#;
-const ESCAPED_SINGLE_BODY: &str = r#"(?>\\\\\\\\|\\\\\\["']|\\\\|(?!\\')[\s\S])*(?:\\'|$)"#;
+const ESCAPED_DOUBLE_CHARS: &str = r#"(?>\\\\\\\\|\\\\\\["']|\\\\|(?!\\")[\s\S])*"#;
+const ESCAPED_SINGLE_CHARS: &str = r#"(?>\\\\\\\\|\\\\\\["']|\\\\|(?!\\')[\s\S])*"#;
 
 struct Rule {
     pattern: Regex,
@@ -78,19 +78,22 @@ static PATTERNS: LazyLock<Patterns> = LazyLock::new(|| Patterns {
             r#"(?i)(?<![A-Za-z0-9_-])(["']?{HEADER}["']?\s*(?:[:=]\s*|\s+))[^\r\n]*"#,
             "${1}<redacted>",
         ),
+        // A whole assignment inside quotes, with a value (an empty one hides nothing). A value
+        // between escaped quotes that close is left to the next rule, which keeps a comma inside
+        // them; one that never closes ends at the outer quote here.
+        Rule::new(
+            r#"(?i)(?<![A-Za-z0-9_-])(["'])((?:--?|/)?{NAME}\s*=\s*)(?!{ESCAPED_QUOTED_CLOSED})(?>(?:\\[\s\S])|(?!\1)[^,\r\n])+(\1|,|$)"#,
+            "${1}${2}<redacted>${3}",
+        ),
         // Before the rules that read `\"` as one escaped character of a longer value: they would
-        // end it at a comma or a space inside the quotes. The unquoted rule leaves values opened
-        // by `\"` or `\'` to this one.
+        // end it at a comma or a space inside the quotes. They leave values opened by `\"` or
+        // `\'` to this one, also once it has masked them.
         Rule::new(
             r#"(?i)((?<![A-Za-z0-9_-])(?:--?|/)?["']?{NAME}["']?(?![A-Za-z0-9_-])\s*(?:[=:]\s*|\s+))(?:(\\"){ESCAPED_DOUBLE}|(\\'){ESCAPED_SINGLE})"#,
             "${1}${2}${3}<redacted>${2}${3}",
         ),
         Rule::new(
-            r#"(?i)(?<![A-Za-z0-9_-])(["'])((?:--?|/)?{NAME}\s*=\s*)(?>(?:\\[\s\S])|(?!\1)[^,\r\n])*(\1|,|$)"#,
-            "${1}${2}<redacted>${3}",
-        ),
-        Rule::new(
-            r#"(?i)(?:(?<![A-Za-z0-9_-])((?:--?|/)?{NAME}\s*=\s*)(?>(?:\\[\s\S])|[^"',\r\n])+(?=,)|(?<=,)((?:--?|/)?{NAME}\s*=\s*)(?>(?:\\[\s\S])|[^"',\r\n])+(?=[,"']|$))"#,
+            r#"(?i)(?:(?<![A-Za-z0-9_-])((?:--?|/)?{NAME}\s*=\s*)(?!\\["'])(?>(?:\\[\s\S])|[^"',\r\n])+(?=,)|(?<=,)((?:--?|/)?{NAME}\s*=\s*)(?!\\["'])(?>(?:\\[\s\S])|[^"',\r\n])+(?=[,"']|$))"#,
             "${1}${2}<redacted>",
         ),
         Rule::new(
@@ -117,8 +120,11 @@ static PATTERNS: LazyLock<Patterns> = LazyLock::new(|| Patterns {
 fn compile(pattern: &str) -> Regex {
     let pattern = pattern
         .replace("{ESCAPED_QUOTED}", r#"(?:\\"{ESCAPED_DOUBLE}|\\'{ESCAPED_SINGLE})"#)
-        .replace("{ESCAPED_DOUBLE}", ESCAPED_DOUBLE_BODY)
-        .replace("{ESCAPED_SINGLE}", ESCAPED_SINGLE_BODY)
+        .replace("{ESCAPED_QUOTED_CLOSED}", r#"(?:\\"{ESCAPED_DOUBLE_CHARS}\\"|\\'{ESCAPED_SINGLE_CHARS}\\')"#)
+        .replace("{ESCAPED_DOUBLE}", r#"{ESCAPED_DOUBLE_CHARS}(?:\\"|$)"#)
+        .replace("{ESCAPED_SINGLE}", r#"{ESCAPED_SINGLE_CHARS}(?:\\'|$)"#)
+        .replace("{ESCAPED_DOUBLE_CHARS}", ESCAPED_DOUBLE_CHARS)
+        .replace("{ESCAPED_SINGLE_CHARS}", ESCAPED_SINGLE_CHARS)
         .replace("{NAME}", CREDENTIAL_NAME)
         .replace("{HEADER}", HEADER_NAME)
         .replace(r"[\s\S]", "(?s:.)");
