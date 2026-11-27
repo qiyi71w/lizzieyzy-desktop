@@ -1,7 +1,7 @@
 //! The rule sets (Java `RulePreset`): KataGo rules with the komi that belongs to them, which rule
 //! set given rules and a komi are, the rules caption they give and the komi of an even game.
 
-use lizzie_core::engine::rules::{KataRules, RuleSet, RULE_SETS};
+use lizzie_core::engine::rules::{KataRules, MatchRuleOption, RuleSet, MATCH_RULE_OPTIONS, RULE_SETS};
 
 /// KataGo's `kata-get-rules` answers.
 const CHINESE: &str = r#"{"friendlyPassOk":true,"hasButton":false,"ko":"SIMPLE","scoring":"AREA","suicide":false,"tax":"NONE","whiteHandicapBonus":"N"}"#;
@@ -156,4 +156,101 @@ fn the_even_game_komi_follows_the_rule_set() {
     assert_eq!(even(Some("aga"), 6.0, false, None), 6.0);
     assert_eq!(even(Some(CHINESE), 6.5, false, None), 6.5);
     assert_eq!(even(None, 6.5, false, Some("CHINESE_2027")), 6.5);
+}
+
+/// The engine game's 本局规则 entries: the four Chinese rule sets first, worded as the rules panel
+/// lists them, then Java's other `MatchRuleOption`s; each fills in its rule set's komi, and the
+/// AGA/BGA and New Zealand rules, which no rule set has, fill in none.
+#[test]
+fn the_match_rules_entries_bring_their_rule_sets_komi() {
+    let table: Vec<(&str, KataRules, &str, Option<f64>)> = MATCH_RULE_OPTIONS
+        .iter()
+        .map(|o| (o.id, rules(o.rules), o.label_key, o.komi()))
+        .collect();
+    assert_eq!(
+        table,
+        [
+            ("CHINESE_2027", rules(CHINESE), "RulesQuickMenu.chinese2027", Some(7.0)),
+            (
+                "CHINESE_2027_DRAW_TO_WHITE",
+                rules(CHINESE),
+                "RulesQuickMenu.chinese2027DrawToWhite",
+                Some(7.5)
+            ),
+            (
+                "CHINESE_2027_DRAW_TO_FIRST_PASS",
+                rules(CHINESE_BUTTON),
+                "RulesQuickMenu.chinese2027DrawToFirstPass",
+                Some(7.0)
+            ),
+            ("CHINESE", rules(CHINESE), "RulesQuickMenu.chinese", Some(7.5)),
+            (
+                "CHINESE_ANCIENT",
+                rules("stone-scoring"),
+                "LizzieFrame.currentRules.chn-ancient",
+                Some(7.5)
+            ),
+            (
+                "JAPANESE_KOREAN",
+                rules("japanese"),
+                "MatchRules.option.japaneseKorean",
+                Some(6.5)
+            ),
+            ("AGA_BGA", rules("aga"), "MatchRules.option.agaBga", None),
+            (
+                "NEW_ZEALAND",
+                rules("new-zealand"),
+                "MatchRules.option.newZealand",
+                None
+            ),
+            (
+                "TROMP_TAYLOR",
+                rules("tromp-taylor"),
+                "MatchRules.option.trompTaylor",
+                Some(7.5)
+            ),
+            ("GOE", rules("goe"), "LizzieFrame.currentRules.goe", Some(7.5)),
+        ]
+    );
+    // Every entry but the button rules goes to the engines as KataGo's preset name, as Java's do.
+    assert!(MATCH_RULE_OPTIONS
+        .iter()
+        .filter(|o| o.id != "CHINESE_2027_DRAW_TO_FIRST_PASS")
+        .all(|o| !o.rules.starts_with('{')));
+}
+
+/// The entry given rules are: the Chinese entries share their rules and are told apart by the one
+/// picked last, else they are the 2002 rules; Japanese rules match whatever `friendlyPassOk` says.
+#[test]
+fn match_rules_entries_are_recognised_by_rules_and_the_entry_picked_last() {
+    let entry = |text: &str, chosen: Option<&str>| MatchRuleOption::matching(&rules(text), chosen).map(|o| o.id);
+    assert_eq!(entry(CHINESE, None), Some("CHINESE"));
+    assert_eq!(entry(CHINESE, Some("CHINESE_2027")), Some("CHINESE_2027"));
+    assert_eq!(
+        entry(CHINESE, Some("CHINESE_2027_DRAW_TO_WHITE")),
+        Some("CHINESE_2027_DRAW_TO_WHITE")
+    );
+    assert_eq!(entry(CHINESE, Some("CHINESE_2027_DRAW_TO_FIRST_PASS")), Some("CHINESE"));
+    assert_eq!(entry(CHINESE, Some("unknown")), Some("CHINESE"));
+    assert_eq!(entry(CHINESE_BUTTON, None), Some("CHINESE_2027_DRAW_TO_FIRST_PASS"));
+    assert_eq!(
+        entry(CHINESE_BUTTON, Some("CHINESE_2027")),
+        Some("CHINESE_2027_DRAW_TO_FIRST_PASS")
+    );
+    assert_eq!(entry(JAPANESE, Some("CHINESE_2027")), Some("JAPANESE_KOREAN"));
+    assert_eq!(entry("korean", None), Some("JAPANESE_KOREAN"));
+    assert_eq!(entry("aga-button", None), None);
+    assert_eq!(rules(CHINESE).match_name_key(), "LizzieFrame.currentRules.chinese");
+    assert_eq!(
+        rules(CHINESE_BUTTON).match_name_key(),
+        "LizzieFrame.currentRules.chinese2027DrawToFirstPass"
+    );
+    assert_eq!(
+        rules(CHINESE_BUTTON).match_name_key(),
+        set("CHINESE_2027_DRAW_TO_FIRST_PASS").caption_key()
+    );
+    assert_eq!(
+        rules("aga-button").match_name_key(),
+        "NewEngineGameDialog.matchRules.custom"
+    );
 }

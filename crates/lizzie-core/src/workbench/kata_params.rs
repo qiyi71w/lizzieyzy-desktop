@@ -64,6 +64,20 @@ impl Workbench {
         self.engines.kata_params(instance).pda.unwrap_or(0.0)
     }
 
+    /// The breadth an engine's live `result` was made with (`BoardData.wrnKnown`/`wrn`): the WRN
+    /// the engine confirmed, for KataGo data outside a genmove engine game; `None` (unknown) for
+    /// other results and while the engine confirmed none.
+    pub(super) fn engine_wrn(
+        &self,
+        instance: crate::engine::runtime::InstanceId,
+        result: &crate::api::NodeAnalysisView,
+    ) -> Option<f64> {
+        if result.score_lead.is_none() || self.genmove_match_active() {
+            return None;
+        }
+        self.engines.kata_params(instance).wrn
+    }
+
     /// Toolbar 激进度 / 广度: the foreground KataGo uses `value` when `enabled`, else 0. The check
     /// and the value are remembered (the value only while checked); a 广度 change lets every
     /// stored result give way to the next live one (`clearBestMovesAfter(start)`). A refusal is
@@ -108,25 +122,32 @@ impl Workbench {
         Ok(None)
     }
 
-    /// 引擎参数 window 确定 (`SetKataEngines.applyExistingSettings`): the toolbar groups' display,
-    /// each row's 修改 / value / 自动加载 are saved (a checked 自动加载 takes the row's value for
-    /// start-up), then the foreground KataGo gets each row's value, or 0 when 修改 is off; only a
-    /// checked 广度 lets stored results give way. A row whose value is not a number is saved but
-    /// not sent. Needs a ready KataGo in the foreground; the values reach it only when it is free
-    /// for them.
+    /// 引擎参数 window 确定 (`SetKataEngines.applyExistingSettings`): the toolbar groups' display is
+    /// saved; a row's 自动加载 only when it or the value was changed (a checked 自动加载 takes the
+    /// row's value for start-up); a row's 修改 and value only when they were changed, and then the
+    /// foreground KataGo gets the row's value, or 0 when 修改 is off; only a checked 广度 lets stored
+    /// results give way. An unchanged row never overwrites newer engine or saved values. A row
+    /// whose value is not a number is saved but not sent. Needs a ready KataGo in the foreground;
+    /// the values reach it only when it is free for them. While an engine match holds the two
+    /// parameters (until its batch gave them back), 修改 and the values are left alone and
+    /// only the preferences are saved: they change in 对局参数.
     pub fn save_kata_engine_params(&mut self, edit: KataEngineParamsEdit) -> Result<Option<&'static str>, ApiError> {
         if self.fox_owns_board() || self.fox_holds_engine() {
             return Ok(Some("Fox.conflict"));
         }
-        match self.engines.exclusive_gtp_availability() {
-            LeaseAvailability::NoForegroundEngine | LeaseAvailability::EngineNotReady => {
-                return Ok(Some("LizzieFrame.setParamNoEngineHint"));
+        let engine_game = self.match_active();
+        if !engine_game {
+            match self.engines.exclusive_gtp_availability() {
+                LeaseAvailability::NoForegroundEngine | LeaseAvailability::EngineNotReady => {
+                    return Ok(Some("LizzieFrame.setParamNoEngineHint"));
+                }
+                LeaseAvailability::NotKatago => return Ok(Some("SetKataRules.notKataGoHint")),
+                _ => {}
             }
-            LeaseAvailability::NotKatago => return Ok(Some("SetKataRules.notKataGoHint")),
-            _ => {}
         }
         let finite = |row: KataParamEdit| KataParamEdit {
             value: row.value.filter(|v| v.is_finite()),
+            edited: row.edited && !engine_game,
             ..row
         };
         let (pda, wrn) = (edit.pda.map(finite), finite(edit.wrn));
@@ -135,28 +156,55 @@ impl Workbench {
             e.kata_params.show_pda = edit.show_pda;
             e.kata_params.show_wrn = edit.show_wrn;
             if let Some(row) = pda {
-                e.kata_pda_enabled = row.enabled;
-                e.kata_pda = row.value;
-                e.kata_params.auto_load_pda = row.enabled && row.auto_load;
-                if row.enabled && row.auto_load {
-                    e.kata_params.auto_load_pda_value = row.value;
+                if row.edited {
+                    e.kata_pda_enabled = row.enabled;
+                    e.kata_pda = row.value;
+                }
+                if row.auto_load_edited {
+                    e.kata_params.auto_load_pda = row.enabled && row.auto_load;
+                    if row.enabled && row.auto_load {
+                        e.kata_params.auto_load_pda_value = row.value;
+                    }
                 }
             }
-            e.kata_params.wrn_enabled = wrn.enabled;
-            e.kata_params.wrn = wrn.value;
-            e.kata_params.auto_load_wrn = wrn.enabled && wrn.auto_load;
-            if wrn.enabled && wrn.auto_load {
-                e.kata_params.auto_load_wrn_value = wrn.value;
+            if wrn.edited {
+                e.kata_params.wrn_enabled = wrn.enabled;
+                e.kata_params.wrn = wrn.value;
+            }
+            if wrn.auto_load_edited {
+                e.kata_params.auto_load_wrn = wrn.enabled && wrn.auto_load;
+                if wrn.enabled && wrn.auto_load {
+                    e.kata_params.auto_load_wrn_value = wrn.value;
+                }
             }
         })?;
         for (param, row) in [(KataParam::Pda, pda), (KataParam::Wrn, Some(wrn))] {
-            let Some(row) = row.filter(|_| self.kata_param_refusal(param).is_none()) else { continue };
+            let Some(row) = row.filter(|r| r.edited && self.kata_param_refusal(param).is_none()) else { continue };
             let value = if row.enabled { row.value } else { Some(0.0) };
             if let Some(value) = value {
                 self.send_kata_param(param, value, row.enabled);
             }
         }
         Ok(None)
+    }
+
+    /// 自定义内容's 激进度 / 广度 (`ToolbarParameterToggles.show`): saves whether the toolbar shows
+    /// the group, which the 引擎参数 window's 在工具栏中控制 shows and saves too. Whether the group
+    /// can show (a foreground KataGo, no engine match) is the toolbar's; nothing reaches an engine.
+    pub fn set_kata_param_shown(&mut self, param: KataParam, shown: bool) -> Result<bool, ApiError> {
+        let saved = &self.config.engine.kata_params;
+        let saved = match param {
+            KataParam::Pda => saved.show_pda,
+            KataParam::Wrn => saved.show_wrn,
+        };
+        if saved == shown {
+            return Ok(false);
+        }
+        self.commit_config(|c| match param {
+            KataParam::Pda => c.engine.kata_params.show_pda = shown,
+            KataParam::Wrn => c.engine.kata_params.show_wrn = shown,
+        })?;
+        Ok(true)
     }
 
     /// Leela Zero / Sai 引擎参数 window 确定 (`SetLeelaEngines`): the four rows are saved as they

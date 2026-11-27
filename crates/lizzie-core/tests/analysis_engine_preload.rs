@@ -5,7 +5,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use lizzie_core::api::{EditCommand, OpenSource};
+use lizzie_core::api::{EditCommand, OpenSource, ZhiziConnection};
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
@@ -553,7 +553,7 @@ fn a_remote_foreground_losing_its_connection_leaves_the_local_analysis_process_r
         identifier: "fixture-account".into(),
         ..Default::default()
     };
-    wb.activate_cloud(zhizi, true).unwrap();
+    wb.activate_cloud(wb.cloud_ticket(), zhizi, true).unwrap();
     let remote = world.0.lock().unwrap().last().unwrap().id;
     serve(&mut wb, &world, remote, KATA);
     wb.preload_analysis_engine();
@@ -589,14 +589,23 @@ fn a_remote_compute_switch_preloads_only_after_its_board_sync_is_confirmed() {
     assert!(!wb.view(false).engine.paused && !wb.view(false).engine.analysing);
     assert_eq!(analysis_processes(), 0);
 
+    let (remote, held) = switch_to_zhizi_with_board_sync_held(&mut wb, &world);
+    assert_eq!(analysis_processes(), 0, "not before the switch's board sync is confirmed");
+    world.0.lock().unwrap().iter_mut().find(|p| p.id == remote).unwrap().sent = held;
+    serve(&mut wb, &world, remote, KATA);
+    assert_eq!(analysis_processes(), 1, "preloaded once the switch completed");
+}
+
+/// 远程算力 switches to 智子; its start-up is answered up to the `stop` closing its probe. Returns
+/// the 智子 instance and the board sync written after that `stop`, left unanswered.
+fn switch_to_zhizi_with_board_sync_held(wb: &mut Workbench, world: &World) -> (InstanceId, Vec<String>) {
     let zhizi = lizzie_core::cloud::CloudSettings {
         provider: lizzie_core::cloud::Provider::Zhizi,
         identifier: "fixture-account".into(),
         ..Default::default()
     };
-    wb.activate_cloud(zhizi, true).unwrap();
+    wb.activate_cloud(wb.cloud_ticket(), zhizi, true).unwrap();
     let remote = world.0.lock().unwrap().last().unwrap().id;
-    // Start-up is answered up to the `stop` closing its probe; the board sync stays unanswered.
     let answer = |wb: &mut Workbench, line: &str| {
         let (n, cmd) = line.split_once(' ').unwrap();
         let reply = match cmd.split(' ').next().unwrap() {
@@ -618,15 +627,83 @@ fn a_remote_compute_switch_preloads_only_after_its_board_sync_is_confirmed() {
         assert!(!pending.is_empty(), "the start-up ends with its probe's `stop`");
         let stop = pending.iter().position(|l| l.ends_with(" stop"));
         for line in &pending[..stop.map_or(pending.len(), |at| at + 1)] {
-            answer(&mut wb, line);
+            answer(wb, line);
         }
         if let Some(at) = stop {
             break 'start_up pending[at + 1..].iter().cloned().chain(world.take(remote)).collect();
         }
     };
     assert!(held.iter().any(|c| c.contains("clear_board") || c.contains("play")), "{held:?}");
-    assert_eq!(analysis_processes(), 0, "not before the switch's board sync is confirmed");
-    world.0.lock().unwrap().iter_mut().find(|p| p.id == remote).unwrap().sent = held;
+    (remote, held)
+}
+
+/// 断开智子引擎 waits while the switch to 智子 has not confirmed its board sync: the connection
+/// and the foreground seat stay; once the sync is answered it ends the engine.
+#[test]
+fn disconnecting_zhizi_waits_for_the_switch_board_sync() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    let fg = start(&mut wb, &world, vec![profile("Local", None)]);
+    serve(&mut wb, &world, fg, KATA);
+    open(&mut wb, "(;SZ[19];B[pd])");
+    wb.navigate(lizzie_core::browse::Navigation::Last);
+    serve(&mut wb, &world, fg, KATA);
+    let (remote, held) = switch_to_zhizi_with_board_sync_held(&mut wb, &world);
+    let before = wb.view(false).engine;
+    assert!(before.foreground.as_ref().is_some_and(|f| f.instance == remote && !f.ready));
+    assert_eq!(before.zhizi, ZhiziConnection::Busy);
+    assert_eq!(wb.disconnect_zhizi(), ZhiziConnection::Busy);
+    let after = wb.view(false).engine;
+    assert!(!world.terminated(remote), "the 智子 connection stays");
+    assert_eq!(after.foreground, before.foreground, "the foreground seat stays");
+    assert_eq!(after.zhizi, ZhiziConnection::Busy);
+
+    let written = world.take(remote);
+    world.0.lock().unwrap().iter_mut().find(|p| p.id == remote).unwrap().sent = held.into_iter().chain(written).collect();
     serve(&mut wb, &world, remote, KATA);
-    assert_eq!(analysis_processes(), 1, "preloaded once the switch completed");
+    assert!(wb.view(false).engine.foreground.is_some_and(|f| f.ready));
+    assert_eq!(wb.view(false).engine.zhizi, ZhiziConnection::Connected);
+    assert_eq!(wb.disconnect_zhizi(), ZhiziConnection::Disconnected);
+    assert!(world.terminated(remote));
+    wb.end_engines();
+}
+
+/// The answer completing the switch to 智子 (its board sync confirmed) changes what the view
+/// shows, the connection no longer busy and the engine ready, and says so: the window is redrawn
+/// with 断开智子引擎 available again without anything else happening.
+#[test]
+fn the_answer_completing_the_zhizi_switch_reports_a_view_change() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    let fg = start(&mut wb, &world, vec![profile("Local", None)]);
+    serve(&mut wb, &world, fg, KATA);
+    open(&mut wb, "(;SZ[19];B[pd])");
+    wb.navigate(lizzie_core::browse::Navigation::Last);
+    serve(&mut wb, &world, fg, KATA);
+    let (remote, held) = switch_to_zhizi_with_board_sync_held(&mut wb, &world);
+    let shown = |wb: &mut Workbench| {
+        let e = wb.view(false).engine;
+        (e.zhizi, e.foreground.is_some_and(|f| f.ready))
+    };
+    assert_eq!(shown(&mut wb), (ZhiziConnection::Busy, false));
+    let mut unreported = Vec::new();
+    for line in &held {
+        let n = line.split_once(' ').unwrap().0;
+        let before = shown(&mut wb);
+        let mut changed = wb.engine_input(remote, EngineInput::Stdout(format!("={n}")));
+        // An analysis stream stays open.
+        if !line.contains("kata-analyze") {
+            changed |= wb.engine_input(remote, EngineInput::Stdout(String::new()));
+        }
+        let after = shown(&mut wb);
+        if after != before && !changed {
+            unreported.push((line.clone(), before, after));
+        }
+    }
+    assert_eq!(shown(&mut wb), (ZhiziConnection::Connected, true), "{held:?}");
+    assert!(unreported.is_empty(), "view changes reported as none: {unreported:?}");
+    assert_eq!(wb.disconnect_zhizi(), ZhiziConnection::Disconnected);
+    wb.end_engines();
 }

@@ -3,16 +3,17 @@
 // LizzieFrame.functionEntryUnavailableReason). Resolving is read-only: it never builds a page,
 // opens a menu or runs a command. Activating follows the catalog target: an ACTION runs its catalog
 // command, a WINDOW clicks its menu item or toolbar control (the Java openers run their owner
-// method), and SETTING / NAVIGATION menus and toolbar controls are located, never clicked.
+// method, and a setting inside a dialog or a child window has its owner open it at the control),
+// and SETTING / NAVIGATION menus and toolbar controls are located, never clicked.
 import { state } from "../app";
 import { livePopupAnchor, locateHiddenButton, locateLivePopupItem } from "../chrome/bottombar";
 import { locateMenuItem } from "../chrome/menubar";
 import { menuItemCommand, menuItemState } from "../chrome/menuModel";
-import { COMMANDS } from "../commands";
+import { COMMANDS, type Reason } from "../commands";
 import type { FunctionMatch } from "../contract/generated";
 import { dialogOpen, message } from "../dialogs";
 import { openSettingsAt, settingTargetAvailable } from "../engine/settingsTargets";
-import { product, registerProduct, t } from "../i18n";
+import { registerProduct, t } from "../i18n";
 import { resourceView } from "../setup/dialog";
 import { markupToolsShown, setEditing } from "../editing/state";
 import { revealToolbar } from "../workbench/panels";
@@ -38,12 +39,6 @@ registerProduct({
 
 export type DestinationKind = "action" | "menu" | "toolbar" | "setting" | "window" | "context";
 
-/** A Java resource key, or with `product` this product's own message key. */
-export interface Reason {
-  key: string;
-  product?: boolean;
-}
-
 export interface Resolution {
   /** The destination this result uses (Java's activation branch), null when it has none here. */
   kind: DestinationKind | null;
@@ -62,24 +57,29 @@ const NOT_KATAGO: Reason = { key: "SetKataRules.notKataGoHint" };
 const ANALYSIS_CONFLICT: Reason = { key: "WholeGameAnalysis.conflict.analysis" };
 const ENGINE_GAME: Reason = { key: "AnalysisSettings.reuseStatus.engine_game" };
 
-export function reasonText(reason: Reason): string {
-  return reason.product ? product(reason.key) : t(reason.key);
-}
-
 /** Report form: the Java key, or `product.<key>`. */
 export function reasonKey(reason: Reason | null): string | null {
   return reason ? (reason.product ? `product.${reason.key}` : reason.key) : null;
 }
 
 /** FunctionSearchController.activate's explicit openers (WINDOW-like destinations Java opens with
- *  its own owner method instead of locating a control). Each runs this product's equivalent
- *  catalog command; one without that command is unavailable. */
+ *  its own owner method instead of locating a control), and the settings this product keeps inside
+ *  a dialog or a child window, whose owner opens it with the focus and the gold line on the
+ *  control, changing nothing. Each runs this product's equivalent catalog command; one without
+ *  that command is unavailable. */
 const OPENERS: Record<string, true> = {
   "weights.download": true, // openKataGoWeightDownload
   "engine.acceleration": true, // openKataGoAcceleration
   "game.komi": true, // editGameKomi
   "engine.rules": true, // setRulesAtEditor
   "game.ai-coach": true, // handleAiCoachToolbarAction
+  "match.opening-wrn": true, // 引擎对局's 开局广度
+  "match.opening-pda": true, // 引擎对局's 开局激进度
+  "strength.phase-bounds": true, // 棋力评估's 分阶段 page
+  "humansl.training-mode": true, // AI 陪练's 训练方式
+  "fox.after-get": true, // 野狐棋谱's 打开棋谱后此窗口
+  "tencent.after-get": true, // 腾讯棋谱's 打开棋谱后此窗口
+  "ogs.after-get": true, // OGS棋谱's 打开棋谱后此窗口
 };
 
 /** Board context-menu items (editing/input.ts pointMenu / stoneMenu, analysis/region.ts
@@ -125,13 +125,15 @@ function toolbarControl(id: string): HTMLElement | null {
  *  LizzieFrame.functionEntryUnavailableReason's. */
 const KATA_GROUPS: Record<string, KataParam> = { "engine.pda": "Pda", "toolbar.wrn": "Wrn" };
 
+/** A destination the catalog places on a toolbar stays there although a menu item shares its id:
+ *  强制结束试下 is also in 同步 > Web 旁观, and Java's search still locates the 同步 popup's item. */
 function kindOf(m: FunctionMatch): DestinationKind | null {
   if (m.target === "Context") return "context";
   if (m.section !== null) return "setting";
   if (OPENERS[m.id]) return "window";
   if (m.target === "Action") return "action";
-  if (menuItemState(m.id) !== null) return "menu";
   if (m.path[0] === "FunctionSearch.path.topToolbar" || m.path[0] === "FunctionSearch.path.bottomToolbar") return "toolbar";
+  if (menuItemState(m.id) !== null) return "menu";
   return null;
 }
 
@@ -200,7 +202,8 @@ function entryReason(id: string): Reason | null {
       return aiCoachBlockedByGame(view) ? ENGINE_GAME : null;
     case "engine.pda":
     case "toolbar.wrn":
-      if (view.engine_match?.phase === "Starting" || matchPlaying(view)) return ENGINE_GAME;
+      // EngineGameParameterControls.blocksSearch: until the batch gave its parameters back.
+      if (view.engine_match) return ENGINE_GAME;
       if (!engine) return NO_ENGINE;
       return engine.katago ? null : NOT_KATAGO;
     // RightClickMenu.java:124-156: shown only outside games with a KataGoCustom / KataGoPda engine.
@@ -293,16 +296,17 @@ function unavailableReason(m: FunctionMatch, kind: DestinationKind | null, absen
   if (kind === "toolbar" && !revealsMarkup(m.id) && !KATA_GROUPS[m.id] && !TOP_GROUP_OF[m.id] && groupHidden(toolbarControl(m.id)!)) return TOOLBAR;
   const reason = entryReason(m.id);
   if (reason) return reason;
+  // A registered command its owner reports disabled, whatever the destination: with the reason
+  // its menu item shows as the tooltip (棋局 > 对局参数 without a playing analysis-mode game).
+  const entry = COMMANDS[m.id];
+  const why = entry?.disabledReason?.();
+  if (why) return why;
   // A real toolbar control disabled for now (广度 while the engine is not free for it).
   if (kind === "toolbar" && toolbarControl(m.id)?.matches(":disabled")) return CONTEXT;
   if (kind === "menu" && menuItemState(m.id) === "hidden") return CONTEXT;
-  // The engine menu, disabled while an engine game runs (its only disabled state on the bar).
+  // The engine menu, disabled while an engine game runs.
   if (kind === "menu" && menuItemState(m.id) === "disabled") return ENGINE_GAME;
-  // A registered command its owner reports disabled or hidden, whatever the destination: with the
-  // reason its menu item shows as the tooltip when it has one.
-  const entry = COMMANDS[m.id];
-  const why = entry?.disabledReason?.();
-  if (why) return { key: why, product: true };
+  // A registered command its owner reports hidden or disabled without a reason.
   if (entry && ((entry.visible && !entry.visible()) || (entry.enabled && !entry.enabled()))) return CONTEXT;
   return null;
 }
@@ -402,7 +406,8 @@ function clickToolbarControl(id: string): Reason | null {
   return null;
 }
 
-/** Runs the destination after the search closed; a reason means nothing happened. */
+/** Runs the destination after the search closed; a reason means the destination was not reached
+ *  (nothing happened, or with `shown` its window opened and says why there). */
 export async function activateFunction(m: FunctionMatch): Promise<Reason | null> {
   clearHighlight();
   const { kind, reason } = resolveFunction(m);
@@ -418,9 +423,12 @@ export async function activateFunction(m: FunctionMatch): Promise<Reason | null>
     case "toolbar":
       return m.target === "Window" ? clickToolbarControl(m.id) : locateToolbarControl(m.id);
     case "window":
-    case "action":
-      COMMANDS[m.id].run();
+    case "action": {
+      const entry = COMMANDS[m.id];
+      if (entry.locate) return entry.locate();
+      entry.run();
       return null;
+    }
     default:
       return TARGET_MISSING;
   }

@@ -585,7 +585,7 @@ fn during_a_trial_remote_compute_a_settings_import_or_a_restart_keeps_the_trial_
         identifier: "fixture-account".into(),
         ..Default::default()
     };
-    let refused = wb.activate_cloud(zhizi, true).unwrap_err();
+    let refused = wb.activate_cloud(wb.cloud_ticket(), zhizi, true).unwrap_err();
     assert_eq!(refused.message, "RemoteCompute.error.engineSwitchFailed");
     assert_eq!(wb.config().engine.engines, engines, "no remote profile is committed");
 

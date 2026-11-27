@@ -91,6 +91,8 @@ async fn account_inner(app: AppHandle, shared: State, op: CloudCommand, cancel: 
 }
 
 pub async fn activate(app: AppHandle, shared: State, settings: CloudSettings, confirmed: bool) -> Result<CommandResult, ApiError> {
+    // Taken before the account read below: a 断开智子引擎 meanwhile retires this activation.
+    let ticket = shared.workbench.lock().unwrap().cloud_ticket();
     let generation = if settings.provider == Provider::Zhizi {
         // State never authenticates or allocates resources. It may restore a previously
         // authorized remembered token, independently from the explicit activation below.
@@ -105,7 +107,7 @@ pub async fn activate(app: AppHandle, shared: State, settings: CloudSettings, co
     if generation.is_some_and(|g| !app.state::<Arc<Adapter>>().is_current(g)) {
         return Ok(CommandResult::CloudError { failure: CloudFailure::cancelled() });
     }
-    let profile = wb.activate_cloud(settings, confirmed)?;
+    let profile = wb.activate_cloud(ticket, settings, confirmed)?;
     // Read under the commit's lock: every later view shows the switch's outcome.
     let after = wb.view_seq();
     drop(wb);

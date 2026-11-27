@@ -12,6 +12,10 @@ export const TENCENT_KIFU_INPUT_EVENT = "tencent-kifu-input";
 
 export interface TencentKifuPayload {
   language: Language;
+  /** Config.frameFontSize of this session. */
+  frameFontSize: number;
+  /** Function search's request for 打开棋谱后此窗口, by number, until the window says it located it. */
+  locate: number | null;
   view: TencentKifuView;
 }
 
@@ -28,7 +32,14 @@ export interface TencentKifuReport {
   overlay: string | null;
   tableEnabled: boolean;
   message: string | null;
+  /** The window's KifuProbe: focus, located control, type size and what is cut off. */
+  focus: string;
+  located: string | null;
+  fontSize: string;
+  clipped: string[];
   targets: { key: string; text: string; x: number; y: number; enabled: boolean }[];
+  /** How many reports the window has sent, this one included (it sends none before a probe). */
+  sent: number;
 }
 
-export type TencentKifuInput = { type: "ready" } | { type: "report"; report: TencentKifuReport };
+export type TencentKifuInput = { type: "ready" } | { type: "located"; request: number } | { type: "report"; report: TencentKifuReport };

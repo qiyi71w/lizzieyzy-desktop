@@ -7,7 +7,7 @@ import type { KataEngineParamsEdit, KataParam, KataParamEdit, SearchThreadsComma
 import { confirm, formPanel, message } from "../dialogs";
 import { format, t } from "../i18n";
 import { messageText } from "../errorText";
-import { matchPlaying } from "../match/state";
+import { matchActive } from "../match/state";
 import { javaDouble, parseJavaDouble } from "../workbench/paint";
 import { button, checkbox, footer, groupNote, input, primaryButton, row, switchBox } from "./controls";
 import { openLeelaEngines, paramCaption } from "./leelaOptions";
@@ -24,6 +24,10 @@ registerViewHandler((view) => {
   const resolve = threadWaiters.get(op.ticket);
   if (resolve && op.status.type !== "Running") { threadWaiters.delete(op.ticket); resolve(op.status); }
 });
+
+/** The open 引擎参数 window's lock (SetKataEngines.refreshOpenDialogs after a game transition). */
+let refreshOpenLock: (() => void) | null = null;
+registerViewHandler(() => refreshOpenLock?.());
 
 /** How 搜索线程数 operation `ticket` ended (or asks to go on), `null` once another replaced it. */
 function threadSettled(ticket: number): Promise<SearchThreadsStatus | null> {
@@ -77,12 +81,16 @@ export const kataToolbarUse: Partial<Record<KataParam, (enabled: boolean, text: 
  *  engine's read-back (LizzieFrame.setPdaAndWrn) and every toolbar edit keep up to date. */
 export const kataToolbarState: Partial<Record<KataParam, () => { enabled: boolean; text: string }>> = {};
 
-/** The window's 修改 and value of `param`: the toolbar's once the engine reported the parameter
- *  (or the toolbar changed it), else the saved ones. */
+/** The window's 修改 and value of `param` (SetKataEngines.loadCurrentParameter): the value the
+ *  engine reported, shown as the toolbar has it when the toolbar's 修改 and value give that value
+ *  (matchesEffectiveValue); the saved ones before the engine reported it, or while an engine
+ *  match holds the parameter. */
 function current(param: KataParam, enabled: boolean, value: number | null): { enabled: boolean; text: string } {
-  const reported = state.view?.engine.kata_params[param === "Pda" ? "pda" : "wrn"] ?? null;
-  const toolbar = reported === null ? undefined : kataToolbarState[param]?.();
-  return toolbar ?? { enabled, text: value === null ? "" : javaDouble(value) };
+  const reported = matchActive() ? null : (state.view?.engine.kata_params[param === "Pda" ? "pda" : "wrn"] ?? null);
+  if (reported === null) return { enabled, text: value === null ? "" : javaDouble(value) };
+  const toolbar = kataToolbarState[param]?.();
+  if (toolbar && (toolbar.enabled ? parseJavaDouble(toolbar.text) === reported : reported === 0)) return toolbar;
+  return { enabled: reported !== 0, text: javaDouble(reported) };
 }
 
 /** The fields' red background: Double.parseDouble fails or the value is outside Java's range. */
@@ -93,10 +101,11 @@ export function kataValueInvalid(param: KataParam, text: string): boolean {
 
 /** setLzSaiEngine: no loaded engine → the hint; KataGo → SetKataEngines; Leela Zero / Sai →
  *  SetLeelaEngines. Java opens SetLeelaEngines for every other engine too, whose options would
- *  not apply; those get Java's not-Leela/Sai notice instead. */
+ *  not apply; those get Java's not-Leela/Sai notice instead. A KataGo an engine match is using
+ *  still opens the window, locked (its preferences can be saved). */
 export async function openEngineParameters(): Promise<void> {
   const foreground = state.view?.engine.foreground;
-  if (!foreground?.ready) { await message(t("Message.title"), t("LizzieFrame.setParamNoEngineHint")); return; }
+  if (!foreground?.ready && !(foreground?.katago && matchActive())) { await message(t("Message.title"), t("LizzieFrame.setParamNoEngineHint")); return; }
   if (foreground.katago) { await openKataEngines(); return; }
   if (foreground.leela_sai) { await openLeelaEngines(); return; }
   await message(t("Message.title"), t("LizzieFrame.setParamsWarning"));
@@ -133,6 +142,11 @@ function hint2(): HTMLElement {
 /** One SetKataEngines row: 修改, the value, 自动加载 and 在工具栏中控制; `options` is the line that
  *  holds the two check boxes. */
 interface Row { el: HTMLElement; options: HTMLElement; edit: HTMLInputElement; value: HTMLInputElement; autoLoad: HTMLInputElement; inMenu: HTMLInputElement }
+/** SetKataEngines.draft: a row's 修改 and value, and its 自动加载 and value, as text. */
+interface Draft { value: string; auto: string }
+function draft(r: Row): Draft {
+  return { value: `${r.edit.checked} ${r.value.value}`, auto: `${r.autoLoad.checked} ${r.value.value}` };
+}
 
 /** A parameter's row: its name with Java's range hint under it and 自动加载 / 在工具栏中控制 on a
  *  line under the hint; the value and 修改 (a switch) at the end, so every row of the group ends
@@ -192,8 +206,31 @@ async function openKataEngines(): Promise<void> {
   }
   const wrnNow = current("Wrn", p.wrnEnabled, p.wrn);
   const wrn = paramRow(body, "Wrn", t("SetKataEngines.lblWRN"), wrnNow.enabled, wrnNow.text, p.autoLoadWrn, p.showWrn);
-  // SetKataEngines.java:586-589: 广度 cannot be changed while the engine plays a genmove game.
-  if (view.game?.kind === "Genmove" || (matchPlaying(view) && view.engine_match?.kind === "Genmove")) wrn.value.disabled = wrn.edit.disabled = true;
+  // SetKataEngines.refreshParameterEditors: until an engine match gave its parameters back
+  // (EngineGameModule.ordinaryParametersHidden) both rows are locked, with
+  // EngineGameParameterControls.explainAdvancedLock's words; a genmove game also holds 广度
+  // (SetKataEngines.java:586-589). Java puts the words in each control's tooltip only, which a
+  // disabled control does not show here, so they are also a line under the rows.
+  const lockNote = groupNote(body, t("EngineGameParameters.useGamePanel"));
+  lockNote.dataset.key = "kataParams.useGamePanel";
+  const lock = () => {
+    const v = state.view;
+    const engineGame = matchActive(v);
+    const wrnOwned = engineGame || v?.game?.kind === "Genmove";
+    const tip = engineGame ? t("EngineGameParameters.useGamePanel") : "";
+    for (const [r, owned] of [[pda, engineGame], [wrn, wrnOwned]] as const) {
+      if (r.edit.disabled !== owned) r.edit.disabled = owned;
+      const value = owned || !r.edit.checked;
+      if (r.value.disabled !== value) r.value.disabled = value;
+      for (const c of [r.edit, r.value]) if (c.title !== tip) c.title = tip;
+      // A locked row cannot be corrected, so it is not marked invalid (an unsaved value is empty).
+      const invalid = !owned && kataValueInvalid(r === pda ? "Pda" : "Wrn", r.value.value);
+      if (r.value.classList.contains("invalid") !== invalid) r.value.classList.toggle("invalid", invalid);
+    }
+    if (lockNote.hidden === engineGame) lockNote.hidden = !engineGame;
+  };
+  lock();
+  for (const r of [pda, wrn]) r.edit.addEventListener("change", lock);
 
   // 搜索线程数（本次运行） (SetKataEngines.java:491-528, 754-762, 836-888): the numSearchThreads
   // of the KataGo process this window was opened for; another process makes every step stale.
@@ -255,22 +292,52 @@ async function openKataEngines(): Promise<void> {
   let busy = false;
   let open = true;
   const dialog = formPanel(t("SetKataEngines.title"), body, async () => !busy);
-  void dialog.closed.then(() => { open = false; });
-  const rows = (): KataEngineParamsEdit => {
-    const [pdaEdit, wrnEdit]: KataParamEdit[] = [pda, wrn].map((r) => ({ enabled: r.edit.checked, value: parseJavaDouble(r.value.value), auto_load: r.autoLoad.checked }));
-    return { pda: pdaEngine ? null : pdaEdit, wrn: wrnEdit, show_pda: pda.inMenu.checked, show_wrn: wrn.inMenu.checked };
+  refreshOpenLock = lock;
+  void dialog.closed.then(() => {
+    open = false;
+    refreshOpenLock = null;
+  });
+  // applyExistingSettings saves only what changed since the window loaded it (loadedPda,
+  // loadedAutoPda, …), so an unchanged copy never overwrites newer engine or saved values; a
+  // checked 广度 or 自动加载 whose text is not a number in 0..2 is not taken
+  // (OrdinaryBreadth.validDraft). While an engine match holds the parameters only the
+  // preferences are saved.
+  const drafts = (): Record<KataParam, Draft> => ({ Pda: draft(pda), Wrn: draft(wrn) });
+  const loaded = drafts();
+  const edits = (param: KataParam, r: Row): KataParamEdit => {
+    const now = draft(r);
+    const valid = param === "Pda" || !kataValueInvalid("Wrn", r.value.value);
+    return {
+      enabled: r.edit.checked,
+      value: parseJavaDouble(r.value.value),
+      auto_load: r.autoLoad.checked,
+      edited: !matchActive() && now.value !== loaded[param].value && (!r.edit.checked || valid),
+      auto_load_edited: now.auto !== loaded[param].auto && (!r.autoLoad.checked || valid),
+    };
   };
+  const rows = (): KataEngineParamsEdit => ({
+    pda: pdaEngine ? null : edits("Pda", pda),
+    wrn: edits("Wrn", wrn),
+    show_pda: pda.inMenu.checked,
+    show_wrn: wrn.inMenu.checked,
+  });
   // applyExistingSettings reads the rows once the 搜索线程数 step ended (SetKataEngines.java:653-660):
-  // rows edited while it ran are saved again, and the toolbar groups take what was saved.
-  const finish = async (committed: KataEngineParamsEdit) => {
+  // rows edited while it ran are saved again. A toolbar group takes a row only when the engine
+  // got it (setUseGfPda / setUseWrn).
+  const finish = async (committed: KataEngineParamsEdit, at: Record<KataParam, Draft>) => {
+    for (const [param, edit] of [["Pda", committed.pda], ["Wrn", committed.wrn]] as const) {
+      if (edit?.edited) loaded[param].value = at[param].value;
+      if (edit?.auto_load_edited) loaded[param].auto = at[param].auto;
+    }
     const now = rows();
     const shown = { pda: [pda.edit.checked, pda.value.value] as const, wrn: [wrn.edit.checked, wrn.value.value] as const };
-    if (JSON.stringify(now) !== JSON.stringify(committed)) {
+    const again = [now.pda, now.wrn].some((e) => e?.edited || e?.auto_load_edited);
+    if (again || now.show_pda !== committed.show_pda || now.show_wrn !== committed.show_wrn) {
       const result = await run({ type: "SaveKataEngineParams", params: now });
       if (!result || result.type === "Refused") return;
     }
-    if (!pdaEngine) kataToolbarUse.Pda?.(...shown.pda);
-    kataToolbarUse.Wrn?.(...shown.wrn);
+    if (!pdaEngine && (committed.pda?.edited || now.pda?.edited)) kataToolbarUse.Pda?.(...shown.pda);
+    if (committed.wrn.edited || now.wrn.edited) kataToolbarUse.Wrn?.(...shown.wrn);
     await dialog.close();
   };
   /** One step of the row; resolves to how it ended, `null` when it did not run. */
@@ -287,11 +354,12 @@ async function openKataEngines(): Promise<void> {
   const apply = primaryButton(t("SetKataEngines.btnApply"), async () => {
     if (busy) return;
     const params = rows();
+    const at = drafts();
     if (process === null) {
       // No KataGo process: only the other rows (Java runtimeThreads == null).
       if (threadCheck.checked) { await threadError("SetKataEngines.threadStale"); return; }
       const result = await run({ type: "SaveKataEngineParams", params });
-      if (result && result.type !== "Refused") await finish(params);
+      if (result && result.type !== "Refused") await finish(params, at);
       return;
     }
     const step = await threadStep({ type: "Confirm", process, enabled: threadCheck.checked, text: threadValue.value, edited: threadEdited, params });
@@ -308,7 +376,7 @@ async function openKataEngines(): Promise<void> {
       if (status?.type === "Failed") threadTooltips();
     }
     if (!status || !open) return;
-    if (status.type === "Done") { await finish(params); return; }
+    if (status.type === "Done") { await finish(params, at); return; }
     if (status.type !== "Failed") return;
     if (status.message_key === "SetKataEngines.threadRemoteRestoreUnsupported" || status.message_key === "SetKataEngines.threadRestoreFailed") keepThreadOverride();
     await threadError(status.message_key, status.detail);

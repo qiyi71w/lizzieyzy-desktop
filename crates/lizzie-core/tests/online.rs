@@ -422,6 +422,32 @@ fn a_retracted_live_move_goes_but_a_move_the_user_annotated_stays() {
     assert_eq!(rec(&wb).node(line[1]).comment, "mine");
 }
 
+/// A live update keeps the analysis of the moves the source keeps, each with its breadth and
+/// whether it is known (Java `BoardHistoryList.sync` leaves equal nodes' `BoardData`).
+#[test]
+fn a_live_update_keeps_the_breadth_of_the_moves_it_keeps() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    let breadths = |wb: &mut Workbench| -> Vec<Option<Option<f64>>> {
+        let text = wb.begin_save("live.sgf", "LizzieYzy Tauri:test").text;
+        let rec = lizzie_core::formats::sgf::read(&text).unwrap();
+        std::iter::successors(rec.main_child(ROOT), |&n| rec.main_child(n))
+            .map(|n| lizzie_core::formats::saved_analysis::primary(&rec.node(n).properties).map(|a| a.wrn))
+            .collect()
+    };
+    follow(
+        &mut wb,
+        ";B[pd]LZ[KataGo 45.0 100 1 0.5 0 wrn=0.5\nmove D4 visits 100 winrate 5500 scoreMean 1 pv D4]\
+         ;W[dp]LZ[KataGo 55.0 100 1 0.5 0 wrn=0\nmove D4 visits 100 winrate 4500 scoreMean 1 pv D4]\
+         ;B[pp]LZ[KataGo 45.0 100 1 0.5\nmove D4 visits 100 winrate 5500 scoreMean 1 pv D4]",
+    );
+    assert_eq!(breadths(&mut wb), [Some(Some(0.5)), Some(Some(0.0)), Some(None)]);
+    let r = next_read(&mut wb);
+    assert!(reply(&mut wb, r, ";B[pd];W[dp];B[pp];W[dd]"));
+    assert_eq!(main_line(&wb).len(), 4);
+    assert_eq!(breadths(&mut wb), [Some(Some(0.5)), Some(Some(0.0)), Some(None), None]);
+}
+
 #[test]
 fn replies_of_an_ended_follow_change_nothing() {
     let dir = tempfile::tempdir().unwrap();

@@ -7,6 +7,7 @@ pub mod grounded;
 pub mod knowledge;
 pub mod prompt;
 pub mod settings;
+pub mod shapes;
 pub mod stream;
 pub mod verify;
 

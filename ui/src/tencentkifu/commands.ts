@@ -1,9 +1,12 @@
-// 腾讯棋谱 entries (同步 > 腾讯棋谱 and the toolbar's 腾讯棋谱 button; `openTencentKifu`) and the
-// relay to its window. The core owns the search and its list; the window shows them.
+// 腾讯棋谱 entries (同步 > 腾讯棋谱 and the toolbar's 腾讯棋谱 button; `openTencentKifu`), function
+// search's 打开棋谱后此窗口 and the relay to its window. The core owns the search and its list; the
+// window shows them.
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { registerViewHandler, run, state } from "../app";
+import { frameMetrics } from "../appearance/state";
 import { COMMANDS, type CommandEntry } from "../commands";
+import { afterGetRequest } from "../foxkifu/afterGet";
 import type { WorkbenchView } from "../contract/generated";
 import { language, t } from "../i18n";
 import {
@@ -35,8 +38,13 @@ export async function openTencentKifu(): Promise<void> {
   }
 }
 
+/** Function search's 打开棋谱后此窗口: the window comes up with that choice located, unchanged. */
+const afterGet = afterGetRequest(openTencentKifu, () => {
+  if (state.view) relay(state.view);
+});
+
 function relay(v: WorkbenchView): void {
-  const payload: TencentKifuPayload = { language: language(), view: v.tencent_kifu };
+  const payload: TencentKifuPayload = { language: language(), frameFontSize: frameMetrics().frameFontSize, locate: afterGet.request, view: v.tencent_kifu };
   const text = JSON.stringify(payload);
   if (text === lastSent) return;
   lastSent = text;
@@ -51,6 +59,8 @@ export async function startTencentKifu(): Promise<void> {
     if (e.payload.type === "ready") {
       lastSent = "";
       if (state.view) relay(state.view);
+    } else if (e.payload.type === "located") {
+      afterGet.located(e.payload.request);
     } else report = e.payload.report;
   });
 }
@@ -62,4 +72,5 @@ export function tencentKifuReport() {
 
 Object.assign(COMMANDS, {
   "menu.tencentKifu": { run: () => void openTencentKifu() },
+  "tencent.after-get": { run: () => void afterGet.locate(), locate: () => afterGet.locate() },
 } satisfies Record<string, CommandEntry>);

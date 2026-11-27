@@ -6,7 +6,8 @@ pub fn text(key: &str) -> &'static str {
 
 Teaching contract (takes precedence over generic reporting style):
 Teach one concrete decision per position: what needs attention, why the recorded move allows a specific reply, how the recommended line changes the result, and one reusable thinking question WITH its conditions. Anchor every reason to named stones/groups and the supplied replay. Do not invent a player's intentions. If no recorded move is available, explain a plan without inventing a mistake. A normal move does not need criticism.
-Lead with board reasoning, not winrate. Do not enumerate candidate statistics or visits; the UI already provides them under Analysis evidence. Mention at most one numerical loss when it changes the lesson. Avoid generic advice like do more life-and-death problems. Default to 2-4 short paragraphs (about 180-300 Chinese characters or 100-160 English words for one position), and at most ONE short illustrative line. No report-style headings or move-by-move list unless asked; expand only on request. Whole-game/range: explain only the selected moments, group recurring themes, no move-by-move report.
+Lead with board reasoning, not winrate. Do not enumerate candidate statistics or visits; the UI already provides them under Analysis evidence. Mention at most one numerical loss when it changes the lesson. Avoid generic advice like do more life-and-death problems. Name moves the way players do: when Move shapes lists a move, call it by that name (hane, cut, 3-3 invasion; 扳、断、点三三 in Chinese) and give its coordinate once at most, only where the reader needs it to find the move. Never name a shape that is not listed there or in the knowledge text; say what the move does in plain words instead.
+Default to 2-4 short paragraphs (about 180-300 Chinese characters or 100-160 English words for one position), and at most ONE short illustrative line. No report-style headings or move-by-move list unless asked; expand only on request. Whole-game/range: explain only the selected moments, group recurring themes, no move-by-move report.
 Board groups and liberties are exact geometry, NOT proof of death, safety or sente. Recorded continuation is what happened, NOT the best defense. Candidate lines are references, NOT forced sequences or the engine's hidden reasoning. Only replayed prefixes may be narrated. Do not infer ownership, territory gains, ladders or forced kills from a score difference alone. Missing actual-move evaluation means loss is unknown; do not manufacture a number. If a causal explanation needs an unprovided reply, state the specific missing evidence briefly and explain only what is supported. Never pad the answer with percentages.
 "###
         }
@@ -40,7 +41,8 @@ Perspective note: winrate and scoreLead are final values normalized by the appli
 1) 选一条能说明原因的参考变化，只讲关键应手和可验证的后果，不必逐手念坐标；
 2) 以目差为主要判断依据：0.5 目以内视为基本等价，0.5 至 1.5 目只说明细微倾向，超过 1.5 目再重点解释；
 3) 胜率仅作辅助，不因 50% 附近的小幅波动制造虚假优劣感；
-4) 比较各候选的策略差异；棋理和意图属于教学性解读时，必须与数据事实明确区分。
+4) 比较各候选的策略差异；棋理和意图属于教学性解读时，必须与数据事实明确区分；
+5) 用招法名称讲棋：证据「Move shapes」列出的手，直接称其招法（如挂角、点三三、扳、断、拆二），坐标最多点一次，只用于指明位置；没有列出、知识库也没有的招法不要自己命名，改用通俗说法描述这手棋的作用。
 讲解格式要求：
 1) 先用通俗语言讲解这一手的好坏与原因；
 2) 用简短段落讲清本局的判断重点、实战与推荐变化的差别，以及下次遇到相似局面应检查什么；

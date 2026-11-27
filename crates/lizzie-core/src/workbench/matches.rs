@@ -1,5 +1,6 @@
 //! Engine-versus-engine matches: one writer for acceptance, turns, retirement and batch succession.
 //! Runtime reservations own processes; every document mutation uses apply_edit/edit_document.
+mod parameters;
 mod rules;
 mod saving;
 
@@ -8,6 +9,7 @@ use std::time::{Duration, Instant};
 
 use super::{SaveJob, Workbench};
 use crate::api::*;
+use crate::engine::profile::EngineProfile;
 use crate::engine::runtime::{GenmoveReply, InstanceId, LeaseFailure, LeelaOption, Phase, RuntimeEvent};
 use crate::record::{DocumentEdit, GameRecord, NodeId, NodeKind, Point, RecordFormat, Stone, ROOT};
 use crate::settings::{MatchIdentity, MatchSettings, MatchTimeMode};
@@ -70,6 +72,9 @@ struct Run {
     manual: bool,
     play_now: bool,
     stop_batch: bool,
+    /// The ending game's engines are being given back (or are back): a restore of the batch's
+    /// parameters now waits until they are and takes them again (`match_finish_batch`).
+    handing_back: bool,
     image_pending: bool,
     next_game: Option<Instant>,
     started: Instant,
@@ -83,6 +88,11 @@ struct Run {
     /// Participants that ended unexpectedly (profile id, whether it held the foreground seat):
     /// restarted once the match is retired (EngineManager.java:5403-5506, 8845-9093).
     failed: Vec<(String, bool)>,
+    /// 对局参数会话 of an analysis-mode batch; a Genmove batch leaves the parameters alone.
+    parameters: Option<parameters::ParameterSession>,
+    /// The node being decided, the time a parameter revision took from its move and the elapsed
+    /// time of its latest result: the move keeps its time across a revision.
+    move_time: (NodeId, Duration, Duration),
 }
 impl Run {
     /// Whether the game's rules let it start, once both sides answered.
@@ -172,6 +182,22 @@ impl Workbench {
     pub(super) fn match_active(&self) -> bool {
         self.matches.run.is_some()
     }
+    /// An engine game in genmove mode runs (`engineGame.current().playingGenmove()`).
+    pub(super) fn genmove_match_active(&self) -> bool {
+        self.matches
+            .run
+            .as_ref()
+            .is_some_and(|r| r.values.kind == GameKind::Genmove)
+    }
+    /// Whether the match, also between its games and while it retires, has a participant whose
+    /// profile `uses` picks: a running one, or one that ended during it and starts again after it
+    /// (Java's active or retiring `EngineGameOwnerTransaction` engines).
+    pub(super) fn match_uses(&self, uses: impl Fn(&EngineProfile) -> bool) -> bool {
+        let Some(run) = &self.matches.run else { return false };
+        run.sides.iter().any(|side| {
+            self.engines.profile_of(side.instance).or_else(|| self.config.engine.engines.get(side.index as usize)).is_some_and(&uses)
+        }) || run.failed.iter().any(|(id, _)| self.config.engine.engines.iter().any(|p| p.id == *id && uses(p)))
+    }
     /// The side whose engine gives an engine game's score (EngineManager.java:15801-15805,
     /// SGFParser.java:1448-1462): the white engine when it is KataGo or Sai, else the black one
     /// when it is.
@@ -217,6 +243,7 @@ impl Workbench {
                 && r.komi_pending.is_none()
                 && r.komi_in_flight.is_none()
                 && r.komi_awaiting.is_empty()
+                && !self.match_params_blocked()
         })
     }
     fn match_side(&self) -> Stone {
@@ -282,7 +309,6 @@ impl Workbench {
             | Command::SaveEngineSettings { .. }
             | Command::SetKataRules { .. }
             | Command::SetKataParam { .. }
-            | Command::SaveKataEngineParams { .. }
             | Command::SaveLeelaEngineOptions { .. }
             | Command::ToggleRawNet
             | Command::StopRawNet
@@ -308,7 +334,6 @@ impl Workbench {
                 session,
                 first_engine,
                 second_engine,
-                disable_wrn,
             } => {
                 if self.match_active() || self.game_active() || self.play_analyse().is_some() {
                     return Ok(refused(super::play::PLAY_MODE));
@@ -373,7 +398,7 @@ impl Workbench {
                 {
                     return Ok(refused(super::play::PLAY_MODE));
                 }
-                self.match_values(settings.clone(), session.clone(), disable_wrn)?;
+                self.match_values(settings.clone(), session.clone())?;
                 self.paused = true;
                 self.start_komi = None;
                 self.engines.stop_raw_net();
@@ -448,6 +473,8 @@ impl Workbench {
                 }
                 self.matches.next += 1;
                 let id = self.matches.next;
+                let parameters =
+                    (session.kind == GameKind::Analysis).then(|| parameters::ParameterSession::new(&settings.opening));
                 self.matches.run = Some(Run {
                     id,
                     game: id,
@@ -476,6 +503,7 @@ impl Workbench {
                     manual: false,
                     play_now: false,
                     stop_batch: false,
+                    handing_back: false,
                     image_pending: false,
                     next_game: None,
                     started: Instant::now(),
@@ -487,6 +515,8 @@ impl Workbench {
                     komi_in_flight: None,
                     komi_awaiting: Vec::new(),
                     failed: Vec::new(),
+                    parameters,
+                    move_time: (ROOT, Duration::ZERO, Duration::ZERO),
                 });
                 self.persisted.matches.batch_name.clear();
                 self.match_prepare_board();
@@ -501,16 +531,11 @@ impl Workbench {
                     session: view.session,
                     first_engine: view.first_engine,
                     second_engine: view.second_engine,
-                    disable_wrn: view.disable_wrn,
                 })
             }
-            MatchCommand::SetValues {
-                settings,
-                session,
-                disable_wrn,
-            } => {
+            MatchCommand::SetValues { settings, session } => {
                 self.validate_match(&settings, &session)?;
-                self.match_values(settings, session, disable_wrn)?;
+                self.match_values(settings, session)?;
                 Ok(CommandResult::Done)
             }
             MatchCommand::Stop => {
@@ -521,12 +546,17 @@ impl Workbench {
                 Ok(CommandResult::Done)
             }
             MatchCommand::Pause => {
+                let unresolved = self.match_params_unresolved();
                 let Some(r) = self.matches.run.as_mut() else {
                     return Ok(CommandResult::Unchanged);
                 };
                 match r.phase {
                     MatchPhase::Playing => {
                         r.phase = MatchPhase::Paused;
+                    }
+                    // Java `EngineGameModule.resume`: unconfirmed parameters keep the game paused.
+                    MatchPhase::Paused if r.turn.is_none() && unresolved => {
+                        return Ok(refused("EngineGameParameters.resumeBlocked"));
                     }
                     MatchPhase::Paused
                         if r.turn.is_none()
@@ -607,14 +637,20 @@ impl Workbench {
                     self.match_setup();
                 } else {
                     // MatchRulesPrepareException("unverified-consent-refused").
-                    self.matches.notices.push(MatchNotice {
-                        message_key: "MatchRules.failed.consentRefused".into(),
-                        arguments: Vec::new(),
-                    });
+                    self.matches
+                        .notices
+                        .push(MatchNotice::new("MatchRules.failed.consentRefused"));
                     self.match_end(MatchEnd::Retired, None);
                 }
                 Ok(CommandResult::Done)
             }
+            MatchCommand::ReviseParameters {
+                game,
+                first_wrn,
+                second_wrn,
+                first_pda,
+                second_pda,
+            } => Ok(self.match_params_revise(game, [[first_wrn, second_wrn], [first_pda, second_pda]])),
             MatchCommand::WinrateImageDone { game, error } => {
                 let Some(r) = self.matches.run.as_mut().filter(|r| r.game == game && r.image_pending) else {
                     return Ok(CommandResult::Unchanged);
@@ -668,18 +704,14 @@ impl Workbench {
                 return Err(ApiError::new(ErrorKind::InvalidArgument, "time command"));
             }
         }
+        // Java `EngineGameOpeningParameters`: breadth 0..=2, aggressiveness -3..=3.
+        if !s.opening.valid() {
+            return Err(ApiError::new(ErrorKind::InvalidArgument, "match opening parameters"));
+        }
         Ok(())
     }
-    fn match_values(
-        &mut self,
-        settings: MatchSettings,
-        session: MatchSessionSettings,
-        disable_wrn: bool,
-    ) -> Result<(), ApiError> {
-        self.commit_config(|c| {
-            c.matches = settings;
-            c.game.disable_wrn = disable_wrn;
-        })?;
+    fn match_values(&mut self, settings: MatchSettings, session: MatchSessionSettings) -> Result<(), ApiError> {
+        self.commit_config(|c| c.matches = settings)?;
         self.persisted.matches = session;
         self.save_persisted()
     }
@@ -692,7 +724,7 @@ impl Workbench {
                 .or_else(|| profiles.iter().position(|p| p.command == identity.commands))
                 .unwrap_or(0) as u32
         };
-        use crate::engine::rules::KataRules;
+        use crate::engine::rules::{KataRules, MatchRuleOption};
         let stored = KataRules::parse(&self.config.matches.rules).filter(KataRules::has_required_fields);
         let rules_corrupt = !self.config.matches.rules.trim().is_empty() && stored.is_none();
         let prefill = stored
@@ -705,14 +737,15 @@ impl Workbench {
             })
             .unwrap_or_else(|| KataRules::preset("chinese").unwrap());
         let rules_prefill = prefill.to_gtp_argument();
-        let rules_choice = prefill.match_option().map(|o| o.0.to_string());
+        // The entry shown: the remembered one tells the Chinese choices apart.
+        let rules_choice =
+            MatchRuleOption::matching(&prefill, self.config.matches.rules_choice.as_deref()).map(|o| o.id.to_string());
         MatchSettingsView {
             rules_prefill,
             rules_choice,
             rules_corrupt,
             settings: self.config.matches.clone(),
             session: self.persisted.matches.clone(),
-            disable_wrn: self.config.game.disable_wrn,
             first_engine: resolve(&self.config.matches.first),
             second_engine: resolve(&self.config.matches.second),
             openings: self.matches.openings.iter().map(|(path, _)| path.clone()).collect(),
@@ -851,7 +884,7 @@ impl Workbench {
     fn match_rules_publish(&mut self, phase: rules::RulesPhase, confirmed: bool) {
         let Some(run) = &self.matches.run else { return };
         let snapshot = rules::RulesSnapshot::of(run, phase, confirmed);
-        if phase == rules::RulesPhase::Playing {
+        if run.phase == MatchPhase::Playing {
             self.matches.rules_record = snapshot.clone().map(|s| (run.doc, s));
         }
         self.matches.rules = snapshot;
@@ -889,14 +922,17 @@ impl Workbench {
                     commands.push(format!("kata-set-rules {}", settings.rules));
                 }
             }
-            if self.engines.is_katago(id) && self.engines.has_command(id, "kata-get-param") {
+            // The values the move comments name. In an analysis match the parameter session
+            // confirms the ones it sets and reads nothing else: a `KataGoPda` engine's own
+            // aggressiveness is neither read nor written (Java `EngineGameParameterSession`).
+            if values.kind != GameKind::Analysis
+                && self.engines.is_katago(id)
+                && self.engines.has_command(id, "kata-get-param")
+            {
                 for (parameter, role) in [
                     ("playoutDoublingAdvantage", "snapshotPda"),
                     ("analysisWideRootNoise", "snapshotWrn"),
                 ] {
-                    if role == "snapshotWrn" && values.kind == GameKind::Analysis && self.config.game.disable_wrn {
-                        continue;
-                    }
                     if let Some(command) = self.engines.game_send(seat, &format!("kata-get-param {parameter}")) {
                         captures.push((command, role.into()));
                         awaiting.push(command);
@@ -932,14 +968,6 @@ impl Workbench {
                     }),
                     _ => {}
                 }
-            } else if self.config.game.disable_wrn && self.engines.is_katago(id) {
-                if self.engines.has_command(id, "kata-get-param") {
-                    if let Some(command) = self.engines.game_send(seat, "kata-get-param analysisWideRootNoise") {
-                        captures.push((command, "analysisWideRootNoise".into()));
-                        awaiting.push(command);
-                    }
-                }
-                commands.push("kata-set-param analysisWideRootNoise 0".into());
             }
             // EngineManager.java:2607-2617 (分析模式对战): Visits 自动加载 lifts a Leela Zero / Sai
             // participant's visit limit for the match; Java sends it to KataGo as well. Java never
@@ -1006,20 +1034,33 @@ impl Workbench {
             let admission = r.rules_admission();
             match admission {
                 rules::Admission::Rejected(key) => {
-                    self.matches.notices.push(MatchNotice {
-                        message_key: key.into(),
-                        arguments: Vec::new(),
-                    });
+                    self.matches.notices.push(MatchNotice::new(key));
                     self.match_end(MatchEnd::Retired, None);
                     return;
                 }
                 rules::Admission::Unverified if !r.rules_consent => return,
                 _ => {}
             }
+            let confirmed = admission == rules::Admission::Confirmed;
+            // Java publishes the decision before the opening values are written
+            // (`EngineManager.prepareMatchRulesForEngineGame`); a start failing after it keeps it.
+            if self
+                .matches
+                .rules
+                .as_ref()
+                .is_some_and(|s| s.phase == rules::RulesPhase::Preparing)
+            {
+                self.match_rules_publish(rules::RulesPhase::Playing, confirmed);
+            }
+            // The game's opening breadth and aggressiveness are confirmed before it searches.
+            if !self.match_params_opening() {
+                return;
+            }
+            let r = self.matches.run.as_mut().unwrap();
             r.phase = MatchPhase::Playing;
             r.setup_deadline = None;
             r.started = Instant::now();
-            self.match_rules_publish(rules::RulesPhase::Playing, admission == rules::Admission::Confirmed);
+            self.match_rules_publish(rules::RulesPhase::Playing, confirmed);
             self.sync_engine();
             self.match_dispatch();
         }
@@ -1125,9 +1166,13 @@ impl Workbench {
                     .as_ref()
                     .is_some_and(|r| !matches!(r.phase, MatchPhase::Ending | MatchPhase::BetweenGames));
                 let r = self.matches.run.as_mut().unwrap();
+                let mut instance = None;
                 if let Some(p) = r.sides.iter_mut().find(|p| p.reservation == game) {
                     p.released = true;
+                    instance = Some(p.instance);
                 }
+                // The parameter restore stopped it and reports that itself.
+                let stopped = instance.is_some_and(|i| self.match_params_stopped(i));
                 if active {
                     if self
                         .matches
@@ -1135,10 +1180,9 @@ impl Workbench {
                         .as_ref()
                         .is_some_and(|r| r.phase == MatchPhase::Starting)
                     {
-                        self.matches.notices.push(MatchNotice {
-                            message_key: "EngineManager.engineGameStartFailed".into(),
-                            arguments: Vec::new(),
-                        });
+                        self.matches
+                            .notices
+                            .push(MatchNotice::new("EngineManager.engineGameStartFailed"));
                     }
                     self.match_end(MatchEnd::Retired, None);
                 }
@@ -1149,7 +1193,7 @@ impl Workbench {
                     };
                     let r = self.matches.run.as_mut()?;
                     r.stop_batch = true;
-                    if let Some(outcome) = &mut r.outcome {
+                    if let Some(outcome) = r.outcome.as_mut().filter(|_| !stopped) {
                         outcome.unrestored.push(reason);
                     }
                 }
@@ -1200,6 +1244,7 @@ impl Workbench {
                     self.apply_komi(komi);
                 }
                 self.match_apply_pending_komi();
+                self.match_params_proceed();
                 self.sync_engine();
                 self.match_dispatch();
             }
@@ -1211,7 +1256,19 @@ impl Workbench {
         if let Some(at) = p.awaiting.iter().position(|c| *c == command) {
             p.awaiting.remove(at);
         }
+        if self.match_params_reply(seat, command, ok, &text) {
+            if self.matches.run.as_ref().is_some_and(|r| r.phase == MatchPhase::Ending) {
+                self.match_release();
+            } else {
+                self.match_setup();
+            }
+            return;
+        }
+        let Some(r) = &mut self.matches.run else { return };
         let ending = r.phase == MatchPhase::Ending;
+        let Some(p) = r.sides.iter_mut().find(|p| p.reservation == seat) else {
+            return;
+        };
         let mut snapshot = false;
         let mut rules_reply = false;
         let mut snapshot_failed = false;
@@ -1256,12 +1313,6 @@ impl Workbench {
                     } else {
                         p.wrn = value;
                     }
-                }
-                _ if ok => {
-                    if name == "analysisWideRootNoise" {
-                        p.wrn = Some(0.0);
-                    }
-                    p.restore.push(format!("kata-set-param {name} {}", text.trim()));
                 }
                 _ => {}
             }
@@ -1404,6 +1455,7 @@ impl Workbench {
                     && r.komi_pending.is_none()
                     && r.komi_in_flight.is_none()
                     && r.komi_awaiting.is_empty()
+                    && !self.match_params_blocked()
             })
     }
     pub(super) fn match_analysis(&mut self, result: &NodeAnalysisView, elapsed: Duration) {
@@ -1417,7 +1469,11 @@ impl Workbench {
         }
         let Some(best) = result.candidates.first() else { return };
         let side = self.match_side();
+        let cursor = self.cursor;
         let r = self.matches.run.as_mut().unwrap();
+        let carried = if r.move_time.0 == cursor { r.move_time.1 } else { Duration::ZERO };
+        r.move_time = (cursor, carried, elapsed);
+        let elapsed = carried + elapsed;
         let n = side_index(r.first_is_black, side);
         let v = &r.values;
         let seconds = if n == 0 { v.first_seconds } else { v.second_seconds };
@@ -1497,7 +1553,7 @@ impl Workbench {
         let Some(r) = self.matches.run.as_mut() else { return };
         if r.phase == MatchPhase::BetweenGames {
             if end == MatchEnd::UserStopped {
-                self.match_closed();
+                self.match_finish_batch();
             }
             return;
         }
@@ -1507,9 +1563,9 @@ impl Workbench {
         let started = r.phase != MatchPhase::Starting;
         // The game's 本局规则 (EngineGameModule.freezeRecordOnCurrentHistoryLocked and
         // onOwnerStartFailed): a played game's are complete, on its document as well; a start
-        // ending before the game is decided keeps what the engines answered as failed, an answer
-        // still waiting for its readback included, or nothing when none answered (Java went on
-        // showing 正在检查本局规则 after such a start).
+        // failing after its rules were decided keeps that decision; one ending before keeps what
+        // the engines answered as failed, an answer still waiting for its readback included, or
+        // nothing when none answered (Java went on showing 正在检查本局规则 after such a start).
         if started {
             if let Some(live) = self
                 .matches
@@ -1522,18 +1578,22 @@ impl Workbench {
             if let Some((_, record)) = self.matches.rules_record.as_mut().filter(|(doc, _)| *doc == r.doc) {
                 record.phase = rules::RulesPhase::Completed;
             }
-        } else if self
-            .matches
-            .rules
-            .as_ref()
-            .is_some_and(|s| s.phase == rules::RulesPhase::Preparing)
-        {
-            let answered = r.sides.iter().any(|p| p.rules.answered());
-            self.matches.rules = answered
-                .then(|| rules::RulesSnapshot::of(r, rules::RulesPhase::Failed, false))
-                .flatten();
+        } else if let Some(live) = self.matches.rules.as_mut() {
+            match live.phase {
+                rules::RulesPhase::Playing => live.phase = rules::RulesPhase::Failed,
+                rules::RulesPhase::Preparing => {
+                    let answered = r.sides.iter().any(|p| p.rules.answered());
+                    self.matches.rules = answered
+                        .then(|| rules::RulesSnapshot::of(r, rules::RulesPhase::Failed, false))
+                        .flatten();
+                }
+                _ => {}
+            }
         }
+        self.match_params_cut(end);
+        let r = self.matches.run.as_mut().unwrap();
         r.phase = MatchPhase::Ending;
+        r.handing_back = false;
         r.setup_deadline = Some(Instant::now() + MATCH_RETIRE);
         r.turn = None;
         r.komi_pending = None;
@@ -1610,16 +1670,34 @@ impl Workbench {
         self.match_release();
     }
     fn match_release(&mut self) {
-        let Some(r) = self.matches.run.as_ref().filter(|r| r.phase == MatchPhase::Ending) else {
+        let Some(r) = self.matches.run.as_mut().filter(|r| r.phase == MatchPhase::Ending) else {
             return;
         };
+        // Java restores the batch's breadth and aggressiveness once the batch ends, before its
+        // engines are given back; the games of a batch keep them in between. A batch stopped
+        // while a game was already giving its engines back restores them once they are back
+        // (`match_finish_batch`).
+        let mut stop = Vec::new();
+        if (r.stop_batch || r.ordinal >= r.limit) && !r.handing_back {
+            let Some(failed) = self.match_params_restored() else {
+                // Each restore command has its own answer limit.
+                if let Some(r) = self.matches.run.as_mut() {
+                    r.setup_deadline = None;
+                }
+                return;
+            };
+            stop = failed;
+        }
+        let Some(r) = self.matches.run.as_mut() else { return };
+        r.handing_back = true;
+        r.setup_deadline.get_or_insert_with(|| Instant::now() + MATCH_RETIRE);
         // EngineManager.restoreMatchRulesBeforeRelease: an engine the game's rules were sent to
         // gets its own rules back, read back to be sure, whichever way the game ended; one whose
         // own rules are unknown cannot be given back as usable.
         let seats: Vec<_> = r
             .sides
             .iter()
-            .filter(|p| !p.released && p.awaiting.is_empty())
+            .filter(|p| !p.released && p.awaiting.is_empty() && !stop.contains(&p.instance))
             .map(|p| {
                 let (mut restore, original, unknown) = match p.rules.handback() {
                     rules::RulesHandback::Untouched => (Vec::new(), None, false),
@@ -1640,26 +1718,65 @@ impl Workbench {
             }
             self.engines.release_game_verified(seat, &restore, original);
         }
+        // An engine that may still hold a game value is stopped rather than reused as if restored.
+        if !stop.is_empty() {
+            for instance in stop {
+                self.engines.terminate(instance);
+            }
+            self.drain_engine_events();
+        }
         self.match_retirement();
     }
     fn match_retirement(&mut self) {
         let Some(r) = self.matches.run.as_mut() else { return };
         if r.phase == MatchPhase::BetweenGames && (r.stop_batch || r.ordinal >= r.limit) {
-            self.match_closed();
+            self.match_finish_batch();
             return;
         }
         if r.phase != MatchPhase::Ending || !r.sides.iter().all(|p| p.released) || r.image_pending {
             return;
         }
-        let mut outcome = r.outcome.take().unwrap();
-        outcome.batch_finished = r.stop_batch || r.ordinal >= r.limit;
-        self.matches.outcome = Some(outcome);
-        if r.stop_batch || r.ordinal >= r.limit {
-            self.match_closed();
+        let batch_finished = r.stop_batch || r.ordinal >= r.limit;
+        // A batch closed between games has no game outcome left to report.
+        if let Some(mut outcome) = r.outcome.take() {
+            outcome.batch_finished = batch_finished;
+            self.matches.outcome = Some(outcome);
+        }
+        if batch_finished {
+            self.match_finish_batch();
         } else {
             r.phase = MatchPhase::BetweenGames;
             r.next_game = Some(Instant::now() + Duration::from_millis(1));
         }
+    }
+    /// The batch is over. Its engines are given back already; when they still hold values of the
+    /// batch (it ended after its last game handed them back), they are taken again for the
+    /// parameter restore first.
+    fn match_finish_batch(&mut self) {
+        if !self.match_params_dirty() {
+            self.match_closed();
+            return;
+        }
+        let Some(r) = self.matches.run.as_mut() else { return };
+        r.phase = MatchPhase::Ending;
+        r.handing_back = false;
+        r.stop_batch = true;
+        r.next_game = None;
+        r.setup_deadline = Some(Instant::now() + MATCH_RETIRE);
+        for p in &mut r.sides {
+            // A process that cannot be taken keeps no seat; the restore reports it.
+            if let Ok(seat) = self.engines.reserve_game_instance(p.instance) {
+                p.reservation = seat;
+                p.released = false;
+                p.awaiting.clear();
+                p.captures.clear();
+                p.restore.clear();
+                // Its rules were given back with the last game: this release gives back only the
+                // parameters.
+                p.rules.modified = false;
+            }
+        }
+        self.match_release();
     }
     /// The match is over and retired: participants that ended during it start again, synced to
     /// the position then current when one held the foreground seat.
@@ -1670,12 +1787,17 @@ impl Workbench {
         }
     }
     pub(super) fn match_deadline(&self) -> Option<Instant> {
-        self.matches
-            .run
-            .as_ref()
-            .and_then(|run| run.next_game.into_iter().chain(run.setup_deadline).min())
+        let run = self.matches.run.as_ref()?;
+        run.next_game
+            .into_iter()
+            .chain(run.setup_deadline)
+            .chain(self.match_params_deadline())
+            .min()
     }
     pub(super) fn match_tick(&mut self, now: Instant) -> bool {
+        if self.match_params_tick(now) {
+            return true;
+        }
         let expired = self
             .matches
             .run
@@ -1706,22 +1828,24 @@ impl Workbench {
                         timed_out = true;
                     }
                 }
-                self.matches.notices.push(MatchNotice {
-                    message_key: if timed_out {
-                        "MatchRules.failed.timeout"
-                    } else {
-                        "EngineManager.engineGameStartFailed"
-                    }
-                    .into(),
-                    arguments: Vec::new(),
-                });
+                self.matches.notices.push(MatchNotice::new(if timed_out {
+                    "MatchRules.failed.timeout"
+                } else {
+                    "EngineManager.engineGameStartFailed"
+                }));
                 self.match_end(MatchEnd::Retired, None);
             }
-            if let Some(run) = self.matches.run.as_mut() {
-                run.setup_deadline = None;
-                let seats = run.sides.each_ref().map(|participant| participant.reservation);
-                for seat in seats {
-                    self.engines.abandon_game(seat);
+            // Seats still owing answers are given up as unrestored. A restore of the batch's
+            // parameters the end started goes first, one command at a time with its own answer
+            // limits: it gives every captured process its values back or reports and stops it,
+            // and the seats are given back after it (Java `restoreOriginals`).
+            if !self.match_params_restoring() {
+                if let Some(run) = self.matches.run.as_mut() {
+                    run.setup_deadline = None;
+                    let seats = run.sides.each_ref().map(|participant| participant.reservation);
+                    for seat in seats {
+                        self.engines.abandon_game(seat);
+                    }
                 }
             }
             self.drain_engine_events();
@@ -1761,6 +1885,7 @@ impl Workbench {
             p.visits = 0.0;
         }
         r.previous = [None, None];
+        r.move_time = (ROOT, Duration::ZERO, Duration::ZERO);
         self.match_prepare_board();
         self.match_rules_publish(rules::RulesPhase::Preparing, false);
         self.match_setup();
@@ -1805,8 +1930,14 @@ impl Workbench {
     pub(super) fn match_view(&self) -> Option<MatchView> {
         let r = self.matches.run.as_ref()?;
         let thinking = matches!(r.phase, MatchPhase::Playing | MatchPhase::Paused).then(|| self.match_side());
-        let rules_target_choice = crate::engine::rules::KataRules::parse(&r.settings.rules)
-            .and_then(|target| target.match_option().map(|o| o.0.to_string()));
+        let rules_target_name = self.match_text(
+            crate::engine::rules::KataRules::parse(&r.settings.rules)
+                .as_ref()
+                .map_or(
+                    "NewEngineGameDialog.matchRules.custom",
+                    crate::engine::rules::KataRules::match_name_key,
+                ),
+        );
         let rules_unverified = r
             .sides
             .iter()
@@ -1844,7 +1975,6 @@ impl Workbench {
             first_name: r.sides[0].name.clone(),
             second_name: r.sides[1].name.clone(),
             first_is_black: r.first_is_black,
-            kata_go_pda_participant: r.sides.iter().any(|p| self.engines.is_kata_go_pda(p.instance)),
             score: r.score.clone(),
             thinking_side: thinking,
             thinking_engine: thinking.map(|side| r.sides[side_index(r.first_is_black, side)].index),
@@ -1858,9 +1988,10 @@ impl Workbench {
                 && !r.rules_consent
                 && r.rules_admission() == rules::Admission::Unverified,
             rules_unverified,
-            rules_target_choice,
+            rules_target_name,
             opening_index: r.opening.map(|i| i as u32),
             elapsed_seconds: r.started.elapsed().as_secs_f64(),
+            parameters: self.match_params_view(),
         })
     }
     pub(super) fn take_match_outcome(

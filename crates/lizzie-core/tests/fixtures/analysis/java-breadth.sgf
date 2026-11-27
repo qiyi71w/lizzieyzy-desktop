@@ -1,0 +1,5 @@
+(;CA[UTF-8]KM[7.5]PW[]PB[]DT[2026-11-25]AP[LizzieYzy Next: next-dev]RE[]SZ[9]PL[B];B[ee]LZ[KataGo 45.0 1.0k 1.5 7.0 0.0 rootVisits=1000 wrn=0.5
+move C3 visits 1000 winrate 5500 prior 0 scoreMean 1.50 order 0 pv C3 D4]LZ2[KataGo 45.0 900 1.5 7.0 0.0 rootVisits=900 wrn=0.1
+move C3 visits 900 winrate 5500 prior 0 scoreMean 1.5 order 0 pv C3 D4 info ];W[cc]LZ[KataGo 45.0 800 1.5 7.0 0.0 rootVisits=800 wrn=0.0
+move C3 visits 800 winrate 5500 prior 0 scoreMean 1.50 order 0 pv C3 D4];B[gg]LZ[KataGo 45.0 700 1.5 7.0
+move C3 visits 700 winrate 5500 prior 0 scoreMean 1.50 order 0 pv C3 D4])

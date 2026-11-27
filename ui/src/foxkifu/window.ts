@@ -3,7 +3,7 @@
 // the progress overlay. The core owns the search, the list and every busy state; this window keeps
 // only the account field and 查询方式 drafts.
 import { invoke } from "@tauri-apps/api/core";
-import { emitTo } from "@tauri-apps/api/event";
+import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { dispatch, isApiError } from "../contract/client";
 import { errorText } from "../errorText";
@@ -12,11 +12,16 @@ import { confirm, dialogOpen, message } from "../dialogs";
 import { format, isChinese, product, registerProduct, setLanguage, t } from "../i18n";
 import { FOX_KIFU_DATA_EVENT, FOX_KIFU_INPUT_EVENT, type FoxKifuInput, type FoxKifuPayload, type FoxKifuReport } from "./model";
 import { icon } from "../design/icons";
+import { applyTypeSizes } from "../design/theme";
 import "../design/window";
 import "../design/stage.css";
+import { locateControl } from "../search/highlight";
+import { pendingLocate } from "../search/locateRules";
 import "./foxkifu.css";
 
 const AFTER_GET: KifuAfterGet[] = ["Minimize", "Close", "Keep"];
+/** The table's fixed columns in type sizes; 0 marks the two player columns, which share the rest. */
+const COLUMN_WIDTHS = [4.5, 12, 0, 4.5, 0, 4.5, 10, 4.5, 5];
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text = ""): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -35,12 +40,17 @@ registerProduct({
 });
 
 /** What the latest search came to while the table has no rows: none yet, no games for the query
- *  shown, or the failure the core reported (Java's message). */
-export type KifuOutcome = { kind: "idle" } | { kind: "none"; query: string } | { kind: "failed"; reason: string };
+ *  shown, or the failure the core reported (Java's message). `told` carries the whole line (OGS 棋谱
+ *  shows Java's own messages for each state). */
+export type KifuOutcome =
+  | { kind: "idle" }
+  | { kind: "none"; query: string }
+  | { kind: "failed"; reason: string }
+  | { kind: "told"; state: "idle" | "none" | "failed"; text: string };
 
-/** The game table's empty state (野狐棋谱, 腾讯棋谱): a title and one line under the table head
- *  saying what to do next; `search` is the window's 搜索 label. `null` hides it (the table has rows
- *  or a search runs). */
+/** The game table's empty state (野狐棋谱, 腾讯棋谱, OGS 棋谱): a title and one line under the
+ *  table head saying what to do next; `search` is the window's 搜索 label. `null` hides it (the
+ *  table has rows or a search runs). */
 export function kifuEmpty(): { el: HTMLElement; show: (outcome: KifuOutcome | null, search: string) => void } {
   const box = el("div", "fk-empty");
   box.dataset.key = "kifu.empty";
@@ -48,16 +58,96 @@ export function kifuEmpty(): { el: HTMLElement; show: (outcome: KifuOutcome | nu
   const title = el("div", "fk-empty-title");
   const text = el("div", "fk-empty-text");
   box.append(title, text);
+  const titles = { idle: "kifuIdle", none: "kifuNone", failed: "kifuFailed" } as const;
   const show = (outcome: KifuOutcome | null, search: string) => {
     box.hidden = outcome === null;
     if (!outcome) return;
-    box.dataset.state = outcome.kind;
-    title.textContent = product(outcome.kind === "idle" ? "kifuIdle" : outcome.kind === "none" ? "kifuNone" : "kifuFailed");
-    text.textContent = outcome.kind === "idle" ? product("kifuIdleText", search)
+    const state = outcome.kind === "told" ? outcome.state : outcome.kind;
+    box.dataset.state = state;
+    const heading = product(titles[state]);
+    const line = outcome.kind === "told" ? outcome.text
+      : outcome.kind === "idle" ? product("kifuIdleText", search)
       : outcome.kind === "none" ? product("kifuNoneText", outcome.query, search)
       : product("kifuFailedText", outcome.reason, search);
+    // Written only when changed (a rewrite under the pointer can cost WebKit a click).
+    if (title.textContent !== heading) title.textContent = heading;
+    if (text.textContent !== line) text.textContent = line;
   };
   return { el: box, show };
+}
+
+/** Function search's 打开棋谱后此窗口 in a 棋谱 window: a payload carrying a request (`locate`) puts
+ *  the focus and the gold line on the choice once per request, once the choice can take the focus
+ *  (a busy window may disable it; the request's next payload tries again), and `located` tells the
+ *  main window which request it located. The window's report follows the gold line coming and
+ *  going. */
+export function kifuLocator(choice: HTMLSelectElement, around: HTMLElement, report: () => void, located: (request: number) => void): (locate: number | null) => void {
+  const request = pendingLocate(
+    () => !choice.disabled,
+    (id) => {
+      locateControl(choice, around, report);
+      report();
+      located(id);
+    },
+  );
+  return (locate) => void request(locate);
+}
+
+/** A 棋谱 window's acceptance report goes out only once the acceptance channel has asked for one
+ *  (`acceptance-probe`, which only acceptance builds send): until then the window measures and
+ *  sends nothing; from then on it reports at once and on every change. */
+export function probeGate(report: () => void): { readonly on: boolean } {
+  const gate = { on: false };
+  void listen("acceptance-probe", () => {
+    if (gate.on) return;
+    gate.on = true;
+    report();
+  });
+  return gate;
+}
+
+/** The horizontal padding of a 棋谱 table cell (foxkifu.css `.fk-table th, .fk-table td`). */
+export const KIFU_CELL_PADDING = 16;
+
+/** A 棋谱 table's fixed columns (`widths` in type sizes; 0 for a column that shares the rest) are
+ *  never narrower than their header: each takes the larger of its type sizes and the header text
+ *  with the cell padding. Returns the fixed columns' total width, as CSS. */
+export function fitHeaderColumns(columns: HTMLElement, headRow: HTMLTableRowElement, widths: readonly number[]): string {
+  const range = document.createRange();
+  return widths
+    .flatMap((width, k) => {
+      if (!width || !headRow.cells[k]) return [];
+      range.selectNodeContents(headRow.cells[k]);
+      const css = `max(calc(var(--ds-size) * ${width}), ${Math.ceil(range.getBoundingClientRect().width) + KIFU_CELL_PADDING}px)`;
+      (columns.children[k] as HTMLElement).style.width = css;
+      return [css];
+    })
+    .join(" + ");
+}
+
+/** What a 棋谱 window's acceptance probe adds to its texts: the focused control, the located one,
+ *  the interface size, and what is cut off (across or up and down) or reaches past the window's
+ *  edges: the strip's labels, buttons, choices and fields, the recent searches, the page row and
+ *  status, the table head, the 打开 buttons, and of the data only the `whole` columns (1-based),
+ *  which show in full; the players may end in an ellipsis and the table scrolls sideways. */
+export function kifuProbe(root: HTMLElement, whole: readonly number[]): { focus: string; located: string | null; fontSize: string; clipped: string[] } {
+  const name = (e: Element) => (e instanceof HTMLElement && (e.dataset.key || e.id)) || e.tagName.toLowerCase();
+  const cells = whole.map((n) => `td:nth-child(${n})`).join(", ");
+  const clipped = [...root.querySelectorAll<HTMLElement>(`.fk-north :is(label, button, select, input), .tk-hint, .fk-current, .fk-recent-label, .fk-recent-btn, .fk-clear, .fk-south *:not(.fk-unseen), .ogs-status, th, .fk-open, ${cells}`)]
+    .filter((e) => e.getClientRects().length > 0)
+    .filter((e) => {
+      const r = e.getBoundingClientRect();
+      const cut = !(e instanceof HTMLInputElement) && (e.scrollWidth > e.clientWidth + 1 || e.scrollHeight > e.clientHeight + 1);
+      return cut || (!e.closest(".fk-scroll") && (r.right > window.innerWidth + 0.5 || r.bottom > window.innerHeight + 0.5));
+    })
+    .map((e) => `${name(e)}:${e.textContent ?? ""}`);
+  const located = document.querySelector(".located");
+  return {
+    focus: document.activeElement ? name(document.activeElement) : "",
+    located: located ? name(located.querySelector("select, input") ?? located) : null,
+    fontSize: getComputedStyle(document.body).fontSize,
+    clipped,
+  };
 }
 
 /** FoxKifuDownload.formatFoxUser: the nickname with the UID in brackets. */
@@ -173,14 +263,15 @@ export function bootFoxKifu(): void {
   const scroll = el("div", "fk-scroll");
   const table = el("table", "fk-table");
   const columns = el("colgroup");
-  // Fixed columns in multiples of the type size; the two player columns share the rest.
-  for (const width of [4.5, 12, 0, 4.5, 0, 4.5, 10, 4.5, 5]) {
-    const c = el("col");
-    if (width) c.style.width = `calc(var(--ds-size) * ${width})`;
-    columns.append(c);
-  }
+  for (let k = 0; k < COLUMN_WIDTHS.length; k++) columns.append(el("col"));
   const head = el("thead");
   const headRow = el("tr");
+  /** Fixed columns in multiples of the type size, each at least as wide as its header; the two
+   *  player columns share the rest, at least seven type sizes each (a narrower window scrolls the
+   *  table sideways). */
+  function fitColumns(): void {
+    table.style.minWidth = `calc(var(--ds-size) * 14 + ${fitHeaderColumns(columns, headRow, COLUMN_WIDTHS)})`;
+  }
   head.append(headRow);
   const body = el("tbody");
   table.append(columns, head, body);
@@ -343,6 +434,7 @@ export function bootFoxKifu(): void {
     v = view;
     renderTexts();
     renderHeader();
+    fitColumns();
     // A new search (and the first state) shows the remembered account and 查询方式.
     if (view.search !== search) {
       search = view.search;
@@ -389,9 +481,11 @@ export function bootFoxKifu(): void {
   }
 
   // ---------------------------------------------------------------- report
+  const probe = probeGate(() => report());
   let lastReport = "";
+  let sent = 0;
   function report(): void {
-    if (!v) return;
+    if (!v || !probe.on) return;
     const targets = [...document.querySelectorAll<HTMLElement>("button[data-key], select, input")].map((e) => {
       const r = e.getBoundingClientRect();
       return {
@@ -402,7 +496,7 @@ export function bootFoxKifu(): void {
         enabled: !(e as HTMLButtonElement).disabled && !e.closest(".disabled"),
       };
     });
-    const r: FoxKifuReport = {
+    const r: Omit<FoxKifuReport, "sent"> = {
       account: account.value,
       byUid: mode.selectedIndex === 1,
       afterGet: after.selectedIndex,
@@ -414,16 +508,26 @@ export function bootFoxKifu(): void {
       overlay: overlay.hidden ? null : overlayText.textContent,
       tableEnabled: !v.loading,
       message: shownMessage,
+      // 时间 and 结果 show in full.
+      ...kifuProbe(root, [2, 7]),
       targets,
     };
     const text = JSON.stringify(r);
     if (text === lastReport) return;
     lastReport = text;
-    emit({ type: "report", report: r });
+    emit({ type: "report", report: { ...r, sent: ++sent } });
   }
   account.addEventListener("input", () => report());
   mode.addEventListener("change", () => report());
   window.addEventListener("resize", () => report());
+  document.addEventListener("focusin", () => report());
+  const locate = kifuLocator(after, afterPair, report, (request) => emit({ type: "located", request }));
+  // A face that arrives after the first list changes the headers' widths.
+  void document.fonts.ready.then(() => {
+    if (!v) return;
+    fitColumns();
+    report();
+  });
 
   // ---------------------------------------------------------------- keys and events
   document.addEventListener("keydown", (e) => {
@@ -437,8 +541,10 @@ export function bootFoxKifu(): void {
 
   void self
     .listen<FoxKifuPayload>(FOX_KIFU_DATA_EVENT, (e) => {
+      applyTypeSizes(e.payload.frameFontSize);
       setLanguage(e.payload.language);
       render(e.payload.view);
+      locate(e.payload.locate);
     })
     .then(() => {
       emit({ type: "ready" });

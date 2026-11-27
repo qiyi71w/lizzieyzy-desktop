@@ -11,6 +11,10 @@ export const FOX_KIFU_INPUT_EVENT = "fox-kifu-input";
 
 export interface FoxKifuPayload {
   language: Language;
+  /** Config.frameFontSize of this session. */
+  frameFontSize: number;
+  /** Function search's request for 打开棋谱后此窗口, by number, until the window says it located it. */
+  locate: number | null;
   view: FoxKifuView;
 }
 
@@ -28,7 +32,14 @@ export interface FoxKifuReport {
   overlay: string | null;
   tableEnabled: boolean;
   message: string | null;
+  /** The window's KifuProbe: focus, located control, type size and what is cut off. */
+  focus: string;
+  located: string | null;
+  fontSize: string;
+  clipped: string[];
   targets: { key: string; text: string; x: number; y: number; enabled: boolean }[];
+  /** How many reports the window has sent, this one included (it sends none before a probe). */
+  sent: number;
 }
 
-export type FoxKifuInput = { type: "ready" } | { type: "report"; report: FoxKifuReport };
+export type FoxKifuInput = { type: "ready" } | { type: "located"; request: number } | { type: "report"; report: FoxKifuReport };

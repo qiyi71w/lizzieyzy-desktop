@@ -267,13 +267,10 @@ impl RulesSnapshot {
 }
 
 impl Workbench {
-    /// `MatchRuleOption.displayName`, else 自定义.
+    /// `MatchRuleOption.displayName`, else 自定义: the rules decide the name, whichever entry the
+    /// dialog showed.
     pub(super) fn match_rule_name(&self, rules: &KataRules) -> String {
-        self.match_text(
-            rules
-                .match_option()
-                .map_or("NewEngineGameDialog.matchRules.custom", |o| o.1),
-        )
+        self.match_text(rules.match_name_key())
     }
 
     /// `MatchRulesTexts.namedFields`.

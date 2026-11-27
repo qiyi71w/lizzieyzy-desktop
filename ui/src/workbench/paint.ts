@@ -3,6 +3,7 @@
 import type {
   BoardOverlayView,
   CandidateView,
+  CoachMarks,
   CoordinateStyle,
   DisplaySettings,
   EstimateStyle,
@@ -17,15 +18,19 @@ import type {
   ScoreView,
   Stone,
   SubBoardMode,
+  ThemeSettings,
   TrackingSettings,
   TreeNodeView,
+  WinrateReading,
 } from "../contract/generated";
-import { language, t } from "../i18n";
+import { format, language, t } from "../i18n";
 import { appearance, frameMetrics, onAppearanceChange } from "../appearance/state";
 import { softStoneShadow, stonePicture } from "../appearance/stones";
 import { chineseClassicLabel, cssColor, customFont, drawChineseClassicMarkers, javaHue, localeFonts, opaque, reverseColor, sameRgba, THEME_DEFAULT, themeColor, themedFont } from "../appearance/model";
 import { stagePalette, stageWallpaper, type StagePalette } from "../design/stage";
 import { CARD_RADIUS, type BoardGeom, type Rect } from "./layout";
+import { komiText, lead as leadOf, previousMove } from "./wording";
+import { RecentCache } from "./recentCache";
 
 const COLS = "ABCDEFGHJKLMNOPQRSTUVWXYZ";
 const COLS_WITH_I = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -41,6 +46,57 @@ export function coordinateLabels(style: CoordinateStyle, cols: number, rows: num
     cols: Array.from({ length: cols }, (_, k) => (numeric || cols > alphabet.length ? `${k + 1}` : alphabet[k])),
     rows: Array.from({ length: rows }, (_, k) => `${rows <= 25 && !fromTop ? rows - k : k + 1}`),
   };
+}
+
+/** CoordinateLabels (Java): the coordinates around the main board at `scale` times their usual
+ *  size, bold or plain. */
+export interface CoordinateLook {
+  scale: number;
+  bold: boolean;
+}
+
+/** CoordinateLabels.of(theme): a theme's 棋盘坐标 (its size one of 100, 140 and 200 percent). */
+export function coordinateLook(theme: ThemeSettings): CoordinateLook {
+  return { scale: theme.coordinateSize / 100, bold: theme.coordinateBold };
+}
+
+export interface NameWinrateTexts {
+  black: string;
+  white: string;
+}
+
+/** NameWinrates.black / white: Black's win rate to one decimal and White's making 100 with it as
+ *  shown, "--" for both without analysis. The reading is the statistics bar's own
+ *  (StatisticsView.reading). */
+export function nameWinrates(reading: WinrateReading | null): NameWinrateTexts {
+  if (!reading) return { black: "--", white: "--" };
+  // Java Math.round: half up.
+  const tenths = Math.floor(reading.black * 10 + 0.5);
+  const percent = (t: number) => `${Math.trunc(t / 10)}.${t % 10}%`;
+  return { black: percent(tenths), white: percent(1000 - tenths) };
+}
+
+/** A text's ink box (canvas coordinates): from its left end and the font's ascent above the
+ *  baseline to its right end and the descent below. */
+export interface TextBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** What drawName drew: the names as cut (fitName), the win rates beside them while shown, the
+ *  click area (BoardNamePlate.hitBox: from the start of Black's text to the end of White's, the
+ *  stones between them included, the font's height) and each text's box. */
+export interface NamesReport {
+  black: string;
+  white: string;
+  winrates: NameWinrateTexts | null;
+  box: TextBox;
+  blackBox: TextBox | null;
+  whiteBox: TextBox | null;
+  blackRateBox: TextBox | null;
+  whiteRateBox: TextBox | null;
 }
 
 /** Board.maybeConvertNormalCoordsToOther of the engine coordinate: 含I letters for 含I and
@@ -82,6 +138,11 @@ const weightOf = (family: string, bold = false) => (bold || (winrateBold && fami
  *  create their own fonts from them (MoveListFrame.java:320-321, 3453, 5473, 5680, 5860). */
 export function themeFonts(): { ui: string; info: string } {
   return { ui: UI_FONT, info: PLAYOUTS_FONT };
+}
+/** LizzieFrame.winrateFont's face (winrate-font-name, else the bundled Lizzie font), for the
+ *  windows that draw win rates themselves (黑白胜率大字). */
+export function winrateFace(): string {
+  return WINRATE_FONT;
 }
 /** Whether the theme names its ui-font-name / font-name (not Lizzie Default). */
 let uiNamed = false;
@@ -195,6 +256,11 @@ export interface BoardScene {
   white: string;
   /** 棋盘下方显示黑白名字 with a player name to show (BoardRenderer.isEmptyName). */
   names: boolean;
+  /** Both sides' live win rates beside the names (NameWinrates) while they are shown, as drawn:
+   *  Black's and White's, or "--" for both without analysis. */
+  nameWinrates: NameWinrateTexts | null;
+  /** 棋盘坐标 of the committed theme (CoordinateLabels). */
+  labels: CoordinateLook;
   snapshot: boolean;
   mainTrunk: boolean;
   /** 试下 runs (LizzieFrame.isTrying): the core numbers only its own stones. */
@@ -239,6 +305,8 @@ export interface BoardScene {
   /** 点击棋子回看 shows (BoardRenderer.java:313-326): its 落子评价 marks, or only the last move's
    *  mark (drawLastMoveMark). The scene then holds the reviewed position. */
   review: "ranks" | "last" | null;
+  /** AI 陪练's hint and 看 AI 推荐 marks (main board only; BoardRenderer.coachMarks). */
+  coach: CoachMarks | null;
 }
 
 /** What the main board drew, for the acceptance probe. */
@@ -246,6 +314,9 @@ export interface BoardReport {
   coordinates: boolean;
   /** Below the board: player names, the pure network line, or nothing. */
   bottomLine: "names" | "rawNet" | null;
+  /** The player names as drawn (fitName), the win rates beside them and where each was drawn,
+   *  while they show. */
+  names: NamesReport | null;
   rawNetInfo: string | null;
   moveNumbers: { x: number; y: number; text: string; red: boolean }[];
   lastMoveMarker: Point | null;
@@ -259,6 +330,8 @@ export interface BoardReport {
   preview: { order: number; length: number; numbers: number } | null;
   /** Coordinate labels drawn along the top and the left edge (坐标格式). */
   coordinateLabels: { cols: string[]; rows: string[] } | null;
+  /** Every coordinate label drawn: its text, font, font size (px) and ink box. */
+  coordinateText: { text: string; font: string; size: number; box: TextBox }[];
   /** The best candidate's ring: blue (show-blue-ring) or the faint black ring. */
   bestRing: "blue" | "plain" | null;
   /** Grey unimportant-candidate circles drawn (show-nosugg-circle, rank 20 and beyond). */
@@ -283,6 +356,8 @@ export interface BoardReport {
   moveRect: Point | null;
   /** The click review drawn: its position's node marks ("ranks" / "last"). */
   review: BoardScene["review"];
+  /** The coach marks drawn: the hint's area and the marked point. */
+  coach: CoachMarks | null;
 }
 
 export const images: Record<string, HTMLImageElement> = {};
@@ -959,6 +1034,36 @@ function jString(g: CanvasRenderingContext2D, s: string, x: number, y: number, f
   const height = fm.ascent - fm.descent;
   const offset = aboveOrBelow === -1 ? i(height / 2) : aboveOrBelow === 1 ? -i(height / 2) : 0;
   g.fillText(s, x - i(Math.round(g.measureText(s).width) / 2), y + i(height / 2) + offset);
+}
+
+/** drawCoordinate's sizing (jString's) by face, weight, limits and label: the board repaints with
+ *  every analysis update, and a label is measured again only when one of them changes. */
+const coordinateFits = new Map<string, { font: string; size: number; width: number; ascent: number; descent: number }>();
+
+/** BoardRenderer.drawCoordinate: a coordinate label in the UI font, bold or plain, sized as
+ *  jString sizes it within `maxH` / `maxW` (CoordinateLabels.maxHeight / maxWidth) and centred on
+ *  (x, y). Returns what it drew, for the report. */
+function drawCoordinate(g: CanvasRenderingContext2D, text: string, x: number, y: number, maxH: number, maxW: number, bold: boolean): BoardReport["coordinateText"][number] {
+  const key = `${UI_FONT}\n${bold}\n${maxH}\n${maxW}\n${text}`;
+  let fit = coordinateFits.get(key);
+  if (!fit) {
+    const weight = weightOf(UI_FONT, bold);
+    g.font = `${weight}100px ${UI_FONT}`;
+    const size = Math.max(1, Math.min(maxH, Math.round((100 * maxW) / Math.max(1, Math.round(g.measureText(text).width)))));
+    const font = `${weight}${size}px ${UI_FONT}`;
+    g.font = font;
+    const fm = javaMetrics(g);
+    fit = { font, size, width: Math.round(g.measureText(text).width), ascent: fm.ascent, descent: fm.descent };
+    if (coordinateFits.size >= 1024) coordinateFits.clear();
+    coordinateFits.set(key, fit);
+  }
+  g.font = fit.font;
+  g.textAlign = "left";
+  g.textBaseline = "alphabetic";
+  const left = x - i(fit.width / 2);
+  const baseline = y + i((fit.ascent - fit.descent) / 2);
+  g.fillText(text, left, baseline);
+  return { text, font: fit.font, size: fit.size, box: { x: left, y: baseline - fit.ascent, w: fit.width, h: fit.ascent + fit.descent } };
 }
 
 /** The board paint under a disc (drawLeelazSuggestions / drawCircleBackground: setPaint(paint)). */
@@ -1728,6 +1833,7 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
   const report: BoardReport = {
     coordinates: d.coordinates,
     bottomLine: null,
+    names: null,
     rawNetInfo: null,
     moveNumbers: [],
     lastMoveMarker: null,
@@ -1740,6 +1846,7 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
     nextMove: null,
     preview: null,
     coordinateLabels: null,
+    coordinateText: [],
     bestRing: null,
     unimportant: 0,
     whiteOrderBadges: false,
@@ -1752,6 +1859,7 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
     tracked: [],
     moveRect: null,
     review: null,
+    coach: null,
   };
   // drawWoodenBoard (BoardRenderer.java:3620-3651): a custom board image gets a (0,0,0,50) wash.
   Object.assign(surface, { x: ox, y: oy, size: geo.size, image: look.board, custom: look.customBoard });
@@ -1778,7 +1886,7 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
     }
     // Coordinates (BoardRenderer.java:1038-1100) in the 坐标格式, or 中式经典's line numbers from the
     // nearer edge (BoardStylePainter.chineseClassicCoordinateLabel); the bottom row gives way to the
-    // names and the line.
+    // names and the line. 棋盘坐标 scales their limits and may make them bold (drawCoordinate).
     if (d.coordinates) {
       g.fillStyle = "#000";
       const at = i((geo.margin * 4) / 10);
@@ -1787,13 +1895,16 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
       const labels = look.chinese
         ? { cols: Array.from({ length: geo.cols }, (_, k) => chineseClassicLabel(k, geo.cols)), rows: Array.from({ length: geo.rows }, (_, k) => chineseClassicLabel(k, geo.rows)) }
         : coordinateLabels(d.coordinateStyle, geo.cols, geo.rows);
-      labels.cols.forEach((label, k) => {
-        jString(g, label, X(k), oy + atY, UI_FONT, i((r * 4) / 5), r);
-        if (bottom) jString(g, label, X(k), oy + sizeY - atY, UI_FONT, i((r * 4) / 5), r);
+      const maxH = i((r * 4) / 5) * s.labels.scale;
+      const maxW = r * s.labels.scale;
+      const label = (text: string, x: number, y: number) => report.coordinateText.push(drawCoordinate(g, text, x, y, maxH, maxW, s.labels.bold));
+      labels.cols.forEach((text, k) => {
+        label(text, X(k), oy + atY);
+        if (bottom) label(text, X(k), oy + sizeY - atY);
       });
-      labels.rows.forEach((label, k) => {
-        jString(g, label, ox + at, Y(k), UI_FONT, i((r * 4) / 5), r);
-        jString(g, label, ox + geo.size - at, Y(k), UI_FONT, i((r * 4) / 5), r);
+      labels.rows.forEach((text, k) => {
+        label(text, ox + at, Y(k));
+        label(text, ox + geo.size - at, Y(k));
       });
       report.coordinateLabels = labels;
     }
@@ -1806,7 +1917,7 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
     report.bottomLine = "rawNet";
     report.rawNetInfo = text;
   } else if (s.names) {
-    drawName(g, s, ox, oy, geo);
+    report.names = drawName(g, s, ox, oy, geo);
     report.bottomLine = "names";
   }
   const layer = s.ownership;
@@ -1898,7 +2009,42 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
     g.stroke();
     report.mark = s.mark;
   }
+  if (s.coach && (s.coach.area || s.coach.point)) {
+    drawCoachMarks(g, s.coach, X, Y, sq, squareY);
+    report.coach = s.coach;
+  }
   return report;
+}
+
+/** CoachBoardMarks.paint, over the stones: the hint's area as a soft rounded square in the coach
+ *  teal from the first third's line to the last's, and a point as a teal ring with a glow. */
+function drawCoachMarks(g: CanvasRenderingContext2D, m: CoachMarks, X: (x: number) => number, Y: (y: number) => number, sq: number, sqY: number): void {
+  g.save();
+  if (m.area) {
+    const [x0, y0, x1, y1] = m.area;
+    const left = X(x0) - i(sq / 2);
+    const top = Y(y0) - i(sqY / 2);
+    const w = (x1 - x0 + 1) * sq;
+    const h = (y1 - y0 + 1) * sqY;
+    const arc = i(sq / 2) / 2;
+    g.beginPath();
+    g.roundRect(left, top, w, h, arc);
+    g.fillStyle = "rgba(61,190,170,0.180)";
+    g.fill();
+    g.strokeStyle = "rgba(61,190,170,0.824)";
+    g.lineWidth = Math.max(2, sq / 14);
+    g.stroke();
+  }
+  if (m.point) {
+    const radius = i((sq * 46) / 100);
+    circle(g, X(m.point.x), Y(m.point.y), radius);
+    g.fillStyle = "rgba(61,190,170,0.275)";
+    g.fill();
+    g.strokeStyle = "#3dbeaa";
+    g.lineWidth = Math.max(2.5, sq / 9);
+    g.stroke();
+  }
+  g.restore();
 }
 
 /** The review's marks over its position (BoardRenderer.java:313-326, 1465-1559): the variation's
@@ -2135,22 +2281,50 @@ function drawMarks(g: CanvasRenderingContext2D, scene: BoardScene, px: (p: numbe
   }
 }
 
-/** BoardRenderer.drawName (BoardRenderer.java:802-934): both name stones (the side to move drawn on
+/** NameWinrates.WIDEST: the widest win rate as drawn beside a name, two spaces before it. */
+const WIDEST_WINRATE = "  100.0%";
+
+interface TextMeasure {
+  width: number;
+  ascent: number;
+  descent: number;
+}
+
+/** Measures by font and text: the names, labels, hints and the side to move drawn on every
+ *  repaint are measured once, and again only when their text or font changes (a new language,
+ *  face or size is a new key). Texts that change with every analysis update (the win rates beside
+ *  the names) take the room of the texts used longest ago, never of the ones each repaint uses. */
+const textMeasures = new RecentCache<string, TextMeasure>(256);
+function measure(g: CanvasRenderingContext2D, text: string): TextMeasure {
+  const key = `${g.font}\n${text}`;
+  let m = textMeasures.get(key);
+  if (m === undefined) {
+    const metrics = g.measureText(text);
+    m = { width: metrics.width, ascent: metrics.fontBoundingBoxAscent, descent: metrics.fontBoundingBoxDescent };
+    textMeasures.set(key, m);
+  }
+  return m;
+}
+
+function textWidth(g: CanvasRenderingContext2D, text: string): number {
+  return Math.round(measure(g, text).width);
+}
+
+/** BoardRenderer.drawName (BoardRenderer.java:796-862): both name stones (the side to move drawn on
  *  top), the black name left of them and the white name right of them, both in the board's ink;
- *  the stones beside them tell the sides apart. Names longer than 0.43 of the board are cut by the
- *  Java step. */
-function drawName(g: CanvasRenderingContext2D, scene: BoardScene, ox: number, oy: number, geo: BoardGeom) {
+ *  the stones beside them tell the sides apart. A name wider than 0.43 of the grid is cut with
+ *  an ellipsis (fitName). While the win rates show (NameWinrates) each sits next to the stones,
+ *  Black's ending where Black's name ended and White's starting where White's started, and the
+ *  names give up the room of the widest one (WIDEST), so a changing win rate never moves them. */
+function drawName(g: CanvasRenderingContext2D, scene: BoardScene, ox: number, oy: number, geo: BoardGeom): NamesReport {
   const { size, margin, stoneRadius: r, square, n } = geo;
   g.font = `${i(Math.min(28, (margin * 53) / 100))}px ${GRAPH_FONT}`;
   const fm = javaMetrics(g);
-  const width = (s: string) => Math.round(g.measureText(s).width);
-  const limit = square * n * 0.43;
-  const cut = (s: string) => {
-    while (s && width(s) > limit) s = s.slice(0, s.length - Math.max(1, i((width(s) - square * i(n / 2)) / i(width(s) / s.length))));
-    return s;
-  };
-  const black = cut(scene.black);
-  const white = cut(scene.white);
+  const rates = scene.nameWinrates;
+  const slot = rates ? textWidth(g, WIDEST_WINRATE) : 0;
+  const limit = i(square * n * 0.43) - slot;
+  const black = fitName(g, scene.black, limit);
+  const white = fitName(g, scene.white, limit);
   const d = i((r * 5) / 4);
   const top = oy - margin + r + size;
   const discs: [string, number][] = [["#000", i((r * 9) / 10)], ["#fff", i((r * 3) / 10)]];
@@ -2164,8 +2338,130 @@ function drawName(g: CanvasRenderingContext2D, scene: BoardScene, ox: number, oy
   g.textAlign = "left";
   g.textBaseline = "alphabetic";
   g.fillStyle = "#000";
-  if (black) g.fillText(black, ox + i(size / 2) - width(black) - i((margin * 4) / 5), baseY);
-  if (white) g.fillText(white, ox + i(size / 2) + i((margin * 4) / 5) + 1, baseY);
+  // Black's text ends here, White's starts here.
+  const blackEnd = ox + i(size / 2) - i((margin * 4) / 5);
+  const whiteStart = ox + i(size / 2) + i((margin * 4) / 5) + 1;
+  const box = (x: number, text: string): TextBox => ({ x, y: baseY - fm.ascent, w: textWidth(g, text), h: fm.ascent + fm.descent });
+  const blackBox = black ? box(blackEnd - slot - textWidth(g, black), black) : null;
+  const whiteBox = white ? box(whiteStart + slot, white) : null;
+  const blackRateBox = rates ? box(blackEnd - textWidth(g, rates.black), rates.black) : null;
+  const whiteRateBox = rates ? box(whiteStart, rates.white) : null;
+  for (const [text, at] of [[black, blackBox], [white, whiteBox], [rates?.black, blackRateBox], [rates?.white, whiteRateBox]] as const) {
+    if (text && at) g.fillText(text, at.x, baseY);
+  }
+  const left = Math.min(blackBox?.x ?? blackEnd, blackRateBox?.x ?? blackEnd);
+  const right = Math.max(whiteBox ? whiteBox.x + whiteBox.w : whiteStart, whiteRateBox ? whiteRateBox.x + whiteRateBox.w : whiteStart);
+  return { black, white, winrates: rates, box: { x: left, y: baseY - fm.ascent, w: right - left, h: fm.ascent + fm.descent }, blackBox, whiteBox, blackRateBox, whiteRateBox };
+}
+
+const ELLIPSIS = "…";
+/** Grapheme boundaries: a cut never splits a letter from its marks, a surrogate pair or an emoji
+ *  sequence. */
+const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+/** fitName's results by font, width and name: the board repaints with every analysis update, and
+ *  a name is measured again only when one of them changes. */
+const fittedNames = new Map<string, string>();
+
+/** BoardNamePlate.fit (Java): `name` as it is when it fits `maxWidth` px in the current font, else
+ *  shortened one character at a time from its end until it fits with "…" after it (at least one
+ *  character stays), the cut text without trailing blanks. */
+export function fitName(g: CanvasRenderingContext2D, name: string, maxWidth: number): string {
+  const key = `${g.font}\n${maxWidth}\n${name}`;
+  let shown = fittedNames.get(key);
+  if (shown !== undefined) return shown;
+  const width = (s: string) => Math.round(g.measureText(s).width);
+  if (width(name) <= maxWidth) shown = name;
+  else {
+    const ends = Array.from(GRAPHEMES.segment(name), (s) => s.index + s.segment.length);
+    let k = ends.length - 1;
+    while (k > 0 && width(name.slice(0, ends[k]) + ELLIPSIS) > maxWidth) k--;
+    shown = name.slice(0, ends[k]).trim() + ELLIPSIS;
+  }
+  if (fittedNames.size >= 64) fittedNames.clear();
+  fittedNames.set(key, shown);
+  return shown;
+}
+
+/** What paintEmptyBoardHint drew, in the board canvas's coordinates. */
+export interface EmptyHintReport {
+  text: string;
+  lines: string[];
+  size: number;
+  box: Rect;
+}
+
+const WORDS = new Intl.Segmenter(undefined, { granularity: "word" });
+/** The hint's lines for a text, face and room: laid out again only when one of them changes. */
+let hintLayout: { key: string; lines: string[]; size: number } | null = null;
+
+/** `text` broken between words into lines no wider than `room` px in the current font: blanks
+ *  at a break are dropped and punctuation stays with the word before it. Null when one word alone
+ *  is wider. */
+function wrapWords(g: CanvasRenderingContext2D, text: string, room: number): string[] | null {
+  const lines: string[] = [];
+  let line = "";
+  for (const { segment, isWordLike } of WORDS.segment(text)) {
+    const blank = !segment.trim();
+    if (!line) {
+      if (!blank) line = segment;
+      continue;
+    }
+    // Punctuation and blanks never start a line.
+    if (!isWordLike || g.measureText(line + segment).width <= room) {
+      line += segment;
+      continue;
+    }
+    lines.push(line.trimEnd());
+    line = segment;
+  }
+  if (line.trim()) lines.push(line.trimEnd());
+  return lines.every((l) => g.measureText(l).width <= room) ? lines : null;
+}
+
+/** EmptyBoardHint.paint (Java) on the main board, painted over what paintBoard drew: `text` centred
+ *  on the board at Java's max(13, board width / 48) px in the interface face and the board's ink,
+ *  on a patch of the board's own paint so the grid does not cross it (as a label mark covers the
+ *  grid) instead of Java's dark pill. The patch stays inside the grid, clear of the coordinates:
+ *  a longer text breaks between words into at most three lines, shrinking to fit, never under
+ *  9 px. Nothing on a board under 200 px (Java). */
+export function paintEmptyBoardHint(g: CanvasRenderingContext2D, geo: BoardGeom, origin: { x: number; y: number }, text: string): EmptyHintReport | null {
+  if (geo.size < 200) return null;
+  const family = panelFont("ui");
+  const grid = geo.size - 2 * geo.margin;
+  const key = `${family}\n${grid}\n${geo.size}\n${text}`;
+  if (hintLayout?.key !== key) {
+    let size = Math.max(13, geo.size / 48);
+    let lines: string[] | null = null;
+    for (; size >= 9; size--) {
+      g.font = `${size}px ${family}`;
+      lines = wrapWords(g, text, grid - 2 * Math.round(Math.round(size * 1.4) * 0.75));
+      if (lines && lines.length <= 3) break;
+    }
+    size = Math.max(9, size);
+    hintLayout = { key, lines: lines ?? [text], size };
+  }
+  const { lines, size } = hintLayout;
+  g.font = `${size}px ${family}`;
+  const lineH = Math.round(size * 1.4);
+  const padX = Math.round(lineH * 0.75);
+  const w = Math.min(grid, Math.ceil(Math.max(...lines.map((l) => measure(g, l).width))) + 2 * padX);
+  const h = lines.length * lineH + Math.round(lineH / 2);
+  const sizeY = geo.sizeY ?? geo.size;
+  const x = Math.round(geo.x - origin.x + (geo.size - w) / 2);
+  const y = Math.round(geo.y - origin.y + (sizeY - h) / 2);
+  g.save();
+  g.beginPath();
+  g.roundRect(x, y, w, h, Math.round(lineH / 4));
+  g.clip();
+  boardFill(g, x, y, w, h);
+  g.restore();
+  g.fillStyle = "#000";
+  g.textAlign = "center";
+  g.textBaseline = "middle";
+  lines.forEach((l, k) => g.fillText(l, x + w / 2, y + Math.round(lineH / 4) + k * lineH + lineH / 2));
+  g.textAlign = "left";
+  g.textBaseline = "alphabetic";
+  return { text, lines, size, box: { x, y, w, h } };
 }
 
 // ------------------------------------------------------------------ sub board
@@ -2391,10 +2687,11 @@ function sidePad(w: number): number {
 }
 
 /** A number with its name (数字带说明规则): the name at Label size in text3, then the figure at
- *  weight 600 with tabular figures in `color` (text without one). */
+ *  weight 600 with tabular figures in `color` (text without one), then its unit like the name. */
 interface Figure {
   name: string;
   value: string;
+  unit?: string;
   color?: string;
 }
 
@@ -2413,7 +2710,8 @@ function figuresWidth(g: CanvasRenderingContext2D, figures: Figure[], label: num
   figures.forEach((f, k) => {
     if (k > 0) width += FIGURES_GAP;
     g.font = `${label}px ${family}`;
-    if (f.name) width += g.measureText(f.name).width + (f.value ? FIGURE_GAP : 0);
+    if (f.name) width += measure(g, f.name).width + (f.value ? FIGURE_GAP : 0);
+    if (f.unit) width += FIGURE_GAP + measure(g, f.unit).width;
     g.font = `600 ${size}px ${family}`;
     width += tabularWidth(g, f.value);
   });
@@ -2430,12 +2728,18 @@ function drawFigures(g: CanvasRenderingContext2D, figures: Figure[], x: number, 
     if (f.name) {
       g.fillStyle = p.text3;
       g.fillText(f.name, x, y);
-      x += g.measureText(f.name).width + (f.value ? FIGURE_GAP : 0);
+      x += measure(g, f.name).width + (f.value ? FIGURE_GAP : 0);
     }
     g.font = `600 ${size}px ${family}`;
     g.fillStyle = f.color ?? p.text;
     fillTabular(g, f.value, x, y);
     x += tabularWidth(g, f.value);
+    if (f.unit) {
+      g.font = `${label}px ${family}`;
+      g.fillStyle = p.text3;
+      g.fillText(f.unit, x + FIGURE_GAP, y);
+      x += FIGURE_GAP + measure(g, f.unit).width;
+    }
   });
 }
 
@@ -2526,16 +2830,23 @@ export interface CapturedScene {
 }
 
 /** What paintCaptured drew, in panel coordinates: the rules caption (null when the panel shows
- *  the move number or has no room for the caption) and the boxes beside and below it. */
+ *  the move number or has no room for the caption), the side to move (null in the small strip or
+ *  without room), the engine dot and the boxes beside and below them. */
 export interface CapturedReport {
   width: number;
   height: number;
   caption: string | null;
   captionBox: Rect | null;
+  turn: string | null;
+  turnBox: Rect | null;
+  /** The engine dot: its centre, diameter and row (1 with the caption, 2 with the komi). */
+  dot: { x: number; y: number; d: number; row: 1 | 2 };
   /** Black's and White's stone with the 提子 beside it, and the 贴目 row (null with one row). */
   black: Rect;
   white: Rect;
   komi: Rect | null;
+  /** The 贴目 figure as written (komiText), also when its row is left out. */
+  komiText: string;
 }
 
 /** drawCaptured's AI总评分 text (LizzieFrame.AIscore + "%.1f"). */
@@ -2572,13 +2883,18 @@ const MIN_TEXT = 9;
 /** LizzieFrame.drawCaptured (LizzieFrame.java:9098-9375) as the card's game header: Black on the
  *  left and White on the right, each a flat stone (the side to move full size, the other smaller,
  *  as Java draws it) with its 提子 beside it and its AI总评分 below; in the middle the engine dot
- *  with the rules caption (else the move number) and the komi under it. The small strip of 四方图 /
- *  思考模式 has no capture counts. The dot shows pondering; stored analysis is independent of it.
+ *  with the rules caption (else the move number) and the komi under it. The side to move (Java
+ *  `InfoPanelText.turn`, not in the small strip) follows the dot: the two go together to the
+ *  komi row, at the komi's left, where they fit whole beside Black's AI总评分; the caption and the
+ *  komi keep their place and size either way (Java sets the dot and the side to move on a row of
+ *  their own under the caption). The small strip of 四方图 / 思考模式 has no capture counts. The
+ *  dot shows pondering; stored analysis is independent of it.
  *  Text shrinks to fit, never under MIN_TEXT; a section too short or narrow for that drops rows
  *  instead: first the second row (吻合度, 贴目; the small strip moves 吻合度 beside its stones
  *  while that fits), then the caption (the dot stays), then the 提子 names (each count stays
- *  beside its stone). Returns what was drawn; its captionBox is the rules caption's text box as
- *  drawn (Java's matchRulesCaptionHitBox), null when no caption is drawn. */
+ *  beside its stone). The side to move never makes the other text smaller, moves or drops it.
+ *  Returns what was drawn; its captionBox is the rules caption's text box as drawn (Java's
+ *  matchRulesCaptionHitBox), null when no caption is drawn. */
 export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedScene): CapturedReport | null {
   const { w, h } = r;
   if (w < 10 || h < 5) return null;
@@ -2593,7 +2909,7 @@ export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedS
   });
   const black = side(s.blackCaptures, s.aiScoreBlack);
   const white = side(s.whiteCaptures, s.aiScoreWhite);
-  const komi: Figure[] = [{ name: nameOf(t("Menu.komi")), value: javaDouble(s.komi) }];
+  const komi: Figure[] = [{ name: nameOf(t("Menu.komi")), value: komiText(s.komi) }];
   const moveNumber: Figure[] = [{ name: nameOf(t("BottomToolbar.move")), value: String(s.moveNumber) }];
   const STONE = 20;
   const sizes = (k: number): HeaderSizes => ({
@@ -2677,40 +2993,64 @@ export function paintCaptured(g: CanvasRenderingContext2D, r: Rect, s: CapturedS
   // Each stone with the 提子 beside it.
   const [blackW, whiteW] = plan.top.map((top) => z.stone + (top.length ? z.gap + figuresWidth(g, top, z.label, z.large, family) : 0));
   const komiW = figuresWidth(g, komi, z.label, z.body, family);
+  const komiX = i(w / 2 - komiW / 2);
+  // The middle as the dot and the caption lay it out on the first row.
+  const start = i(w / 2 - (z.dot + (plan.caption ? 5 * k + captionWidth(z) : 0)) / 2);
+  // The side to move with the dot on the komi row, left of the komi, clear of Black's AI总评分.
+  const turn = s.small || !plan.twoRows ? null : t(s.toPlay === "Black" ? "LizzieFrame.info.blackToPlay" : "LizzieFrame.info.whiteToPlay");
+  g.font = `${z.body}px ${family}`;
+  const turnText = turn ? measure(g, turn).width : 0;
+  const scoreW = figuresWidth(g, black.bottom, z.label, z.large, family);
+  const groupX = komiX - 8 * k - (z.dot + 5 * k + turnText);
+  const shownTurn = turn !== null && groupX >= pad + (scoreW ? scoreW + 12 : 0);
+  const komiMid = baseB - z.body * 0.36;
   const report: CapturedReport = {
     width: w,
     height: h,
     caption: null,
     captionBox: null,
+    turn: null,
+    turnBox: null,
+    dot: shownTurn ? { x: groupX + z.dot / 2, y: komiMid, d: z.dot, row: 2 } : { x: start + z.dot / 2, y: rowA, d: z.dot, row: 1 },
     black: { x: pad, y: rowA - z.stone / 2, w: blackW, h: z.stone },
     white: { x: w - pad - whiteW, y: rowA - z.stone / 2, w: whiteW, h: z.stone },
-    komi: plan.twoRows ? { x: i(w / 2 - komiW / 2), y: baseB - z.body, w: komiW, h: z.body * 1.2 } : null,
+    komi: plan.twoRows ? { x: komiX, y: baseB - z.body, w: komiW, h: z.body * 1.2 } : null,
+    komiText: komi[0].value,
   };
   if (plan.twoRows) {
     drawFigures(g, black.bottom, pad, baseB, z.label, z.large, family, p);
     drawFigures(g, white.bottom, w - pad - figuresWidth(g, white.bottom, z.label, z.large, family), baseB, z.label, z.large, family, p);
-    drawFigures(g, komi, i(w / 2 - komiW / 2), baseB, z.label, z.body, family, p);
+    drawFigures(g, komi, komiX, baseB, z.label, z.body, family, p);
   }
-  // The middle: the dot and the caption.
-  const start = i(w / 2 - (z.dot + (plan.caption ? 5 * k + captionWidth(z) : 0)) / 2);
-  engineDot(g, start + z.dot / 2, rowA, z.dot, s.analysing, p);
+  engineDot(g, report.dot.x, report.dot.y, z.dot, s.analysing, p);
+  const box = (text: string, left: number, base: number) => {
+    const m = measure(g, text);
+    const ascent = m.ascent || z.body * 0.8;
+    const descent = m.descent || z.body * 0.25;
+    return { x: left, y: base - ascent, w: m.width, h: ascent + descent };
+  };
+  g.textAlign = "left";
+  g.textBaseline = "alphabetic";
+  if (shownTurn && turn) {
+    const x = groupX + z.dot + 5 * k;
+    g.font = `${z.body}px ${family}`;
+    g.fillStyle = p.text2;
+    g.fillText(turn, x, baseB);
+    report.turn = turn;
+    report.turnBox = box(turn, x, baseB);
+  }
   if (!plan.caption) return report;
   const captionBase = Math.round(rowA + z.body * 0.36);
+  const x = start + z.dot + 5 * k;
   if (!s.rules) {
-    drawFigures(g, moveNumber, start + z.dot + 5 * k, captionBase, z.label, z.body, family, p);
+    drawFigures(g, moveNumber, x, captionBase, z.label, z.body, family, p);
     return report;
   }
   g.font = `${z.body}px ${family}`;
   g.fillStyle = p.text2;
-  g.textAlign = "left";
-  g.textBaseline = "alphabetic";
-  const x = start + z.dot + 5 * k;
   g.fillText(s.rules, x, captionBase);
-  const m = g.measureText(s.rules);
-  const ascent = m.fontBoundingBoxAscent || z.body * 0.8;
-  const descent = m.fontBoundingBoxDescent || z.body * 0.25;
   report.caption = s.rules;
-  report.captionBox = { x, y: captionBase - ascent, w: m.width, h: ascent + descent };
+  report.captionBox = box(s.rules, x, captionBase);
   return report;
 }
 
@@ -2741,15 +3081,15 @@ export interface StatReport {
   bar: { black: string; white: string } | null;
   change: "gain" | "loss" | null;
   moveNumber: boolean;
-}
-
-/** Java's sign rule: "+" only above zero (a zero change reads "-0.0"). */
-function javaSigned(v: number): string {
-  return `${v > 0 ? "+" : "-"}${Math.abs(v).toFixed(1)}`;
+  /** The row under the bar (the lead and the last move) is drawn: it fits whole. Otherwise what it
+   *  lacked: the section's height (whatever the text) or the width for its text. */
+  note: boolean;
+  noteLacks: "height" | "width" | null;
 }
 
 /** LizzieFrame.drawMoveStatistics (LizzieFrame.java:8702-9025) outside play mode, as a card
- *  section: both win rates as headline figures at the two ends with the move number between them
+ *  section: both win rates as headline figures at the two ends, each after its side's name (Java
+ *  "黑 99.2%"), with the move number between them
  *  (when it moved here from the captured panel and fits), the black/white bar with its centre
  *  tick and, under it, the last move's change from the win rate before it (gain or loss colour,
  *  pointing to the win rate now); then the score lead at the left and the last move's rank and
@@ -2757,31 +3097,43 @@ function javaSigned(v: number): string {
  *  drawn as zero. `report.text` is Java's line of the same values. */
 export function paintStat(g: CanvasRenderingContext2D, r: Rect, s: StatScene): StatReport {
   const { w, h } = r;
-  const report: StatReport = { text: "", bar: null, change: null, moveNumber: false };
+  const report: StatReport = { text: "", bar: null, change: null, moveNumber: false, note: false, noteLacks: null };
   if (w < 10 || h < 5) return report;
   const p = stagePalette();
-  const leadName = s.leadWithKomi ? t("LizzieFrame.scoreLeadWithKomi") : t("LizzieFrame.scoreLeadJustScore");
-  const lastName = `${t("LizzieFrame.display.lastMove")}${s.matched ? `(#${s.matched})` : ""}`;
-  let text = "";
-  if (s.kata && s.lead !== null) text += `${leadName}${s.lead.toFixed(1)}`;
-  if (s.change !== null) {
-    text += ` ${lastName}: ${javaSigned(s.change)}%`;
-    if (s.kata && s.scoreChange !== null) text += ` ${javaSigned(s.scoreChange)}${t("LizzieFrame.pts")}`;
+  // The lead with komi keeps its label and signed figure; Black's lead on the board is worded by
+  // who leads (MoveStatusText.lead): "白领先 7.3 目", "均势".
+  let lead: Figure[] = [];
+  let leadText = "";
+  if (s.kata && s.lead !== null && s.leadWithKomi) {
+    lead = [{ name: nameOf(t("LizzieFrame.scoreLeadWithKomi")), value: s.lead.toFixed(1) }];
+    leadText = `${t("LizzieFrame.scoreLeadWithKomi")}${s.lead.toFixed(1)}`;
+  } else if (s.kata && s.lead !== null) {
+    const who = leadOf(s.lead);
+    if (who === "even") {
+      leadText = t("LizzieFrame.status.even");
+      lead = [{ name: "", value: leadText }];
+    } else {
+      const words = t(who.side === "Black" ? "LizzieFrame.status.blackLeads" : "LizzieFrame.status.whiteLeads");
+      const [before, after = ""] = words.split("{0}");
+      leadText = format(words, who.points);
+      lead = [{ name: before.trim(), value: who.points, unit: after.trim() }];
+    }
   }
-  report.text = text;
+  // The previous move's change only when the core has both positions analysed (Java
+  // `LizzieFrame.drawMoveStatistics`: `validLastWinrate && validWinrate`), worded by
+  // MoveStatusText.previousMove: its rank only when it was a candidate, the score when known.
+  const prev = s.change === null ? null : previousMove(s.matched, s.change, s.kata ? s.scoreChange : null, { name: t("LizzieFrame.status.previousMove"), pts: t("LizzieFrame.pts") });
+  report.text = [leadText, prev?.text].filter(Boolean).join(" ");
 
   const family = panelFont();
   const ui = panelFont("ui");
   const type = typeScale();
   const pad = sidePad(w);
   const room = w - 2 * pad;
-  const lead: Figure[] = s.kata && s.lead !== null ? [{ name: nameOf(leadName), value: s.lead.toFixed(1) }] : [];
-  // The previous move's change only when the core has both positions analysed (Java
-  // `validLastWinrate && validWinrate`); its rank is left out when it was no candidate.
-  const last: Figure[] = s.change === null ? [] : [{ name: lastName, value: `${javaSigned(s.change)}%` }];
-  if (last.length && s.change !== null && s.change < 0) last[0].color = p.loss;
-  if (last.length && s.kata && s.scoreChange !== null) {
-    last.push({ name: "", value: `${javaSigned(s.scoreChange)}${t("LizzieFrame.pts")}`, ...(s.scoreChange < 0 ? { color: p.loss } : {}) });
+  const last: Figure[] = [];
+  if (prev) {
+    last.push({ name: prev.name, value: prev.winrate.value, ...(prev.winrate.loss ? { color: p.loss } : {}) });
+    if (prev.score) last.push({ name: "", value: prev.score.value, ...(prev.score.loss ? { color: p.loss } : {}) });
   }
   const moveNumber: Figure[] = [{ name: nameOf(t("BottomToolbar.move")), value: String(s.moveNumber) }];
   // Headline row, 6 px, the bar, 8 px (the change marker), the note row; the scale follows the
@@ -2802,7 +3154,10 @@ export function paintStat(g: CanvasRenderingContext2D, r: Rect, s: StatScene): S
   let z = rows(true);
   const notesW = figuresWidth(g, lead, z.label, z.body, family) + figuresWidth(g, last, z.label, z.body, family) + (lead.length ? 12 : 0);
   const note = z.total <= h - 2 && notesW <= room;
-  if (!note) z = rows(false);
+  if (!note) {
+    report.noteLacks = z.total > h - 2 ? "height" : "width";
+    z = rows(false);
+  }
   const { k, headline, label, body, barH, rowH1, rowH3, total } = z;
   // Spare height goes to the two gaps around the bar as well as the edges, up to 6 px each.
   const extra = Math.min(6 * k, Math.max(0, (h - total - 4) / 4));
@@ -2813,6 +3168,7 @@ export function paintStat(g: CanvasRenderingContext2D, r: Rect, s: StatScene): S
 
   // The note row: the lead at the left, the last move at the right.
   if (note) {
+    report.note = true;
     drawFigures(g, lead, pad, base3, label, body, family, p);
     drawFigures(g, last, w - pad - figuresWidth(g, last, label, body, family), base3, label, body, family, p);
   }
@@ -2828,15 +3184,18 @@ export function paintStat(g: CanvasRenderingContext2D, r: Rect, s: StatScene): S
     return report;
   }
   const winB = `${s.black.toFixed(1)}%`, winW = `${(100 - s.black).toFixed(1)}%`;
-  report.bar = { black: winB, white: winW };
-  g.font = `600 ${headline}px ${ui}`;
-  g.fillStyle = p.text;
-  g.textAlign = "left";
-  g.textBaseline = "alphabetic";
-  const winWWidth = tabularWidth(g, winW);
-  const winBWidth = tabularWidth(g, winB);
-  fillTabular(g, winB, pad, base1);
-  fillTabular(g, winW, w - pad - winWWidth, base1);
+  // Each percentage after its side's name (Java `Menu.Black` / `Menu.White`), the name a Label;
+  // a section too narrow for both names keeps the percentages alone.
+  let ends: [Figure[], Figure[]] = [[{ name: t("Menu.Black"), value: winB }], [{ name: t("Menu.White"), value: winW }]];
+  let [winBWidth, winWWidth] = ends.map((f) => figuresWidth(g, f, label, headline, ui));
+  if (winBWidth + winWWidth + 12 > room) {
+    ends = [[{ name: "", value: winB }], [{ name: "", value: winW }]];
+    [winBWidth, winWWidth] = ends.map((f) => figuresWidth(g, f, label, headline, ui));
+  }
+  const [barBlack, barWhite] = ends.map(([f]) => (f.name ? `${f.name} ${f.value}` : f.value));
+  report.bar = { black: barBlack, white: barWhite };
+  drawFigures(g, ends[0], pad, base1, label, headline, ui, p);
+  drawFigures(g, ends[1], w - pad - winWWidth, base1, label, headline, ui, p);
   centreMove(winBWidth + winWWidth);
 
   // The bar: White's track with its edge inside, Black's share over it, the centre tick.
@@ -2901,18 +3260,28 @@ export function paintPlayStat(g: CanvasRenderingContext2D, r: Rect, clock: strin
   fillTabular(g, clock, i((w - tabularWidth(g, clock)) / 2), Math.round(h / 2 + size * 0.36));
 }
 
+/** The status lines as paintStatus drew them, each cut with "..." where it did not fit; `rows`
+ *  holds only the hint rows the height had room for. */
+export interface StatusReport {
+  title: string;
+  state: string | null;
+  rows: string[][];
+}
+
 /** Pondering status lines (LizzieFrame.drawPonderingState) as a card section, centred in the
  *  status area: the engine line at Title weight, the other lines at Label size in text3. With
- *  `live` known (the engine's own status, not a loading or recovery message), the second line's
- *  pondering state sits right of the engine name after the live / idle dot, and its hotkey joins
- *  the hint, on one line where both fit. `speed`, the analysing engine's search speed, follows the
- *  engine name at Label size in text3 when it fits whole. Without room for full lines they share
- *  the height at the largest scale that fits, the hotkey and hint pairing up again where the
- *  smaller text lets them, the text never under 9 px; each line is cut with "..." to the width.
- *  The face is the theme's font-name when it names one (LizzieFrame.createStatusFont,
+ *  `live` known (the engine's own status, not a loading or recovery message), the second line is
+ *  the analysis state (Java `StatusOverlay.state`), drawn right of the engine name after the live /
+ *  idle dot, and the Space hint that follows it joins the next hint, on one line where both fit.
+ *  `speed`, the analysing engine's search speed, follows the engine name at Label size in text3
+ *  when it fits whole. Without room for full lines they share the height at the largest scale
+ *  that fits, the hints pairing up again where the smaller text lets them, the text never under
+ *  9 px; each line is cut with "..." to the width, and a hint row the height cannot hold whole is
+ *  left out. The face is the theme's font-name when it names one (LizzieFrame.createStatusFont,
  *  LizzieFrame.java:8432-8448). */
-export function paintStatus(g: CanvasRenderingContext2D, r: Rect, lines: string[], live: boolean | null, speed: string) {
-  if (!lines.length) return;
+export function paintStatus(g: CanvasRenderingContext2D, r: Rect, lines: string[], live: boolean | null, speed: string): StatusReport {
+  const report: StatusReport = { title: "", state: null, rows: [] };
+  if (!lines.length) return report;
   const { w, h } = r;
   const p = stagePalette();
   const family = panelFont("info");
@@ -2920,14 +3289,8 @@ export function paintStatus(g: CanvasRenderingContext2D, r: Rect, lines: string[
   const pad = sidePad(w);
   const room = w - 2 * pad;
   const [title, ...others] = lines;
-  let state: string | null = null;
-  let notes = others;
-  if (live !== null && others.length) {
-    const space = t("LizzieFrame.display.space");
-    const hotkey = others[0].endsWith(space);
-    state = (hotkey ? others[0].slice(0, -space.length) : others[0]).trim();
-    notes = [...(hotkey ? [space.trim()] : []), ...others.slice(1)];
-  }
+  const state = live !== null && others.length ? others[0] : null;
+  const notes = state === null ? others : others.slice(1);
   const rowsAt = (label: number) => {
     g.font = `${label}px ${family}`;
     return notes.length >= 2 && g.measureText(notes[0]).width + 16 + g.measureText(notes[1]).width <= room
@@ -2956,6 +3319,7 @@ export function paintStatus(g: CanvasRenderingContext2D, r: Rect, lines: string[
   if (state !== null && live !== null) {
     g.font = `${body}px ${family}`;
     const shown = elide(g, state, room * 0.6);
+    report.state = shown;
     const x = w - pad - g.measureText(shown).width;
     g.fillStyle = p.text2;
     g.fillText(shown, x, y + lh1 / 2);
@@ -2965,6 +3329,7 @@ export function paintStatus(g: CanvasRenderingContext2D, r: Rect, lines: string[
   g.font = `600 ${body}px ${family}`;
   g.fillStyle = p.text;
   const name = elide(g, title, room - stateW);
+  report.title = name;
   g.fillText(name, pad, y + lh1 / 2);
   if (speed) {
     const x = pad + g.measureText(name).width + 8;
@@ -2978,12 +3343,19 @@ export function paintStatus(g: CanvasRenderingContext2D, r: Rect, lines: string[
   g.font = `${label}px ${family}`;
   g.fillStyle = p.text3;
   for (const row of rows) {
+    if (y + lh2 > h) break;
     if (row.length === 2) {
       g.fillText(row[0], pad, y + lh2 / 2);
       g.fillText(row[1], w - pad - g.measureText(row[1]).width, y + lh2 / 2);
-    } else g.fillText(elide(g, row[0], room), pad, y + lh2 / 2);
+      report.rows.push(row);
+    } else {
+      const shown = elide(g, row[0], room);
+      g.fillText(shown, pad, y + lh2 / 2);
+      report.rows.push([shown]);
+    }
     y += lh2;
   }
+  return report;
 }
 
 /** LizzieFrame.drawPonderingStateForExtraMode2 (LizzieFrame.java:8324-8354) with fitStatusFont /

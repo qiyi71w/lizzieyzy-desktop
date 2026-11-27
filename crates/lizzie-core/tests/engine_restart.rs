@@ -199,7 +199,7 @@ fn cloud_recovery_replays_the_latest_position_without_ordinary_alive_check_or_fa
     set_auto_check(&mut wb, false);
     open(&mut wb, RECORD);
     wb.navigate(Navigation::Last);
-    wb.activate_cloud(lizzie_core::cloud::CloudSettings {
+    wb.activate_cloud(wb.cloud_ticket(), lizzie_core::cloud::CloudSettings {
         provider: lizzie_core::cloud::Provider::Zhizi,
         identifier: "fixture-account".into(),
         ..Default::default()
@@ -228,7 +228,7 @@ fn cloud_recovery_retires_the_borrow_and_rebuilds_the_foreground() {
     let world = World::default();
     let mut wb = workbench(dir.path(), &world, Vec::new());
     set_auto_check(&mut wb, false);
-    wb.activate_cloud(lizzie_core::cloud::CloudSettings {
+    wb.activate_cloud(wb.cloud_ticket(), lizzie_core::cloud::CloudSettings {
         provider: lizzie_core::cloud::Provider::Zhizi,
         identifier: "fixture-account".into(),
         ..Default::default()
@@ -266,7 +266,7 @@ fn cloud_switch_boundary_separates_an_old_failure_from_the_switch_outcome() {
     let world = World::default();
     let mut wb = workbench(dir.path(), &world, Vec::new());
     world.refuse_launches();
-    let profile = wb.activate_cloud(zhizi(""), true).unwrap();
+    let profile = wb.activate_cloud(wb.cloud_ticket(), zhizi(""), true).unwrap();
     let after = wb.view_seq();
     assert_eq!(wb.config().engine.engines.iter().find(|p| p.is_default).unwrap().id, profile);
     let failed = wb.view(false);
@@ -276,7 +276,7 @@ fn cloud_switch_boundary_separates_an_old_failure_from_the_switch_outcome() {
     world.1.store(false, Ordering::SeqCst);
     let old = wb.view(false);
     assert!(old.engine.down, "the old failure is still published before the next switch commits");
-    let again = wb.activate_cloud(zhizi(""), true).unwrap();
+    let again = wb.activate_cloud(wb.cloud_ticket(), zhizi(""), true).unwrap();
     let after = wb.view_seq();
     assert_eq!(again, profile);
     assert!(old.seq <= after, "the old failure is not an outcome of the new switch");
@@ -297,13 +297,13 @@ fn cloud_switch_with_changed_args_seats_a_new_launch_of_the_same_profile() {
     let dir = tempfile::tempdir().unwrap();
     let world = World::default();
     let mut wb = workbench(dir.path(), &world, Vec::new());
-    let profile = wb.activate_cloud(zhizi("--gpu-type vip-share --kata-weight 10b512t"), true).unwrap();
+    let profile = wb.activate_cloud(wb.cloud_ticket(), zhizi("--gpu-type vip-share --kata-weight 10b512t"), true).unwrap();
     let old = world.last();
     serve(&mut wb, &world, old);
     let before = wb.view(false);
     assert!(before.engine.foreground.unwrap().ready);
 
-    let again = wb.activate_cloud(zhizi("--gpu-type vip-share --kata-weight 18b"), true).unwrap();
+    let again = wb.activate_cloud(wb.cloud_ticket(), zhizi("--gpu-type vip-share --kata-weight 18b"), true).unwrap();
     let after = wb.view_seq();
     assert_eq!(again, profile, "the same provider keeps its profile");
     assert!(before.seq <= after, "the old ready engine is not an outcome of the new switch");
@@ -666,7 +666,7 @@ fn cloud_startup_workbench(
     }
     let staging_world = World::default();
     let mut staging = workbench(dir, &staging_world, profiles);
-    staging.activate_cloud(lizzie_core::cloud::CloudSettings {
+    staging.activate_cloud(staging.cloud_ticket(), lizzie_core::cloud::CloudSettings {
         provider, identifier: "fixture-account".into(),
         custom_url: "ws://fixture.invalid/private-path".into(),
         ..Default::default()

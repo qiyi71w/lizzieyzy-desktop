@@ -69,6 +69,11 @@ pub struct Asset {
     pub cudnn: Option<String>,
     pub tensorrt: Option<String>,
     pub minimum_driver: Option<String>,
+    /// The oldest macOS the packaged engine runs on: the build target of the project's macOS
+    /// engine build (`tools/katago-macos/build.sh`). A packaged engine without it is not checked.
+    #[serde(default, rename = "minimumMacOS", skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub minimum_macos: Option<String>,
     #[serde(default)]
     pub app_image: bool,
     pub license_summary: String,
@@ -178,6 +183,12 @@ impl Catalog {
                 || asset.executable_size_bytes == 0
             {
                 return Err(invalid("Invalid asset platform or size"));
+            }
+            if asset.minimum_macos.as_deref().is_some_and(|version| {
+                !asset.platform.starts_with("macos-")
+                    || !matches_pattern(crate::engine::diagnosis::MACOS_VERSION, version)
+            }) {
+                return Err(invalid("Invalid minimum macOS"));
             }
             let executable = if asset.platform == "windows-x64" {
                 "katago.exe"

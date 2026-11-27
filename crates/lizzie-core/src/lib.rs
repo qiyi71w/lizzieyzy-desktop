@@ -33,6 +33,7 @@ pub mod function_search;
 pub mod humansl;
 pub mod java_import;
 pub mod kifu_web;
+pub mod ogs_kifu;
 pub mod online;
 pub mod play;
 pub mod quick_links;

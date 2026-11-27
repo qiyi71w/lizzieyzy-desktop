@@ -35,7 +35,7 @@ let current: ActiveAppearance | null = null;
 let revision = 0;
 let requested = "";
 let generation = 0;
-const listeners: (() => void)[] = [];
+const listeners = new Set<() => void>();
 
 /** The committed appearance; null only before the first view arrived. */
 export function appearance(): ActiveAppearance | null {
@@ -47,8 +47,10 @@ export function appearanceRevision(): number {
   return revision;
 }
 
-export function onAppearanceChange(listener: () => void): void {
-  listeners.push(listener);
+/** Calls `listener` after every applied appearance until the returned function ends it. */
+export function onAppearanceChange(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => void listeners.delete(listener);
 }
 
 function loadImage(url: string): Promise<HTMLImageElement | undefined> {

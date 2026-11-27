@@ -21,6 +21,11 @@ ts-rs = { version = "12", features = ["no-serde-warnings"] }
 [profile.dev]
 debug = "line-tables-only"
 
+# Unoptimised, the big-number arithmetic of SSH key exchange in debug builds takes longer than
+# the connection's key exchange limit.
+[profile.dev.package.num-bigint]
+opt-level = 3
+
 [profile.release]
 codegen-units = 1
 lto = true

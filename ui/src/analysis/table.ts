@@ -13,6 +13,7 @@ import { customFont } from "../appearance/model";
 import { actualParts, bindColumnResize, cellBackground, layoutColumns, MIN_COLUMN, rankWidths, tableFaces, type FrameBar, type FrameCell, type FramePayload } from "./suggestionsFrame";
 import { autoReplayed, setAutoReplayed } from "../display/autoplay";
 import { replayLength, stopReplayOf } from "../display/replay";
+import { changeFromBest, lossLevel, withChange } from "../workbench/wording";
 
 /** One row of a table model (`data2`), as Java's MoveData. */
 interface TableRow {
@@ -239,38 +240,30 @@ function buildRows(v: WorkbenchView, table: Table): TableRow[] {
 /** MoveData.getAllocationVisits over the model, inserted rows included. */
 const totalAllocation = (rows: TableRow[]) => rows.reduce((s, r) => s + r.allocation, 0);
 
-/** The actual row's change against the best candidate, then the value as the table shows it;
- *  without both scores only the value. */
-function difference(value: number | null, best: number | null, shown: number): string {
-  if (value === null || best === null) return shown.toFixed(1);
-  const d = value - best;
-  return `${d > 0 ? "↑" : "↓"}${d.toFixed(1)}(${shown.toFixed(1)})`;
-}
-
 function orderLabel(r: TableRow, frame: boolean): string {
   if (r.order === -100) return t("AnalysisFrame.actual");
   if (r.actual) return `${r.order + 1}(${t("AnalysisFrame.actual")})`;
   return !frame && !r.point ? "Pass" : String(r.order + 1);
 }
 
-/** The difference written before "(" in a cell, as the renderers parse it back. */
-function parsedDifference(text: string | undefined): number {
-  return text?.includes("(") ? Number.parseFloat(text.substring(1, text.indexOf("("))) : 0;
+/** The actual row's changes against the best candidate as its cells write them, which colour the
+ *  row (0 for every other row, for the best candidate itself and without a value). The 目数
+ *  change counts only while that column shows a value. */
+function rowChanges(r: TableRow, scoreShown: boolean): { winrate: number; score: number } {
+  if (!r.actual || r.order === 0) return { winrate: 0, score: 0 };
+  return { winrate: changeFromBest(r.winrate, r.bestWinrate), score: scoreShown ? changeFromBest(r.score, r.bestScore) : 0 };
 }
 
-/** ColorTableCellRenderer: the actual row's level by the configured win-rate / score loss
- *  thresholds, 0 the worst and 5 the best (LizzieFrame.java:15025-15098). */
-function lossLevel(v: WorkbenchView, diff: number, scoreDiff: number): number {
-  const w = v.settings.display.winLossThresholds, s = v.settings.display.scoreLossThresholds;
-  for (let k = 4; k >= 0; k--) if (diff <= w[k] || scoreDiff <= s[k]) return 4 - k;
-  return 5;
-}
+/** Each table's actual row's loss level as last coloured (5 the best), null without one. */
+const actualLevel: Record<Table, number | null> = { main: null, frame: null, sub: null };
 
 /** Cell colours of one row: the highlighted point's rows (another colour where the clicked row
  *  moved away from it), the loss level on the actual row, stronger while it is the highlighted
  *  point; the 占比 cell draws its bar only. Both the main list and the 独立选点列表 take them from
  *  the design and stage tokens, so they follow the colour mode. */
-function colourCells(v: WorkbenchView, table: Table, rows: TableRow[], cells: string[][], shareColumn: number, winrateColumn: number, scoreColumn: number | null): FrameCell[][] {
+function colourCells(v: WorkbenchView, table: Table, rows: TableRow[], cells: string[][], shareColumn: number, changes: { winrate: number; score: number }[]): FrameCell[][] {
+  const d = v.settings.display;
+  actualLevel[table] = null;
   return rows.map((r, k) => {
     const isSelect = samePoint(r.point, suggestionClick);
     const isChanged = isSelect && selection[table].selected >= 0 && selection[table].selected !== k;
@@ -281,8 +274,7 @@ function colourCells(v: WorkbenchView, table: Table, rows: TableRow[], cells: st
     }
     if (isChanged) fg = "var(--ds-danger-text)";
     if (r.actual) {
-      const scoreDiff = scoreColumn === null ? 0 : parsedDifference(cells[k][scoreColumn]);
-      const level = lossLevel(v, parsedDifference(cells[k][winrateColumn]), scoreDiff);
+      const level = (actualLevel[table] = lossLevel(changes[k].winrate, changes[k].score, d.winLossThresholds, d.scoreLossThresholds));
       bg = `var(--ws-rank-${level + 1}${isSelect ? "-strong" : ""})`;
     }
     return cells[k].map((text, column) =>
@@ -541,14 +533,14 @@ let mainStructure = "";
 
 /** The five columns' content widths in the table's faces, with the cells' padding (`last` is the
  *  rightmost shown column): `fit` holds each header (Label), the widest usual figure and the actual
- *  move's row on one line; `least` the actual row with its smaller change above its value. 序号
+ *  move's row on one line; `least` the actual row with its smaller change under its value. 序号
  *  holds "Pass" and the actual move's smaller 实战 note under its rank (rankWidths). */
 function contentWidths(table: HTMLTableElement, heads: string[], last: number): { fit: number[]; least: number[] } {
   const faces = tableFaces(table);
   const { body, caption, width } = faces;
   const figures = [["88.8"], ["9.9k", "99k"], ["88.8"], ["-88.8"]];
-  // The change before 胜率's and 目数's values, with the 4 px after it (.actual-note).
-  const change = width("↓-88.8", caption) + 4;
+  // The change after 胜率's and 目数's values ("99.2 ↓0.1"), with the 4 px before it (.actual-note).
+  const change = width("↓88.8", caption) + 4;
   // 序号: 8 px before and a 6 px gap after.
   const rank = rankWidths(faces, heads[0], ["20", "Pass"], t("AnalysisFrame.actual"), 14);
   const fit: number[] = [rank.fit], least: number[] = [rank.least];
@@ -646,20 +638,21 @@ export function renderMainTable(host: HTMLElement, v: WorkbenchView): void {
   const all = buildRows(v, "main");
   const total = totalAllocation(all);
   mainRows = all.slice(0, 20);
-  mainCells = mainRows.map((r) => {
+  const changes = mainRows.map((r) => rowChanges(r, hasScore && r.shown.score_lead !== null));
+  mainCells = mainRows.map((r, k) => {
     const cells = [
       orderLabel(r, false),
-      r.actual && r.order !== 0 ? difference(r.winrate, r.bestWinrate, r.shown.winrate) : r.shown.winrate.toFixed(1),
+      withChange(r.shown.winrate, changes[k].winrate),
       playouts(r.visits),
       (total > 0 ? (r.allocation / total) * 100 : 0).toFixed(1),
     ];
     if (hasScore) {
       const shown = r.shown.score_lead;
-      cells.push(shown === null ? "--" : r.actual && r.order !== 0 ? difference(r.score, r.bestScore, shown) : shown.toFixed(1));
+      cells.push(shown === null ? "--" : withChange(shown, changes[k].score));
     }
     return cells;
   });
-  const coloured = colourCells(v, "main", mainRows, mainCells, 3, 1, hasScore ? 4 : null);
+  const coloured = colourCells(v, "main", mainRows, mainCells, 3, changes);
   const body = host.querySelector("tbody")!;
   while (body.rows.length > coloured.length) body.deleteRow(body.rows.length - 1);
   coloured.forEach((cells, k) => {
@@ -736,19 +729,20 @@ export function framePayload(v: WorkbenchView, id: FrameId, nine: boolean, layou
   frames[id].rows = rows;
   const total = totalAllocation(rows);
   const { width, height } = v.document.size;
-  const cells = (frames[id].cells = rows.map((r) => {
+  const changes = rows.map((r) => rowChanges(r, nine && r.sideToMove.score_lead !== null));
+  const cells = (frames[id].cells = rows.map((r, k) => {
     const cells = [
       orderLabel(r, true),
       frameCoordinate(r.point, d.coordinateStyle, width, height),
       r.lcb === null ? "--" : r.lcb.toFixed(1),
-      r.actual && r.order !== 0 ? difference(r.winrate, r.bestWinrate, r.sideToMove.winrate) : r.sideToMove.winrate.toFixed(1),
+      withChange(r.sideToMove.winrate, changes[k].winrate),
       r.order === -100 ? t("AnalysisFrame.exclude") : playouts(r.visits),
       (total > 0 ? (r.allocation / total) * 100 : 0).toFixed(1),
       r.prior === null ? "--" : r.prior.toFixed(2),
     ];
     if (nine) {
       const shown = r.sideToMove.score_lead;
-      cells.push(shown === null ? "--" : r.actual && r.order !== 0 ? difference(r.score, r.bestScore, shown) : shown.toFixed(1), r.stdev === null ? "--" : r.stdev.toFixed(1));
+      cells.push(shown === null ? "--" : withChange(shown, changes[k].score), r.stdev === null ? "--" : r.stdev.toFixed(1));
     }
     return cells;
   }));
@@ -784,7 +778,7 @@ export function framePayload(v: WorkbenchView, id: FrameId, nine: boolean, layou
     sorted: frames[id].sort in SORT_KEYS ? frames[id].sort : null,
     widths,
     layout,
-    rows: colourCells(v, id, rows, cells, 5, 3, nine ? 7 : null),
+    rows: colourCells(v, id, rows, cells, 5, changes),
     actualRow: rows.findIndex((r) => r.actual),
     actualNote: t("AnalysisFrame.actual"),
     list: d.bestMovesList,
@@ -809,8 +803,10 @@ export function tablesReport() {
     suggestionClick,
     branchLength: branches.values().next().value ?? null,
     // rowMiddles: each body row's vertical middle in the window, where a probe's click lands on it.
-    main: { rows: mainCells, selectedRow: selection.main.selected, clickedRow: selection.main.click, columns: mainWidths, rowMiddles: [...document.querySelectorAll<HTMLTableRowElement>("#table tbody tr")].map((row) => { const box = row.getBoundingClientRect(); return Math.round(box.top + box.height / 2); }) },
-    frame: { rows: frames.frame.cells, selectedRow: selection.frame.selected, clickedRow: selection.frame.click, sort: frames.frame.sort },
-    sub: { rows: frames.sub.cells, selectedRow: selection.sub.selected, clickedRow: selection.sub.click, sort: frames.sub.sort },
+    // actualLevel: the actual row's loss level (5 the best), null without one; actualOverflow:
+    // whether each of its cells is wider than its column.
+    main: { rows: mainCells, selectedRow: selection.main.selected, clickedRow: selection.main.click, columns: mainWidths, actualLevel: actualLevel.main, actualOverflow: [...document.querySelectorAll<HTMLTableCellElement>("#table tbody tr.actual td")].map((td) => td.scrollWidth > td.clientWidth), rowMiddles: [...document.querySelectorAll<HTMLTableRowElement>("#table tbody tr")].map((row) => { const box = row.getBoundingClientRect(); return Math.round(box.top + box.height / 2); }) },
+    frame: { rows: frames.frame.cells, selectedRow: selection.frame.selected, clickedRow: selection.frame.click, sort: frames.frame.sort, actualLevel: actualLevel.frame },
+    sub: { rows: frames.sub.cells, selectedRow: selection.sub.selected, clickedRow: selection.sub.click, sort: frames.sub.sort, actualLevel: actualLevel.sub },
   };
 }

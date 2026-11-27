@@ -4,7 +4,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use lizzie_core::api::{KataEstimateMode, ScoreCommand};
+use lizzie_core::api::{EditCommand, KataEstimateMode, OpenSource, ScoreCommand};
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
@@ -449,6 +449,58 @@ fn moves_are_evaluated_against_the_analysis_before_them() {
     assert!((last.winrate - 7.0).abs() < 1e-9 && (last.score.unwrap() - 1.5).abs() < 1e-9);
 }
 
+/// The win-rate reading the statistics bar, 黑白胜率大字 and the players' names share: Black's
+/// win rate from the current position's analysis, turned round when White is to move; while that
+/// is missing, from the previous position, then the one before (and then marked as not the
+/// current position's own); further back, none.
+#[test]
+fn the_win_rate_reading_falls_back_two_positions_and_is_blacks() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    open(&mut wb, "(;SZ[19]KM[7.5];B[pd];W[dp];B[pp];W[dd])");
+    let reading = |wb: &mut Workbench| wb.view(false).statistics.reading;
+    let node = |wb: &mut Workbench| wb.view(false).position.node;
+    assert_eq!(reading(&mut wb), None, "nothing analysed");
+
+    // Root, Black to move: 55 %.
+    analyse(&mut wb, &world, id, "info move D4 visits 100 winrate 0.55 scoreLead 2 prior 0.2 order 0 pv D4");
+    let root = node(&mut wb);
+    let r = reading(&mut wb).unwrap();
+    assert_eq!((r.node, r.current), (root, true));
+    assert!((r.black - 55.0).abs() < 1e-9);
+
+    // After B Q16, not analysed yet: the root's, not current.
+    wb.navigate(Navigation::Forward(1));
+    answer_all(&mut wb, &world, id);
+    let r = reading(&mut wb).unwrap();
+    assert_eq!((r.node, r.current), (root, false));
+    assert!((r.black - 55.0).abs() < 1e-9);
+    // White to move with 52 %: Black has 48 %.
+    analyse(&mut wb, &world, id, "info move D4 visits 80 winrate 0.52 scoreLead 0.5 prior 0.2 order 0 pv D4");
+    let first = node(&mut wb);
+    let r = reading(&mut wb).unwrap();
+    assert_eq!((r.node, r.current), (first, true));
+    assert!((r.black - 48.0).abs() < 1e-9);
+
+    // One and two positions on without analysis: still move 1's.
+    for _ in 0..2 {
+        wb.navigate(Navigation::Forward(1));
+        answer_all(&mut wb, &world, id);
+        let r = reading(&mut wb).unwrap();
+        assert_eq!((r.node, r.current), (first, false));
+        assert!((r.black - 48.0).abs() < 1e-9);
+    }
+    // Three on: none.
+    wb.navigate(Navigation::Forward(1));
+    answer_all(&mut wb, &world, id);
+    assert_eq!(reading(&mut wb), None);
+
+    // Back to an analysed position: its own again.
+    wb.navigate(Navigation::First);
+    assert_eq!(reading(&mut wb).map(|r| (r.node, r.current)), Some((root, true)));
+}
+
 /// 终局点目 pauses analysis while scoring, counts areas with the user's dead-stone and 不计入
 /// marks (a stone toggles its colour's stones reachable through empty points), follows the
 /// rules choice and komi, writes the result into RE, and resumes analysis when it ends.
@@ -531,4 +583,46 @@ fn scoring_counts_marked_positions_and_returns_analysis() {
         v.score.is_none() && !v.engine.paused,
         "leaving scoring resumes analysis"
     );
+}
+
+/// The main board's first-use hint (Java `EmptyBoardHint.shows`): on the fresh empty board of
+/// someone who never opened a record from the chooser, until the engine has analysed that empty
+/// position; never at a board with a move or a setup stone, nor at the root with a move after it.
+#[test]
+fn the_empty_board_hint_shows_on_a_first_use_empty_board_until_it_is_analysed() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    let hint = |wb: &mut Workbench| wb.view(false).empty_board_hint;
+    assert!(hint(&mut wb), "first start: the engine analyses the empty board, no result yet");
+    analyse(&mut wb, &world, id, "info move D4 visits 30 winrate 0.55 scoreLead 2 prior 0.2 order 0 pv D4");
+    assert!(wb.view(false).analysis.is_some());
+    assert!(!hint(&mut wb), "the empty board's analysis is never covered");
+
+    // A new empty board with analysis paused has no analysis of it.
+    wb.toggle_analysis().unwrap();
+    wb.edit(EditCommand::ClearBoard).unwrap();
+    assert!(hint(&mut wb));
+    wb.edit(EditCommand::Play { point: Point { x: 3, y: 3 }, color: None }).unwrap();
+    assert!(!hint(&mut wb), "a stone on the board");
+    wb.navigate(Navigation::First);
+    assert!(!hint(&mut wb), "the root with a move after it is no fresh board");
+
+    open(&mut wb, "(;SZ[19]AB[cc])");
+    assert!(!hint(&mut wb), "a setup stone");
+
+    // A record dropped on the window leaves the recent files alone (Java opens drops "from
+    // temp"); one opened from the chooser is remembered, and the hint is gone for good.
+    open(&mut wb, "(;SZ[19];B[pd])");
+    wb.edit(EditCommand::ClearBoard).unwrap();
+    assert!(hint(&mut wb));
+    let t = wb.begin_open(OpenOrigin::File { path: "/games/a.sgf".into(), source: OpenSource::Chooser });
+    assert!(wb.complete_open(t, Ok((RecordFormat::Sgf, sgf::read("(;SZ[19];B[pd])").unwrap()))));
+    assert!(!hint(&mut wb));
+    wb.edit(EditCommand::ClearBoard).unwrap();
+    assert!(!hint(&mut wb), "someone who opened a record knows the way");
+    drop(wb);
+    let world = World::default();
+    let (mut wb, _) = started(dir.path(), &world);
+    assert!(!hint(&mut wb), "the recent files are remembered across restarts");
 }

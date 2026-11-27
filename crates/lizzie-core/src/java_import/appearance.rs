@@ -28,7 +28,8 @@ const THEME: &[(&str,&str)] = &[
     ("scorediff-in-variation-tree-factor","scorediffInVariationTreeFactor"),("font-name","fontName"),
     ("ui-font-name","uiFontName"),("winrate-font-name","winrateFontName"),("board-image","boardImage"),
     ("background-image","backgroundImage"),("black-stone-image","blackStoneImage"),("white-stone-image","whiteStoneImage"),
-    ("blunder-winrate-thresholds","blunderWinrateThresholds"),("blunder-node-colors","blunderNodeColors")];
+    ("blunder-winrate-thresholds","blunderWinrateThresholds"),("blunder-node-colors","blunderNodeColors"),
+    ("coordinate-bold","coordinateBold"),("coordinate-size","coordinateSize")];
 
 impl Reader<'_> {
     pub(super) fn appearance(&mut self, ui:&Map<String,Value>, handled:&mut Handled) {
@@ -96,7 +97,12 @@ impl Reader<'_> {
             let value=if key.ends_with("-image") {self.appearance_image(raw,key)}
                 else if matches!(key,"glass-blur-radius"|"liquid-blur-radius"|"glass-corner-radius") {
                     as_i64(raw).and_then(|v|i32::try_from(v).ok()).map(|v|Value::from(v.max(if key=="glass-corner-radius" {4} else {0})))
-                } else {Some(raw.clone())};
+                }
+                // Theme.coordinateSize / coordinateBold read these with optInt / optBoolean; a size
+                // the theme page does not offer is not taken.
+                else if key=="coordinate-size" {appearance::read_coordinate_size(raw).map(Value::from)}
+                else if key=="coordinate-bold" {appearance::read_coordinate_bold(raw).map(Value::from)}
+                else {Some(raw.clone())};
             let Some(value)=value else {
                 if !key.ends_with("-image") { self.invalid(format!("ui.{key}"),ImportTarget::Appearance,raw); }
                 image_failures.push(key); continue

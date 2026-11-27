@@ -939,9 +939,11 @@ function pixelMargins(length: number, n: number, ratio: number): { size: number;
 }
 
 /** BoardRenderer.isBigMargin (BoardRenderer.java:3653-3665): coordinates, names under the board, or
- *  the pure network's line take the 0.055 margin, otherwise 0.03 (calculatePixelMargins). */
-export function mainMarginRatio(bigMargin: boolean): number {
-  return bigMargin ? 0.055 : 0.03;
+ *  the pure network's line take the 0.055 margin, otherwise 0.03 (calculatePixelMargins). Shown
+ *  coordinates at `labelScale` times their usual size widen the 0.055 margin by 60% of their
+ *  growth (CoordinateLabels.margin): 1.24 times at 140%, 1.6 times at 200%. */
+export function mainMarginRatio(bigMargin: boolean, labelScale = 1): number {
+  return bigMargin ? 0.055 * (1 + (labelScale - 1) * 0.6) : 0.03;
 }
 
 /** The sub board's margin (SubBoardRenderer.calculatePixelMargins). */

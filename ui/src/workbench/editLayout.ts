@@ -1211,7 +1211,7 @@ Object.assign(COMMANDS, {
     run: enterEdit,
     disabledReason: () => {
       const why = editUnavailable();
-      return why && UNAVAILABLE[why];
+      return why ? { key: UNAVAILABLE[why], product: true } : null;
     },
   },
 });

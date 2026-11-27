@@ -103,9 +103,9 @@ async function toggleOnTop(): Promise<void> {
   for (const id of ["frame", "sub"] as const) {
     const open = windows[id];
     if (!open) continue;
-    const window = await WebviewWindow.getByLabel(LABELS[id]);
-    await window?.setAlwaysOnTop(onTop);
-    await window?.setTitle(shownTitle(open.title, onTop));
+    // The shell switches it (src-tauri on_top): on Windows it also restacks the window.
+    await invoke("set_window_on_top", { label: LABELS[id], onTop });
+    await (await WebviewWindow.getByLabel(LABELS[id]))?.setTitle(shownTitle(open.title, onTop));
   }
 }
 

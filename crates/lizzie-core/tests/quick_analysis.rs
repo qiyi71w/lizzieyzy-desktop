@@ -6,7 +6,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use lizzie_core::api::{FlashTarget, OnlineCommand, OnlineJob, OpenSource, QuickModelStatus, ResourceCommand, ResourceItem, UnrestoredReason};
+use lizzie_core::api::{AnalysisStatus, FlashTarget, OnlineCommand, OnlineJob, OpenSource, QuickModelStatus, ResourceCommand, ResourceItem, UnrestoredReason};
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
@@ -342,6 +342,45 @@ fn a_loaded_record_is_analysed_by_an_analysis_process_while_the_foreground_waits
     assert_eq!(shown.engine, "闪电分析");
     let fg_sent = serve(&mut wb, &world, fg, 0, true);
     assert!(fg_sent.iter().any(|c| c.starts_with("kata-analyze")), "{fg_sent:?}");
+}
+
+/// The status line's state (Java `StatusOverlay.state`): 自动分析中 while the record's quick
+/// analysis task is active, before the foreground engine's own state; then 分析中 while the
+/// foreground analyses the current node and 已暂停 once the user pauses.
+#[test]
+fn the_status_names_the_quick_analysis_before_the_foreground_analysis() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    wb.save_analysis_engine_settings(analysis_settings(false), "", true)
+        .unwrap()
+        .unwrap();
+    let fg = with_engine(&mut wb, &world);
+    assert_eq!(wb.view(false).engine.status, AnalysisStatus::Analyzing);
+    open(&mut wb, RECORD);
+    serve(&mut wb, &world, fg, 0, true);
+    let v = wb.view(false);
+    assert!(v.quick.running && !v.engine.analysing);
+    assert_eq!(v.engine.status, AnalysisStatus::AutoAnalyzing);
+
+    let worker = *world.workers().last().unwrap();
+    answer_queries(&mut wb, &world, worker);
+    assert!(!wb.view(false).quick.running);
+    serve(&mut wb, &world, fg, 0, true);
+    let v = wb.view(false);
+    assert!(v.engine.analysing);
+    assert_eq!(v.engine.status, AnalysisStatus::Analyzing);
+
+    wb.toggle_analysis().unwrap();
+    serve(&mut wb, &world, fg, 0, true);
+    assert_eq!(wb.view(false).engine.status, AnalysisStatus::Paused);
+    // A pause during the quick analysis ends it: the state is the foreground's again.
+    wb.toggle_analysis().unwrap();
+    open(&mut wb, RECORD);
+    assert_eq!(wb.view(false).engine.status, AnalysisStatus::AutoAnalyzing);
+    wb.toggle_analysis().unwrap();
+    serve(&mut wb, &world, fg, 0, true);
+    assert_eq!(wb.view(false).engine.status, AnalysisStatus::Paused);
 }
 
 #[test]

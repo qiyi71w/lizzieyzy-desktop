@@ -1,10 +1,25 @@
 //! Cloud account projection and provider switching; the shell owns credentials and network IO.
 use super::Workbench;
-use crate::api::{ApiError, EngineScope, ErrorKind};
+use crate::api::{ApiError, EngineScope, ErrorKind, ZhiziConnection};
 use crate::cloud::{CloudSettings, Provider};
 use crate::engine::cloud::{CloudLaunch, CloudProvider};
 use crate::engine::profile::{new_profile_id, EngineProfile};
-use crate::engine::runtime::Phase;
+use crate::engine::runtime::{InstanceId, Phase};
+
+/// [`Workbench::disconnect_zhizi`]'s refusal while a 智子 engine is busy.
+pub const ZHIZI_BUSY: &str = "RemoteCompute.zhiziSession.blocked";
+/// A 智子 activation requested before a 断开智子引擎 and committed after it.
+pub const ZHIZI_ACTIVATION_RETIRED: &str = "RemoteCompute.zhiziSession.disconnected";
+
+/// A remote-compute switch request, taken when it begins, before any work outside the workbench
+/// (the shell reads the account first). A 断开智子引擎 in between retires it, so a 智子 engine is
+/// not connected again by a request already under way (Java `RemoteComputeEngineSwitch.cancelZhizi`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CloudTicket(u64);
+
+fn is_zhizi(profile: &EngineProfile) -> bool {
+    profile.cloud.as_ref().is_some_and(|c| c.provider == CloudProvider::Zhizi)
+}
 
 impl Workbench {
     /// Commit account-owned fields. Only catalog refresh supplies its original saved args;
@@ -38,11 +53,20 @@ impl Workbench {
         })
     }
 
+    /// A ticket for an activation that begins now ([`Self::activate_cloud`]).
+    pub fn cloud_ticket(&self) -> CloudTicket {
+        CloudTicket(self.zhizi_disconnects)
+    }
+
     /// Commit the provider and give the foreground seat to its engine profile; returns that
-    /// profile's id. The outcome (ready or failed) arrives in later views.
-    pub fn activate_cloud(&mut self, draft: CloudSettings, confirmed: bool) -> Result<String, ApiError> {
+    /// profile's id. The outcome (ready or failed) arrives in later views. A 智子 activation whose
+    /// `ticket` a 断开智子引擎 retired is refused with [`ZHIZI_ACTIVATION_RETIRED`].
+    pub fn activate_cloud(&mut self, ticket: CloudTicket, draft: CloudSettings, confirmed: bool) -> Result<String, ApiError> {
         if !confirmed {
             return Err(ApiError::new(ErrorKind::InvalidArgument, "RemoteCompute.error.activationRequired"));
+        }
+        if draft.provider == Provider::Zhizi && ticket != self.cloud_ticket() {
+            return Err(ApiError::new(ErrorKind::Unavailable, ZHIZI_ACTIVATION_RETIRED));
         }
         if self.setup_mode() || self.match_active() || self.game_active() || self.human_sl_active()
             || self.foreground_lifecycle_held().is_some()
@@ -141,6 +165,81 @@ impl Workbench {
             self.cloud_activation = None;
             self.preload_analysis_engine();
         }
+    }
+
+    /// Every running 智子 engine: the foreground and secondary ones, those fast engine change
+    /// keeps, and those whose profile is no longer listed (Java `zhiziConnectionTargets`).
+    /// Analysis processes are not among them.
+    fn zhizi_engines(&self) -> Vec<InstanceId> {
+        self.engines.running().into_iter()
+            .map(|(id, _, _)| id)
+            .filter(|&id| self.engines.profile_of(id).is_some_and(is_zhizi))
+            .collect()
+    }
+
+    /// Whether 断开智子引擎 must wait (Java `zhiziSelectionBusy` and `Leelaz.zhiziConnectionBusy`):
+    /// one of `engines` is starting, restoring after a restart or held by a task, the remote
+    /// compute switch to one has not completed (its first board sync neither confirmed nor
+    /// refused), a secondary switch still starting may fall back to or from one, or an engine
+    /// match, also while it retires, has a 智子 participant.
+    fn zhizi_busy(&self, engines: &[InstanceId]) -> bool {
+        let switching = self.secondary_fallback.filter(|(new, _)| self.engines.phase(*new) == Some(Phase::Starting));
+        let activating = self.cloud_activation.as_deref().is_some_and(|pending| {
+            self.engines.foreground()
+                .filter(|&fg| engines.contains(&fg) && !self.engines.complete(fg) && !self.engines.sync_refused(fg))
+                .and_then(|fg| self.engines.profile_of(fg))
+                .is_some_and(|p| p.id == pending)
+        });
+        activating
+            || engines.iter().any(|&id| self.engines.occupied(id) || self.restart_restores(id))
+            || switching.is_some_and(|(new, previous)| engines.contains(&new) || engines.contains(&previous))
+            || self.match_uses(is_zhizi)
+    }
+
+    /// The 主/对比智子引擎 connections, whatever engine or account is chosen (Java
+    /// `EngineManager.zhiziConnectionState`).
+    pub fn zhizi_connection(&self) -> ZhiziConnection {
+        let engines = self.zhizi_engines();
+        if self.zhizi_busy(&engines) {
+            ZhiziConnection::Busy
+        } else if engines.is_empty() {
+            ZhiziConnection::Disconnected
+        } else {
+            ZhiziConnection::Connected
+        }
+    }
+
+    /// 断开智子引擎 (Java `EngineManager.disconnectZhiziEngines`): ends every running 智子 engine
+    /// and nothing else. A seat one held is left empty, as Java's selection rolls back to no
+    /// current engine; local and other remote engines keep their connections and seats. Remote
+    /// compute switches already under way are retired, so none connects 智子 again; only a new
+    /// explicit choice does. Closing the connection does not establish that the service stopped
+    /// billing. Returns [`ZhiziConnection::Busy`] and changes nothing while
+    /// [`Self::zhizi_connection`] is busy, else [`ZhiziConnection::Disconnected`].
+    pub fn disconnect_zhizi(&mut self) -> ZhiziConnection {
+        let engines = self.zhizi_engines();
+        if self.zhizi_busy(&engines) {
+            return ZhiziConnection::Busy;
+        }
+        self.zhizi_disconnects += 1;
+        let pending_zhizi = self.cloud_activation.as_ref()
+            .is_some_and(|id| self.config.engine.engines.iter().any(|p| p.id == *id && is_zhizi(p)));
+        if pending_zhizi {
+            self.cloud_activation = None;
+        }
+        if engines.is_empty() {
+            return ZhiziConnection::Disconnected;
+        }
+        if self.engines.foreground().is_some_and(|f| engines.contains(&f)) {
+            self.auto_analysis_abandon();
+            self.quick_engine_changed();
+        }
+        for id in engines {
+            self.engines.terminate(id);
+        }
+        self.drain_engine_events();
+        self.sync_engine();
+        ZhiziConnection::Disconnected
     }
 }
 

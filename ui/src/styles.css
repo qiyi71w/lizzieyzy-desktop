@@ -112,6 +112,50 @@ body {
   font-size: var(--ds-size-s);
   font-variant-numeric: tabular-nums;
 }
+/* A game too wide for the bar's free space beside the menus takes a row of its own under them
+   (windowBar.ts): the whole width, centred, on two lines when one is too narrow, never wider than
+   the window; a game that does not fit even two lines ends the second in "…". The menus' row
+   keeps the bar's height and the window buttons at its end; Windows' buttons still fill it to the
+   corner. */
+#menubar[data-title-row] {
+  height: auto;
+  flex-wrap: wrap;
+}
+#menubar[data-title-row] > :not(#windowTitle, .window-buttons) {
+  margin-block: calc((var(--ds-bar-h) - 24px) / 2);
+}
+#menubar[data-title-row] #windowTitle {
+  order: 1;
+  flex: 1 0 100%;
+  justify-content: center;
+  padding: 0 20px 6px;
+  white-space: normal;
+  text-align: center;
+}
+#menubar[data-title-row] .title-game {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  text-wrap: balance;
+  /* Lines break at the spaces, between the names and the result (windowBar.ts keeps a hyphen
+     from breaking a part); only a name or file wider than the whole row breaks inside itself,
+     Chinese, Japanese and Korean between characters and a word without a break anywhere. */
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+/* The title row is the window's whole width on macOS too: the clearance for the system's window
+   buttons (the bar's 78 px start, 72 px more than elsewhere) belongs to the menus' row only. */
+:root[data-os="mac"]:not([data-fullscreen]) #menubar[data-title-row] #windowTitle {
+  margin-left: -72px;
+  flex-basis: calc(100% + 72px);
+}
+/* Without the title beside them the menus take the free space's place, so the window buttons
+   after them stay at the row's end. (The space is the menus' margin: menubar.ts counts the
+   other items' margins as taken when it decides how many menus fit.) */
+#menubar[data-title-row] .menu-strip {
+  margin-right: auto;
+}
 .window-buttons {
   flex: none;
   display: flex;
@@ -438,6 +482,10 @@ body {
 .tb-input.visit-limit {
   width: max(66px, calc(7ch + 8px));
 }
+/* 候选点: a board's count of candidates, at most three digits. */
+.tb-input.suggestion-limit {
+  width: max(34px, calc(3ch + 8px));
+}
 /* Out of range or not a number: the stepper turns red around it. */
 .tb-input.invalid {
   color: var(--ds-danger-text);
@@ -632,9 +680,9 @@ body {
 #table td:last-child {
   padding-right: 12px;
 }
-/* The actual move's row shows all its figures: its rank with a smaller 实战 note under it, a
-   smaller change before each value (actualParts). A figure cell too narrow for both breaks
-   between them, and only there. */
+/* The actual move's row shows all its figures: its rank with a smaller 实战 note under it, each
+   value with its change after it in smaller type (actualParts). A figure cell too narrow for both
+   breaks between them, and only there. */
 #table tr.actual td {
   padding-block: 3px;
   line-height: 1.25;
@@ -642,12 +690,12 @@ body {
   word-break: keep-all;
 }
 #table .actual-note {
-  margin-right: 4px;
+  margin-left: 4px;
   font-size: var(--ds-size-s);
 }
 #table td:first-child .actual-note {
   display: block;
-  margin-right: 0;
+  margin-left: 0;
   word-break: normal;
 }
 

@@ -8,12 +8,14 @@
 .match-dialog.match-config {
   width: min(560px, 92vw);
 }
+/* The heads' inline padding is a row's border and padding (1px + 14px), so each head starts where
+   its column does. */
 .match-side-head {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
   margin: 2px 0 6px;
-  padding: 0 13px;
+  padding: 0 15px;
   color: var(--ds-text-2);
   font-size: var(--ds-size-s);
   font-weight: 600;
@@ -36,6 +38,17 @@
   flex: none;
   width: calc(var(--ds-size) * 16.5);
 }
+/* A choice longer than its column is cut at the column's edge. WebKitGTK counts the chosen text of
+   a select as overflow of the dialog's body, which then scrolls sideways (with its footer). */
+.match-sides :is(.ds-row-control, .ds-row-fields) > select {
+  overflow: clip;
+}
+/* A row's name keeps about 7em here, not the 10em of design/dialog.css: with 10em, the name, both
+   columns and the switch place are wider than the row at the default size, and the columns and
+   switches slide past the row's end and away from their heads. A longer name wraps. */
+.match-sides .ds-row-text {
+  min-width: 7em;
+}
 .match-slot {
   flex: none;
   width: 28px;
@@ -44,6 +57,63 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+}
+/* 本局规则: its longest entries, a Chinese rule set with its komi ("Chinese 2027, a draw goes to
+   whoever passed first (komi 7)"), are wider than a narrow dialog's row. The box never passes the
+   row: it takes the room the row leaves beside (or, wrapped, under) its name, and like the
+   columns its chosen text does not count as overflow of the dialog's body; in a narrow dialog
+   the chosen entry wraps (below). */
+.match-dialog .ds-row-control:has(> select[data-key="match.rules"]) {
+  min-width: 0;
+}
+.match-dialog select[data-key="match.rules"] {
+  max-width: 100%;
+  overflow: clip;
+}
+/* A narrow 引擎对局 dialog (a small window, or a large 界面字体大小): once a row's name (about
+   7em) and both 16.5em columns no longer fit on one line, every row's controls go under its name,
+   at the end (as 综合设置's rows do), their texts may break, and the two columns share the width
+   they have there, so the body never scrolls sideways and its footer stays where it is. 46.5em is
+   those 40em plus a row's 90px of padding, border, gaps and switch place at the default size; the
+   74px are a wrapped row's padding and border (30px), the two 8px gaps and the 28px switch
+   place. A select's least width (design/dialog.css) gives way to that share, or the row's
+   controls would pass its edge. */
+.match-dialog:not(.match-config) {
+  container: match-dialog / inline-size;
+}
+/* The columns' share is measured on the rows' own box. Measured on the scrolling body, WebKitGTK
+   still counts the scroll bar's width in 100cqi when the dialog opens, and the columns and
+   switches start 12px past the rows' end. */
+.match-sides {
+  container-type: inline-size;
+}
+@container match-dialog (max-width: 46.5em) {
+  .match-dialog .ds-row {
+    flex-wrap: wrap;
+  }
+  .match-dialog .ds-row-control {
+    margin-left: auto;
+    max-width: 100%;
+    white-space: normal;
+  }
+  .match-side-head > span:not(.match-slot),
+  .match-sides :is(.ds-row-control, .ds-row-fields) > :is(select, input:not(.ds-switch)) {
+    width: min(calc(var(--ds-size) * 16.5), calc((100cqi - 74px) / 2));
+  }
+  .match-sides :is(.ds-row-control, .ds-row-fields) > select {
+    min-width: 0;
+  }
+  /* The chosen 本局规则 entry wraps rather than being cut at the box's edge: the box grows by a
+     line, and a one-line entry keeps the control height (the 1.4 line, 2px above and below and
+     the border, as design/base.css counts it). Only this box: the columns' choices stay one line. */
+  .match-dialog select[data-key="match.rules"] {
+    height: auto;
+    min-height: max(var(--ds-control-h-l), calc(var(--ds-size) * 1.4 + 6px));
+    padding-top: 2px;
+    padding-bottom: 2px;
+    line-height: 1.4;
+    white-space: normal;
+  }
 }
 /* The 认输预置 rows: a group of their own after the sides; their fields are short. */
 .match-resign {
@@ -66,6 +136,89 @@
   height: var(--ds-control-h);
   padding: 0;
   color: var(--ds-text-2);
+}
+
+/* 对局参数: 黑方设置 and 白方设置 columns under their stones, without a switch place. Each cell
+   is its field with the confirmed value and the value being applied under it. Once the row name
+   and both columns no longer fit on one line (a small window or a large 界面字体大小), a row's
+   columns go under its name and share the width there, so nothing passes the dialog's edge. */
+.match-params {
+  width: min(560px, 94vw);
+  container: match-params / inline-size;
+}
+.match-params-head {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 2px 0 6px;
+  padding: 0 15px;
+  color: var(--ds-text-2);
+  font-size: var(--ds-size-s);
+  font-weight: 600;
+}
+.match-params-head > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.match-params-head .icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+.match-params-head > span,
+.match-param-engine,
+.match-param-cell {
+  flex: none;
+  width: calc(var(--ds-size) * 11);
+  min-width: 0;
+}
+.match-param-engine {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.match-param-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.match-param-cell > input {
+  width: 100%;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.match-param-state {
+  color: var(--ds-text-2);
+  font-size: var(--ds-size-s);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.match-param-state.pending {
+  color: var(--ds-accent-text);
+}
+.match-param-state:empty {
+  display: none;
+}
+.match-params-status {
+  white-space: pre-line;
+}
+.match-params-status[hidden] {
+  display: none;
+}
+@container match-params (max-width: 32em) {
+  .match-params .ds-row {
+    flex-wrap: wrap;
+  }
+  .match-params .ds-row-control {
+    margin-left: auto;
+    max-width: 100%;
+    white-space: normal;
+  }
+  .match-params-head > span,
+  .match-param-engine,
+  .match-param-cell {
+    width: calc((100cqi - 46px) / 2);
+  }
 }
 
 /* 人工干预 and the end messages: non-modal windows over the workbench, the dialog's ground, radius

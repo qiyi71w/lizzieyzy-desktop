@@ -3,7 +3,8 @@
 // at once (no 确定); the groups themselves are built in chrome/toolbar.ts.
 import { run, state } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
-import type { TopToolbarSettings } from "../contract/generated";
+import type { KataParam, TopToolbarSettings } from "../contract/generated";
+import { kataRevealed } from "../engine/kataParams";
 import { renderToolbar } from "./toolbar";
 
 export type TopGroup = Exclude<keyof TopToolbarSettings, "autoWrap">;
@@ -67,6 +68,26 @@ function item(group: TopGroup): CommandEntry {
   return { run: () => toggle(group), checked: () => topGroupShown(group) };
 }
 
+/** 激进度 / 广度 (ToolbarParameterToggles, the newer Java's Menu.java:4506-4508): the same choice as the 引擎参数
+ *  window's 在工具栏中控制. The item shows the choice in effect, which function search may have
+ *  turned on for this run; flipping it saves the opposite and ends that reveal, like a group's
+ *  item. The group itself still shows only beside a foreground KataGo (toolbar.ts kataGroupShown). */
+function kataItem(param: KataParam): CommandEntry {
+  const shown = () => {
+    const saved = state.view?.settings.engine.kata_params;
+    return kataRevealed[param] || (param === "Pda" ? saved?.showPda : saved?.showWrn) === true;
+  };
+  return {
+    checked: shown,
+    run: () => {
+      const now = shown();
+      kataRevealed[param] = false;
+      renderToolbar();
+      void run({ type: "SetKataParamShown", param, shown: !now });
+    },
+  };
+}
+
 /** 自动换行 (Config.autoWrapToolBar): off, the row stays one line and what does not fit is cut off. */
 export function topToolbarWraps(): boolean {
   return state.view?.settings.top_toolbar.autoWrap !== false;
@@ -84,8 +105,11 @@ Object.assign(COMMANDS, {
   "menu.playMoveTools": item("showEditBar"),
   "menu.allowAvoidTools": item("showForce"),
   "menu.showGameController": item("showGameControls"),
+  "menu.showPDAInMenu": kataItem("Pda"),
+  "menu.showWRNInMenu": kataItem("Wrn"),
   "menu.showTimeLimitController": item("showTimeLimit"),
   "menu.showPlayoutLimitController": item("showVisitLimit"),
+  "menu.showSuggestionLimit": item("showSuggestionLimit"),
   "menu.showAnalyzeController": item("showAnalyzeSides"),
   "menu.showCandidateController": item("showCandidateSides"),
   "menu.showCandidateInfoController": item("showCandidateInfo"),

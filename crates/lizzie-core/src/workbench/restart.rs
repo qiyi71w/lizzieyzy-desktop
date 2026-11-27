@@ -157,6 +157,11 @@ impl Workbench {
         self.restart.restoring.is_some()
     }
 
+    /// Whether `instance` is the restarted engine still catching up with its position.
+    pub(super) fn restart_restores(&self, instance: InstanceId) -> bool {
+        self.restart.restoring == Some(instance)
+    }
+
     /// Settles the restore of a restarted engine: done once it holds the position wished for it
     /// now (catching up with a position the user moved to meanwhile) under rules that permit
     /// analysis; a refusal of that position leaves it unrestored (no dialog, no further attempt),

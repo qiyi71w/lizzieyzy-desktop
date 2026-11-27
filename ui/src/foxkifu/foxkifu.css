@@ -26,7 +26,8 @@ body {
   background: var(--ds-chrome);
 }
 /* The search (name, field, 搜索), the hint and 打开棋谱后此窗口 with its choice: each wraps as a
-   whole, a wrapped one starting at the strip's edge. */
+   whole, a wrapped one starting at the strip's edge; one still too wide for a line of its own
+   (narrow windows, large type) puts its field and what follows under its name. */
 .fk-row {
   display: flex;
   flex-wrap: wrap;
@@ -36,8 +37,10 @@ body {
 }
 .fk-pair {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px 8px;
+  min-width: 0;
 }
 .fk-account {
   width: calc(var(--ds-size) * 12);
@@ -68,7 +71,7 @@ body {
 .fk-recent-btn,
 .fk-clear {
   flex: none;
-  height: var(--ds-control-h);
+  height: max(var(--ds-control-h), calc(var(--ds-size) * 1.4 + 2px));
   padding: 0 10px;
 }
 .fk-clear {
@@ -122,7 +125,7 @@ body {
 }
 .fk-table th,
 .fk-table td {
-  height: 26px;
+  height: max(26px, calc(var(--ds-size) * 1.65 + 2px));
   padding: 0 8px;
   border-bottom: 1px solid var(--ds-line);
   text-align: left;
@@ -159,7 +162,7 @@ body {
   padding: 0 4px;
 }
 .fk-open {
-  height: var(--ds-control-h);
+  height: max(var(--ds-control-h), calc(var(--ds-size) * 1.4 + 2px));
   padding: 0 8px;
 }
 .fk-table.disabled {

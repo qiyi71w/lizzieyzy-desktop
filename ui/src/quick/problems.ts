@@ -1,9 +1,10 @@
 // 评论 / 问题手 panel (SidebarPanel, SidebarHeaderPanel classic layout, BlunderListPanel). The core
 // owns the list, its order and the persisted panel state; this module draws the header, the
-// toolbar and the rows, and sends the page, side, sort and jump commands.
+// toolbar (the Black / White switch with each side's count, ProblemSideToggle, and the sort) and
+// the rows, and sends the page, side, sort and jump commands.
 import { run, state } from "../app";
 import { COMMANDS, type CommandEntry } from "../commands";
-import type { ProblemListSettings, ProblemMoveView, ProblemSort, WorkbenchView } from "../contract/generated";
+import type { ProblemListSettings, ProblemMoveView, ProblemSide, ProblemSort, WorkbenchView } from "../contract/generated";
 import { format, t } from "../i18n";
 import "./quick.css";
 
@@ -17,10 +18,53 @@ let resorted = false;
 let drawn = "";
 let shownRows: ProblemMoveView[] = [];
 
-/** One change to the panel state; the rest is sent as it is. */
-function setProblems(change: Partial<ProblemListSettings>): void {
+/** The two halves of the side switch, each with its name key. */
+const SIDES = [
+  ["Black", "blackSide", "SidebarHeader.black"],
+  ["White", "whiteSide", "SidebarHeader.white"],
+] as const;
+
+function sideParts(id: string) {
+  const label = $(id);
+  return {
+    label,
+    radio: label.querySelector("input") as HTMLInputElement,
+    count: label.querySelector(".side-count") as HTMLElement,
+  };
+}
+
+/** ProblemSideToggle.update: the chosen side and each side's number of problem moves (the length
+ *  of its list). Text changes only when it differs, so a click in progress survives the update. */
+function renderSides(side: ProblemSide, counts: Record<ProblemSide, number>): void {
+  for (const [value, id, key] of SIDES) {
+    const { label, radio, count } = sideParts(id);
+    const on = side === value;
+    label.classList.toggle("on", on);
+    if (radio.checked !== on) radio.checked = on;
+    const n = String(counts[value]);
+    if (count.textContent !== n) count.textContent = n;
+    const name = `${t(key)} ${n}`;
+    if (radio.getAttribute("aria-label") !== name) radio.setAttribute("aria-label", name);
+    // Half.refreshText: the tooltip and description say "N moves".
+    const moves = format(t("BlunderListPanel.count"), counts[value]);
+    if (label.title !== moves) {
+      label.title = moves;
+      radio.setAttribute("aria-description", moves);
+    }
+  }
+}
+
+/** One change to the panel state; the rest is sent as it is. A change the core did not take (its
+ *  failure shown) leaves the panel as the core has it: the switch a click checked unchecks again,
+ *  so that clicking it once more is a new change. */
+async function setProblems(change: Partial<ProblemListSettings>): Promise<void> {
   const settings = state.view?.settings.problems;
-  if (settings) void run({ type: "SetProblemList", settings: { ...settings, ...change } });
+  if (!settings) return;
+  const result = await run({ type: "SetProblemList", settings: { ...settings, ...change } });
+  if (result === null && state.view) {
+    drawn = "";
+    renderProblemPanel(state.view);
+  }
 }
 
 /** jumpToProblemMove: the position before the move, with the move marked on the board. */
@@ -111,11 +155,11 @@ function headerKey(e: KeyboardEvent): void {
   const s = state.view?.settings.problems;
   if (!s || e.ctrlKey || e.metaKey || e.altKey) return;
   const key = e.key.length === 1 ? e.key.toUpperCase() : e.key;
-  if (key === "ArrowLeft") setProblems({ showing: false });
-  else if (key === "ArrowRight") setProblems({ showing: true });
-  else if (key === "Enter") setProblems({ showing: !s.showing });
-  else if (key === "B" && s.showing) setProblems({ side: "Black" });
-  else if (key === "W" && s.showing) setProblems({ side: "White" });
+  if (key === "ArrowLeft") void setProblems({ showing: false });
+  else if (key === "ArrowRight") void setProblems({ showing: true });
+  else if (key === "Enter") void setProblems({ showing: !s.showing });
+  else if (key === "B" && s.showing) void setProblems({ side: "Black" });
+  else if (key === "W" && s.showing) void setProblems({ side: "White" });
   else return;
   e.preventDefault();
   e.stopPropagation();
@@ -139,14 +183,19 @@ export function bindProblemPanel(): void {
   const tabs = $("commentTabs");
   $("commentsTab").textContent = t("SidebarHeader.comments");
   $("problemsTab").textContent = t("SidebarHeader.problems");
-  $("blackSide").textContent = t("SidebarHeader.black");
-  $("whiteSide").textContent = t("SidebarHeader.white");
+  for (const [value, id, key] of SIDES) {
+    const { label, radio } = sideParts(id);
+    (label.querySelector(".side-name") as HTMLElement).textContent = t(key);
+    radio.addEventListener("change", () => {
+      if (radio.checked) void setProblems({ side: value });
+    });
+    // A mouse press picks the side without taking the focus, so the workbench keys keep working.
+    label.addEventListener("mousedown", (e) => e.preventDefault());
+  }
   tabs.setAttribute("aria-label", t("SidebarHeader.accessibleName"));
   tabs.setAttribute("aria-description", t("SidebarHeader.accessibleDescription"));
-  $("commentsTab").addEventListener("click", () => setProblems({ showing: false }));
-  $("problemsTab").addEventListener("click", () => setProblems({ showing: true }));
-  $("blackSide").addEventListener("click", () => setProblems({ side: "Black" }));
-  $("whiteSide").addEventListener("click", () => setProblems({ side: "White" }));
+  $("commentsTab").addEventListener("click", () => void setProblems({ showing: false }));
+  $("problemsTab").addEventListener("click", () => void setProblems({ showing: true }));
   tabs.addEventListener("keydown", headerKey);
   const sort = $<HTMLSelectElement>("problemSort");
   sort.title = t("BlunderListPanel.sort");
@@ -165,7 +214,7 @@ export function bindProblemPanel(): void {
   }
   sort.addEventListener("change", () => {
     resorted = true;
-    setProblems({ sort: sort.value as ProblemSort });
+    void setProblems({ sort: sort.value as ProblemSort });
   });
   const list = $("problemList");
   list.setAttribute("aria-label", t("SidebarHeader.problems"));
@@ -204,9 +253,7 @@ export function renderProblemPanel(v: WorkbenchView): void {
   drawn = sig;
   $("commentsTab").classList.toggle("on", !s.showing);
   $("problemsTab").classList.toggle("on", s.showing);
-  $("problemSides").hidden = !s.showing;
-  $("blackSide").classList.toggle("on", s.side === "Black");
-  $("whiteSide").classList.toggle("on", s.side === "White");
+  renderSides(s.side, { Black: p.black.length, White: p.white.length });
   const label = progressLabel(v);
   const progress = $("problemProgress");
   progress.hidden = label === "";
@@ -217,7 +264,6 @@ export function renderProblemPanel(v: WorkbenchView): void {
   $("problemPage").hidden = !s.showing;
   const rows = s.side === "Black" ? p.black : p.white;
   shownRows = rows;
-  $("problemCount").textContent = format(t("BlunderListPanel.count"), rows.length);
   $<HTMLSelectElement>("problemSort").value = s.sort;
   const list = $("problemList");
   const empty = $("problemEmpty");
@@ -245,7 +291,27 @@ export function problemsReport() {
     sort: s?.sort ?? null,
     hideControlPane: s?.hideControlPane ?? false,
     progress: $("problemProgress").hidden ? "" : $("problemProgress").textContent,
-    count: $("problemCount").textContent,
+    /** Each half of the side switch as shown: its text, number, name read aloud and tooltip. */
+    sides: SIDES.map(([side, id]) => {
+      const { label, radio, count } = sideParts(id);
+      return { side, text: label.textContent, count: count.textContent, checked: radio.checked, focused: document.activeElement === radio, ring: getComputedStyle(label).outlineStyle !== "none", name: radio.getAttribute("aria-label"), description: radio.getAttribute("aria-description"), title: label.title };
+    }),
+    /** What the header row holds, by id, and what the list's toolbar holds. */
+    header: [...$("commentTabs").children].filter((el) => !(el as HTMLElement).hidden).map((el) => el.id),
+    toolbar: [...document.querySelectorAll<HTMLElement>("#problemPage .problem-toolbar > *")].map((el) => el.id),
+    /** Client rectangles of the panel, its header, the page, the switch, its halves and their
+     *  parts, and the sort. */
+    boxes: Object.fromEntries(
+      ["comment", "commentTabs", "problemPage", "problemSides", "blackSide", "whiteSide", "problemSort", "problemList", "problemEmpty"].map((id) => {
+        const el = $(id);
+        const r = el.getBoundingClientRect();
+        const parts = [...el.querySelectorAll<HTMLElement>(":scope > span")].map((p) => {
+          const q = p.getBoundingClientRect();
+          return { x: q.left, y: q.top, w: q.width, h: q.height, scrollW: p.scrollWidth, clientW: p.clientWidth };
+        });
+        return [id, { x: r.left, y: r.top, w: r.width, h: r.height, scrollW: el.scrollWidth, clientW: el.clientWidth, parts }];
+      }),
+    ),
     empty: $("problemEmpty").hidden ? null : $("problemEmpty").textContent,
     rows: shownRows.map((r) => ({ node: r.node, move: r.move_number, loss: r.winrate_loss, tier: r.tier, current: r.current, selected: r.node === selected })),
     mark: state.view?.problems.mark ?? null,

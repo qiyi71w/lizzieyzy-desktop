@@ -25,8 +25,10 @@ use super::quick::{AnalysisPurpose, Query, RulesSignature};
 use super::Workbench;
 use crate::api::{ApiError, FlashAnalysisView, FlashOutcome, FlashTarget};
 use crate::browse::Navigation;
+use crate::engine::cloud::CloudProvider;
 use crate::engine::kata_analysis::{self, Response};
-use crate::engine::runtime::{EngineFailure, InstanceId, LeaseAvailability, LeaseFailure, RuntimeEvent};
+use crate::engine::diagnosis::StartupDiagnosis;
+use crate::engine::runtime::{EngineFailure, InstanceId, LeaseAvailability, LeaseFailure, RuntimeEvent, Target};
 use crate::engine::ssh::RemoteFailure;
 use crate::record::{GameRecord, NodeId, ROOT};
 use crate::settings::FlashRange;
@@ -39,6 +41,9 @@ pub(super) const REQUEST_DISPATCH_FAILED: &str = "AnalysisEngine.requestDispatch
 pub(super) const FOREGROUND_RESTORE_FAILED: &str = "AnalysisEngine.foregroundRestoreFailed";
 /// `WholeGameAnalysis.conflict.analysis`: a whole-game session holds the analysis entries.
 pub const WHOLE_GAME_CONFLICT: &str = "WholeGameAnalysis.conflict.analysis";
+/// `GtpAnalysisProtocol.supportsOverviewBudget`: 整盘速览's own protocol serves searches of at
+/// most this many visits.
+const OVERVIEW_MAX_VISITS: u64 = 500;
 
 #[derive(Default)]
 pub(super) struct FlashFlow {
@@ -48,8 +53,8 @@ pub(super) struct FlashFlow {
     /// `analysisRecentIsAllBranches`).
     recent: Option<FlashTarget>,
     /// A run waiting for a borrowed engine to come back before it starts (`whenSettled`), with
-    /// the positions it was accepted for.
-    waiting: Option<(u64, Vec<(NodeId, u64)>)>,
+    /// what it analyses and the positions it was accepted for.
+    waiting: Option<(u64, FlashTarget, Vec<(NodeId, u64)>)>,
     /// A cancelled run's borrowed engine still being given back: run and lease.
     releasing: Option<(u64, u64)>,
     outcome: Option<FlashOutcome>,
@@ -80,6 +85,10 @@ enum Engine {
         queue: VecDeque<(NodeId, u64)>,
         /// Giving the engine back after the last search (`true`) or a failed one.
         ending: Option<bool>,
+        /// 整盘速览 on a borrowed 智子 engine ([`Workbench::flash_overview`]): the next position
+        /// is searched in place of stopping, `following` the one the engine was told of.
+        overview: bool,
+        following: Option<(NodeId, u64)>,
     },
 }
 
@@ -128,8 +137,38 @@ impl Workbench {
     /// The moves a run asks about, in order (see [`flash_nodes_of`]).
     fn flash_nodes(&self, target: FlashTarget) -> Vec<NodeId> {
         let a = &self.config.analysis_engine;
-        let visits = u64::from(a.max_visits.max(1)) + 1;
-        flash_nodes_of(&self.doc.record, &self.store, target, visits, a.always_override)
+        flash_nodes_of(
+            &self.doc.record,
+            &self.store,
+            target,
+            self.flash_visits(),
+            a.always_override,
+        )
+    }
+
+    /// The visits a request searches: one more than 单步计算量 (`targetAnalysisVisits`).
+    fn flash_visits(&self) -> u64 {
+        u64::from(self.config.analysis_engine.max_visits.max(1)) + 1
+    }
+
+    /// 整盘速览 of the whole trunk on a 智子 foreground engine within
+    /// [`OVERVIEW_MAX_VISITS`] (Java `manualOverviewRequest`, `usesManualZhiziOverview`): a run
+    /// that borrows it asks with its own protocol. Other analyses, engines and budgets keep the
+    /// lease's ordinary searches.
+    fn flash_overview(&self, target: FlashTarget) -> bool {
+        let whole = match target {
+            FlashTarget::WholeGame => true,
+            FlashTarget::MoveRange { start_move, end_move } => start_move < 0 && end_move < 0,
+            FlashTarget::AllBranches => false,
+        };
+        whole
+            && self.flash_visits() <= OVERVIEW_MAX_VISITS
+            && self
+                .engines
+                .foreground()
+                .and_then(|f| self.engines.profile_of(f))
+                .and_then(|p| p.cloud.as_ref())
+                .is_some_and(|c| c.provider == CloudProvider::Zhizi)
     }
 
     /// The positions a run is asked for, frozen when it is accepted: each node with its stamp, so
@@ -174,11 +213,11 @@ impl Workbench {
         let id = self.flash.next_run;
         let plan = self.flash_plan(target);
         if self.quick_releasing() || self.flash_releasing() {
-            self.flash.waiting = Some((id, plan));
+            self.flash.waiting = Some((id, target, plan));
             self.sync_engine();
             return Ok(Ok(true));
         }
-        Ok(self.flash_begin(id, plan).map(|()| true))
+        Ok(self.flash_begin(id, target, plan).map(|()| true))
     }
 
     /// 取消分析 (`destroyAnalysisEngine`): the answers so far stay. An analysis process ends and
@@ -215,7 +254,7 @@ impl Workbench {
     }
 
     /// Starts run `id` now. `Err` holds the Java key of why it cannot.
-    fn flash_begin(&mut self, id: u64, plan: Vec<(NodeId, u64)>) -> Result<(), String> {
+    fn flash_begin(&mut self, id: u64, target: FlashTarget, plan: Vec<(NodeId, u64)>) -> Result<(), String> {
         let borrow = self.analysis_borrow(AnalysisPurpose::Manual).is_some();
         if borrow {
             let availability = self.engines.lease_availability();
@@ -244,13 +283,15 @@ impl Workbench {
                 lease,
                 queue: plan.into(),
                 ending: None,
+                overview: self.flash_overview(target),
+                following: None,
             }
         } else {
             let command = self.tuned_analysis_command(&self.analysis_command_base(false));
             let instance = match self.take_analysis_process(&command) {
                 Ok(instance) => instance,
-                Err(message) => {
-                    self.flash_engine_failed(id, &command, true, message, Vec::new(), None);
+                Err(error) => {
+                    self.flash_engine_failed(id, &command, true, error.message, Vec::new(), None, error.diagnosis);
                     self.sync_engine();
                     return Ok(());
                 }
@@ -258,7 +299,7 @@ impl Workbench {
             let (queries, sent) = self.send_analysis_queries(instance, &nodes, &format!("flash{id}"));
             if !sent {
                 self.engines.terminate(instance);
-                self.flash_engine_failed(id, &command, true, "input closed".into(), Vec::new(), None);
+                self.flash_engine_failed(id, &command, true, "input closed".into(), Vec::new(), None, None);
                 self.sync_engine();
                 return Ok(());
             }
@@ -352,8 +393,8 @@ impl Workbench {
         if self.quick_releasing() || self.flash_releasing() {
             return;
         }
-        if let Some((id, plan)) = self.flash.waiting.take() {
-            if let Err(message_key) = self.flash_begin(id, plan) {
+        if let Some((id, target, plan)) = self.flash.waiting.take() {
+            if let Err(message_key) = self.flash_begin(id, target, plan) {
                 self.flash.outcome = Some(FlashOutcome::Failed { run: id, message_key });
             }
         }
@@ -373,7 +414,8 @@ impl Workbench {
     }
 
     /// The analysis process failed (`showErrMsg`): reported like an engine failure, then
-    /// 精析设置 offers 确定并重新计算.
+    /// 精析设置 offers 确定并重新计算. `diagnosis`: its start was refused with an explanation.
+    #[allow(clippy::too_many_arguments)]
     fn flash_engine_failed(
         &mut self,
         run: u64,
@@ -382,6 +424,7 @@ impl Workbench {
         message: String,
         output: Vec<String>,
         remote: Option<RemoteFailure>,
+        diagnosis: Option<StartupDiagnosis>,
     ) {
         self.engine_failed(EngineFailure {
             instance: 0,
@@ -393,6 +436,7 @@ impl Workbench {
             output,
             remote,
             cloud: None,
+            diagnosis,
             foreground: false,
             secondary: false,
             held: false,
@@ -407,14 +451,17 @@ impl Workbench {
         let size = self.doc.record.size;
         let signature = self.quick_rules_signature();
         let Some(run) = self.flash.run.as_mut() else { return };
-        let Engine::Process { queries, .. } = &mut run.engine else {
+        let Engine::Process { instance, queries, .. } = &mut run.engine else {
             return;
         };
         let (query, line) = match kata_analysis::parse(line, size) {
-            Response::Result { id, line } => match queries.remove(&id) {
-                Some(q) => (q, line),
-                None => return,
-            },
+            Response::Result { id, line } => {
+                self.engines.worker_answered(*instance);
+                match queries.remove(&id) {
+                    Some(q) => (q, line),
+                    None => return,
+                }
+            }
             Response::Error { id, message } => {
                 let ours = id.is_some_and(|id| queries.contains_key(&id));
                 self.log(true, format!("flash analysis error: {message}"));
@@ -469,45 +516,112 @@ impl Workbench {
 
     /// Asks the borrowed engine about the next move, or gives it back after the last one.
     fn flash_lease_next(&mut self) {
-        loop {
-            let signature = self.quick_rules_signature();
+        let signature = self.quick_rules_signature();
+        let Some(Run {
+            engine:
+                Engine::Lease {
+                    lease,
+                    ending: None,
+                    overview,
+                    ..
+                },
+            rules,
+            ..
+        }) = self.flash.run.as_ref()
+        else {
+            return;
+        };
+        let (lease, overview) = (*lease, *overview);
+        // `requestStillTargetsCurrentGame` before each dispatch: other rules settings fail
+        // the run instead of searching under them.
+        if *rules != signature {
+            return self.flash_lease_end(false);
+        }
+        // A search that has not ended yet (its refused move being stopped) reports first.
+        if !self.engines.lease_idle(lease) {
+            return;
+        }
+        let Some(target) = self.flash_lease_position() else {
+            return self.flash_lease_end(true);
+        };
+        let rules = self.quick_lease_rules();
+        let visits = self.flash_visits();
+        let started = if overview {
+            self.engines
+                .lease_overview_search(lease, &target, visits, rules.as_deref())
+        } else {
+            self.engines.lease_search(lease, &target, visits, rules.as_deref())
+        };
+        if !started {
+            return self.flash_lease_end(false);
+        }
+        if overview {
+            self.flash_lease_follow();
+        }
+    }
+
+    /// Takes the next position still as the run was asked for off the queue, as a search target;
+    /// positions edited or removed since are skipped and counted done.
+    fn flash_lease_position(&mut self) -> Option<Target> {
+        let node = loop {
             let Some(Run {
-                engine:
-                    Engine::Lease {
-                        lease,
-                        queue,
-                        ending: None,
-                    },
+                engine: Engine::Lease { queue, .. },
                 done,
-                rules,
                 ..
             }) = self.flash.run.as_mut()
             else {
-                return;
+                return None;
             };
-            // `requestStillTargetsCurrentGame` before each dispatch: other rules settings fail
-            // the run instead of searching under them.
-            if *rules != signature {
-                return self.flash_lease_end(false);
-            }
-            let lease = *lease;
-            let Some((node, stamp)) = queue.pop_front() else {
-                return self.flash_lease_end(true);
-            };
+            let (node, stamp) = queue.pop_front()?;
             let rec = &self.doc.record;
-            if !rec.contains(node) || rec.node(node).stamp != stamp {
-                *done += 1;
-                continue;
+            if rec.contains(node) && rec.node(node).stamp == stamp {
+                break node;
             }
-            let mut target = self.analysis_target();
-            target.node = node;
-            let rules = self.quick_lease_rules();
-            let visits = u64::from(self.config.analysis_engine.max_visits.max(1)) + 1;
-            if !self.engines.lease_search(lease, &target, visits, rules.as_deref()) {
-                return self.flash_lease_end(false);
-            }
+            *done += 1;
+        };
+        let mut target = self.analysis_target();
+        target.node = node;
+        Some(target)
+    }
+
+    /// Tells 整盘速览's search in flight which position comes next, so that the moves to it
+    /// replace `stop`.
+    fn flash_lease_follow(&mut self) {
+        let next = self.flash_lease_position();
+        let following = next.as_ref().map(|t| (t.node, t.record.node(t.node).stamp));
+        let Some(Run {
+            engine: Engine::Lease {
+                lease, following: f, ..
+            },
+            ..
+        }) = self.flash.run.as_mut()
+        else {
             return;
+        };
+        *f = following;
+        let lease = *lease;
+        self.engines.lease_overview_follow(lease, next);
+    }
+
+    /// A search ended: when 整盘速览 continued with the position it followed, that one is
+    /// searched now and the next is named; otherwise the followed position goes back to the
+    /// queue and the next search starts as usual.
+    fn flash_lease_searched(&mut self, continued: bool) {
+        let Some(Run {
+            engine: Engine::Lease { queue, following, .. },
+            ..
+        }) = self.flash.run.as_mut()
+        else {
+            return;
+        };
+        let followed = following.take();
+        if continued {
+            return self.flash_lease_follow();
         }
+        if let Some(position) = followed {
+            queue.push_front(position);
+        }
+        self.flash_lease_next();
     }
 
     /// The run is over (`completed` or failed): its borrowed engine is given back first.
@@ -547,6 +661,7 @@ impl Workbench {
                 rules_rev,
                 to_play,
                 line,
+                continued,
             } if lease == Some(l) => {
                 let signature = self.quick_rules_signature();
                 let run = self.flash.run.as_mut().unwrap();
@@ -565,7 +680,7 @@ impl Workbench {
                             to_play,
                         };
                         self.store_background_result(doc, &q, line, true);
-                        self.flash_lease_next();
+                        self.flash_lease_searched(continued);
                     }
                 }
             }
@@ -611,6 +726,7 @@ impl Workbench {
                 message,
                 output,
                 remote,
+                during_startup,
             } if process == Some(instance) => {
                 let run = self.flash.run.take().unwrap();
                 // `finishAbortedAnalysis` does not resume the foreground engine.
@@ -618,7 +734,7 @@ impl Workbench {
                     self.paused = true;
                 }
                 if let Engine::Process { command, .. } = &run.engine {
-                    self.flash_engine_failed(run.id, command, false, message, output, remote);
+                    self.flash_engine_failed(run.id, command, during_startup, message, output, remote, None);
                 }
                 self.sync_engine();
             }
@@ -630,7 +746,7 @@ impl Workbench {
     // -------------------------------------------------------------------- projection
 
     pub(super) fn flash_view(&self) -> Option<FlashAnalysisView> {
-        if let Some((run, _)) = &self.flash.waiting {
+        if let Some((run, _, _)) = &self.flash.waiting {
             return Some(FlashAnalysisView {
                 run: *run,
                 loading: true,

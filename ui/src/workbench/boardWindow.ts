@@ -12,8 +12,8 @@ import type { IndependentBoard, Point, SlotThumbnail } from "../contract/generat
 import { appMenuKey } from "../appMenuKey";
 import { product, registerProduct, setLanguage } from "../i18n";
 import { INDEPENDENT_DATA_EVENT, INDEPENDENT_INPUT_EVENT, INDEPENDENT_LABELS, INDEPENDENT_PICTURE_EVENT, type IndependentInput, type IndependentPayload, type KeyInit } from "./independentModel";
-import { boardGeom, mainMarginRatio, selectRange, SUB_MARGIN_RATIO, type BoardGeom } from "./layout";
-import { loadImages, paintBoard, paintSubBoard, prepare } from "./paint";
+import { boardGeom, selectRange, SUB_MARGIN_RATIO, type BoardGeom } from "./layout";
+import { loadImages, paintBoard, paintSubBoard, prepare, type NamesReport } from "./paint";
 import { onAppearanceChange, syncAppearance } from "../appearance/state";
 import { icon } from "../design/icons";
 import { token } from "../design/theme";
@@ -83,6 +83,11 @@ export function bootBoardWindow(): void {
 
   let data: IndependentPayload | null = null;
   let geo: BoardGeom | null = null;
+  /** The names as last drawn (IndependentMainBoard's boardRenderer.isOnPlayerName) and what was
+   *  last reported of them, null before the first report: a new window always reports its first
+   *  drawing, even no names, so the main window drops what a closed one reported. */
+  let drawnNames: NamesReport | null = null;
+  let namesSent: string | null = null;
   const size = () => ({ w: document.documentElement.clientWidth, h: document.documentElement.clientHeight });
 
   const render = () => {
@@ -98,8 +103,13 @@ export function bootBoardWindow(): void {
     top.setAttribute("aria-pressed", String(data.onTop));
     lock.setAttribute("aria-pressed", String(data.locked));
     if (data.board === "Main") {
-      geo = boardGeom(r, data.scene.cols, data.scene.rows, mainMarginRatio(data.bigMargin));
-      paintBoard(prepare(canvas, r), geo, r, { ...data.scene, unlimited: new Set(data.scene.unlimited) });
+      geo = boardGeom(r, data.scene.cols, data.scene.rows, data.marginRatio);
+      drawnNames = paintBoard(prepare(canvas, r), geo, r, { ...data.scene, unlimited: new Set(data.scene.unlimited) }).names;
+      const text = JSON.stringify(drawnNames);
+      if (text !== namesSent) {
+        namesSent = text;
+        send({ type: "names", names: drawnNames });
+      }
     } else {
       geo = boardGeom(r, data.scene.cols, data.scene.rows, SUB_MARGIN_RATIO);
       paintSubBoard(prepare(canvas, r), geo, r, data.scene);
@@ -180,7 +190,9 @@ export function bootBoardWindow(): void {
   canvas.addEventListener("mousedown", (e) => {
     e.preventDefault();
     const point = pointAt(e.offsetX, e.offsetY);
-    send({ type: "press", point, button: e.button, detail: e.detail, alt: e.altKey, sx: e.screenX, sy: e.screenY });
+    const box = drawnNames?.box;
+    const onNames = !!box && e.offsetX >= box.x && e.offsetX < box.x + box.w && e.offsetY >= box.y && e.offsetY < box.y + box.h;
+    send({ type: "press", point, button: e.button, detail: e.detail, alt: e.altKey, sx: e.screenX, sy: e.screenY, onNames });
     if (data?.board === "Main" && e.button !== 1 && (e.altKey || data.selectMode)) {
       selection = { x: e.clientX, y: e.clientY, button: e.button };
       return;

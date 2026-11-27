@@ -1,6 +1,8 @@
 // Board display keys of Input.keyPressed / keyReleased (Input.java:466-500, 560-574, 642-669,
 // 708-716, 760-765, 851-854), in Java's modifier precedence. Combinations bound to other features
 // (Ctrl+F, Ctrl/Alt/Shift+T, Alt/Shift/Ctrl+C, Ctrl/Alt+Z, Ctrl+V) are left to the caller.
+import { run } from "../app";
+import { humanSlGameActive, humanSlSession } from "../humansl/state";
 import { openAutoPlayDialog } from "./autoplay";
 import { replayBranch } from "./replay";
 import { startTemporaryBoard, stopTemporaryBoard, togglePolicy, toggleRawNet, toggleCandidates } from "./state";
@@ -32,7 +34,10 @@ export function handleDisplayKey(e: KeyboardEvent): boolean {
       else toggleCandidates();
       return true;
     case "KeyH":
-      toggleRawNet();
+      // Input.keyPressed: in an AI 陪练 game that hides the suggestions, H asks for a hint
+      // (HumanSlGameController.hint); otherwise it shows the raw network.
+      if (humanSlGameActive() && humanSlSession()!.mode !== "LiveAnalysis") void run({ type: "HumanSl", op: { type: "Hint" } });
+      else toggleRawNet();
       return true;
     case "KeyV":
       if (ctrl || !e.altKey) return false;

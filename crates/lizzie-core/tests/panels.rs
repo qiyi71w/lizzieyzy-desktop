@@ -1,7 +1,7 @@
 //! Java's workbench presentation through the same operations used by menus and shortcuts.
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::runtime::{EngineIo, InstanceId, Launcher};
-use lizzie_core::settings::{BottomToolbar, ExtraMode, PanelSettings, PanelSizes, Storage, WorkbenchPanel};
+use lizzie_core::settings::{BigWinrateFit, BigWinrateSettings, BigWinrateStyle, BottomToolbar, ExtraMode, PanelSettings, PanelSizes, Storage, WorkbenchPanel};
 use lizzie_core::workbench::Workbench;
 
 struct NoEngines;
@@ -175,6 +175,52 @@ fn bottom_buttons_survive_restart() {
     assert!(wb.set_bottom_buttons(buttons).unwrap());
     drop(wb);
     assert_eq!(workbench(dir.path()).view(false).settings.bottom_buttons, buttons);
+}
+
+/// The top toolbar's 候选点 field choice (off by default), its 激进度 / 广度 choices (shown by
+/// default; the same pair as the 引擎参数 window's 在工具栏中控制) and the 候选点上限 the field
+/// edits are read back after a restart; a value that cannot be read gives that setting its
+/// default and keeps the rest of the file.
+#[test]
+fn toolbar_candidate_limit_and_parameter_choices_survive_restart() {
+    use lizzie_core::engine::runtime::KataParam;
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    let v = wb.view(false).settings;
+    assert!(!v.top_toolbar.show_suggestion_limit);
+    assert!(v.engine.kata_params.show_pda && v.engine.kata_params.show_wrn);
+    assert_eq!(v.engine.analysis.limit_max_suggestion, 10);
+    assert!(wb.set_top_toolbar_settings(lizzie_core::settings::TopToolbarSettings { show_suggestion_limit: true, ..v.top_toolbar }).unwrap());
+    // Neither choice needs an engine; choosing the saved value again changes nothing.
+    assert!(wb.set_kata_param_shown(KataParam::Pda, false).unwrap());
+    assert!(wb.set_kata_param_shown(KataParam::Wrn, false).unwrap());
+    assert!(!wb.set_kata_param_shown(KataParam::Wrn, false).unwrap());
+    assert!(wb.set_analysis_settings(lizzie_core::engine::profile::AnalysisSettings { limit_max_suggestion: 3, ..v.engine.analysis }).unwrap());
+    drop(wb);
+    let v = workbench(dir.path()).view(false).settings;
+    assert!(v.top_toolbar.show_suggestion_limit);
+    assert_eq!((v.engine.kata_params.show_pda, v.engine.kata_params.show_wrn), (false, false));
+    assert_eq!(v.engine.analysis.limit_max_suggestion, 3);
+
+    let file = storage(dir.path()).config_file;
+    let mut stored: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    stored["topToolbar"]["showSuggestionLimit"] = "yes".into();
+    stored["engine"]["kataParams"]["showPda"] = 1.into();
+    stored["engine"]["analysis"]["limitMaxSuggestion"] = (-3).into();
+    std::fs::write(&file, serde_json::to_vec(&stored).unwrap()).unwrap();
+    let v = workbench(dir.path()).view(false).settings;
+    assert!(!v.top_toolbar.show_suggestion_limit);
+    assert!(v.engine.kata_params.show_pda);
+    assert_eq!(v.engine.analysis.limit_max_suggestion, 10);
+    assert!(!v.engine.kata_params.show_wrn, "the readable choices beside them stay");
+    assert!(!file.with_file_name("config.json.unreadable-backup").exists());
+
+    for limit in [serde_json::json!(2.5), serde_json::json!("3"), serde_json::json!(5_000_000_000u64)] {
+        let mut stored: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        stored["engine"]["analysis"]["limitMaxSuggestion"] = limit.clone();
+        std::fs::write(&file, serde_json::to_vec(&stored).unwrap()).unwrap();
+        assert_eq!(workbench(dir.path()).view(false).settings.engine.analysis.limit_max_suggestion, 10, "{limit}");
+    }
 }
 
 #[test]
@@ -380,4 +426,160 @@ fn every_fixed_layout_selection_and_panel_preference_is_reloaded() {
         assert_eq!(s.extra_mode, mode);
         assert_eq!(s.panels, panels);
     }
+}
+
+/// 黑白胜率大字's look and 窗口置顶 are kept as soon as they are chosen and come back after a
+/// restart with the bounds it closed at; 重置界面位置 leaves them. Bounds too small to use, and
+/// stored values this version cannot read, come back as none or the default without stopping the
+/// rest of the settings from loading.
+#[test]
+fn big_winrate_settings_survive_restart_and_unreadable_values_fall_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    assert_eq!(wb.view(false).settings.big_winrate, BigWinrateSettings::default());
+    assert_eq!(BigWinrateSettings::default().style, BigWinrateStyle::Plain);
+    assert!(wb.set_big_winrate(BigWinrateStyle::Led, true).unwrap());
+    assert!(!wb.set_big_winrate(BigWinrateStyle::Led, true).unwrap(), "unchanged");
+    wb.record_big_winrate_bounds([40, 50, 600, 300], [0, 37]).unwrap();
+    wb.reset_ui_position().unwrap();
+    drop(wb);
+    let mut wb = workbench(dir.path());
+    let kept = BigWinrateSettings { style: BigWinrateStyle::Led, on_top: true, bounds: Some([40, 50, 600, 300]), frame: Some([0, 37]) };
+    assert_eq!(wb.view(false).settings.big_winrate, kept);
+    wb.record_big_winrate_bounds([40, 50, 119, 300], [0, 37]).unwrap();
+    assert_eq!(wb.view(false).settings.big_winrate.bounds, None, "narrower than 120");
+    wb.record_big_winrate_bounds([40, 50, 120, 60], [0, 37]).unwrap();
+    assert_eq!(wb.view(false).settings.big_winrate.bounds, Some([40, 50, 120, 60]));
+    wb.toggle_panel(WorkbenchPanel::AlwaysOnTop).unwrap();
+    drop(wb);
+
+    let file = dir.path().join("config").join("config.json");
+    let mut config: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+    config["bigWinrate"] = serde_json::json!({ "style": "Neon", "onTop": "yes", "bounds": [1, 2, 300, 59] });
+    std::fs::write(&file, config.to_string()).unwrap();
+    let s = workbench(dir.path()).view(false).settings;
+    assert_eq!(s.big_winrate, BigWinrateSettings::default());
+    assert!(s.panels.always_on_top, "the rest still loads");
+    config["bigWinrate"] = serde_json::json!("damaged");
+    std::fs::write(&file, config.to_string()).unwrap();
+    let s = workbench(dir.path()).view(false).settings;
+    assert_eq!(s.big_winrate, BigWinrateSettings::default());
+    assert!(s.panels.always_on_top, "the rest still loads");
+}
+
+/// Closing and opening 黑白胜率大字 again, in one session or after a restart, keeps the whole
+/// window's size: the window opens with the kept bounds less the kept frame. Modelled on a window
+/// system that adds the frame around the content it is given: none, a server-side title bar, and
+/// GTK's own header bar and shadow on Wayland, which is told only once the window is shown.
+#[test]
+fn big_winrate_size_does_not_drift_over_reopens_and_restarts() {
+    for frame in [[0, 0], [2, 25], [52, 89]] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut wb = workbench(dir.path());
+        // First open: no frame known yet, the content is Java's whole size.
+        let mut content = [520, 260];
+        let mut sizes = vec![];
+        // The first open, three reopens in the session, then three restarts.
+        for round in 0..7 {
+            if round >= 4 {
+                drop(wb);
+                wb = workbench(dir.path());
+            }
+            let saved = wb.view(false).settings.big_winrate;
+            if let (Some([_, _, w, h]), Some(kept)) = (saved.bounds, saved.frame) {
+                content = BigWinrateSettings::content_for([w, h], kept);
+            }
+            let outer = [content[0] + frame[0], content[1] + frame[1]];
+            assert_eq!(BigWinrateSettings::frame_of(outer, content), frame);
+            wb.record_big_winrate_bounds([10, 20, outer[0], outer[1]], BigWinrateSettings::frame_of(outer, content)).unwrap();
+            sizes.push(outer);
+        }
+        assert!(sizes.iter().all(|s| *s == sizes[0]), "frame {frame:?}: {sizes:?}");
+        assert_eq!(sizes[0], [520 + frame[0], 260 + frame[1]]);
+    }
+    assert_eq!(BigWinrateSettings::content_for([130, 70], [52, 89]), [120, 60], "never under 120 × 60");
+    assert_eq!(BigWinrateSettings::content_for([600, 300], [-5, -5]), [600, 300], "a frame is never negative");
+    assert_eq!(BigWinrateSettings::frame_of([600, 300], [610, 300]), [0, 0]);
+}
+
+/// One session of a window system that frames windows with `frame`, as the shell opens
+/// 黑白胜率大字 on Linux: from the kept bounds less the kept frame, refitted as the window system
+/// reports the window. Its reports come first before the window manager has framed it (as on
+/// X11), and a report of the content asked for before may still come after a new one was asked
+/// for. The user may then give it `resize` (content). It closes and its bounds are kept. Returns
+/// the whole size it was shown at before any resize.
+fn big_winrate_session(wb: &mut Workbench, frame: [i32; 2], resize: Option<[i32; 2]>) -> [i32; 2] {
+    let whole = |c: [i32; 2]| [c[0] + frame[0], c[1] + frame[1]];
+    let saved = wb.view(false).settings.big_winrate;
+    let [_, _, w, h] = saved.bounds.unwrap();
+    let mut fit = BigWinrateFit::new([w, h], saved.frame.unwrap());
+    let mut content = fit.content();
+    let mut reports = std::collections::VecDeque::from([(content, content), (whole(content), content)]);
+    while let Some((outer, reported)) = reports.pop_front() {
+        if let Some(asked) = fit.measured(outer, reported) {
+            reports.extend([(whole(content), content), (whole(asked), asked)]);
+            content = asked;
+        }
+    }
+    let shown = whole(content);
+    if let Some(resized) = resize {
+        content = resized;
+        assert_eq!(fit.measured(whole(content), content), None, "a size the user gave is left alone");
+    }
+    let outer = whole(content);
+    let [w, h] = fit.kept_outer(outer, content);
+    wb.record_big_winrate_bounds([490, 320, w, h], BigWinrateSettings::frame_of(outer, content)).unwrap();
+    shown
+}
+
+/// 黑白胜率大字 keeps the whole size it was closed at when the window manager's decorations
+/// change between sessions (a title bar on, then off, then a different one), and the size kept
+/// is not rewritten by the change; a size the user gives it is kept and comes back whole under
+/// other decorations.
+#[test]
+fn big_winrate_whole_size_survives_a_change_of_decorations() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    // Closed at 520 × 260 whole under a server-side title bar.
+    wb.record_big_winrate_bounds([490, 320, 520, 260], [2, 25]).unwrap();
+    for frame in [[0, 0], [2, 25], [52, 89], [0, 0], [2, 25]] {
+        drop(wb);
+        wb = workbench(dir.path());
+        assert_eq!(big_winrate_session(&mut wb, frame, None), [520, 260], "shown whole under {frame:?}");
+        let saved = wb.view(false).settings.big_winrate;
+        assert_eq!(saved.bounds, Some([490, 320, 520, 260]), "kept under {frame:?}");
+        assert_eq!(saved.frame, Some(frame));
+    }
+    // The user makes it 600 × 300 whole without decorations; with a title bar it is 600 × 300 whole.
+    drop(wb);
+    wb = workbench(dir.path());
+    big_winrate_session(&mut wb, [0, 0], Some([600, 300]));
+    assert_eq!(wb.view(false).settings.big_winrate.bounds, Some([490, 320, 600, 300]));
+    drop(wb);
+    wb = workbench(dir.path());
+    assert_eq!(big_winrate_session(&mut wb, [2, 25], None), [600, 300]);
+    assert_eq!(wb.view(false).settings.big_winrate.bounds, Some([490, 320, 600, 300]));
+}
+
+/// A window system whose reports keep disagreeing about the frame gets the content set again at
+/// most twice; once the window has another size than the one asked for, it is left alone.
+#[test]
+fn big_winrate_refits_a_bounded_number_of_times_and_never_after_another_size() {
+    let mut fit = BigWinrateFit::new([520, 260], [2, 25]);
+    assert_eq!(fit.content(), [518, 235]);
+    assert_eq!(fit.measured([518, 235], [518, 235]), Some([520, 260]));
+    assert_eq!(fit.measured([520, 260], [518, 235]), None, "the content asked for before is still reported");
+    assert_eq!(fit.measured([522, 285], [520, 260]), Some([518, 235]));
+    assert_eq!(fit.measured([518, 235], [518, 235]), None, "no third refit");
+    assert_eq!(fit.kept_outer([518, 235], [518, 235]), [520, 260], "still the size asked for");
+
+    let mut fit = BigWinrateFit::new([520, 260], [0, 0]);
+    assert_eq!(fit.measured([530, 290], [528, 265]), None, "another size: left alone");
+    assert_eq!(fit.measured([522, 285], [520, 260]), None, "and stays left alone");
+    assert_eq!(fit.kept_outer([530, 290], [528, 265]), [530, 290]);
+
+    let mut fit = BigWinrateFit::new([520, 260], [0, 0]);
+    fit.settle();
+    assert_eq!(fit.measured([522, 285], [520, 260]), None, "settled: no refit");
+    assert_eq!(fit.kept_outer([522, 285], [520, 260]), [520, 260], "the size asked for keeps the kept whole size");
 }

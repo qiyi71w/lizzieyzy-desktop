@@ -9,12 +9,14 @@
 //! - [`runtime`]: instances, command confirmation, request ownership, foreground lease, analysis
 //!   processes and exit.
 //! - [`process`]: the OS process launcher.
+//! - [`diagnosis`]: why an engine could not start (Windows path error, too old a macOS).
 //! - [`ssh`]: engines that run on an SSH host.
 //! - [`tuning`]: thread policy, benchmark results and GTP configuration of a profile.
 
 pub mod analysis_command;
 pub mod benchmark;
 pub mod cloud;
+pub mod diagnosis;
 pub mod gtp;
 pub mod gtp_config;
 pub mod kata_analysis;

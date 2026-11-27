@@ -6,6 +6,7 @@ use crate::{
         StrengthView,
     },
     engine::{
+        diagnosis::StartupDiagnosis,
         gtp,
         kata_analysis::{self, QueryOptions},
         runtime::{InstanceId, LeaseAvailability, RuntimeEvent},
@@ -145,11 +146,13 @@ fn failure(message: String) -> StrengthManualOutcome {
         StrengthManualOutcome::Failed {
             message_key: message,
             detail: None,
+            diagnosis: None,
         }
     } else {
         StrengthManualOutcome::Failed {
             message_key: "HumanSL40.failed".into(),
             detail: Some(message),
+            diagnosis: None,
         }
     }
 }
@@ -246,6 +249,7 @@ impl Workbench {
                             || !a.candidates.is_empty()
                             || a.score_lead.is_some()
                             || self.store.ownership(rec, id).is_some(),
+                        visits: a.visits,
                         candidates,
                         extra_candidates,
                     }
@@ -400,38 +404,80 @@ impl Workbench {
         }
         entry.valid
     }
+    /// The active model's estimate of the game on the board, the input it was made from and the
+    /// model (`StrengthDialogHost.report`).
+    fn strength_estimate(&self) -> (MainLineInput, s::StrengthModel, s::StrengthReport) {
+        let input = self.strength_input();
+        let model = self.strength_model(&self.strength.active_model);
+        let report = if !model.human_sl {
+            s::estimate_with_model(&input, &model, &self.config.display)
+        } else {
+            s::capture(&input, &self.config.display)
+                .ok()
+                .and_then(|capture| {
+                    let prepared = self.strength.prepared.as_ref().filter(|p| p.root == self.doc.id)?;
+                    let count = capture.game["moves"].as_array()?.len();
+                    let moves = prepared.game["moves"].as_array()?;
+                    if count > moves.len() {
+                        return None;
+                    }
+                    let mut prefix = prepared.game.clone();
+                    prefix["moves"] = json!(&moves[..count]);
+                    (s::canonical(&prefix) == s::canonical(&capture.game))
+                        .then(|| s::report(&capture, &prepared.policies, &self.config.display).ok())
+                        .flatten()
+                })
+                .unwrap_or_else(|| {
+                    let empty = MainLineInput {
+                        board_width: input.board_width,
+                        board_height: input.board_height,
+                        game: Value::Null,
+                        has_setup_stones: input.has_setup_stones,
+                        positions: Vec::new(),
+                    };
+                    s::estimate_with_model(&empty, &model, &self.config.display)
+                })
+        };
+        (input, model, report)
+    }
+    /// The phases of the game on the board split at `bounds`, by the active model.
+    fn strength_phases(&self, bounds: [u32; 2]) -> s::StrengthPhases {
+        let (input, model, report) = self.strength_estimate();
+        let total = input.positions.len().saturating_sub(1) as u32;
+        s::phases(&report, &model, bounds, total)
+    }
     pub fn strength(&mut self, op: StrengthCommand) -> Result<CommandResult, ApiError> {
         match op {
             StrengthCommand::Report => {
                 self.strength_reload_models();
-                let input = self.strength_input();
-                let model = self.strength_model(&self.strength.active_model);
-                let report = if !model.human_sl {
-                    s::estimate_with_model(&input, &model, &self.config.display)
-                } else {
-                    s::capture(&input, &self.config.display)
-                        .ok()
-                        .and_then(|capture| {
-                            let prepared = self.strength.prepared.as_ref().filter(|p| p.root == self.doc.id)?;
-                            let count = capture.game["moves"].as_array()?.len();
-                            let moves = prepared.game["moves"].as_array()?;
-                            if count > moves.len() {
-                                return None;
-                            }
-                            let mut prefix = prepared.game.clone();
-                            prefix["moves"] = json!(&moves[..count]);
-                            (s::canonical(&prefix) == s::canonical(&capture.game))
-                                .then(|| s::report(&capture, &prepared.policies, &self.config.display).ok())
-                                .flatten()
-                        })
-                        .unwrap_or_else(|| {
-                            let mut empty = input;
-                            empty.positions.clear();
-                            s::estimate_with_model(&empty, &model, &self.config.display)
-                        })
+                let (input, model, report) = self.strength_estimate();
+                // HumanSlStrengthPreparation.discoverAssets().human(): the weights the first
+                // calculation would otherwise download.
+                let download = match self.strength_human_candidate() {
+                    Some(_) => None,
+                    None => self
+                        .resources
+                        .catalog()
+                        .models
+                        .get(super::resources::HUMAN_SL_MODEL)
+                        .map(|m| m.size_bytes),
                 };
+                let context = s::context(&input, &report, self.strength_analyzing(), download, &self.config.display);
+                let phases = s::phases(&report, &model, self.config.strength.phase_bounds, context.total);
                 Ok(CommandResult::Strength {
                     report: Box::new(report),
+                    context,
+                    phases: Box::new(phases),
+                })
+            }
+            StrengthCommand::PreviewPhases { bounds } => Ok(CommandResult::StrengthPhases {
+                phases: Box::new(self.strength_phases(bounds)),
+            }),
+            StrengthCommand::SetPhaseBounds { bounds } => {
+                let bounds = if s::usable_phase_bounds(bounds) { bounds } else { s::DEFAULT_PHASE_BOUNDS };
+                self.commit_config(|c| c.strength.phase_bounds = bounds)?;
+                Ok(CommandResult::StrengthPhases {
+                    phases: Box::new(self.strength_phases(bounds)),
                 })
             }
             StrengthCommand::SelectModel { id } => {
@@ -630,7 +676,7 @@ impl Workbench {
         let (engine, human) = match assets {
             Ok(a) => a,
             Err(e) => {
-                self.strength_failed(e.into());
+                self.strength_failed(e.into(), None);
                 return;
             }
         };
@@ -684,7 +730,8 @@ impl Workbench {
             pending: Vec::new(),
         });
     }
-    fn strength_failed(&mut self, message: String) {
+    /// `diagnosis`: the policy engine was refused before it started, with its own explanation.
+    fn strength_failed(&mut self, message: String, diagnosis: Option<StartupDiagnosis>) {
         let manual = self.strength.task.as_ref().map_or_else(
             || self.strength.manual.as_ref().is_some_and(|m| m.running),
             |t| t.manual,
@@ -702,7 +749,14 @@ impl Workbench {
         self.strength
             .update(key, self.strength.status.completed, self.strength.status.total);
         if manual {
-            self.strength_finish_manual(failure(message));
+            self.strength_finish_manual(match diagnosis {
+                Some(diagnosis) => StrengthManualOutcome::Failed {
+                    message_key: "HumanSL40.failed".into(),
+                    detail: None,
+                    diagnosis: Some(diagnosis),
+                },
+                None => failure(message),
+            });
         }
     }
     pub(super) fn strength_deadline(&self) -> Option<Instant> {
@@ -748,11 +802,13 @@ impl Workbench {
                 Err(mpsc::TryRecvError::Empty) => None,
             });
         if let Some(result) = launch {
-            match result.and_then(|(command, fp)| {
+            let started = result.map_err(|message| (message, None)).and_then(|(command, fp)| {
                 self.engines
                     .start_worker(&command, "HumanSL 40 policy")
                     .map(|worker| (worker, fp))
-            }) {
+                    .map_err(|e| (e.message, e.diagnosis))
+            });
+            match started {
                 Ok((worker, fp)) => {
                     let t = self.strength.task.as_mut().unwrap();
                     t.launch = None;
@@ -763,7 +819,7 @@ impl Workbench {
                         .insert(t.engine.path.clone(), (t.engine.clone(), fp));
                     self.strength_pump(now);
                 }
-                Err(error) => self.strength_failed(error),
+                Err((message, diagnosis)) => self.strength_failed(message, diagnosis),
             }
         }
         if self
@@ -772,7 +828,7 @@ impl Workbench {
             .as_ref()
             .is_some_and(|t| t.pending.iter().any(|p| now >= p.deadline))
         {
-            self.strength_failed("HumanSL policy query timed out after 180 seconds".into());
+            self.strength_failed("HumanSL policy query timed out after 180 seconds".into(), None);
         }
         revision != self.strength.status.revision || assets_changed
     }
@@ -838,7 +894,7 @@ impl Workbench {
         match result {
             Ok(true) => self.strength_complete(),
             Ok(false) => {}
-            Err(error) => self.strength_failed(error),
+            Err(error) => self.strength_failed(error, None),
         }
     }
     /// The admitted manual run ended with `outcome`.
@@ -893,19 +949,19 @@ impl Workbench {
                         })();
                         if let Err(error) = write {
                             let _ = fs::remove_file(&temporary);
-                            self.strength_failed(error.to_string());
+                            self.strength_failed(error.to_string(), None);
                             return None;
                         }
                         task.policies[s::PROFILES[pending.profile]][pending.turn] = json!(policy);
                         task.profiles[pending.turn] += 1;
                         self.strength_pump(Instant::now());
                     }
-                    Err(error) => self.strength_failed(error),
+                    Err(error) => self.strength_failed(error, None),
                 }
                 None
             }
             RuntimeEvent::WorkerExited { instance, message, .. } if Some(instance) == worker => {
-                self.strength_failed(message);
+                self.strength_failed(message, None);
                 None
             }
             other => Some(other),
@@ -944,6 +1000,13 @@ impl Workbench {
             }
             node = rec.main_child(id);
         }
+        // StrengthDialog.refresh: the rest of the main line counts by how many moves have analysis.
+        let mut analyzed = 0u32;
+        while let Some(id) = node {
+            analyzed += u32::from(self.store.get(rec, id).is_some_and(|a| a.visits > 0));
+            node = rec.main_child(id);
+        }
+        analyzed.hash(&mut hasher);
         StrengthView {
             models: self.strength.models.iter().map(s::StrengthModel::view).collect(),
             active: self.strength_model(&self.strength.active_model).id,
@@ -951,6 +1014,12 @@ impl Workbench {
             status: self.strength.status.clone(),
             manual: self.strength.manual.clone(),
             stamp: hasher.finish(),
+            analyzing: self.strength_analyzing(),
         }
+    }
+    /// StrengthDialogHost.analyzing: a whole-game analysis, an automatic quick analysis or a flash
+    /// analysis is starting or running.
+    fn strength_analyzing(&self) -> bool {
+        self.whole_game_active() || self.quick_running() || self.flash_active()
     }
 }

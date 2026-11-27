@@ -1,7 +1,7 @@
 //! Fixed Java workbench presentation; no DOM, window handles or drag drafts live here.
 use super::Workbench;
 use crate::api::{ApiError, ErrorKind};
-use crate::settings::{BottomToolbar, CustomLayout, ExtraMode, IndependentBoard, PanelArrangement, PanelSettings, PanelSizes, WindowPlacement, WorkbenchPanel};
+use crate::settings::{BigWinrateSettings, BigWinrateStyle, BottomToolbar, CustomLayout, ExtraMode, IndependentBoard, PanelArrangement, PanelSettings, PanelSizes, WindowPlacement, WorkbenchPanel};
 
 impl PanelSettings {
     /// Config.java:2538-2546: 大胜率图 hides, but does not forget, the list preference.
@@ -372,6 +372,29 @@ impl Workbench {
             return Err(error);
         }
         Ok(())
+    }
+
+    /// 黑白胜率大字's right-click menu (Java `BigWinrateWindow.menu`): 简洁 / 数码管 and 窗口置顶, kept
+    /// as soon as they are chosen.
+    pub fn set_big_winrate(&mut self, style: BigWinrateStyle, on_top: bool) -> Result<bool, ApiError> {
+        let current = self.config.big_winrate;
+        if current.style == style && current.on_top == on_top { return Ok(false); }
+        self.commit_config(|c| { c.big_winrate.style = style; c.big_winrate.on_top = on_top; })?;
+        Ok(true)
+    }
+
+    /// 黑白胜率大字's bounds (logical pixels, the whole window) and its frame as it closes or the
+    /// application exits; Java keeps the bounds on every move and resize and writes them with the
+    /// settings. Bounds too small to use replace the saved ones with none, as Java reads such
+    /// bounds back.
+    pub fn record_big_winrate_bounds(&mut self, bounds: [i32; 4], frame: [i32; 2]) -> Result<(), ApiError> {
+        let kept = Some(bounds).filter(|b| BigWinrateSettings::usable(*b));
+        let saved = &self.config.big_winrate;
+        if saved.bounds == kept && saved.frame == Some(frame) { return Ok(()); }
+        self.commit_config(|c| {
+            c.big_winrate.bounds = kept;
+            c.big_winrate.frame = Some(frame);
+        })
     }
 
     /// SetCustomMode 确定 (SetCustomMode.java; Config.savePanelConfig, then saveCustomMode for a

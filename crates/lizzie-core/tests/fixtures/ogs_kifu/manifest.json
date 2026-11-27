@@ -1,0 +1,87 @@
+{
+  "recorded_at": "2026-11-26T01:02:49+00:00",
+  "source": "OGS public API, recorded once with the client's own request headers; GET only, no redirects followed, no retries, 3 s between requests",
+  "request_headers": {
+    "User-Agent": "LizzieYzy-Next",
+    "Accept": "application/json,application/x-go-sgf,text/plain,*/*"
+  },
+  "requests": [
+    {
+      "name": "player-by-username",
+      "method": "GET",
+      "url": "https://online-go.com/api/v1/players/?username=Crude+Oil",
+      "status": 200,
+      "content_type": "application/json",
+      "bytes": 378,
+      "sha256": "440ffe174095ef96f60316dd304d1b697d3e7aabc9c84449e5ef7216fe164aa5",
+      "at": "2026-11-26T01:02:49+00:00",
+      "file": "player-by-username.json"
+    },
+    {
+      "name": "player-by-id",
+      "method": "GET",
+      "url": "https://online-go.com/api/v1/players/1244057/",
+      "status": 200,
+      "content_type": "application/json",
+      "bytes": 825,
+      "sha256": "84c5088c942259a2de89f32f7c1f55bc99a39c39e941741dc62c61f034624d7b",
+      "at": "2026-11-26T01:02:53+00:00",
+      "file": "player-by-id.json"
+    },
+    {
+      "name": "games-page-1",
+      "method": "GET",
+      "url": "https://online-go.com/api/v1/players/1244057/games/?ended__isnull=false&ordering=-ended&page_size=20&page=1",
+      "status": 200,
+      "content_type": "application/json",
+      "bytes": 50518,
+      "sha256": "a32e251f6ae54c24e1fae341c8ad00f813a682323555d9b97cc8c9730c9e7cc4",
+      "at": "2026-11-26T01:02:56+00:00",
+      "file": "games-page-1.json"
+    },
+    {
+      "name": "games-page-2",
+      "method": "GET",
+      "url": "https://online-go.com/api/v1/players/1244057/games/?ended__isnull=false&ordering=-ended&page_size=20&page=2",
+      "status": 200,
+      "content_type": "application/json",
+      "bytes": 50515,
+      "sha256": "d5cbfeceef187b00a1c57d847ff3bc5fec586de3483b30fa821f88e7bcf4e99d",
+      "at": "2026-11-26T01:03:00+00:00",
+      "file": "games-page-2.json"
+    },
+    {
+      "name": "game-sgf",
+      "method": "GET",
+      "url": "https://online-go.com/api/v1/games/83665278/sgf",
+      "status": 200,
+      "content_type": "application/x-go-sgf; charset=utf-8",
+      "bytes": 1958,
+      "sha256": "1896e56496b0313dfd313740a1e784abec2b4de03856cfaf62e523579fb73de7",
+      "at": "2026-11-26T01:03:03+00:00",
+      "file": "game-sgf.sgf"
+    },
+    {
+      "name": "player-missing-username",
+      "method": "GET",
+      "url": "https://online-go.com/api/v1/players/?username=zz-no-such-player-7f3c9a2e",
+      "status": 200,
+      "content_type": "application/json",
+      "bytes": 52,
+      "sha256": "0595424161ea863805d9b92c0e52d7aa1e3c46ec58cd8f0d6933759006a5fb74",
+      "at": "2026-11-26T01:03:06+00:00",
+      "file": "player-missing-username.json"
+    },
+    {
+      "name": "player-missing-id",
+      "method": "GET",
+      "url": "https://online-go.com/api/v1/players/999999999999/",
+      "status": 404,
+      "content_type": "application/json",
+      "bytes": 47,
+      "sha256": "bfd4c2cab0868835b5b87eb47ff72757539020c35bf6e7c37ea4b4a4047373e2",
+      "at": "2026-11-26T01:03:09+00:00",
+      "file": "player-missing-id.json"
+    }
+  ]
+}

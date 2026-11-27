@@ -83,6 +83,18 @@ pub enum CoachLevelKind {
     StrongDan,
 }
 
+/// What the real-world column of the rank table says (Java `CoachLevel.Grade`): the two amateur
+/// grades carry a number ([`CoachLevel::grade_number`]), the others none.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, TS)]
+pub enum CoachGrade {
+    BeyondTopPro,
+    TopPro,
+    Pro,
+    TopAmateur,
+    AmateurDan,
+    AmateurKyu,
+}
+
 /// How KataGo picks the AI's moves at one level, after the `gtp_human*_example.cfg` configs the
 /// levels were tuned with. A policy level (`searches` false) plays the raw HumanSL policy of its
 /// profile and keeps the other values of its config for reference; a search level searches and
@@ -227,67 +239,100 @@ struct Row {
     kind: CoachLevelKind,
     rank: u8,
     fox: &'static str,
+    grade: CoachGrade,
+    grade_number: u8,
     play: PlaySettings,
 }
 
-const fn row(kind: CoachLevelKind, rank: u8, fox: &'static str, play: PlaySettings) -> Row {
-    Row { kind, rank, fox, play }
+const fn row(
+    kind: CoachLevelKind,
+    rank: u8,
+    fox: &'static str,
+    (grade, grade_number): (CoachGrade, u8),
+    play: PlaySettings,
+) -> Row {
+    Row {
+        kind,
+        rank,
+        fox,
+        grade,
+        grade_number,
+        play,
+    }
 }
+
+const fn dan(number: u8) -> (CoachGrade, u8) {
+    (CoachGrade::AmateurDan, number)
+}
+
+const fn kyu(number: u8) -> (CoachGrade, u8) {
+    (CoachGrade::AmateurKyu, number)
+}
+
+const TOP_AMATEUR: (CoachGrade, u8) = (CoachGrade::TopAmateur, 0);
+const PRO: (CoachGrade, u8) = (CoachGrade::Pro, 0);
+const TOP_PRO: (CoachGrade, u8) = (CoachGrade::TopPro, 0);
+const BEYOND_TOP_PRO: (CoachGrade, u8) = (CoachGrade::BeyondTopPro, 0);
 
 use CoachLevelKind::{Dan, Kyu, StrongDan};
 use PlaySettings as P;
 
 /// In [`CoachLevel`] order.
 const ROWS: [Row; 31] = [
-    row(Kyu, 10, "17-18K", P::policy("preaz_20k")),
-    row(Kyu, 9, "15-16K", P::policy("preaz_18k")),
-    row(Kyu, 8, "13-14K", P::policy("preaz_16k")),
-    row(Kyu, 7, "11-12K", P::policy("preaz_14k")),
-    row(Kyu, 6, "9-10K", P::policy("preaz_12k")),
-    row(Kyu, 5, "7-8K", P::policy("preaz_11k")),
-    row(Kyu, 4, "5-6K", P::policy("preaz_10k")),
-    row(Kyu, 3, "3-4K", P::policy("preaz_9k")),
-    row(Kyu, 2, "2K", P::policy("preaz_8k")),
-    row(Kyu, 1, "1K", P::policy("preaz_7k")),
-    row(Dan, 1, "1D", P::search("rank_5k")),
-    row(StrongDan, 1, "1-2D", P::half_step("rank_4k")),
-    row(Dan, 2, "2D", P::search("rank_4k")),
-    row(StrongDan, 2, "2-3D", P::half_step("rank_3k")),
-    row(Dan, 3, "3D", P::search("rank_3k")),
-    row(StrongDan, 3, "3-4D", P::half_step("rank_2k")),
-    row(Dan, 4, "4D", P::search("rank_2k")),
-    row(StrongDan, 4, "4-5D", P::half_step("rank_1k")),
-    row(Dan, 5, "5D", P::search("rank_1k")),
-    row(StrongDan, 5, "5-6D", P::half_step("rank_1d")),
-    row(Dan, 6, "6D", P::search("rank_1d").pikl(1.25)),
+    row(Kyu, 10, "17-18K", kyu(10), P::policy("preaz_20k")),
+    row(Kyu, 9, "15-16K", kyu(9), P::policy("preaz_18k")),
+    row(Kyu, 8, "13-14K", kyu(8), P::policy("preaz_16k")),
+    row(Kyu, 7, "11-12K", kyu(7), P::policy("preaz_14k")),
+    row(Kyu, 6, "9-10K", kyu(6), P::policy("preaz_12k")),
+    row(Kyu, 5, "7-8K", kyu(5), P::policy("preaz_11k")),
+    row(Kyu, 4, "5-6K", kyu(4), P::policy("preaz_10k")),
+    row(Kyu, 3, "3-4K", kyu(3), P::policy("preaz_9k")),
+    row(Kyu, 2, "2K", kyu(2), P::policy("preaz_8k")),
+    row(Kyu, 1, "1K", kyu(1), P::policy("preaz_7k")),
+    row(Dan, 1, "1D", dan(1), P::search("rank_5k")),
+    row(StrongDan, 1, "1-2D", dan(2), P::half_step("rank_4k")),
+    row(Dan, 2, "2D", dan(2), P::search("rank_4k")),
+    row(StrongDan, 2, "2-3D", dan(3), P::half_step("rank_3k")),
+    row(Dan, 3, "3D", dan(3), P::search("rank_3k")),
+    row(StrongDan, 3, "3-4D", dan(3), P::half_step("rank_2k")),
+    row(Dan, 4, "4D", dan(4), P::search("rank_2k")),
+    row(StrongDan, 4, "4-5D", dan(4), P::half_step("rank_1k")),
+    row(Dan, 5, "5D", dan(4), P::search("rank_1k")),
+    row(StrongDan, 5, "5-6D", dan(5), P::half_step("rank_1d")),
+    row(Dan, 6, "6D", dan(5), P::search("rank_1d").pikl(1.25)),
     row(
         StrongDan,
         6,
         "6-7D",
+        dan(5),
         P::search("rank_2d").visits(80).pikl(1.0).root_weightless(0.2),
     ),
     row(
         Dan,
         7,
         "7D",
+        dan(5),
         P::search("rank_3d").visits(80).pikl(1.25).root_weightless(0.2),
     ),
     row(
         StrongDan,
         7,
         "7-8D",
+        dan(5),
         P::search("rank_3d").visits(80).pikl(1.0).root_weightless(0.5),
     ),
     row(
         Dan,
         8,
         "8D",
+        dan(5),
         P::search("rank_3d").visits(80).pikl(0.9).score_utility(1.0),
     ),
     row(
         StrongDan,
         8,
         "8-9D",
+        dan(5),
         P::search("rank_4d")
             .visits(100)
             .pikl(1.25)
@@ -298,6 +343,7 @@ const ROWS: [Row; 31] = [
         Dan,
         9,
         "9D",
+        dan(6),
         P::search("rank_4d")
             .visits(100)
             .pikl(0.95)
@@ -308,12 +354,14 @@ const ROWS: [Row; 31] = [
         StrongDan,
         9,
         "9D",
+        TOP_AMATEUR,
         P::search("rank_6d").visits(100).pikl(0.95).root_weightless(0.4),
     ),
     row(
         Dan,
         10,
         "9D",
+        PRO,
         P::search("rank_7d")
             .visits(100)
             .pikl(0.8)
@@ -324,6 +372,7 @@ const ROWS: [Row; 31] = [
         StrongDan,
         10,
         "10D",
+        TOP_PRO,
         P::search("rank_8d")
             .visits(200)
             .pikl(0.25)
@@ -334,6 +383,7 @@ const ROWS: [Row; 31] = [
         Dan,
         11,
         "10D",
+        BEYOND_TOP_PRO,
         P::search("rank_9d")
             .visits(400)
             .pikl(0.01)
@@ -394,6 +444,14 @@ impl CoachLevel {
     /// The Fox / Tygem rank, such as `3D`, `8-9D` or `17-18K`.
     pub fn fox(self) -> &'static str {
         self.row().fox
+    }
+    /// The real-world grade of the rank table's third column.
+    pub fn grade(self) -> CoachGrade {
+        self.row().grade
+    }
+    /// The number of an amateur grade, 0 for the professional ones and 业余顶尖.
+    pub fn grade_number(self) -> u8 {
+        self.row().grade_number
     }
     pub fn play(self) -> &'static PlaySettings {
         &self.row().play

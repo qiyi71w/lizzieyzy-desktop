@@ -211,6 +211,114 @@
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
+/* 对手棋力's description: the level's KataGo level and real-world grade, then 等级对照表. */
+.hs-level-detail {
+  margin-right: 8px;
+}
+/* 一键设置 after a missing part's sentence. */
+.hs-summary > .ds-link {
+  align-self: baseline;
+}
+
+/* ---- rank table (CoachRankTable): the note, the table that scrolls under its sticky header,
+   关闭 in the footer band */
+.modal-box.hs-rank-dialog {
+  --hs-rank-row: max(24px, calc(var(--ds-size) * 1.4 + 6px));
+  width: min(520px, calc(100vw - 40px));
+  max-width: none;
+  max-height: calc(100vh - 40px);
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 0;
+  overflow: hidden;
+}
+/* The note above the table, which scrolls under its sticky header. */
+.hs-rank-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.hs-rank-note {
+  flex: none;
+  margin: 8px 20px 12px;
+  color: var(--ds-text-2);
+  line-height: 1.45;
+}
+/* About 18 rows show at once (CoachRankTable.VISIBLE_ROWS); the rest scroll. */
+.hs-rank-scroll {
+  flex: 1 1 auto;
+  min-height: calc(var(--hs-rank-row) * 4 + 2px);
+  max-height: calc(var(--hs-rank-row) * 19);
+  margin: 0 20px 16px;
+  overflow: auto;
+  border: 1px solid var(--ds-line);
+  border-radius: var(--ds-radius-s);
+  background: var(--ds-raised);
+}
+/* A short window (the minimum one, a large font): the note and the table scroll together under
+   the title, the header sticking to the top, so neither is squeezed and 关闭 stays on screen. */
+@media (max-height: 600px) {
+  .hs-rank-body {
+    overflow: auto;
+  }
+  .hs-rank-scroll {
+    flex: none;
+    min-height: 0;
+    max-height: none;
+    overflow: visible;
+  }
+}
+.hs-rank-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  cursor: pointer;
+}
+.hs-rank-table:focus-visible {
+  outline-offset: -2px;
+}
+.hs-rank-table th,
+.hs-rank-table td {
+  height: var(--hs-rank-row);
+  padding: 0 8px;
+  border-bottom: 1px solid var(--ds-line);
+  text-align: center;
+}
+.hs-rank-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--ds-sunken);
+  color: var(--ds-text-2);
+  font-weight: 400;
+}
+/* The frame draws the last line. */
+.hs-rank-table tbody tr:last-child > td,
+.hs-rank-table td.grade.last {
+  border-bottom: 0;
+}
+.hs-rank-table tbody tr:hover > td:not(.grade) {
+  background: var(--ds-hover);
+}
+/* The picked row, and the merged grade cell that holds it, whole. */
+.hs-rank-table tr.selected > td:not(.grade),
+.hs-rank-table td.grade.selected,
+.hs-rank-table tbody tr.selected:hover > td:not(.grade) {
+  background: var(--ds-accent-soft);
+  color: var(--ds-accent-text);
+  font-weight: 600;
+}
+.hs-rank-dialog > .ds-footer {
+  flex: none;
+  margin: 0;
+  padding: 12px 20px;
+  border-top: 1px solid var(--ds-line);
+  background: var(--ds-chrome);
+}
+.hs-rank-dialog > .ds-footer button {
+  min-width: 76px;
+}
 
 /* ---- training bar (HumanSlTrainingBar): the bottom bar's ground and height, capsules of
    segments: the opponent, the clocks around the turn with the thinking line, the actions. When
@@ -306,11 +414,12 @@
   bottom: 0;
   background: var(--ds-accent);
 }
-/* The actions keep their labels whole: the capsule goes on to the next line instead. */
+/* The actions keep their labels whole: a capsule goes on to the next line instead. The game's
+   actions and 结束并复盘 are two capsules, so on a narrow window each takes a line of its own. */
 .hs-bar-actions {
   flex: none;
 }
-/* 停一手 / 认输 / 重试 AI / 结束并复盘: segments with a line between the shown ones. */
+/* 悔棋 / 停一手 / 认输 / 重试 AI, and 结束并复盘: segments with a line between the shown ones. */
 .hs-seg {
   height: auto;
   padding: 0 12px;
@@ -334,6 +443,398 @@
 .hs-seg:focus-visible {
   outline-offset: -2px;
 }
+.hs-bar-actions[hidden],
 .hs-bar-actions [hidden] {
   display: none;
+}
+/* 边下边提醒: the last move's rating or the hint as a text segment, then 重下这手 / 看 AI 推荐 /
+   不重下，继续对局 after a 恶手. The text wraps rather than cutting off; the choices keep their
+   labels whole, and the capsule goes on to a line of its own when they do not fit beside it. */
+.hs-bar-coach {
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
+  height: auto;
+  min-height: var(--ds-cap-h);
+}
+.hs-bar-coach > .hs-seg {
+  min-height: var(--ds-cap-h);
+}
+.hs-bar-note {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 4px 12px;
+  white-space: normal;
+}
+.hs-bar-note[data-verdict="Brilliant"],
+.hs-bar-note[data-verdict="Good"] {
+  color: var(--ds-success-text);
+}
+.hs-bar-note[data-verdict="Problem"],
+.hs-bar-note[data-verdict="Blunder"] {
+  color: var(--ds-danger-text);
+  font-weight: 600;
+}
+.hs-bar-note:not([hidden]) ~ .hs-seg {
+  box-shadow: inset 1px 0 0 var(--ds-line);
+}
+.hs-bar-coach[hidden],
+.hs-bar-coach [hidden] {
+  display: none;
+}
+/* The note as a button that opens the coach section over the board, where the workbench has no
+   room for it: its text, then the chevron. After the game the line of figures takes the note's
+   place without its padding, as it stands in the bar. */
+.hs-details {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: var(--ds-cap-h);
+  text-align: left;
+  white-space: normal;
+}
+.hs-details > .hs-bar-note {
+  padding: 4px 0;
+}
+.hs-details[aria-expanded="true"] {
+  background-color: var(--ds-accent-soft);
+  color: var(--ds-accent-text);
+}
+.hs-details .hs-chev {
+  flex: none;
+  color: var(--ds-text-2);
+}
+
+/* After the game: the result as the status capsule's centre ("你输了 · 白中盘胜", the outcome in
+   weight 600, a win in the success colour), then the line of figures, each figure in bold. */
+.hs-sum-head {
+  font-weight: 600;
+}
+.hs-sum-head[data-outcome="Won"] {
+  color: var(--ds-success-text);
+}
+.hs-sum-result {
+  font-weight: 400;
+}
+.hs-bar-stats {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--ds-text-2);
+  white-space: normal;
+}
+.hs-bar-stats[hidden] {
+  display: none;
+}
+.hs-bar-stats b,
+.hs-pop-players b {
+  color: var(--ds-text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.hs-sep {
+  color: var(--ds-text-3);
+  padding: 0 0.35em;
+}
+
+/* ---- the coach section in the 胜率 panel's rectangle: a card of its own where the mode hides
+   that panel (the stage draws the card), the panel's contents in 边下边分析. */
+#main > .hs-card-host {
+  display: flex;
+  overflow: hidden;
+  border-radius: 10px;
+}
+#main > .hs-card-host[hidden],
+#main > .hs-gap-note[hidden] {
+  display: none;
+}
+.hs-card-host > .hs-card {
+  flex: 1;
+  min-width: 0;
+}
+.hs-card {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 13px 8px;
+  overflow: hidden;
+  color: var(--ds-text);
+  font-size: var(--ds-size);
+  line-height: 1.4;
+}
+.hs-wc-head {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 8px;
+}
+.hs-wc-title {
+  font-weight: 600;
+}
+.hs-wc-caption {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+}
+.hs-wc-value {
+  margin-left: auto;
+  font-size: var(--ds-size-xl);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+/* The player's share against the AI's in their stones' colours, as the 胜率条 draws them, with
+   the centre ticked and, while the AI holds its reply to a 恶手, the chance before it marked. */
+.hs-wc-bar {
+  flex: none;
+  position: relative;
+  height: 10px;
+  margin: 6px 0 8px;
+  border-radius: 5px;
+  overflow: hidden;
+}
+.hs-wc-bar[data-player="Black"] {
+  background: var(--ws-stone-white);
+  box-shadow: inset 0 0 0 1px var(--ws-stone-white-edge);
+}
+.hs-wc-bar[data-player="White"] {
+  background: var(--ws-stone-black);
+}
+.hs-wc-bar[data-empty] {
+  background: var(--ds-well);
+  box-shadow: none;
+}
+.hs-wc-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+}
+.hs-wc-bar[data-player="Black"] .hs-wc-fill {
+  background: var(--ws-stone-black);
+}
+.hs-wc-bar[data-player="White"] .hs-wc-fill {
+  background: var(--ws-stone-white);
+  box-shadow: inset 0 0 0 1px var(--ws-stone-white-edge);
+}
+.hs-wc-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--ws-bar-grid);
+  opacity: 0.6;
+}
+.hs-wc-mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--ws-loss);
+}
+.hs-wc-curve {
+  flex: 1 1 64px;
+  position: relative;
+  min-height: 40px;
+  max-height: 120px;
+}
+/* 边下边分析: the section is the 胜率 panel's contents with nothing under the curve, so the curve
+   takes the height left, drawn at its real size on the panel's 0–100 % axis. */
+.hs-card.fill .hs-wc-curve {
+  flex: 1 1 auto;
+  max-height: none;
+}
+.hs-wc-curve > svg {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+.hs-curve-grid {
+  stroke: var(--ws-graph-grid);
+}
+.hs-curve-base {
+  stroke: var(--ws-graph-baseline);
+  stroke-dasharray: 3 3;
+}
+.hs-curve-label {
+  fill: var(--ws-graph-label);
+  font-size: var(--ds-size-s);
+}
+.hs-curve-above {
+  fill: var(--ws-graph-fill-above);
+}
+.hs-curve-below {
+  fill: var(--ws-graph-fill-below);
+}
+.hs-curve-line {
+  fill: none;
+  stroke: var(--ws-winrate-line);
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+}
+.hs-curve-ring {
+  fill: var(--ws-graph-marker-ring);
+}
+.hs-curve-point {
+  fill: var(--ws-graph-move-marker);
+}
+/* The count of each rating: five columns over a hairline, the figure over its name; a zero is
+   quiet, the good ratings in the success colour and the mistakes that matter in the danger one. */
+.hs-tally {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--ws-panel-line);
+  text-align: center;
+}
+.hs-tally-n {
+  display: block;
+  font-size: var(--ds-size-l);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+}
+.hs-tally-n[data-zero] {
+  color: var(--ds-text-3);
+  font-weight: 400;
+}
+.hs-tally-l {
+  display: block;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+[data-verdict="Brilliant"] > .hs-tally-n:not([data-zero]),
+[data-verdict="Good"] > .hs-tally-n:not([data-zero]) {
+  color: var(--ds-success-text);
+}
+[data-verdict="Problem"] > .hs-tally-n:not([data-zero]),
+[data-verdict="Blunder"] > .hs-tally-n:not([data-zero]) {
+  color: var(--ds-danger-text);
+}
+/* The latest rated moves, newest first on the well, or after the game the worst mistakes in the
+   order played, each a button to the position before it. */
+.hs-hist {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  margin-top: 8px;
+}
+.hs-hist-head {
+  padding-bottom: 2px;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+}
+.hs-row {
+  display: grid;
+  grid-template-columns: 3.2em 3em minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+  min-height: calc(var(--ds-size) * 1.4 + 8px);
+  height: auto;
+  padding: 0 6px;
+  border: 0;
+  border-top: 1px solid var(--ws-panel-line);
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+.hs-row.latest {
+  border-top-color: transparent;
+  border-radius: var(--ds-radius-s);
+  background: var(--ds-well);
+}
+.hs-row.latest + .hs-row {
+  border-top-color: transparent;
+}
+button.hs-row:hover {
+  background-color: var(--ds-hover);
+  background-image: none;
+}
+button.hs-row:focus-visible {
+  outline-offset: -2px;
+}
+.hs-row-n {
+  color: var(--ds-text-3);
+}
+.hs-row-move {
+  font-weight: 600;
+}
+.hs-row-change {
+  text-align: right;
+  color: var(--ds-text-2);
+}
+.hs-row[data-mistake] .hs-row-change {
+  color: var(--ws-loss);
+}
+.hs-tag {
+  justify-self: start;
+  padding: 0 6px;
+  border-radius: var(--ds-radius-s);
+  background: var(--ds-well);
+  color: var(--ds-text-2);
+  font-size: var(--ds-size-s);
+  line-height: 1.5;
+}
+.hs-tag[data-verdict="Brilliant"],
+.hs-tag[data-verdict="Good"] {
+  background: var(--ds-success-soft);
+  color: var(--ds-success-text);
+}
+.hs-tag[data-verdict="Problem"],
+.hs-tag[data-verdict="Blunder"] {
+  background: var(--ds-danger-soft);
+  color: var(--ds-danger-text);
+}
+/* 实战后复盘: the hidden 胜率 panel's rectangle as a quiet card that says why it is empty. */
+#main > .hs-gap-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 16px;
+  overflow: hidden;
+  color: var(--ds-text-3);
+  font-size: var(--ds-size-s);
+  text-align: center;
+}
+
+/* ---- the coach section over the board, above the bar's button, when the workbench has no room:
+   the players' captures and the komi first, since the 提子 panel has no room either. */
+.hs-pop {
+  position: fixed;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border-radius: var(--ds-radius-menu);
+  background: var(--ds-raised);
+  box-shadow: var(--ds-shadow-pop);
+  overflow: auto;
+}
+.hs-pop:focus {
+  outline: none;
+}
+.hs-pop > .hs-card {
+  flex: none;
+  overflow: visible;
+}
+.hs-pop .hs-wc-curve {
+  flex: none;
+  height: calc(var(--ds-size) * 5);
+}
+.hs-pop-players {
+  flex: none;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--ws-panel-line);
+  color: var(--ds-text-2);
+  font-size: var(--ds-size-s);
 }

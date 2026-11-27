@@ -401,6 +401,72 @@
   gap: 8px;
 }
 
+/* ---- 规则面板 (SetKataRules): 典型规则 is a list of the rule sets, one row each with its radio
+   button before its name, the chosen row in the selected style; 贴目 and 启动时自动应用 make a
+   group of their own under it; 逐项设置 has the rules' rows. The focus scrolls the radio into view,
+   not its row: the padding keeps the whole row and its ring in view, clear of the footer that
+   stays over the body's foot. */
+.rules-panel {
+  scroll-padding: 16px 0 84px;
+}
+.rules-sets {
+  display: flex;
+  flex-direction: column;
+}
+/* The radio stays before its name; a long name wraps beside it. */
+.rules-panel .rules-set {
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  gap: 10px;
+  min-height: 0;
+  padding: 7px 14px;
+}
+.rules-set > input {
+  flex: none;
+  margin: 0;
+}
+.rules-set > .ds-row-title {
+  min-width: 0;
+}
+.rules-set:hover {
+  background-image: linear-gradient(var(--ds-hover), var(--ds-hover));
+}
+.rules-set:has(> input:checked) {
+  background-color: var(--ds-accent-soft);
+}
+.rules-set:has(> input:checked) > .ds-row-title {
+  color: var(--ds-accent-text);
+  font-weight: 600;
+}
+/* The keyboard focus rings the whole row, inside it so the list's rounded box does not cut it. */
+.rules-set:has(> input:focus-visible) {
+  outline: 2px solid var(--ds-ring);
+  outline-offset: -2px;
+}
+.rules-set > input:focus-visible {
+  outline: none;
+}
+.rules-sets + .ds-row {
+  margin-top: 16px;
+}
+/* A choice too long for the row (打劫规则 in Japanese) wraps inside the control. */
+.rules-panel .ds-seg {
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+.rules-panel .ds-seg > label {
+  white-space: normal;
+}
+.rules-panel .ds-row-control:has(> .ds-seg) {
+  min-width: 0;
+  max-width: 100%;
+}
+/* 启动时自动应用's switch stays beside its name; the name and its note wrap instead. */
+.rules-panel label.ds-row:has(> .ds-row-control > .ds-switch) {
+  flex-wrap: nowrap;
+}
+
 /* ---- 设置KataGo引擎高级参数 / 设置Leela(Sai)引擎高级参数 (SetKataEngines, SetLeelaEngines): a row
    per parameter, its name with Java's range under it and 自动加载 / 在工具栏中控制 on a line of
    their own under that; the value and 修改 end every row on one line. The notes below. */

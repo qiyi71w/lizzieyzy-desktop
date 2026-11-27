@@ -19,12 +19,15 @@ import {
   type TencentKifuReport,
 } from "./model";
 import { icon } from "../design/icons";
+import { applyTypeSizes } from "../design/theme";
 import "../design/window";
 import "../design/stage.css";
-import { kifuEmpty, type KifuOutcome } from "../foxkifu/window";
+import { fitHeaderColumns, kifuEmpty, kifuLocator, kifuProbe, probeGate, type KifuOutcome } from "../foxkifu/window";
 import "../foxkifu/foxkifu.css";
 import "./tencentkifu.css";
 
+/** The table's fixed columns in type sizes; 0 marks the two player columns, which share the rest. */
+const COLUMN_WIDTHS = [4.5, 12, 0, 4.5, 0, 4.5, 10, 4.5, 5];
 const AFTER_GET: KifuAfterGet[] = ["Minimize", "Close", "Keep"];
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text = ""): HTMLElementTagNameMap[K] {
@@ -145,14 +148,15 @@ export function bootTencentKifu(): void {
   const scroll = el("div", "fk-scroll");
   const table = el("table", "fk-table");
   const columns = el("colgroup");
-  // Fixed columns in multiples of the type size; the two player columns share the rest.
-  for (const width of [4.5, 12, 0, 4.5, 0, 4.5, 10, 4.5, 5]) {
-    const c = el("col");
-    if (width) c.style.width = `calc(var(--ds-size) * ${width})`;
-    columns.append(c);
-  }
+  for (let k = 0; k < COLUMN_WIDTHS.length; k++) columns.append(el("col"));
   const head = el("thead");
   const headRow = el("tr");
+  /** Fixed columns in multiples of the type size, each at least as wide as its header; the two
+   *  player columns share the rest, at least seven type sizes each (a narrower window scrolls the
+   *  table sideways). */
+  function fitColumns(): void {
+    table.style.minWidth = `calc(var(--ds-size) * 14 + ${fitHeaderColumns(columns, headRow, COLUMN_WIDTHS)})`;
+  }
   head.append(headRow);
   const body = el("tbody");
   table.append(columns, head, body);
@@ -303,6 +307,7 @@ export function bootTencentKifu(): void {
     v = view;
     renderTexts();
     renderHeader();
+    fitColumns();
     // A new search (and the first state) shows the remembered text.
     if (view.search !== search) {
       search = view.search;
@@ -354,9 +359,11 @@ export function bootTencentKifu(): void {
   }
 
   // ---------------------------------------------------------------- report
+  const probe = probeGate(() => report());
   let lastReport = "";
+  let sent = 0;
   function report(): void {
-    if (!v) return;
+    if (!v || !probe.on) return;
     const targets = [...document.querySelectorAll<HTMLElement>("button[data-key], select, input")].map((e) => {
       const r = e.getBoundingClientRect();
       return {
@@ -367,7 +374,7 @@ export function bootTencentKifu(): void {
         enabled: !(e as HTMLButtonElement).disabled && !e.closest(".disabled"),
       };
     });
-    const r: TencentKifuReport = {
+    const r: Omit<TencentKifuReport, "sent"> = {
       query: query.value,
       afterGet: after.selectedIndex,
       currentUser: currentUser.textContent ?? "",
@@ -378,15 +385,25 @@ export function bootTencentKifu(): void {
       overlay: overlay.hidden ? null : overlayText.textContent,
       tableEnabled: !v.loading,
       message: shownMessage,
+      // 时间 and 结果 show in full.
+      ...kifuProbe(root, [2, 7]),
       targets,
     };
     const text = JSON.stringify(r);
     if (text === lastReport) return;
     lastReport = text;
-    emit({ type: "report", report: r });
+    emit({ type: "report", report: { ...r, sent: ++sent } });
   }
   query.addEventListener("input", () => report());
   window.addEventListener("resize", () => report());
+  document.addEventListener("focusin", () => report());
+  const locate = kifuLocator(after, afterPair, report, (request) => emit({ type: "located", request }));
+  // A face that arrives after the first list changes the headers' widths.
+  void document.fonts.ready.then(() => {
+    if (!v) return;
+    fitColumns();
+    report();
+  });
 
   // ---------------------------------------------------------------- keys and events
   document.addEventListener("keydown", (e) => {
@@ -400,8 +417,10 @@ export function bootTencentKifu(): void {
 
   void self
     .listen<TencentKifuPayload>(TENCENT_KIFU_DATA_EVENT, (e) => {
+      applyTypeSizes(e.payload.frameFontSize);
       setLanguage(e.payload.language);
       render(e.payload.view);
+      locate(e.payload.locate);
     })
     .then(() => {
       emit({ type: "ready" });

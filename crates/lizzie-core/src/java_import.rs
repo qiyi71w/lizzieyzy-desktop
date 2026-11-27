@@ -35,6 +35,7 @@ use crate::api::{
 };
 use crate::engine::gtp::{join_command, prepare_launch, split_command, FILE_PATH_OPTIONS};
 use crate::engine::profile::{new_profile_id, CustomPdaMode, CustomPdaSettings, EngineProfile, EngineStartup};
+use crate::engine::rules::RuleSet;
 use crate::engine::runtime::LeelaOption;
 use crate::engine::ssh::SshSettings;
 use crate::engine::tuning::{GtpConfiguration, ThreadPolicy};
@@ -147,6 +148,10 @@ pub struct Mapped {
     pub append_winrate_to_comment: Option<bool>,
     pub language: Option<Language>,
     pub play_sound: Option<bool>,
+    /// 黑白胜率大字: `ui.big-winrate-style`, `ui.big-winrate-on-top`, `ui.big-winrate-bounds`.
+    pub big_winrate_style: Option<crate::settings::BigWinrateStyle>,
+    pub big_winrate_on_top: Option<bool>,
+    pub big_winrate_bounds: Option<[i32; 4]>,
     /// `ui.not-play-sound-insync`, `ui.always-sync-boardstat`, `ui.read-board-get-focus`,
     /// `ui.suppress-readboard-websocket-pondering-notice`.
     pub no_sound_in_sync: Option<bool>,
@@ -208,6 +213,8 @@ pub struct Mapped {
     pub always_gtp: Option<bool>,
     pub kata_rules: Option<String>,
     pub auto_load_kata_rules: Option<bool>,
+    /// `ui.rule-preset`: a rule set id (`RulePreset` name); an unknown name is not taken over.
+    pub rule_set: Option<Option<String>>,
     /// Outer None means absent/invalid; inner None preserves Java's empty PDA text.
     pub kata_pda: Option<Option<f64>>,
     pub kata_pda_enabled: Option<bool>,
@@ -305,6 +312,8 @@ pub struct Mapped {
     pub human_sl_advanced_visible: Option<bool>,
     pub human_sl_model_path: Option<String>,
     pub strength_background: Option<bool>,
+    /// `ui.strength-phase-bounds` (`StrengthDialogHost.PHASE_BOUNDS_KEY`).
+    pub strength_phase_bounds: Option<[u32; 2]>,
     /// 死活题 (`TsumeGoFrame`; a value outside the dialog's choices acts as 继承 / 自动检测 / 无).
     pub tsumego_to_play: Option<crate::tsumego::TsumegoToPlay>,
     pub tsumego_attacker: Option<crate::tsumego::TsumegoAttacker>,
@@ -319,6 +328,7 @@ pub struct Mapped {
     pub top_show_game_controls: Option<bool>,
     pub top_show_time_limit: Option<bool>,
     pub top_show_visit_limit: Option<bool>,
+    pub top_show_suggestion_limit: Option<bool>,
     pub top_show_analyze_sides: Option<bool>,
     pub top_show_candidate_sides: Option<bool>,
     pub top_show_candidate_info: Option<bool>,
@@ -968,6 +978,13 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
         ImportTarget::PlaySound,
         Kind::Bool(|m, v| m.play_sound = Some(v)),
     ),
+    // 黑白胜率大字's 窗口置顶 (BigWinrateSettings.onTop, optBoolean false).
+    (
+        "ui",
+        "big-winrate-on-top",
+        ImportTarget::BigWinrate,
+        Kind::Bool(|m, v| m.big_winrate_on_top = Some(v)),
+    ),
     (
         "ui",
         "not-play-sound-insync",
@@ -1418,6 +1435,7 @@ const SIMPLE: &[(&str, &str, ImportTarget, Kind)] = &[
     ("ui", "show-double-menu-game-control", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_game_controls = Some(v))),
     ("ui", "show-time-control-in-menu", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_time_limit = Some(v))),
     ("ui", "show-playout-control-in-menu", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_visit_limit = Some(v))),
+    ("ui", "show-suggestion-limit-in-menu", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_suggestion_limit = Some(v))),
     ("ui", "show-analyze-controller", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_analyze_sides = Some(v))),
     ("ui", "show-double-menu-var", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_candidate_sides = Some(v))),
     ("ui", "show-double-menu-moveinfo", ImportTarget::TopToolbar, Kind::Bool(|m, v| m.top_show_candidate_info = Some(v))),
@@ -1518,6 +1536,7 @@ enum DisplayKind {
 const DISPLAY: &[(&str, ImportTarget, &str, DisplayKind)] = &[
     ("show-coordinates", ImportTarget::Coordinates, "coordinates", DisplayKind::Bool),
     ("show-name-in-board", ImportTarget::NamesOnBoard, "namesOnBoard", DisplayKind::Bool),
+    ("show-name-winrates", ImportTarget::NamesOnBoard, "nameWinrates", DisplayKind::Bool),
     ("movenumber-from-one", ImportTarget::MoveNumbers, "moveNumbersFromOne", DisplayKind::Bool),
     ("new-move-number-in-branch", ImportTarget::MoveNumbers, "branchNumbersFromOne", DisplayKind::Bool),
     ("show-moveall-inbranch", ImportTarget::MoveNumbers, "allNumbersInBranch", DisplayKind::Bool),
@@ -1916,6 +1935,19 @@ impl Reader<'_> {
                 None => self.invalid(name, *target, v),
             }
         }
+        // The rule set picked last (`RulePreset.CHOSEN_KEY`), written with `new-game-komi` and
+        // `new-engine-game-komi` (`RulesQuickSwitch.rememberForNewGames`); it applies while the
+        // startup rules are its rules (`RuleSet::chosen`).
+        if let Some(raw) = ui.get("rule-preset") {
+            handled.push(("ui", "rule-preset"));
+            match raw.as_str().and_then(RuleSet::by_id) {
+                Some(set) => {
+                    self.mapped.rule_set = Some(Some(set.id.to_string()));
+                    self.imported("ui.rule-preset".into(), ImportTarget::KataRules, set.id.to_string());
+                }
+                None => self.invalid("ui.rule-preset".into(), ImportTarget::KataRules, raw),
+            }
+        }
         // `isAnalysisCommandCustomized`: without its flag, a command other than the default one
         // was the user's.
         if self.mapped.analysis_command_customized.is_none() {
@@ -2050,6 +2082,42 @@ impl Reader<'_> {
             let mode = read_extra_mode(v);
             self.mapped.extra_mode = Some(mode);
             self.imported("ui.extra-mode".into(), ImportTarget::ExtraMode, format!("{mode:?}"));
+        }
+
+        // 黑白胜率大字 (BigWinrateSettings): the style's enum name, the bounds [x, y, w, h] of
+        // a window of at least 120 x 60. Java reads anything else as PLAIN / no bounds.
+        if let Some(v) = ui.get("big-winrate-style") {
+            handled.push(("ui", "big-winrate-style"));
+            use crate::settings::BigWinrateStyle as S;
+            match v.as_str() {
+                Some(text @ ("PLAIN" | "LED")) => {
+                    self.mapped.big_winrate_style = Some(if text == "LED" { S::Led } else { S::Plain });
+                    self.imported("ui.big-winrate-style".into(), ImportTarget::BigWinrate, text.to_string());
+                }
+                _ => self.invalid("ui.big-winrate-style".into(), ImportTarget::BigWinrate, v),
+            }
+        }
+        if let Some(v) = ui.get("big-winrate-bounds") {
+            handled.push(("ui", "big-winrate-bounds"));
+            match java_window(v).and_then(|p| Some([p.x, p.y, i32::try_from(p.width).ok()?, i32::try_from(p.height).ok()?])) {
+                Some(bounds) if crate::settings::BigWinrateSettings::usable(bounds) => {
+                    self.mapped.big_winrate_bounds = Some(bounds);
+                    self.imported("ui.big-winrate-bounds".into(), ImportTarget::BigWinrate, shown(v));
+                }
+                _ => self.invalid("ui.big-winrate-bounds".into(), ImportTarget::BigWinrate, v),
+            }
+        }
+        // 棋力评估's phase boundaries (`StrengthDialogHost.PHASE_BOUNDS_KEY`): two integers. Values
+        // the product would not keep are reported and leave the boundaries as they are.
+        if let Some(v) = ui.get("strength-phase-bounds") {
+            handled.push(("ui", "strength-phase-bounds"));
+            match crate::strength::parse_phase_bounds(v) {
+                Some(bounds) => {
+                    self.mapped.strength_phase_bounds = Some(bounds);
+                    self.imported("ui.strength-phase-bounds".into(), ImportTarget::StrengthPhaseBounds, shown(v));
+                }
+                None => self.invalid("ui.strength-phase-bounds".into(), ImportTarget::StrengthPhaseBounds, v),
+            }
         }
 
         if let Some(v) = ui.get("recent-file-paths") {
@@ -3624,6 +3692,11 @@ impl Mapped {
         set!(c.record.append_winrate_to_comment, self.append_winrate_to_comment);
         set!(c.ui.language, self.language);
         set!(c.ui.play_sound, self.play_sound);
+        set!(c.big_winrate.style, self.big_winrate_style);
+        set!(c.big_winrate.on_top, self.big_winrate_on_top);
+        if let Some(bounds) = self.big_winrate_bounds {
+            c.big_winrate.bounds = Some(bounds);
+        }
         set!(c.read_board.no_sound_in_sync, self.no_sound_in_sync);
         set!(c.read_board.always_sync_board_stat, self.read_board_stat_sync);
         set!(c.read_board.get_focus, self.read_board_get_focus);
@@ -3685,6 +3758,7 @@ impl Mapped {
         set!(c.engine.analysis.stop_at_empty_board, self.stop_at_empty_board);
         set!(c.engine.analysis.always_gtp, self.always_gtp);
         set!(c.engine.kata_rules, self.kata_rules);
+        set!(c.engine.rule_set, self.rule_set);
         set!(c.engine.kata_pda, self.kata_pda);
         set!(c.engine.kata_pda_enabled, self.kata_pda_enabled);
         let kata = &mut c.engine.kata_params;
@@ -3774,6 +3848,7 @@ impl Mapped {
             c.human_sl.model_path = (!path.trim().is_empty()).then(|| path.clone());
         }
         set!(c.strength.humansl_background, self.strength_background);
+        set!(c.strength.phase_bounds, self.strength_phase_bounds);
         let ts = &mut c.tsumego;
         set!(ts.frame.to_play, self.tsumego_to_play);
         set!(ts.frame.attacker, self.tsumego_attacker);
@@ -3793,6 +3868,7 @@ impl Mapped {
         set!(top.show_game_controls, self.top_show_game_controls);
         set!(top.show_time_limit, self.top_show_time_limit);
         set!(top.show_visit_limit, self.top_show_visit_limit);
+        set!(top.show_suggestion_limit, self.top_show_suggestion_limit);
         set!(top.show_analyze_sides, self.top_show_analyze_sides);
         set!(top.show_candidate_sides, self.top_show_candidate_sides);
         set!(top.show_candidate_info, self.top_show_candidate_info);
@@ -4024,6 +4100,12 @@ impl Mapped {
         );
         cmp!(ImportTarget::Language, config.ui.language, self.language);
         cmp!(ImportTarget::PlaySound, config.ui.play_sound, self.play_sound);
+        if self.big_winrate_style.is_some_and(|v| v != config.big_winrate.style)
+            || self.big_winrate_on_top.is_some_and(|v| v != config.big_winrate.on_top)
+            || self.big_winrate_bounds.is_some_and(|v| Some(v) != config.big_winrate.bounds)
+        {
+            out.push(ImportTarget::BigWinrate);
+        }
         cmp!(ImportTarget::NoSoundInSync, config.read_board.no_sound_in_sync, self.no_sound_in_sync);
         cmp!(ImportTarget::ReadBoardStatSync, config.read_board.always_sync_board_stat, self.read_board_stat_sync);
         cmp!(ImportTarget::ReadBoardGetFocus, config.read_board.get_focus, self.read_board_get_focus);
@@ -4093,7 +4175,10 @@ impl Mapped {
         cmp!(ImportTarget::LizzieCache, a.enable_lizzie_cache, self.enable_lizzie_cache);
         cmp!(ImportTarget::StopAtEmptyBoard, a.stop_at_empty_board, self.stop_at_empty_board);
         cmp!(ImportTarget::AlwaysGtp, a.always_gtp, self.always_gtp);
-        cmp!(ImportTarget::KataRules, config.engine.kata_rules, self.kata_rules);
+        if self.kata_rules.as_ref().is_some_and(|v| *v != config.engine.kata_rules)
+            || self.rule_set.as_ref().is_some_and(|v| *v != config.engine.rule_set) {
+            out.push(ImportTarget::KataRules);
+        }
         cmp!(
             ImportTarget::AutoLoadKataRules,
             config.engine.auto_load_kata_rules,
@@ -4215,6 +4300,9 @@ impl Mapped {
         if self.strength_background.is_some_and(|v| v != config.strength.humansl_background) {
             out.push(ImportTarget::StrengthBackground);
         }
+        if self.strength_phase_bounds.is_some_and(|v| v != config.strength.phase_bounds) {
+            out.push(ImportTarget::StrengthPhaseBounds);
+        }
         let ts = &config.tsumego;
         if self.tsumego_to_play.is_some_and(|v| v != ts.frame.to_play)
             || self.tsumego_attacker.is_some_and(|v| v != ts.frame.attacker)
@@ -4233,6 +4321,7 @@ impl Mapped {
             (self.top_show_game_controls, top.show_game_controls),
             (self.top_show_time_limit, top.show_time_limit),
             (self.top_show_visit_limit, top.show_visit_limit),
+            (self.top_show_suggestion_limit, top.show_suggestion_limit),
             (self.top_show_analyze_sides, top.show_analyze_sides),
             (self.top_show_candidate_sides, top.show_candidate_sides),
             (self.top_show_candidate_info, top.show_candidate_info),

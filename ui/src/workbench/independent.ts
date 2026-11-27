@@ -11,7 +11,7 @@ import { selecting } from "../analysis/region";
 import type { IndependentBoard, PanelSettings, SlotThumbnail, WorkbenchView } from "../contract/generated";
 import { language, t } from "../i18n";
 import { INDEPENDENT_DATA_EVENT, INDEPENDENT_INPUT_EVENT, INDEPENDENT_LABELS, INDEPENDENT_PICTURE_EVENT, type IndependentInput, type IndependentPayload, type WireBoardScene } from "./independentModel";
-import type { SubBoardScene } from "./paint";
+import type { NamesReport, SubBoardScene } from "./paint";
 import { presentation } from "./presentation";
 
 interface FloatingWindow {
@@ -80,7 +80,7 @@ async function openWindow(board: IndependentBoard): Promise<void> {
 /** What the main window sends: the main board's scene and the sub board's, each only while its
  *  window is shown (built by the workbench renderer). */
 export interface IndependentScenes {
-  main: { scene: WireBoardScene; bigMargin: boolean } | null;
+  main: { scene: WireBoardScene; marginRatio: number } | null;
   sub: SubBoardScene | null;
 }
 
@@ -105,7 +105,8 @@ export function relayIndependent(v: WorkbenchView, scenes: IndependentScenes): v
     }
     if (w.onTop !== f.onTop) {
       w.onTop = f.onTop;
-      void WebviewWindow.getByLabel(INDEPENDENT_LABELS[board]).then((win) => win?.setAlwaysOnTop(f.onTop));
+      // The shell switches it (src-tauri on_top): on Windows it also restacks the window.
+      void invoke("set_window_on_top", { label: INDEPENDENT_LABELS[board], onTop: f.onTop });
     }
     const common = {
       shows: { document: v.document.id, revision: v.document.revision, node: v.position.node },
@@ -114,7 +115,7 @@ export function relayIndependent(v: WorkbenchView, scenes: IndependentScenes): v
     let payload: IndependentPayload;
     if (board === "Main") {
       if (!scenes.main) continue;
-      payload = { ...common, board, bigMargin: scenes.main.bigMargin, allowDrag: v.settings.edit.allowDrag, selectMode: selecting(false), scene: scenes.main.scene };
+      payload = { ...common, board, marginRatio: scenes.main.marginRatio, allowDrag: v.settings.edit.allowDrag, selectMode: selecting(false), scene: scenes.main.scene };
     } else {
       if (!scenes.sub) continue;
       payload = { ...common, board, scene: scenes.sub };
@@ -194,6 +195,9 @@ export async function startIndependent(board: (input: IndependentInput) => void,
       case "picture":
         pictures.get(input.id)?.(input.picture);
         return;
+      case "names":
+        mainNames = input.names;
+        return;
       case "lock": {
         const p = state.view?.settings.panels;
         if (p) setFlag(main ? { independentMainLocked: !p.independentMainLocked } : { independentSubLocked: !p.independentSubLocked });
@@ -220,7 +224,11 @@ export async function startIndependent(board: (input: IndependentInput) => void,
   });
 }
 
-/** What the acceptance probe reports: which windows are open. */
+/** The names 浮动主棋盘 last drew (its own report). */
+let mainNames: NamesReport | null = null;
+
+/** What the acceptance probe reports: which windows are open, and the names 浮动主棋盘 drew and
+ *  where (window client coordinates). */
 export function independentReport() {
-  return { main: windows.Main.open, sub: windows.Sub.open };
+  return { main: windows.Main.open, sub: windows.Sub.open, mainNames: windows.Main.open ? mainNames : null };
 }

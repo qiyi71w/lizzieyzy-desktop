@@ -96,8 +96,10 @@ importing the matching LizzieYzy Next settings.
   退出 / 确定), and 远程引擎设置, 精析设置, 局部精析, 设置显示手数 and 跑谱贡献设置 have a 取消 that
   discards the edits. A dialog opens with the focus on its first control, or on the chosen
   option when that control is a group of choices.
-- The main window's title shows the game in the middle and the current position's win rate,
-  score lead and visits at its right end, then the foreground engine, with its search speed
+- The main window's title shows the game in the middle and Black's win rate, score lead and
+  visits at its right end: those of the current position, or of the previous position while the
+  current one has no analysis yet (the figures then belong to the move before). Then comes the
+  foreground engine, with its search speed
   (搜索/秒) while it analyses; hovering those values names each of them. The speed is measured
   once a second against the visits the same engine process added on the shown position since
   it last began searching that position. It goes at once when the analysis is paused, the
@@ -108,8 +110,65 @@ importing the matching LizzieYzy Next settings.
   reports as many visits as before. It comes back with the new search's first measure, a few
   seconds later; Java kept the previous speed for up to 5 seconds on a position without
   analysis and measured across a cleared analysis, a new search or an engine switch.
+  The players read `[黑] X vs [白] Y`, with the result after them as `(结果:B+R)`; a missing
+  name leaves its place empty (`[黑] X vs [白]`).
+  In the window bar, a game part (players, result, file name) too wide to fit beside the menus
+  takes a row of its own under them: the window's whole width, centred on the window's centre
+  line (on macOS too), at most two lines, while the window buttons stay in their corner of the
+  menus' row. Lines break at the spaces between the names first, and a hyphenated name or file
+  name that fits on a line is not broken at its hyphen; only a name or file name wider than the
+  whole row breaks inside itself (Chinese, Japanese and Korean between characters, a long word
+  with no break point of its own at any letter), so the title never reaches past the window.
+  Known limitation: on macOS, when a Chinese, Japanese or Korean name is followed by a part in
+  parentheses, such as `申真谞 (Result:B+R)`, the line may break just after the `(` instead of
+  at the space before it; the title stays complete and still takes at most two lines. A
+  game that does not fit on two lines ends the second in "…", and hovering the row shows the
+  whole title; the system title shown by the taskbar or window list is always complete. A game
+  title of ordinary length is shown whole in all six interface languages. That row leaves out
+  the analysis figures, which stay in the system title. The bar grows by up to two lines and the
+  toolbars and workbench move down; where the game fits beside the menus, the bar is as before.
+- <a id="main-window-wording"></a>Main window wording follows the newer LizzieYzy Next release (next-2026-11-19.1) in five
+  places; the reference commit wrote them differently:
+  - the lead under the win-rate bar reads `黑领先 7.3 目` / `白领先 7.3 目`, and `均势` when the
+    lead rounds to 0.0 (was `黑领先:-7.3`; with 盘面目数差 it keeps `盘面:` and the number);
+  - the previous move beside it reads `上一手(#3) -0.3% -1.9目`: its rank among the candidates
+    when it was one, the win-rate change, then the score change when the analysis has one. A
+    change that rounds to 0.0 reads `0.0` without a sign and is not drawn in the loss colour
+    (was named `最后一手`, with `-0.0` for such a change). That release draws the whole previous
+    move larger, green or red by its score change (by the win-rate change without one); here
+    each figure keeps the panel's size and a figure below zero takes the loss colour;
+  - the actual move's win-rate and score cells in both candidate lists read `99.2 ↓0.1`, the
+    value first and its change from the best candidate after the arrow, left out when it rounds
+    to 0.0 (was `↓-0.1(99.2)`); the row's loss colour is the same as before;
+  - the title's players read `[黑] X vs [白] Y (结果:B+R)` (was `[黑]X vs[白]Y(结果:B+R)`);
+  - the game panel's 贴目 drops trailing zeros: `7`, `7.5`, `6.25`, `0` (was `7.0`), and is always
+    written in plain digits, so a very small komi reads `0.0000001`, as in Java
+    `InfoPanelText.komi`. Only the figure shown there changes: the game info dialog, the toolbar
+    field, the score result and saved records keep the komi as before.
 - The board shows setup stones, moves, passes, captures, comments, SGF markup (TR/SQ/CR/MA/LB),
   next-move rings, player names, the sub board, the variation tree and the empty winrate graph.
+- <a id="main-window-status"></a>The status lines name the engine with its state at the right, 自动分析中 while a record's quick
+  analysis runs, 分析中 or 已暂停 otherwise, and under them what `Space` does now (空格 暂停 /
+  空格 继续; nothing while the quick analysis runs) above the existing hint line. In the 提子 panel
+  the engine dot moves to the 贴目 row with the side to move after it (黑走 / 白走), left of the
+  komi, when the row has room beside Black's AI总评分; otherwise the panel is as before (the dot
+  before the rules caption) and the side to move is left out, as it always is in the small strip
+  of 四方图 / 思考模式. The win-rate bar's two percentages follow their side's name
+  (黑 34.7% / 白 65.3%; the percentages alone when the section is too narrow for the names).
+  A first start's empty board, before any record has been opened and before the engine's first
+  result, shows in its centre how to begin (打开棋谱、把 SGF 拖进来，或新建对局), on a patch of the
+  board's own colour, broken over up to three lines on a small board.
+  Differences from Java: Java draws the engine, its state and the keys (空格 暂停 / 空格 继续,
+  then 按住 X 看快捷键 until the user has once held `X` for over two seconds) as one line on a dark
+  translucent band at the bottom left of the window (Java `StatusOverlay.draw`); here they stay
+  in the status lines above, and the `X` hint is the existing 按住X键不放查看快捷键提示 line, which
+  does not go away.
+  Java keeps the engine dot between the two stones and writes the side to move after it there
+  (Java `InfoPanelText.drawStatusAndTurn`); here the pair moves to the 贴目 row or the side to
+  move is left out, as above. Java writes both names on the win-rate bar however narrow the
+  section is; here a narrow section shows the percentages alone. Java's empty-board hint is one
+  line of light text on a dark rounded band (Java `EmptyBoardHint.paint`); here it is the board's
+  ink on a patch of the board's colour, kept inside the grid and wrapped over up to three lines.
 - A failed or cancelled open keeps the current record. Opening a 9x9 record after a 19x19 one (or
   back) replaces the board completely.
 - Save with File > 保存, the toolbar save button or `Ctrl+S`: a record that came from (or was
@@ -213,6 +272,47 @@ importing the matching LizzieYzy Next settings.
   LizzieYzy Next; as in Java, 清除所有个人数据 does not clear them. The service currently answers
   nicknames (including a player's English name) but returns no games for a numeric UID, and
   shows a resignation as a 0-point win (Java shows the same).
+- OGS棋谱 (同步 menu, the toolbar's OGS button beside 腾讯棋谱, or function search) opens the
+  online-go.com game browser, laid out like 野狐棋谱; opening it also lets 启动Lizzie时预加载引擎
+  start the analysis process. Enter an OGS username or numeric player ID (搜索 or `Enter`); the
+  line under the search shows the player found as `name (ID)`, and up to eight 近期搜索 buttons
+  repeat earlier searches (清空历史 clears them). The table lists the player's completed public
+  games, 20 per page and newest first: end time (in local time), Black, White, result (`B+R`,
+  `W+T`, `B+6.5 points`, `Void`, …) and board size; `|<` `<` `>` `>|` page through them. The table
+  takes keyboard focus as one stop: `↑` `↓` `Home` `End` choose a game and `Enter` opens it, as a
+  double click or 打开 does. The game is downloaded as SGF and opens through the ordinary open
+  path as a new unsaved record (with its komi), so loading and analysis work as for 野狐棋谱 and
+  腾讯棋谱; no engine is needed to browse or open a game. 打开棋谱后此窗口 then minimizes, closes or
+  keeps the window. While a search, a page or a game is being fetched, the search field, 搜索,
+  the 近期搜索 buttons, 清空历史, the page buttons, each game's 打开 and 打开棋谱后此窗口 are
+  disabled until it ends, and the table takes no clicks or double clicks and `Enter` opens
+  nothing; `↑` `↓` `Home` `End` still move the selection in a table that has the keyboard focus.
+  Java (`OgsKifuBrowser.updateControls`) disables the whole table, so there the selection does
+  not move during a request. 野狐棋谱 and 腾讯棋谱 never disable their 打开棋谱后此窗口, as in Java.
+  An unknown player, a player without completed public games, a network error and OGS limiting
+  requests each say so in the table area or under the
+  page buttons; OGS limiting requests (HTTP 429) and an unknown player ID (HTTP 404) are told by
+  the status alone, also when OGS sends no body or breaks it off. A failed download keeps the
+  current record. Closing the
+  window (or `Escape`) cancels its request and withdraws a downloaded game that is still waiting
+  to open (for example while a borrowed engine is being given back); opening another record
+  meanwhile ends the window's download at once. A reply arriving later changes nothing, and the
+  next opening starts with an empty list.
+  File > 打开在线链接 also accepts an OGS game address (`https://online-go.com/game/<id>`) or SGF
+  download address (`https://online-go.com/api/v1/games/<id>/sgf`), recognized as Java does: the
+  whole text must be a valid address, and the game ID may have any number of digits. The game is
+  downloaded once and opened the same way, and a failure says so and keeps the current record.
+  Anything that ends a follow (reopening 打开在线链接, its 中断, another link, 新建 / 清空棋盘) also
+  ends an OGS import still running, without a record or a message, and so does opening another
+  record meanwhile. Other links are followed as before. Only OGS's public API is read (no
+  sign-in, no credentials), each request is sent once without following redirects, over
+  Settings > 网络代理, and the searched name is never written to the log. Differences from Java:
+  近期搜索 and 打开棋谱后此窗口 are kept in the settings (Java forgets them when the window closes;
+  until chosen here, 打开棋谱后此窗口 is 野狐棋谱's choice), and Help > 清除所有个人数据 clears
+  近期搜索; Java shows one message for every failure, while here OGS limiting requests (HTTP 429)
+  has its own message and an unknown player ID is reported as no matching player; each game has
+  its own 打开 button, as in 野狐棋谱; an OGS import from 打开在线链接 can be ended, while Java's
+  runs to the end once started (Java `OgsKifuImport.download`).
 - Editing, at the Java entries (Edit and Game menus, the top edit and markup buttons, the bottom
   bar, board clicks, the two board context menus and the Java keys):
   - A board click plays the side to play (交替落子) or, with 添加黑子 / 添加白子, that colour
@@ -299,10 +399,10 @@ importing the matching LizzieYzy Next settings.
   Like Java, each full log rolls over at 10 MB or on a new day into `logs/archive/`
   (`<name>.<date>.<n>.log.gz`), keeping 7 days and at most 100 MB of archives per log.
   Diagnostics exports include the active files.
-- Help > 清除所有个人数据 clears the recent-record list and 野狐棋谱's 近期搜索; View > 重置界面位置
-  resets the saved window placement and last folder and turns the overwrite prompt back on. Folders
-  a Java settings import brings over afterwards, in one import or several, are kept for the next
-  start; the reset placement does not come back.
+- Help > 清除所有个人数据 clears the recent-record list and the 近期搜索 of 野狐棋谱 and OGS棋谱;
+  View > 重置界面位置 resets the saved window placement and last folder and turns the overwrite
+  prompt back on. Folders a Java settings import brings over afterwards, in one import or
+  several, are kept for the next start; the reset placement does not come back.
 - 搜索功能 (the top toolbar button, or `Ctrl+K`, `⌘K` on macOS, with no other modifier) opens a
   search bar centred over the window; it is refused while a text field has the focus (the key
   stays with the field and its input method) and while a dialog, menu or context menu is open.
@@ -323,6 +423,26 @@ importing the matching LizzieYzy Next settings.
   item selected, also while 同步 is switched off or sits in 更多; a board context entry explains
   where to right-click and returns to the board; an action or window entry runs, as clicking its
   menu item or button does (上一手 takes back a move during a game like the bottom bar's `<`).
+  Some settings that live in a dialog or another window are found too, and opening one shows
+  its window with the focus and the gold outline on that control, without changing that control:
+  开局广度 and 开局激进度 open 引擎对局 at their row (only for an analysis-mode match; not while an
+  engine match is playing or paused, nor while a game against the engine or an AI 陪练 session is
+  on, since opening 引擎对局 would end it). Opening 引擎对局 this way does what opening it always
+  does: when Black and White name the same engine and the list holds at least two engines, White
+  moves to the next engine in the list (the previous one when it is the last), as in Java's
+  `NewEngineGameDialog`, and that choice is saved. 分阶段 opens 棋力评估 at that page, on its
+  first divider, once the game can be estimated; before that 棋力评估 opens at the page that
+  says what to do first (play more moves, analyse the game, or prepare the human-style model), and the entry
+  does not count as opened; 训练方式 opens the AI 陪练 setup at that choice (not during an AI 陪练
+  game, nor while another game or an engine match keeps AI 陪练 from starting); 打开棋谱后此窗口
+  opens the 野狐棋谱, 腾讯棋谱 or OGS棋谱 window at that choice, and counts as opened only once
+  the window has put the focus on it; when that has not happened within 10 seconds (for example
+  because the window never came up), or a newer request for it took its place, function search
+  says the entry is no longer available (原始功能入口已不可用。). While the OGS棋谱 window is
+  searching or downloading, its 打开棋谱后此窗口 is disabled, so the OGS entry is marked 不可用,
+  with that reason, until the search or download ends. 姓名旁胜率 shows or hides the win rates
+  beside the player names, as clicking the names does, and can be used only while the names
+  show under the board.
   Entries this client does not provide yet, or that the current state refuses (no engine, no
   KataGo, no edit to restore, a whole-game analysis running, the engine menu during an engine
   game, …), are marked 不可用 with their
@@ -437,7 +557,8 @@ importing the matching LizzieYzy Next settings.
     one (more visits), after it was marked by 清除Lizzie缓存, or when it was made with another
     PDA than the engine now uses; automatic analysis, the playing engine of an engine match and
     总是覆盖 always replace. Off, every new result replaces the stored one. A live result is saved
-    with the engine's PDA when it is nonzero.
+    with the engine's PDA when it is nonzero, and with the breadth (广度) the engine had confirmed
+    for it (see 记录选点信息到评论中 below).
   - 清除Lizzie缓存(全局) (`Shift+A`) / (此手) mark every analysed position or the current one: the
     analysis stays shown and saved, and the next result replaces it even when weaker. Nothing is
     sent to the engine.
@@ -461,16 +582,23 @@ importing the matching LizzieYzy Next settings.
     After an engine starts, both values are read back with
     `kata-get-param` and the toolbar shows what the engine holds (it keeps the user's own
     entries otherwise). The groups show only while the foreground engine is KataGo and no
-    engine match runs. In a 人机对弈 game both reach the playing engine, except 广度 in a Genmove
-    game. When an analysis game turned 广度 off (对局时不使用广度) and the user changed it during
+    engine match holds the parameters: from its start until it has ended and given each engine
+    its values back; then they show what the engine reports again. In a 人机对弈 game both reach
+    the playing engine, except 广度 in a Genmove game. When an analysis game turned 广度 off
+    (对局时不使用广度) and the user changed it during
     the game, the end gives back the 广度 field's value and ticks it again if 广度 (or its
     自动加载) was on before the game, else the engine keeps the last value sent. They
     are disabled while the engine is busy elsewhere (GMA, an unrestored engine, and for 广度
     野狐 AI 直连, whose session owns the 激进度 edits; its 激进度 stays shown while it runs).
   - 设置 > 引擎参数 (`Alt+D`) or the toolbar's 参数 opens 设置KataGo引擎高级参数 (without a loaded
-    engine: Java's "no engine" hint). 确定 sends each row's value (0 when 修改 is off) and saves
-    it; 自动加载 makes every KataGo that starts get that value before the read-back (the 激进度
+    engine: Java's "no engine" hint). The rows start from the values the engine reports (as the
+    toolbar shows them when they are the same value). 确定 applies only what was changed since
+    the window opened: a changed row's value (0 when 修改 is off) is sent and saved, a changed
+    自动加载 is saved, and an unchanged row never overwrites newer engine or saved values;
+    自动加载 makes every KataGo that starts get that value before the read-back (the 激进度
     row is skipped for a `KataGoPda` engine); 在工具栏中控制 shows or hides the toolbar group.
+    While an engine match holds the parameters both rows are locked, with the line
+    “引擎对局中请通过‘对局参数’修改。” under them, and 确定 saves only 自动加载 and 在工具栏中控制.
     Without 自动加载 a starting engine keeps its own configuration values. The eight Java keys of
     these controls are taken over by the LizzieYzy Next import. Function search shows a hidden
     group, and a hidden top toolbar, for the current run without changing the saved choices.
@@ -534,7 +662,7 @@ importing the matching LizzieYzy Next settings.
   the statistics panel and the title always show Black. 盘面目数差 turns every shown lead into the
   board difference (plus the komi for Black, minus it for White) and switches the statistics
   label to 盘面. The 带评论 export follows the same settings.
-- Analysis information (Java menus, keys and defaults; the settings are saved and taken over by
+- <a id="analysis-information"></a>Analysis information (Java menus, keys and defaults; the settings are saved and taken over by
   the LizzieYzy Next import):
   - Win-rate graph (显示 > 胜率图设置): Black's win-rate line, the score line or both, 面积填充
     (two-sided around 50 % when one curve shows), 恶手损失条, 鼠标悬停信息 and 初始最大目数差.
@@ -565,7 +693,7 @@ importing the matching LizzieYzy Next settings.
     results, or it was read with a KataGo `DZ` or rebuilt from a 跑谱贡献 game, until
     清除Lizzie缓存(全局) or 自动分析 ends that mark) and no `DZ` otherwise, so a record that is no
     longer an engine game never keeps its old tag.
-  - 统计 shows the score label, the bar of both sides' win rates and 最后一手 with the move's
+  - 统计 shows the score label, the bar of both sides' win rates and 上一手 with the move's
     candidate rank and the change for the side that played it (against the position before, or
     two moves back when that one has no analysis). AI总评分 shows each side's mean match share
     over its analysed moves (a move counts as matching AI among the first 匹配AI候选数
@@ -575,10 +703,11 @@ importing the matching LizzieYzy Next settings.
     colours and resizable, remembered columns; a click shows a row's variation (the wheel over
     the list or the board lengthens it), a second click or a right click clears it. Columns start
     at their content's width (序号 only as wide as its labels), the actual move's row shows its
-    rank with a small 实战 under it and each change in small type before its value (Java's
-    "15(实战)" / "↓-4.6(50.4)" stay in the row's tooltip), and a narrow list puts the change
-    above the value instead of cutting it. The pointer's row is shaded across every column,
-    占比 included (the actual move's row keeps its loss-level colour).
+    rank with a small 实战 under it and each value with its change in small type after it
+    ("15(实战)" / "50.4 ↓4.6" stay in the row's tooltip), and a narrow list puts the change
+    under the value instead of cutting it. The pointer's row is shaded across every column,
+    占比 included (the actual move's row keeps its loss-level colour, taken from the change as the
+    cell writes it, to one decimal).
     独立选点列表 (`U`) opens it in its own window with 7 or 9 columns (sortable by header,
     also from the keyboard: `Tab` to the header, `←`/`→` to a column, `Enter` or `Space`),
     列表 / 柱状图 / 当前手 / 鼠标悬停, 总计算量 / 最高计算量 / 集中度, 总在最前 (`Q`) and a
@@ -604,11 +733,39 @@ importing the matching LizzieYzy Next settings.
     shows the move's comment with its analysis summary, and saving writes those summaries into
     the move comments. Saving also writes the analysis itself (`LZ`, `LZOP`) and opening a record
     reads it back, so a reopened file shows its analysis without an engine.
+    - Each saved result keeps the breadth (广度, KataGo `analysisWideRootNoise`) it was made with,
+      for the primary and the 双引擎模式 secondary engine separately: `wrn=<value>` follows the
+      header's six fields and `rootVisits=`, as LizzieYzy Next writes it, with a known 0 written
+      too. A breadth is known when the engine had confirmed it (start-up read-back or an accepted
+      setting) for a KataGo result; 闪电分析, 自动快析, 整盘精析 and results of an engine match in
+      genmove mode record none. Records without `wrn=` (older files of this product or of LizzieYzy
+      Next), an empty or unreadable value, or one outside 0 to 2 read as unknown, never as 0;
+      the rest of the analysis reads as before. Copying the record, 试下 and a followed live
+      game keep each breadth; 清除分析信息 clears it with the analysis.
+    - The summary shows a nonzero PDA (激进度) and a known nonzero breadth (广度) after the komi,
+      each with its own label; an unknown or zero breadth is not shown.
+    - Differences from LizzieYzy Next: Java counts an engine's breadth as 0 until it read one
+      back, so its results are always known; here they stay unknown until the engine confirmed
+      a breadth. Values written are re-read by both programs; tiny values (below 0.001) are
+      written as plain decimals rather than Java's `1.0E-4` form.
 - Board display (显示 menu, keys, bottom bar and the top 选点 黑 / 白 boxes, Java defaults; the
   settings are saved and taken over by the LizzieYzy Next import):
   - 坐标 (`C`): a smaller board margin when off; 坐标格式 (综合设置 > 对局与操作): normal, with I,
-    野狐 (with I, rows from the top) or numbers from the top / bottom. 显示名字 puts the player
-    names under the board.
+    野狐 (with I, rows from the top) or numbers from the top / bottom; their size and weight are
+    the theme's 棋盘坐标 (主题外观, below). 显示名字 puts the player names under the board; a name
+    longer than its half of the board ends in "…" after whole characters.
+  - Clicking the player names under the board (on the main board or 浮动主棋盘) shows both sides'
+    live win rates beside them, Black's left of the stones and White's right of them, to one
+    decimal and adding up to 100 (the statistics bar's reading: the current position's analysis,
+    else the one or two positions before it); "--" for both while none of them has been analysed.
+    Another click hides them; the click also works during AI 陪练, as in Java. Hidden by default,
+    remembered for the next start, and taken over from LizzieYzy Next (`show-name-winrates`).
+    In 双引擎模式 the right board's names show the same win rates and follow them as they change.
+    While they show, the names give up the room of
+    the widest reading ("100.0%") and are cut with "…" sooner, so a changing win rate never moves
+    them. A click that falls on an intersection stays a board click, and a right click on the
+    names does what it did. Unlike Java, whose names shifted with the width of the win rate,
+    each win rate sits next to the stones and the names stay put.
   - 手数: 不显示 / last 1, 5, 10 / 全部 / 自定义, 总是从1开始显示, 分支内从1开始 or continuing
     the total, 分支内总是显示所有手数 (`Ctrl+M`), 分支面板上的手数; `M` and the bottom bar cycle
     全部 → 最近1手 → 不显示. Numbers are worked out by the core: a branch starts at 1 only if it
@@ -676,10 +833,12 @@ importing the matching LizzieYzy Next settings.
   the variation tree or the list returns the keyboard to the workbench unless a comment is being
   edited. 工具栏 > 顶部工具栏 is 分开 (the second toolbar row), 合并 or 不显示 (no toolbar row, as in
   the fixed Java build). Its 自定义内容 items show or hide each group of the row, as in Java:
-  独立/合并工具栏按钮 (off by default), 基本按钮, 落子工具, 强制计算工具, 对局控制, 选点显示控制, 规则,
-  参数, 棋盘 and 存档 (on by default), and 单步分析限制(时间)(秒), 单步分析限制(计算量), 选点分析控制 and
-  选点信息控制 (off by default). Each choice is saved at once and taken over by the LizzieYzy Next
-  import; 对局控制 still follows the game state while shown, and 死活 has its own item. 独立/合并工具栏按钮
+  独立/合并工具栏按钮 (off by default), 基本按钮, 落子工具, 强制计算工具, 对局控制, 激进度, 广度, 选点显示控制,
+  规则, 参数, 棋盘 and 存档 (on by default), and 单步分析限制(时间)(秒), 单步分析限制(计算量), 候选点上限,
+  选点分析控制 and 选点信息控制 (off by default). Each choice is saved at once and taken over by the
+  LizzieYzy Next import. 激进度 and 广度 are the same choices as the 引擎参数 window's 在工具栏中控制,
+  need no engine to change and only show their group beside a KataGo engine in front. 对局控制
+  still follows the game state while shown, and 死活 has its own item. 独立/合并工具栏按钮
   puts a ▲ button first in the row that switches it to 合并 (the same setting as the menu).
   自动换行(仅独立显示时), on by default, lets the row wrap as long as the workbench keeps at least
   half the window's height. When wrapping would leave it less, or with 自动换行 off, the row stays
@@ -692,18 +851,27 @@ importing the matching LizzieYzy Next settings.
   opens a popup leaves it open under the popup, and closing the popup returns to that button).
   Function search opens the panel for a control it
   holds. 棋盘 opens 设置棋盘大小. The optional groups add the
-  限制: 时间 / 计算 fields, 分析: 黑 / 白 and 选点 胜率 / 计算量 / 目数 to the row. The limit
+  限制: 时间 / 计算 / 候选点 fields, 分析: 黑 / 白 and 选点 胜率 / 计算量 / 目数 to the row. The limit
   fields write 综合设置's analysis limits on every edit (digits only; an empty field keeps the
-  value); the 选点 boxes are 显示 > 推荐点's win rate / visits / score items. Function search shows
+  value); 候选点 is 综合设置's 候选点上限 (0 shows every candidate), so the board shows at most that
+  many candidates as soon as it is typed, and each field shows a change made in 综合设置. Quick
+  edits in a row build on each other: the last value typed counts, and an edit to one field does
+  not undo another field's edit that is still being saved. When the program refuses an edit
+  because another feature holds the engine (for example while 野狐 AI 直连 uses it), a message
+  says so and the fields show the saved values again; a later edit to another field does not
+  save the refused value with it. The 选点
+  boxes are 显示 > 推荐点's win rate / visits / score items. Function search shows
   a hidden group for the current run without saving it. 底部工具栏 is 显示 or 不显示; Java's obsolete
   Chinese-only 详细工具栏 is left out (its controls are in the top and bottom toolbars and the
   自动分析, 自动播放, 人机对局 and 引擎对局 dialogs), and a Java profile that used it imports as 显示.
-  Its 自定义内容 items show or
+  <a id="bottom-bar"></a>Its 自定义内容 items show or
   hide each bottom-bar button, as in Java: 同步, Kata形势 (with a KataGo engine), 自动分析, 纯网络,
   分析, 设为主分支, 清空棋盘, 删除, 手数, 坐标 and 自动播放 (on by default), 打开, 保存, 终局点目,
   选点列表, 刷新, 试下, 返回主分支 and 落子评价 (off by default), and 超级鹰眼 (off by default only when
   the top toolbar and its second row were both shown at start). Each choice is saved at once and
-  taken over by the LizzieYzy Next import. The buttons keep Java's places; those that do not fit
+  taken over by the LizzieYzy Next import. The buttons keep Java's places, except that the
+  navigation reads |<, <<, <, the move number field, 跳转, >, >>, >| (see
+  [the differences from LizzieYzy Next](#differences-from-lizzieyzy-next)); those that do not fit
   go to 更多, whose popup runs them; the navigation stays whole on the bar, so in a narrow window
   自动播放 and then the left buttons go to 更多 first. 打开 / 保存 act as 文件 > 打开 / 保存 (保存 overwrites the
   record's own file, otherwise asks for a name), 选点列表 as `U`, 落子评价 as `Alt+M`, 终局点目 as
@@ -772,7 +940,7 @@ importing the matching LizzieYzy Next settings.
     frosted glass, level 2 the liquid glass, both with the theme's imported glass colours and
     blur radii), the graph, comment and best-move colours, the comment font size, the
     last-move marker (圆圈, 三角, 实心, 无), the comment-node colour, the 错误节点 thresholds and
-    colours (添加 / 删除 / 重置) and 同时考虑胜率与目数. The edits apply with 保存设置 and are
+    colours (添加 / 删除 / 重置), 同时考虑胜率与目数 and 棋盘坐标 (below). The edits apply with 保存设置 and are
     dropped by 取消. As in Java, 重置 saves the whole dialog with the default 错误节点 rules and
     reopens it, and 添加 (a new theme) and 删除 take effect at once and reopen the dialog,
     dropping unsaved edits on the other pages; the 当前主题 row and 删除's confirmation say so
@@ -788,6 +956,15 @@ importing the matching LizzieYzy Next settings.
     only in case, where the file system allows both, stay two themes, as Java lists them.
     The live preview shows the background the workbench would draw (the linen wallpaper for the
     default background) and falls back to the pure colour when an image path cannot be read.
+  - 棋盘坐标 (线条与字体, last row) sizes the coordinates around the main board 标准, 大 (140%) or
+    特大 (200%) and can make them 加粗. Larger labels widen the board's margin by 60% of their
+    growth (1.24 times at 大, 1.6 times at 特大), so the board itself gets a little smaller in the
+    same panel; 标准 without 加粗 draws exactly as before. The values belong to the theme: a theme
+    that has its own (every named theme saved on the page) uses them, any other follows the
+    默认 theme's, which are the global ones. They apply to the main board, 浮动主棋盘 and the
+    boards of 双引擎模式 and 思考模式. A size other than the three reads as 标准 (Java draws any
+    stored percentage from 100 to 200). Taken over from LizzieYzy Next (`coordinate-size`,
+    `coordinate-bold` in the global settings and in themes).
   - Java 经典 is a bundled theme holding Java's own default values and images. While it is the
     theme, the interface keeps its layout and controls but takes Java's colours: light grey bars,
     white controls and menus, Java's teal accent, Java's grey metal wallpaper under panels as dark
@@ -854,8 +1031,10 @@ importing the matching LizzieYzy Next settings.
   - 设置 > 界面字体大小 (12, 16, 20 or 自定义 12-20) sets, from the next start, the interface's
     type: captions at that size and body text 1 px larger on macOS and 2 px larger on Windows and
     Linux (13 and 14 px at the default 12), in the menus, toolbars, panels, the main 选点 list and
-    dialogs; also the toolbar icon size (16, 20 or 24) and the list rows and fonts of 超级鹰眼 and
-    the 选点列表 window. Outside Chinese a size above 12 first warns that some text may not fit.
+    dialogs; also the toolbar icon size (16, 20 or 24), the list rows and fonts of 超级鹰眼 and
+    the 选点列表 window, and the type of the 野狐棋谱, 腾讯棋谱 and OGS棋谱 windows, whose table
+    rows grow with it and whose search field goes under its name when the line is too narrow.
+    Outside Chinese a size above 12 first warns that some text may not fit.
   - The fonts follow the UI language: Japanese, Korean, Thai and Traditional Chinese text fall
     back to that language's fonts. 超级鹰眼's charts and lists use the theme's fonts.
   - The variation tree colours nodes by the 错误节点 rules and rings commented nodes in the
@@ -903,6 +1082,30 @@ importing the matching LizzieYzy Next settings.
   application closes, it opens again at the next start. 重置界面位置 forgets its place. Its place
   and open state are this product's own and are not imported from LizzieYzy Next. Each button's
   tooltip and accessible name say what it does (跳到第一手, 后退 5 手, …).
+- 黑白胜率大字 (显示 > 黑白胜率大字, the item after 显示 > 自动播放(Ctrl+A); also found by function
+  search; no default shortcut): a separate window (title bar, resizable) owned by the main
+  window, showing Black's and White's win rates as large whole percents that add up to 100,
+  Black's on the left. It shows the
+  win rate the statistics bar shows: the current position's analysis, else the previous
+  position's, else the one before; those earlier figures are dimmed, and with none of the three
+  analysed both read `--`, also dimmed. It follows the main board as the analysis arrives, at most
+  four times a second, and draws nothing new while nothing it shows changes. Its right-click menu
+  (also `Shift+F10` or the menu key) chooses 简洁 (a black and a white card, the default) or
+  数码管 (seven-segment digits on a dark face), and 窗口置顶 (off by default); both are kept at
+  once. When the window is too small to hold that menu, the same three items open as the
+  system's menu instead, which may reach past the window's edges as Java's `JPopupMenu` does
+  (tried on Linux only; its look on Windows and macOS has not been checked).
+  It first opens 520 x 260 centred on the main window, then where it was last closed; bounds
+  that are no longer on any screen bring it to the primary screen's top-left corner. In a native
+  Wayland session on Linux, 窗口置顶 has no effect, because the compositor offers no way to keep
+  a window above the others, and the compositor places the window each time it opens, the first
+  time included, so it is neither centred on the main window nor put back where it was last
+  closed; an X11 session is not affected. Choosing the
+  menu item again or its close box closes it, and nothing of it keeps running or receives the
+  main window's updates any more. While it is open, a change to the theme's 胜率目数字体 or UI 字体
+  (主题外观) shows in it at once, without waiting for the next analysis update. Its style, 窗口置顶
+  and bounds are configuration values, so 重置界面位置 leaves them; Java configuration import
+  reads the same three settings from LizzieYzy Next.
 - 双引擎模式 (显示 > 布局模式, `Alt+6`; 默认模式 `Alt+1`): a second engine analyses the same
   position next to the foreground engine. The window takes Java's width for the mode (the board
   height doubled, or 1.65 times it for 默认模式) unless it is maximized, and shows two equal
@@ -987,7 +1190,7 @@ importing the matching LizzieYzy Next settings.
     as the foreground engine starts analysing a position or a stone is placed, so it stays only
     while the foreground engine is idle (for example with no engine). One on the SSH host stays.
     The process ends with the application.
-- Remote (SSH) engines: 更多引擎's 远程引擎 row (IP, 端口, 用户名, 密码 or 密钥 with 浏览, and the 远程
+- <a id="remote-engines"></a>Remote (SSH) engines: 更多引擎's 远程引擎 row (IP, 端口, 用户名, 密码 or 密钥 with 浏览, and the 远程
   column) and 精析设置's 远程引擎 run the command on the host over SSH (a port that is not a number
   means 22). An engine command runs exactly as written; the analysis command gets the same
   `analysisPVLen` and thread overrides as a local one, like Java. Paths, models and files belong
@@ -1052,6 +1255,31 @@ importing the matching LizzieYzy Next settings.
     leaves an established engine running. Closing the engine while a switch is still starting
     it (for example 关闭所有引擎), or switching to another engine, ends that switch: the center
     becomes usable again and reports that the switch did not complete.
+  - The center's footer shows the 主/对比智子引擎 connections whatever engine is chosen: 已断开,
+    仍保留连接, or 任务或连接切换中 while one is starting, switching, restarting or held by a task.
+    断开智子引擎 there ends the connections of the foreground, the comparison (双引擎模式) and
+    the kept-for-quick-switch 智子 engines, and drops a 智子 switch the center still has under
+    way; a late answer to that switch neither reconnects nor is shown. Function search's
+    断开智子引擎 is the same action: while the center is open it runs through the center, so both
+    can be used while that switch is under way.
+    Local engines and 自建算力 keep running and keep their places. A 智子 seat it empties stays
+    empty: the saved provider and engine choices are unchanged and no other engine is started,
+    so the footer then reads 当前无活动主引擎, as it does after 关闭所有引擎, and its status dot
+    follows the engine again (grey with no foreground engine). A sign-in, verification-code,
+    password-reset or sign-out request still under way when the disconnect finishes keeps the
+    account controls disabled until it returns, so 发送验证码 cannot be sent a second time
+    meanwhile (Java enabled them again as soon as the disconnect finished). It is refused, with a
+    message, while a 智子 engine is starting, switching or restarting, takes part in an engine
+    game, or is held by a running game or analysis task; finish that first. A switch to 智子
+    counts as switching until the new engine has confirmed, or refused, its first board sync.
+    Independent analysis work that runs its own engine (精析设置's command) is not covered and is
+    ended on its own. The note under the button says so too: closing the connection, or the
+    client, does not confirm that the service has stopped billing. Removing a 智子 entry from the
+    engine list ends its connection at once. Differences from Java: the footer follows the
+    connections as they change (Java reads them every 500 ms); Java does not count an engine
+    held by a task as busy; and Java keeps a selected engine that left the engine list. These
+    paths were exercised against a local fake service only; a live 智子 session has not been
+    tested.
   - Zhizi uses HTTPS account operations and its Socket.IO v4 transport. Like Java's
     socket.io client, the session joins the namespace named by the (decoded) path of the address
     the socket token gives, and an address with its own query sends that query in place of the
@@ -1115,6 +1343,41 @@ importing the matching LizzieYzy Next settings.
   or added while it runs gets no result from it, answers land only on the node they were asked
   for, and browsing stays where the user went (only completion at the root steps to move 1, as
   in Java). A cancelled run's late answers never count for the next run.
+  On a borrowed 智子 engine, 整盘速览 (also a 局部精析 with both fields empty) of at most 500
+  visits per move waits for fewer network round trips, as in Java: the first position is set up
+  with its moves written up to eight ahead of their answers and every other setup command on its
+  own, and is searched once all of them are answered; after that the move to the next position
+  ends the finished search in place of a separate `stop`. When the next position is at most eight
+  moves ahead, its other moves and its search are written with that move; further ahead, the
+  other moves wait until the finished search has ended and that move is answered, are then
+  replayed with at most eight unanswered at a time, and the position is searched once all of
+  them are answered, as in Java. A finished position's result is stored only once both the end
+  of its analysis and the answer to that move have arrived, in either order. The last position,
+  and one that needs the board rebuilt (setup stones), still end with `stop`. When the engine
+  refuses such a move, the finished position keeps its result, the search written behind the
+  move is discarded and the run ends as a failed request with the engine given back; unlike
+  here, Java drops the finished position's result too when the move is refused (Java
+  `AnalysisEngine.finishFailedRequestDispatch`). A run cancelled while part of a position's
+  setup is still unwritten, or after the engine refused a setup command, gives the engine back
+  with the whole position rebuilt; cancelled once every setup command was written, it waits for
+  their answers and then gives the engine back the usual way, synced to the position the main
+  window shows: when the engine already holds that position, nothing is sent to its board;
+  otherwise, when the engine supports `undo` and both
+  positions are in the same record, on the same board size and after the same last node with
+  setup stones (the root when there is none), with `undo` and moves; otherwise the whole
+  position is rebuilt. A setup not answered in time counts as refused.
+  Unlike Java, the search of a position at most eight moves ahead is written without waiting
+  for the move's answer; the end of the finished search and the move's answer are waited for
+  1.2 seconds from the move, while Java waits 8 seconds while the search
+  has not ended and 1.2 seconds after, counted from the engine's last activity. When that wait
+  runs out, nothing from the finished position is stored, a `stop` ends what the engine is still
+  searching (the next position's search only when it was already written, as it is up to eight
+  moves ahead) and the run ends as a failed request, the engine given back with its position
+  rebuilt; on this timeout Java, too, keeps nothing from either search. Searches of a borrowed
+  engine report every centisecond, below Java's overview cap of 10. 自建算力 links, local
+  engines, the other analyses and larger budgets keep stopping between positions. This was
+  measured with the local fake service only; timing against the live service has not been
+  measured.
 - 强制计算区域 (toolbar region buttons, Alt+drag, the board's right-click menu): 设置强制计算区域
   / 设置强制不计算区域 lights its button and the next drag on the board selects the intersections
   inside the rectangle (Alt+drag always selects a calculation region; Alt+click clears an existing
@@ -1126,7 +1389,7 @@ importing the matching LizzieYzy Next settings.
   checked; 清除分析/不分析 clears it. Regions are session state: they never change the record and
   belong to the open record only (批量分析's searches of its own records never carry them).
   Stored results of the position give way to the next restricted live result.
-- 选点重点研究 (right-click 评估此点 / 取消评估 / 清除所有评估选点 on an empty point): on a local
+- <a id="track-point"></a>选点重点研究 (right-click 评估此点 / 取消评估 / 清除所有评估选点 on an empty point): on a local
   KataGo whose `kata-analyze` accepts `focus`, each tracked point gets extra search until its
   candidate reaches 选点重点研究累计计算量目标 (综合设置 > 引擎与分析, default 500) or makes no
   progress for 8 seconds, counted from the current search (a stored result with more visits does
@@ -1283,7 +1546,7 @@ importing the matching LizzieYzy Next settings.
   that count only when its unrelated `check-random-visits` option is on), and 接着当前局面下 keeps
   the setup stones (`AB`/`AW`/`AE`) and side to play (`PL`) set between moves on the way to the
   current position (Java replayed only the moves, so the game could start from another position).
-- 引擎对战 (棋局 > 新对局 > 引擎对局, `Alt+E`): two different
+- <a id="engine-games"></a>引擎对战 (棋局 > 新对局 > 引擎对局, `Alt+E`): two different
   engines of the engine list play each other in Java's Genmove模式 (the engines' own `genmove`
   with per-side 每手用时 (sent to the 自建算力 engine as KataGo's per-move `maxTime`), the
   engine's own time or a raw GTP time command) or 分析模式 (the mover's
@@ -1308,11 +1571,14 @@ importing the matching LizzieYzy Next settings.
   (score, wins as black/white, time, visits, Elo and confidence intervals) and, with 自动保存胜率图,
   the winrate graph. The saved record's 本局规则 block and the summary name each engine with its
   command as Java does, with credential values in it (`--token …`, `password=…`) masked by the
-  credential sanitizer. The next game of a batch starts only after both engines confirmed they are
-  given back (parameters and rules the match changed are restored and the rules read back, also
-  when the game or its start was stopped; a refusal or a missing confirmation marks the engine
-  unrestored and stops the batch, as does an engine that took the game's rules after refusing
-  the game's rules query, whose own rules are unknown); an engine exit retires the
+  credential sanitizer. After every game both engines are given back, and the next game of a
+  batch starts only once both confirmed it: the rules the game changed are restored and read
+  back, and the 访问量 of a Leela Zero / Sai participant (above) is written back and its answer
+  confirmed, without a query, also when the game or its start was stopped; a refusal or a
+  missing confirmation marks the engine unrestored and stops the batch, as does an engine that
+  took the game's rules after refusing the game's rules query,
+  whose own rules are unknown. 开局广度 and 开局激进度 are not given back after each game; they
+  stay for the whole batch (below). An engine exit retires the
   game and ends the batch (the exit is logged, without the 引擎异常关闭 window), after which that
   engine starts again (back in the foreground seat when it held it and no engine has taken the
   seat since, synced to the position then shown); a failure to start it is only logged and it is
@@ -1326,45 +1592,133 @@ importing the matching LizzieYzy Next settings.
   that failed once an engine had answered (rules refused, an engine that quit, or 终止 before the
   rules were read back) is kept as the latest failed preparation instead: it is shown on any
   board without its own game's 本局规则, an ordinary SGF opened afterwards included, until the
-  next engine game starts preparing. A click on the caption text or `Shift+D` opens 本局规则详情:
+  next engine game starts preparing. When both engines confirmed the rules and the game's opening
+  values then failed (below), that failed preparation keeps the target's name in the caption, and
+  本局规则详情 shows the target, 无法准备本局规则。 and each side's confirmed rules. A click on the
+  caption text or `Shift+D` opens 本局规则详情:
   a read-only, selectable text with the target, the outcome and, per side, the engine and its
   command, its status and the rules it confirmed (or why they are unavailable and, after a
   failed operation or preparation, the last rules observed, marked as not current). The text is
   the same as the saved record's 本局规则 block and is frozen when shown; no engine is asked
   again. 关闭 or `Esc` closes it. Without 本局规则 a click on the caption does nothing new and
-  `Shift+D` opens the rules dialog as before. When the panel is too small for the caption it is
+  `Shift+D` opens the 规则面板 (below). When the panel is too small for the caption it is
   left out, as the engine's rules caption is; `Shift+D` still opens the details. A saved engine
   game opened again shows no 本局规则 (Java does not read them back either).
+  本局规则 choices (an addition: Java's dialog has a single Chinese entry, the 2002 rules): the
+  list starts with the 规则面板's four Chinese rule sets, worded as there with their komi
+  (中国规则 2027; 2027 with a draw going to White; 2027 with a draw going to whoever passed first;
+  中国规则 2002), followed by Java's 中国古棋, 日本／韩国规则, AGA／BGA, 新西兰, Tromp-Taylor, 应氏 and
+  自定义 entries. Picking an entry fills the dialog's 贴目 with the komi of its rule set (7, 7.5, 7
+  and 7.5 for the Chinese ones, 6.5 for 日本／韩国规则, 7.5 for 中国古棋, Tromp-Taylor and 应氏;
+  AGA／BGA and 新西兰 have none and leave it), which can still be edited; in a handicap game the
+  komi is left alone, and opening the dialog or changing the handicap never changes it. The
+  entry is saved when a game starts, so the three Chinese entries with the same KataGo rules
+  (2027, its draw-to-White variant and 2002) reopen as picked; saved rules without a readable
+  entry show as 2002. The engines get KataGo's `chinese` rules for three of them and the button
+  rules (`hasButton`) for the draw-to-first-pass one. The game's rules are named by the rules
+  alone, so in the caption, 本局规则详情, the consent question and the saved record the button rules
+  are 2027·平局先停胜 and the other three are 中国规则, also for a game set up another way.
+  分析模式 opening parameters: the dialog's 开局广度 (0–2, `analysisWideRootNoise`) and 开局激进度
+  (−3–3, `playoutDoublingAdvantage`) rows hold one value for 引擎 1 and one for 引擎 2 (default 0;
+  they follow the engine, not the colour, when colours are exchanged) and are hidden in
+  Genmove模式, where neither parameter is touched; the old 禁用WRN switch of this dialog is gone.
+  They are plain text fields read as Java reads a number (`0.5`, `5e-1` and `+1` are all taken);
+  at 确定 a value that cannot be read or lies outside its range, a negative 广度 included, is
+  refused with 广度须为 0 到 2 之间的数值。 or 激进度须为 -3 到 3 之间的数值。 and no game starts.
+  Before each game searches, each process the batch has not used yet has its values read once;
+  then 广度 is written to both engines and read back with `kata-get-param`, then 激进度 likewise
+  (0 is written too). An engine that is not KataGo takes neither value, and a `KataGoPda` engine
+  keeps its own 激进度, which is never read or written (its move comments show the 激进度 the
+  engine reports). Such a value of 0 is left alone; any other refuses the start, naming the engine
+  and the parameter, before a parameter command goes to either engine. When a
+  value is not confirmed (a refusal, no answer within 8 s, another value read back, a command
+  that could not be sent, 终止 or an engine exit before the answer) the game does not start:
+  the message names 引擎 1 / 引擎 2 and the reason, and the batch ends. The values stay for every
+  game of the batch, also between games; only when the batch ends or is stopped does each
+  process that was read get its values back (set and read back, one command at a time). 终止
+  pressed while a finished game is still giving its engines back starts no further game: the
+  engines are given back first and then get their values back. A game whose start is not done
+  within 180 s ends the batch the same way: each process that was read still gets its values
+  back, or is reported and stopped, before its engine is released. Until
+  that is over no other engine game can start; starting one is refused, as while a game runs. A
+  process that has ended in the meantime is not written (its
+  replacement keeps its own values) and is reported; one that refuses or does not answer is
+  reported and stopped rather than reused.
+  对局参数 (棋局 > 对局参数, the top toolbar's 对局参数 beside 暂停, function search): while an
+  analysis-mode game is playing or paused, a panel shows 黑方设置 and 白方设置 columns with each
+  side's engine (引擎 1 / 引擎 2), its confirmed 广度 and 激进度 (未确认 while unknown, 不支持 for
+  an engine that cannot take it: not KataGo, or 激进度 on a `KataGoPda` engine) and a
+  field for each. 确定 sends only the fields that were changed (nothing when none was); the game
+  stops searching, waits for a 贴目 change in progress (at most 30 s), writes each new value
+  to its engine and reads it back, then searches again; the panel shows 正在应用 {0} under the
+  value while it waits and closes once both engines confirmed. A value that is not confirmed,
+  also one whose command could not be sent, pauses the game: the panel (or, when it is closed, a
+  message) names the engine and the reason (修改被中断, 修改未能确认, 等待当前一手超时,
+  引擎回复前对局已结束, 引擎回报 {0}，而不是 {1}, …), its fields and 确定 are usable again, and 继续 is
+  refused until a revision is confirmed. An answer that comes after its command timed out, a
+  refusal included, changes nothing: the game stays paused for the time-out, and a revision
+  confirmed later lets it go on. Fields typed for one game are gone in the next. The
+  menu item is always there and says why it is disabled without such a game; the toolbar
+  button shows during an analysis-mode batch (disabled between its games) and stays hidden in
+  Genmove模式. The toolbar's own 广度 / 激进度 groups and 激进参数PDA设置's "..." are hidden from
+  the batch's start until it gave the values back.
   Differences from Java: results are always SGF `B+R` / `W+R`; the batch summary lists each
   engine's own settings after colours are exchanged (Java mixed the black and white sides there);
   a custom batch folder name made only of dots or separators is refused, so files stay under
   `EngineGames`; 当前局面续弈 and 加载开局SGF keep setup stones and side to play set between
   moves (Java replayed only the moves); 本局规则详情 masks credential values in the engine
-  commands (Java showed the command as typed); a start stopped, or left by an engine that quit,
+  commands (Java showed the command as typed); 对局参数 shows 正在应用 {0} while it waits for the
+  engines (Java `EngineGameParametersDialog.ParameterCell.show` hides it once 确定 is pressed); a
+  start stopped, or left by an engine that quit,
   while the rules are being checked leaves no 本局规则 when neither engine had answered the rules
   query, and the failed preparation with what was answered otherwise (Java kept showing
-  正在检查本局规则 until the next game).
-- AI 陪练 (HumanSL; the menu bar's AI 陪练 button, 棋局 > 新建对局 > AI 陪练, function search): a
+  正在检查本局规则 until the next game); an unconfirmed opening value names each engine and its
+  reason (Java gave a general start failure). The old 禁用WRN choice is no longer read for engine
+  matches, so a user who used to play them with 广度 now starts at 开局广度 0 until it is set.
+  对局参数 is a modal panel (Java's is not): the game goes on and the board stays visible behind
+  it, and an applied revision goes on after the panel is closed. Its menu item stays in 棋局,
+  disabled with the reason, where Java hides it without an analysis-mode game.
+- <a id="coach"></a>AI 陪练 (HumanSL; the menu bar's AI 陪练 button, 棋局 > 新建对局 > AI 陪练, function search): a
   game against KataGo's human-imitation (HumanSL) network on the main board. The setup dialog
-  follows Java: 训练方式 (实战后复盘 hides candidates, the winrate graph, Kata形势, policy and
-  heat map and pauses the foreground analysis during the game; 边下边分析 keeps the foreground
-  analysing with both sides' candidates shown; neither changes the saved display settings),
+  follows Java: 训练方式 (边下边提醒, the default, rates each of the player's moves as described
+  below; 实战后复盘 hides candidates, the winrate graph, Kata形势, policy and heat map and pauses
+  the foreground analysis during the game, as 边下边提醒 does too; 边下边分析 keeps the foreground
+  analysing with both sides' candidates shown; none changes the saved display settings; the
+  chosen mode's one-line description is shown under it; saved settings without a mode, or with
+  one that cannot be read, start in 边下边提醒, and a saved mode is kept),
   对手棋力 (31 opponents named by their Fox / Tygem rank, 野狐 17-18K to 野狐 10D, each followed by
   its KataGo level, 10 级 to 11 段 with the 强 half steps between dan levels; 野狐 3D, KataGo 3段 by
-  default), colour (random, black or white), AI 思考时间 (自然, 快, 慢), and under 更多
+  default; under the row's name the chosen level's KataGo level and real-world grade, such as
+  `KataGo 3段 · 约业余3段`, and 等级对照表, which opens the community table of all 31 levels,
+  strongest first: KataGo level, Fox / Tygem rank and real-world grade (Chinese amateur grades,
+  equal grades merged). The current level is highlighted; ↑/↓ and Home/End move the highlight,
+  Enter, Space or a click on a row picks that level and closes the table, and Escape, the close
+  box or 关闭 close it without changing the level), colour (random, black or white), AI 思考时间
+  (自然, 快, 慢), and under 更多
   设置 handicap (0–9); 从当前局面开始 (only when the current position has moves) continues the
   current record in a new variation, otherwise a new record is started. The komi is not a choice:
   an even game takes the even-game komi of the rules the foreground KataGo plays (7 under the 2027
   rules, 6.5 under Japanese rules); when KataGo has reported no rules of a known rule set, it
-  takes the komi new games start with (7.5) if the current record is a handicap game, and the
-  current komi otherwise. A coach game with handicap stones of its own gives the player Black
+  takes the komi new games start with if the current record is a handicap game (that of the rule
+  set chosen in the 规则面板 while 启动时自动应用 is on, else 7.5), and the current komi otherwise.
+  A coach game with handicap stones of its own gives the player Black
   with komi 0.5. The dialog shows the komi and the colour as
   fixed, with the reason. The last started settings are remembered (a komi saved by earlier
   versions is ignored, and saved settings with a handicap come back with Black). The AI's moves
   come from a separate `katago analysis` process with
   `-human-model`, started from the 精析设置 analysis command (a Windows TensorRT engine uses the
   installed CUDA package instead); the game starts only after that process answered a real
-  HumanSL request, with Java's loading stages shown meanwhile. Each opponent plays with the
+  HumanSL request, with Java's loading stages shown meanwhile. When the command lacks a part, the
+  dialog names the first one in Java's order and links to KataGo 一键设置 (its 权重管理 page for
+  the weight, the overview otherwise), closing the dialog first: no engine to run (no engine set
+  up, or 一键设置's engine file gone), the analysis config (an engine's `analysis.cfg` that cannot
+  be created beside its config, or the one an installed engine's command names), or the weight
+  file an installed engine's command names. An engine set up for play only still gets its
+  `analysis.cfg` made from KataGo's example and starts. As in Java, only commands of an engine
+  一键设置 installed are checked for files; a command of your own runs as written (its paths may
+  be the engine's own, such as a Windows engine's run from WSL), and a missing file then shows as
+  a failed start. These messages read as Java's alone; earlier versions put "启动 HumanSL 引擎失败："
+  before 未选择引擎. Each opponent plays with the
   HumanSL settings its rank was measured with (the community comparison of KataGo's human-style
   levels with Fox / Tygem ranks that Java follows): up to 1 kyu the AI samples the raw HumanSL
   policy of a pre-AlphaZero profile (`preaz_20k` … `preaz_7k`) from one visit, damping only moves
@@ -1382,27 +1736,100 @@ importing the matching LizzieYzy Next settings.
   AI also passes when that gives up at most a point, and where most players of a kyu level would
   pass but KataGo still sees a point that matters, the AI plays KataGo's move. When both players
   have passed, KataGo counts the position (200 visits, at most 20 s) and the result goes into the
-  record's RE with 对局结束 and the result on the bar; under button rules the first player to pass
+  record's RE and on the bar; under button rules the first player to pass
   gets half a point, so an equal count goes to them. A count that fails or runs out of time ends
   the game without a result in the record. 认输 on the bar ends the game at once, also while the
   AI thinks, with the AI winning by resignation (`B+R` / `W+R`); on a browsed position it first
   brings the board back. The AI resigns a hopeless game, never before 40% of the board's points
   have been played: a kyu level after 20 turns in a row at a win rate of at most 0.5% and at least
   40 points behind, a dan level after 10 turns at most 1% and 20 points behind; a message says so
-  and the player's win by resignation goes into the record. After the game the bar keeps only
-  结束并复盘. Browsing earlier
+  and the player's win by resignation goes into the record. After the game the bar states the
+  outcome for the player and the result (你赢了 · 黑中盘胜, 你输了, 和棋, or 对局结束 for a game
+  KataGo did not count), the summary's figures (共 N 手; in 边下边提醒 also 关键失误 N 处, the 恶手,
+  and 提示 N 次, the positions where a hint was asked for; 悔棋 N 次), and 再来一盘 before
+  结束并复盘: 再来一盘 ends the session as 结束并复盘 does, then opens the setup dialog again
+  with the last game's settings. Browsing earlier
   moves does not end the game: the AI's reply is played on the game's position and the board goes
   back there; on a browsed position a click or 停一手 only brings the board back (saying so), and
-  the next one plays there. If the game's moves are deleted,
+  the next one plays there. 悔棋 on the bar takes back the player's last move and the AI's reply,
+  or, while the AI still thinks or its chosen reply waits for its think time, only the player's
+  move; that reply is dropped and never played. It is unavailable when the game has no move of the
+  player's to take back (before the first move, when the AI opened as Black, in a handicap game
+  with only the stones) and while KataGo counts or after the game. A take-back only steps the
+  game back: the withdrawn moves stay in the record as a variation, and the session counts the
+  take-backs. Playing the same move again follows the withdrawn one, and the AI is asked again:
+  the same reply follows its old move with whatever came after it, a different reply becomes the
+  game's line while the older one stays beside it; a different move of the player's takes the
+  game line's place the same way. This memory belongs to the game; a new game starts without it.
+  In 实战后复盘 the paused foreground engine is not told about a take-back; in 边下边分析 it
+  follows the board as after any move. Moves cannot be deleted during the game, nor after it
+  until 结束并复盘: `Delete`/`Backspace`, 删除一手, 删除分支, the bottom bar's 删除 and the stone
+  menu's 删除 leave the record as it is and show a 3-second message pointing to 悔棋 (Java shows
+  it for the keys; its menu and toolbar deletes are not blocked). If the game's moves are deleted,
   the session ends with a message; an AI answer for a game that has ended or been replaced, or
   whose position changed, is dropped without touching the record. A companion process that exits is
   started again for the next move; two failed attempts show 重试 AI. The bar under the board
   shows the opponent's Fox / Tygem rank, both
-  clocks and the turn, with 停一手 (`P`), 认输 and 结束并复盘. Ending, cancelling or a failed start stops
-  the companion and gives the foreground engine back as it was (after 实战后复盘 analysis resumes
-  on the finished game); a failed restore offers 重试清理. Opening a record, a new board or another
-  game during a session first ends the session, then proceeds. The training report and live
-  correction strings present in Java are not reachable there and are not shown here.
+  clocks and the turn, 你的上一手 with the player's last move (停一手 for a pass) in every
+  training mode, with 提示 (边下边提醒 only), 悔棋, 停一手 (`P`), 认输 and 结束并复盘. It shows from
+  the start of the game until the session is over; a session cancelled during its preparation
+  never had a game and shows none, also while it stops. Ending,
+  cancelling or a failed start stops
+  the companion and gives the foreground engine back as it was (after 实战后复盘 and 边下边提醒
+  analysis resumes on the finished game); a failed restore offers 重试清理. Opening a record, a
+  new board or another game during a session first ends the session, then proceeds. The
+  training report and live correction strings present in Java are not reachable there and are
+  not shown here.
+  边下边提醒: while the player thinks, the same companion process reviews their position (400
+  visits, at most 1.5 s, with the opponent's HumanSL profile); the foreground engine is not used
+  and no analysis is shown. Once the player moved, the move is rated from the player's win chance
+  as players of the opponent's rank would see it (KataGo's score lead turned into a chance with
+  the position's score spread, 12 points when KataGo gives none): losing at least 5% of it is a
+  缓手, 10% a 问题手 and 20% a 恶手; in a game already decided (a chance below 5% or above 95%)
+  giving away 10 or 20 points also makes a 问题手 or a 恶手. KataGo's own choice that under 10% of
+  the rank's players would play, where the move most of them play would lose a 缓手's worth, is a
+  妙手; everything else is a 好棋. A move the first review hardly looked at (fewer than 16 visits,
+  or a twentieth of the best move's) gets a shorter review of the position after it (200 visits,
+  at most 0.8 s); a review that has not answered
+  in 15 s is ended and the move is left unrated. The bar shows 你的上一手 with the move and its
+  rating (正在评估… meanwhile, 这手没能评估。 when there is none). The AI's reply, once its think
+  time is over, waits up to 4 s for the rating; after a 恶手 rated within that wait it waits for
+  the player instead (等你决定, with the clocks counting the player's time): 重下这手 takes the 恶手
+  back like 悔棋, 看 AI 推荐 marks KataGo's choice on the board, and 不重下，继续对局 plays the
+  reply. A rating that comes after the wait still counts but no longer holds the reply. 提示 (or `H`)
+  on the player's turn marks the area of KataGo's choice first (one of nine, 关键在左上角这一带),
+  then 再给一步 marks the point (AI 推荐下在 Q16); the session counts the positions where a hint
+  was asked for, keeps every rating of the moves still in the game, and drops ratings of moves
+  that were taken back (悔棋 also stops reviewing them, so the next move is rated without waiting)
+  and any that arrive after the session ended. On a browsed position 提示 first brings the board
+  back. In 实战后复盘 `H` says that analysis stays hidden, from the start of the game until
+  结束并复盘, also after the game has ended; in 边下边分析, before a game has started (also while a
+  session cancelled during its preparation stops), and outside AI 陪练, `H` toggles 纯网络 as
+  before. Unlike Java, there is no
+  coach side panel or move card: the rating, the hint and the three choices are on the training
+  bar, the marks are on the main board, and the rest of the coach's information takes the place
+  of the 胜率 panel, so no panel changes its place or size and none is hidden for it. In
+  边下边提醒, where the 胜率 panel is hidden, that place under the 提子 panel holds a card: 你的胜率
+  as players of the opponent's rank would see it, with a bar in the stones' colours and the curve
+  through every rated move (before and after it) up to the position to move in; the count of each
+  rating; and 最近几手, the latest rated moves newest first with their rating and the change of
+  the win chance, as many as fit. After the game the list becomes 值得复盘的几处: the three worst
+  mistakes (the most severe rating first, then the largest drop) in the order played; a click on
+  one ends the session and shows the position before that move; analysis is not started there
+  (the foreground engine is given back as it was before the game). In
+  边下边分析 the 胜率 panel shows KataGo's live win chance for the player in the same form, its
+  curve filling the panel; a 胜率 panel hidden in 界面 > 面板 stays hidden. In 实战后复盘 that place
+  says that analysis is hidden, from the start of the game until 结束并复盘. Where the place is
+  too small for the curve (a small window, or a layout without it), or after the game too small
+  for every one of the 值得复盘的几处, 你的上一手 on the bar (after the game the figures) becomes a
+  button with ⌃ that opens the same information over the board, with all of those mistakes, both
+  players' captures and the komi; when not one of the mistakes has room on the card, the card
+  leaves out the 值得复盘的几处 heading and keeps its line blank. Escape, a click elsewhere or moving
+  the focus out closes the popover, and Escape gives the focus back to the button. Enter and Space
+  press the focused button on the card, in the popover and on the bar once, as a click does; they
+  do not reach the workbench keys there (Space does not pause or resume the analysis). At the
+  minimum window the bar then takes one line more in
+  边下边分析 and 实战后复盘 and after the game.
   Strength change from earlier versions: every rank used to pick among human-style candidates
   and then check them with a deeper search, which made the opponents far stronger than their
   names (upstream measured the old 3 dan losing fewer points a move than its 9 dan model); each
@@ -1412,8 +1839,9 @@ importing the matching LizzieYzy Next settings.
   saved before keep working: a numbered rank becomes the plain level of that number (kyu ranks
   weaker than 10 kyu become 野狐 17-18K), the two retired presets become 9 段, 1 min and unlimited
   become 慢 and shorter times 自然; values that cannot be read fall back to 3 段 and 自然. Unlike
-  Java's setup sheet, the opponent is picked from a list in the dialog's existing rows, and the
-  rank table and the real-world grade beside the level are not shown.
+  Java's setup sheet, the opponent is picked from a list in the dialog's existing rows (its
+  slider and big rank text are not used), and 一键设置 is a link after the message rather than
+  only named in it.
 - Switching between 人机对弈, 引擎对战 and AI 陪练: two of them never run together. During a game
   a match or AI 陪练 is refused and a new game ends the running game first; during a match a
   game or AI 陪练 is refused; a new game or match asked during AI 陪练 ends the session first
@@ -1433,23 +1861,61 @@ importing the matching LizzieYzy Next settings.
   digest is reported as missing and never used. 导入 copies another `.bin.gz` / `.txt.gz` HumanSL
   model (larger than 1 MB) into `human-sl-models/` of the resource directory. The model is not an
   analysis weight and is not offered as one.
-- 棋力评估 (分析 > 棋力评估, the top toolbar's 棋力评估 button, function search): estimates each
-  side's playing strength from the analysis already stored on the main line (it starts no
-  computation; analyse the game first, for example with 闪电分析整局). The dashboard follows
-  Java: 测评 (rank, confidence and per-side metrics), 吻合度 (overall match and the per-move hit
-  map), 发挥水准 (move quality distribution), and 详细数据. Ranks and rank ranges (职业, 一线职业,
+- <a id="strength"></a>棋力评估 (分析 > 棋力评估, the top toolbar's 棋力评估 button, function search): estimates each
+  side's playing strength from the analysis already stored on the main line. The dashboard has
+  four tabs, in this client's order: 测评 (rank, confidence and per-side metrics), 吻合度 (overall
+  match and the per-move hit map), 发挥水准 (move quality distribution) and 分阶段, with 详细数据
+  beside them. The tabs stay in one row; in a window too narrow for them the row scrolls
+  sideways, fades at the side that hides a tab, and brings the chosen tab (clicked, or reached
+  with ←/→) fully into view. Under each side's rank on 测评 a
+  段位标尺 places it on one continuous ruler from 20 级 to AI (级, 业余段, 职业, 一线职业 and AI
+  sections, ticks at the levels and labels that give way or take a second line when the width is
+  short). 分阶段 splits the game at two boundaries (by default after moves 60 and 150, so 布局
+  1–60, 中盘 61–150, 官子 from 151) and estimates each side's rank over each phase's own moves
+  with the game's model: a card per phase with both ranks, their confidence, a ruler with both
+  stones and who played better there (even within 0.3 of a rank, clearly from 1.0), the best and
+  weakest phase of each side, and the phase worth a closer look. A phase the game did not reach,
+  or with fewer than six analysed moves of a side, says so instead of a rank; with 人类风格模型
+  moves after the 210th are left out, as that model reads only the first 210. Drag a boundary on
+  the timeline (or focus it and use ←/→, Shift for ten moves) to move it; each phase keeps at
+  least ten moves and the middle game ends by move 1000 at the latest, the cards follow while
+  dragging, and the boundaries are saved once when it is
+  released, or at each key press (`strength-phase-bounds`), and used for later games; 恢复默认
+  returns to 60 / 150.
+  Boundaries that are not two whole numbers in order, with at least ten moves to each of the
+  first two phases and the middle game ending by move 1000, are replaced by the defaults when the
+  settings are read or saved; such a pair in a Java import is reported as not usable and the
+  current boundaries stay. 详细数据 on 分阶段 lists the
+  eight figures for each phase. Ranks and rank ranges (职业, 一线职业,
   AI and the 级 / 段 ranges) are written in the interface language, from the newer Java's language
   bundles. A side without analysed moves shows
-  Java's 暂无可展示的选点样本 note instead of empty gauges. The default model is Java's bundled
-  XGBoost 20TUN with its residual calibrator; on the same analysed game it gives exactly the
-  fixed Java build's numbers. 导入 adds another XGBoost rank-value booster (`.json`, with a
+  Java's 暂无可展示的选点样本 note instead of empty gauges. Until a game has enough analysed moves
+  (six) the dialog shows what is missing instead of the figures: a game that is not (yet)
+  analysed offers 分析整盘棋, which starts the same 整盘速览 as the analysis menu, with its progress
+  window, and shows how many of the main line's moves are analysed while any whole-game, flash
+  or automatic quick analysis runs; when no analysis runs and some moves are analysed but too few,
+  the page's title says so (这盘棋只分析了 X / Y 手) above the same 分析整盘棋. The figures appear as
+  soon as there are enough. A game whose
+  every move is analysed and that is still too short says so, without the button. Figures that
+  rest on fewer than nine in ten of the moves come with a line saying how many are analysed and
+  分析整盘棋 for the rest. Hovering a figure (the rank, 可信度, each metric of 测评 and 吻合度,
+  each move count and share of 发挥水准, each row of 详细数据 including HumanSL 9d 难度 and
+  HumanSL 9d 概率覆盖) explains what it means, and screen readers get the same text; the rank's
+  explanation comes before the 段位标尺 tiers. The model menu names the models by what they do:
+  标准模型 (推荐) is Java's bundled XGBoost 20TUN with its residual calibrator, giving exactly the
+  fixed Java build's numbers on the same analysed game; 人类风格模型 (实验) is HumanSL 40; imported
+  models keep their own names. Each entry has a one-sentence description and the technical name.
+  The menu's last item, 导入模型…, adds another XGBoost rank-value booster (`.json`, with a
   sibling `metadata.json` / calibrator if present, or a `.zip` bundle) under `strength-models/`
   in the data directory and selects it; the chosen model lasts for the session, as in Java.
-  HumanSL 40 is Java's experimental model: 补算 HumanSL runs a separate policy-only
+  人类风格模型 needs a one-time calculation per game: until the game has one, the dialog explains
+  it, with 开始计算 and its progress, 分析棋局时自动准备 with what it costs, and, while the
+  HumanSL network is not on this computer, the size of its first download as listed in the
+  resource catalogue; 开始计算 asks before that download with the same size. 开始计算 runs a separate policy-only
   `katago analysis` process on the official HumanSL network (download offered if missing) for
   the first 210 moves of a 19×19 game without setup stones, with a progress dialog that 取消
   stops. Policies are cached per query under `strength-humansl40-policy-cache/`, so the same
-  game is not queried again. 后台 HumanSL (off by default, saved) prepares the same data while
+  game is not queried again. 分析棋局时自动准备 (off by default, saved) prepares the same data while
   the foreground engine analyses, and stops when analysis is paused or a game, engine match or
   AI 陪练 needs the engine. Its HumanSL policies come from network sampling, so its ranks can
   differ slightly between runs. As in Java, the other models read only the candidates within
@@ -1457,6 +1923,23 @@ importing the matching LizzieYzy Next settings.
   选点重点研究 tracks), and a move that is no candidate is scored from the two positions' evaluations; when
   only one of them has a score (for example a Leela Zero position next to a KataGo one), this
   client uses the win-rate difference instead of Java's score of 0 for the scoreless position.
+  Differences from Java: Java (`StrengthDashboard`, `StrengthCompareCard`,
+  `StrengthDistributionCard`, `StrengthDetailTable`) lays the dashboard out as a match report:
+  测评's metrics in one table comparing the two sides row by row, 发挥水准 mirrored about the rank
+  names and 详细数据 as one table with a column per side; here each side keeps its metrics in its
+  own section on 测评, its own six-row table on 发挥水准 and its own card in 详细数据. Java's tabs
+  are 测评, 分阶段, 吻合度, 发挥水准, and in a narrow window Java moves the model menu and 详细数据 to
+  a row of their own and shortens the tab names to fit. Java replaces saved boundaries with the
+  defaults only when they
+  are missing, not positive or not in order, and otherwise moves them up to the nearest usable
+  pair without an upper limit, so a very large boundary overflows when the game is split (Java
+  `StrengthDialogHost.parseBounds`, `StrengthPhases.normalize`). When part of a game is analysed
+  but too little to estimate, Java's page still says 这盘棋还没有分析 (Java
+  `StrengthDashboard.showReport`). Java gives no hover explanation for the 发挥水准 counts and
+  shares or for the two HumanSL rows of 详细数据. Java's human-style page and its download question
+  both name a fixed "约 99 MB" (`PlayerStrengthEstimate.empty.humanStyle.download`,
+  `HumanSL40.downloadPrompt`), where this client gives the catalogue's size (94.5 MB for the
+  current file).
 - AI 解说 (分析 > AI 解说, the AI 解说 button after AI 陪练 in the menu strip, shown as 解说 when the
   strip is narrower than 900 px, function search): explains the analysis already stored on the
   record in plain language through a language-model service you configure. It starts no engine
@@ -1466,7 +1949,12 @@ importing the matching LizzieYzy Next settings.
   moves apart, by score loss (then win-rate loss, then visits), and 继续追问 asks about the current
   explanation with the same evidence. 分析依据 shows exactly what was sent: candidates and losses,
   stone groups and liberties, the replayed continuation and candidate lines, and up to two grounded
-  matches from the bundled common-pattern teaching catalogue. Its life-and-death and tesuji problems
+  matches from the bundled common-pattern teaching catalogue, and the shape of the recorded move and
+  of each candidate's first move when the stones alone settle it (for example hane, cut, attachment,
+  3-3 invasion, corner approach, 拆二, 打入; in Chinese 扳、断、靠、点三三、挂角、拆二、打入). The prompt
+  asks the answer to call a listed move by that name, to give its coordinate at most once, and never
+  to use a shape name that is not listed; as in Java, no separate shape check is applied. Its
+  life-and-death and tesuji problems
   take part in board matching only once their diagram is marked as a verified position (none of the
   bundled problems carries the mark yet); until then they are never matched against the board, so their
   diagram coordinates are not sent. A reply that names a coordinate
@@ -1553,7 +2041,8 @@ importing the matching LizzieYzy Next settings.
   GMA) are refused; in 双引擎模式 restarting or replacing the secondary engine is refused too,
   closing it is not; an engine that ends meanwhile is not restarted automatically. It ends at the
   viewer's 退出试下, after five idle minutes, by
-  强制结束试下, when the share stops or when another record opens; browsing then returns to where
+  强制结束试下 (同步 > Web 旁观 and the 同步 popup, one action, enabled only while a 试下 runs), when
+  the share stops or when another record opens; browsing then returns to where
   it started. 自动落子 does not play while a 试下 runs, as desktop moves are refused; it plays
   again with its settings once the 试下 ends (Java still played, on the position the 试下 started
   from).
@@ -1570,11 +2059,24 @@ importing the matching LizzieYzy Next settings.
   (size and SHA-256 checked), which turns 自动使用 on. A model file is used only while its SHA-256
   matches the catalog (checked again when the file changes); with 自动使用 and a KataGo of 1.17 or
   later in the foreground, quick analysis runs it in an analysis process of that KataGo.
-- 问题手 (the 评论/问题手 panel): moves from move 2 on the main trunk whose player lost at least 10
+- <a id="problem-list"></a>问题手 (the 评论/问题手 panel): moves from move 2 on the main trunk whose player lost at least 10
   win-rate points against the analysis of the position before, best moves excepted, for black or
   white, sorted by loss or move number, with Java's empty states and the 评估中 / 已评估 / 评估完成
-  badge. Clicking a row goes to the position before the move and marks it. The page, side,
-  order and the 显示评论/问题手面板顶部控制条 choice are remembered.
+  status. The header holds only the 评论 and 问题手 tabs and that status; the 黑棋 / 白棋 switch
+  sits at the start of the list's toolbar, before the sort, and each half shows how many problem
+  moves that side has (0 when it has none), growing as an evaluation finds them; the old total
+  ("N 手") is gone, as in the Java version. The switch is a pair of radio buttons (Tab reaches it,
+  arrow keys pick a side; B / W on the focused header still pick one), each read as its side and
+  number, with "N 手" as tooltip and description. In a sidebar too narrow for it, a number goes
+  under its side's name and then the 白棋 half under the 黑棋 one. A mouse press on a half picks
+  the side without taking the focus, so the workbench keys keep working. Clicking a row goes to
+  the position before the move and marks it. The page, side, order and the
+  显示评论/问题手面板顶部控制条 choice are remembered.
+  Differences from Java: Java (`ProblemSideToggle`) draws a stone in each half, keeps each half on
+  one line and stacks the halves as soon as they no longer fit side by side; it reads a half by
+  its side's name alone, with the count as description, and a click on a half takes the focus. A
+  row here keeps the move and its details on two lines, where Java puts them on one line with
+  larger type when they fit (Java `BlunderListPanel`).
 - 超级鹰眼 (`Y`, 视图 > 面板 and 分析 menus, the top toolbar's eye button, the bottom-bar button when
   enabled): a separate window on the analysis already stored with the record (nothing is
   analysed for it). Its 统计信息 page shows each side's 吻合度, 吻合率, 第一选点率, average score and
@@ -1626,25 +2128,56 @@ importing the matching LizzieYzy Next settings.
   engine-game hint.
 - Rules: an SGF record's `RU` is applied to KataGo (`kata-set-rules`) before analysis. When the
   engine cannot confirm it, a dialog asks whether to continue with the engine's current rules
-  (no pauses analysis). `Shift+D` opens the KataGo rules editor. The rules caption names the
-  rules KataGo reports together with the game komi. The core keeps one table of rule sets, each
-  KataGo rules with the komi that belongs to them, in this order: 中国规则 2027 (komi 7), its
-  平局时白方胜 variant (the same rules, komi 7.5), its 平局时最先放弃着手一方胜 variant (Chinese rules
-  with the button, komi 7), 中国规则 2002 (7.5), 日本规则 (6.5), 中国古棋 (7.5), Tromp-Taylor
-  (7.5) and 应氏规则 (7.5). Rule sets with the same rules are told apart by komi; one whose rules
-  are its own is recognised whatever the komi. The caption shows a short name for the three 2027
-  rule sets (中国规则2027 for Chinese rules with komi 7, 2027·平局先停胜 for Chinese rules with
-  the button, e.g. 数子规则下收后方贴还0.5目 set to 是 in the editor) and otherwise the rules'
-  name; it changes with the komi as well as the rules, so Chinese rules with komi 7.5 read
-  中国规则 and with a komi of no rule set (such as 6.5) still 中国规则. Because 平局时白方胜 counts
-  exactly like 中国规则 2002, it is recognised only as the rule set chosen last; choosing a rule
-  set is not available yet, so those rules and komi read 中国规则. The same table gives the komi
-  of an even game under the current rules: the recognised rule set's komi, otherwise the komi new
-  games start with after a handicap game (7.5 while no rule set is chosen), otherwise the current
-  game komi. KataGo's Japanese and Korean presets have 未提净死子时允许停一手 off, as KataGo
-  reports them; territory scoring does not use that field, so territory rules keep their name
-  (日本规则) whichever way it is set. The same comparison names the engine game's 本局规则 and the
-  野狐 rules, and the editor's 典型规则 buttons fill in the same presets.
+  (no pauses analysis). The rules caption names the rules KataGo reports together with the game
+  komi. The core keeps one table of rule sets, each KataGo rules with the komi that belongs to
+  them, in this order: 中国规则 2027 (komi 7), its 平局时白方胜 variant (the same rules, komi 7.5),
+  its 平局时最先放弃着手一方胜 variant (Chinese rules with the button, komi 7), 中国规则 2002 (7.5),
+  日本规则 (6.5), 中国古棋 (7.5), Tromp-Taylor (7.5) and 应氏规则 (7.5). Rule sets with the same
+  rules are told apart by komi; one whose rules are its own is recognised whatever the komi. The
+  caption shows a short name for the three 2027 rule sets (中国规则2027, 2027·平局白胜,
+  2027·平局先停胜) and otherwise the rules' name; it changes with the komi as well as the rules,
+  so Chinese rules with komi 7.5 read 中国规则 and with a komi of no rule set (such as 6.5) still
+  中国规则. Because 平局时白方胜 counts exactly like 中国规则 2002, it is recognised only while it is
+  the chosen rule set (below). The same table gives the komi of an even game under the current
+  rules: the recognised rule set's komi, otherwise the komi new games start with after a handicap
+  game (the chosen rule set's, else 7.5), otherwise the current game komi. KataGo's Japanese and
+  Korean presets have 未提净死子时允许停一手 off, as KataGo reports them; territory scoring does not
+  use that field, so territory rules keep their name (日本规则) whichever way it is set. The same
+  comparison names the engine game's 本局规则 and the 野狐 rules.
+- <a id="rules-panel"></a>规则面板 (KataGo规则设置; `Shift+D` without 本局规则 to show, and 引擎规则 in the menu), top down:
+  典型规则, a list of the eight rule sets (each with its komi in brackets) and 自定义, the current
+  one selected; 贴目, a stepper (0.5 steps) starting at the game komi; 启动时自动应用; then
+  逐项设置, the seven rules. Picking a rule set fills in its rules and komi and turns 启动时自动应用
+  on; 自定义 changes nothing. After any change of the komi or a rule the list selects the rule set
+  the rules and komi now are (2027 at komi 7 changed to 7.5 becomes 中国规则 2002; a changed rule
+  matching no rule set becomes 自定义); 平局时白方胜 stays selected as long as it was the one
+  picked. In a handicap game the komi field keeps the game's komi and cannot be changed
+  (让子棋：只换规则，贴目不变); picking a rule set there fills in only its rules. `Tab` walks the list,
+  the komi, the switch, every rule and the buttons; `Up`/`Down` in the list pick a rule set as a
+  click does. 确定 applies it
+  all as one operation: first the settings are saved — with 启动时自动应用 on, the rules become
+  KataGo's startup rules and a picked rule set becomes the chosen one, its komi the komi of the
+  新对局 and 引擎对局 dialogs and of a cleared board on any engine (in a handicap game too); with
+  自定义 picked last no rule set is recorded and those two komi stay as they were, even when the
+  rules and komi match a rule set; with 启动时自动应用 off no default changes and 启动时自动应用 is
+  saved off.
+  A failed save is reported and nothing reaches the engine. Then, outside a handicap game, a
+  different komi goes to the game and to KataGo, before the rules; last KataGo gets the rules. The
+  panel closes once KataGo reads the rules back and otherwise stays open with
+  设置引擎规则失败, 确定 usable again; that is also what happens when the KataGo process that took
+  the rules ends before reading them back, and a KataGo started in its place does not count for
+  that 确定. 确定 after a failure sends the rules to KataGo again, also unchanged ones. 取消 and the
+  close box discard every change. Without a ready KataGo, during an
+  engine game, while 整盘分析 starts or runs and while another task holds the engine, 确定 is
+  refused with the matching message. The chosen rule set counts only while KataGo still starts
+  with its rules; once the startup rules are others it no longer applies (Java `RulePreset.chosen`).
+  Java's `rule-preset` setting is imported with `new-game-komi`, `new-engine-game-komi` and the
+  startup rules. 精析规则 and 本局规则's 自定义 keep the rules editor with its five 典型规则 buttons.
+  Difference from Java: Java offers the rule sets as a menu on a click of the rules caption,
+  applied at once and always remembered for new games, with 更多规则设置… opening the rules dialog;
+  here they are this panel's list, applied with 确定 and remembered only with 启动时自动应用 on, and
+  a click on the caption does not open a menu. The panel's 贴目 stepper takes the place of Java's
+  note that the komi differs from the rules' usual komi.
 - GTP console (`E`) shows the engine traffic and sends commands; its title's close box or `Esc`
   (from any of its controls) hides it without stopping the engine. Like Java, `komi <v>` sets the
   game komi and `undo` steps back in the record; other commands that would change the engine's
@@ -1654,8 +2187,30 @@ importing the matching LizzieYzy Next settings.
   that are still starting; once an engine is ready its traffic appears only while the console is
   shown. A failing
   engine shows Java's failure dialog with its output, copy and diagnostics export; engines that
-  fail together (a startup engine and a preloaded one, say) each get their own. Engines are
-  ended (`quit`, then killed after 3 s) when the application exits, including application Quit.
+  fail together (a startup engine and a preloaded one, say) each get their own. Two causes of a
+  failed start get their own explanation in that dialog, in all six languages:
+  - Windows error 206 while loading a DLL (a start-up output line such as `Could not load library
+    cudnn64_9.dll. Error code 206`): the path is too long; move the engine's whole folder, DLLs
+    included, to a shorter path such as `C:\katago` and change the engine's command in 设置引擎
+    to the new path, without moving DLLs on their own. The explanation is added under the failure
+    message; Java lists it with the DLL, source and detail of each finding, which this client
+    shows in 详细信息 as the engine's output. Path lengths and other numbers in the output, other
+    loader errors (a missing DLL, a bad image, an entry point) and success messages do not count.
+    The explanation comes with the failure of an engine that ends while starting, such as the
+    foreground or comparison engine; of a 闪电分析 analysis process (整盘速览, 局部精析 or
+    全部分支精析) or a 批量精析 one that ends before answering its first query; and of 跑谱贡献
+    when its last launch ends before it started a game (its `Starting game` line or a game
+    snapshot). Each of them is read on its standard output as well as its error output. An
+    analysis process that had answered a query, or a 跑谱贡献 launch that had started a game,
+    gets the ordinary failure message without it. 整盘精析's own analysis session reports only its
+    general error, without these explanations, as in Java.
+  - A downloaded macOS engine on a macOS older than the one it was built for: the start is
+    refused before the engine runs, with the required and the running version and what to do
+    (upgrade macOS, use 远程算力, or choose a local engine made for this system). See
+    [Engine resource sources](#engine-resource-sources).
+
+  Engines are ended (`quit`, then killed after 3 s) when the application exits, including
+  application Quit.
 - Logs, the full-log files, failure details and exported diagnostics pass through a port of
   Java's credential sanitizer (`--password …`, `token=…`, JSON credential keys, authorization
   headers, URL user info, encoded forms); the live console shows raw traffic like Java. Text
@@ -1675,23 +2230,29 @@ importing the matching LizzieYzy Next settings.
   folder, the engine list with its default and start-up choice, each engine's thread policy and
   benchmark results and its GTP configuration profile, analysis limits and interval, fast engine
   change, limit notice, 自动检测引擎是否存活, KataGo rules, the start-up benchmark choice, the network proxy and the
-  board display settings (coordinates, move numbers including the older `show-move-number` keys,
+  board display settings (coordinates and 棋盘坐标's size and 加粗, also those in themes, move
+  numbers including the older `show-move-number` keys, 姓名旁胜率 `show-name-winrates`,
   move-rank marks and judgement, candidate rows and options, next-move hints, sub-board mode,
-  pure-network ownership style), the analysis-information settings above (graph, Kata形势,
+  pure-network ownership style), 黑白胜率大字's style, 窗口置顶 and bounds (`big-winrate-*`;
+  unlike Java's other window positions, these bounds are imported), the analysis-information
+  settings above (graph, Kata形势,
   scoring rules, AI match, 独立选点列表 options, 记录选点信息到评论中; Java's window and column
   positions are reported as not usable), 自动棋谱快析, 精析设置 (with its 远程引擎 and
   `analyze-update-interval-centisecssh`), 局部精析's range, the
   lightweight model choice, 整盘精析 depth (`ui.whole-game-analysis-deep-visits`) and the 问题手
   settings, the 人机对弈 dialog values, AI time, random start and 后台思考 (`new-game-handicap` is
   Java's list position), the 引擎对战 dialog and 引擎对局设置 values (`engine-pk-*`,
-  `new-engine-game-*`, `engine-game-match-rules`, per-side time modes and resignation thresholds)
+  `new-engine-game-*`, `engine-game-match-rules`, per-side time modes and resignation thresholds,
+  the 开局广度 / 开局激进度 values `engine-game-first-wrn`, `engine-game-second-wrn`,
+  `engine-game-first-pda`, `engine-game-second-pda`, each read only within its range)
   and the 自动落子 and 引擎对战 toolbar values in `toolbar-parameter`, and the AI 陪练 settings
   (`human-sl-training-last-settings`: the opponent `level` and AI 思考时间 `pace` the newer Java
   saves, or an older Java's rank, preset and move time read as described under AI 陪练; Java's
-  retired `LIVE_CORRECTION` becomes 边下边分析),
-  HumanSL model path (`katago-human-sl-model-path`), 后台 HumanSL for 棋力评估
+  `LIVE_FEEDBACK` is 边下边提醒 and its retired `LIVE_CORRECTION` becomes 边下边分析),
+  HumanSL model path (`katago-human-sl-model-path`), 棋力评估's 分析棋局时自动准备
   (`strength-humansl-background-enabled`; the models in Java's `strength-models/` folder are
-  copied into this client's, once, keeping their names), the 死活题 choices (`tsume-go-to-play`,
+  copied into this client's, once, keeping their names) and 分阶段 boundaries
+  (`strength-phase-bounds`, imported only when usable as described under 棋力评估), the 死活题 choices (`tsume-go-to-play`,
   `tsume-go-attaker`, `tsume-go-ko-threat`, `tsume-go-wall-distance`; an unknown choice acts like
   Java's 继承 / 自动检测 / 无), the 死活 toolbar button (`show-tsume-go-menu`) and the 抓取死活题
   thresholds (`capture-*`, the gray offset under Java's `capture-gray-percent`) — only values Java
@@ -2079,6 +2640,69 @@ one, the Java layout) is stored with the panel sizes in the window state.
 - Difference from Java: Java's layout slots have no arrangement; saving it in 自定义布局 1 / 2 is
   an addition of this client.
 
+## Differences from LizzieYzy Next
+
+Besides the reference commit, this client follows the changes of the newer LizzieYzy Next release
+next-2026-11-19.1 (`6a5c8d1524f8bdfd9163162a38dcf64c23402a1b`), except for the items below.
+Smaller differences, most of them Java defects fixed here, are noted where each feature is
+described above.
+
+Changes of the newer release that are not followed:
+
+- The bottom bar's 同步 button is still shown by default; the newer release hides it (Java
+  `Config.liveButton` defaults to `false` there). See [the bottom bar](#bottom-bar).
+- A 评估此点 item that cannot be used still shows only the reason, also for the new 分析已暂停
+  case; the newer release keeps the item's name and adds the reason in brackets (Java
+  `RightClickMenu.trackingUnavailableKey`). See [评估此点](#track-point).
+- Remote engine host keys stay in `ssh-known-hosts.json`, and a changed key is trusted with
+  信任新密钥并重试 in the failure dialog; the newer release keeps an OpenSSH-format `ssh/known_hosts`
+  file that is edited by hand (Java `SshKnownHosts`). See [remote engines](#remote-engines).
+- The macOS Metal packages are built from KataGo's official source without the newer release's
+  fixed-batch patch (`metal-fixed-batch.patch`), and the rules that come with the patch are not
+  taken either: its later change to pad only when `nnMaxBatchSize` is not set, and AI 陪练
+  starting the Apple Silicon engine with `nnMaxBatchSize=4` and `metalPadBatch=true` (Java
+  `HumanSlLaunchProfile.apply`). See [Engine resource sources](#engine-resource-sources).
+- The engine resource catalog keeps this project's packages and folders; it does not follow the
+  newer release's catalog changes, which concern that project's own macOS builds. See
+  [Engine resource sources](#engine-resource-sources).
+- A click on the rules caption does not open a menu of rule sets (Java `RulesQuickMenu`); the
+  rule sets are in the reworked 规则面板. See [规则面板](#rules-panel).
+
+Layout and visual changes of the newer release that are not taken. New information and functions
+they carry are placed in the existing interface instead:
+
+- AI 陪练 has no coach side panel (Java `CoachPanel`) and no one-page setup sheet (Java
+  `CoachSetupForm`): the coach's information is on the training bar and in the 胜率 panel's place,
+  and the setup keeps the dialog's rows. See [AI 陪练](#coach).
+- 棋力评估 keeps its dashboard instead of the black-left, white-right match report (Java
+  `StrengthDashboard`). See [棋力评估](#strength).
+- The top toolbar keeps this client's icons instead of the newer release's vector glyphs (Java
+  `ToolbarGlyph`), and the menus and the board's context menu keep their drawing instead of the
+  restyled Swing menus (Java `TopMenuItemUI`, `BoardMenuStyle`).
+- The win-rate graph's legend stays in a corner of the plot instead of a band above it (Java
+  `WinrateGraphFrame.drawLegend`). See [analysis information](#analysis-information).
+- A 问题手 row keeps the move and its details on two lines; the newer release puts them on one
+  line with larger type when they fit (Java `BlunderListPanel`). Moving the 黑棋 / 白棋 switch to
+  the list's toolbar is taken. See [问题手](#problem-list).
+- The previous move's change under the win-rate bar keeps the panel's text size; the newer release
+  draws it up to 1.5 times larger (Java `MoveStatusLine`). See
+  [main window wording](#main-window-wording).
+- The bottom bar keeps its order, with the move number field and 跳转 between the back and forward
+  buttons; the newer release puts back one and forward one together and the move field after the
+  step buttons (Java `BottomToolbarNavigation.visibleComponents`). See [the bottom bar](#bottom-bar).
+
+Two additions that are not part of the newer release's changes:
+
+- Engine games show the game's own rules in the rules caption and in 本局规则详情. Java has had
+  them since the reference commit (Java `MatchRulesDetailsDialog`) and the newer release left them
+  as they were; this client adds them. See [引擎对战](#engine-games).
+- An engine game's 本局规则 choices start with the 规则面板's four Chinese rule sets (2027, its two
+  draw variants, and 2002); Java's list has a single Chinese entry (Java `MatchRuleOption.CHINESE`).
+  See [引擎对战](#engine-games).
+
+The main window's status line, side to move, win-rate bar names and empty-board hint differ from
+Java as described [there](#main-window-status).
+
 ## Layout
 
 | Path | Contents |
@@ -2130,6 +2754,7 @@ npm install
 npx tauri dev                       # run with hot reload
 npx tauri build --no-bundle         # release binary in target/release
 npm run typecheck                   # TypeScript
+npm test                            # UI tests in ui/tests (Node 22.18+ runs them as TypeScript)
 cargo test --workspace              # core tests (records, browsing, saving, engine protocol, contract)
 node tools/cargo-test.mjs           # the same tests, test binaries run four at a time
 cargo clippy --workspace --all-targets
@@ -2167,8 +2792,7 @@ binary with its output and exits non-zero, like `cargo test --no-fail-fast`.
   Korean, Japanese and Chinese entries that Java's bundles
   escape twice, so that Java shows a stray backslash before `:`, `=`, `!`, `"`, a leading space or a
   `\uXXXX` sequence), and holds the earlier wording of entries the newer Java rewrote for behaviour
-  this product does not have yet (the online-link prompt naming OGS links, the unavailable
-  评估此点 labels and tooltip, the AI 陪练 subtitle and the Chinese strength match tooltip).
+  this product does not have yet (the unavailable 评估此点 labels and tooltip).
   The function catalog keeps the same texts
   (`tools/function_catalog/README.md`). Strings this product adds to Java's menus and catalog are kept by hand, in all six
   languages, in `ui/src/i18n/productStrings.json`; the script does not touch that file.
@@ -2201,17 +2825,21 @@ Three Java catalog entries are not offered and never listed (`WITHDRAWN` in
 whose service is offline and which Java reaches only through search, and 设置 > 界面外观, which only
 switches the Swing look and feel.
 
-The catalog's two Java interface-style switches (Apple 风格 UI, 经典配色) are replaced in
-`catalog.json` by this product's three 外观模式 entries (`menu.appearanceModeSystem`, `…Light`,
-`…Dark`), with their text in every bundle; the UI shows the same text from
-`ui/src/i18n/productStrings.json`. Re-extracting the catalog from Java drops them and brings the
-two Java entries back, so they have to be applied again.
+`catalog.json` is the Java extraction edited in place: Java's two interface-style switches (Apple
+风格 UI, 经典配色) become this product's three 外观模式 entries, whose text the UI shows from
+`ui/src/i18n/productStrings.json`; entries of this product and of the later upstream are added;
+and the entries of the 详细工具栏, which this product leaves out, are removed.
+`tools/function_catalog/README.md` lists every one of these edits and the entry count they give.
+Re-extracting the catalog from Java drops them, so they have to be applied again from that list.
 
 Two mappings live in `targets.ts` itself:
 
 - `OPENERS`: the Java ids that `FunctionSearchController.activate` opens with its own owner
-  method (weights download, acceleration, komi, rules, AI coach). Each still needs its product
-  `COMMANDS` entry; without one it is unavailable.
+  method (weights download, acceleration, komi, rules, AI coach), and the settings this product
+  keeps inside a dialog or a child window (`match.opening-*`, `strength.phase-bounds`,
+  `humansl.training-mode`, `*.after-get`), whose command opens that window at the control with
+  `locateControl` (`ui/src/search/highlight.ts`). Each still needs its product `COMMANDS` entry;
+  without one it is unavailable.
 - `CONTEXT_ITEMS`: the board context-menu keys (`RightClickMenu.*`, `RightClickMenu2.*`) that act
   in `ui/src/editing/input.ts`. The context menu has no registration of its own yet, so a change
   that makes another context item act (or stops one) must update this list in the same change.
@@ -2240,7 +2868,8 @@ interface: sign-in with any phone and `fixture-password` (or code `123456`), acc
 (`--account vip|expired|none|rich|empty`), membership and top-up orders whose QR code is a fake
 that never charges (`--pay-after N` marks an order paid), and the engine socket (`--engine
 "<KataGo GTP command>"`, or a minimal built-in responder), with `--scenario ok|not-ready|refused|
-disconnect|token-error` for the start failures. It does not serve the catalog's SSH query, so 刷新
+disconnect|token-error` for the start failures. A client closing its engine socket ends that
+session and its engine at once, and its log says so. It does not serve the catalog's SSH query, so 刷新
 模型 fails against it. The feature is off by default; builds made
 without `--features acceptance` contain none of these, whatever the profile.
 
@@ -2328,7 +2957,10 @@ there. The first start is detected by the missing `config.json`; declining the i
 writes it. A `config.json` that is there but cannot be used is not a first start. Content that
 is not settings is kept beside it as `config.json.unreadable-backup` (then `.1`, `.2`, …; an
 earlier backup is never replaced), as Java does with `config.txt`, and the file is rebuilt from
-the defaults. A file that cannot be read (a link whose file is away included), or whose content
+the defaults. Some values of the wrong kind fall back on their own instead, keeping the rest of
+the file and making no backup: `engine.ruleSet` (then no rule set is chosen), OGS棋谱's
+打开棋谱后此窗口 (then 野狐棋谱's choice applies) and the entries of its 近期搜索 that are not text.
+A file that cannot be read (a link whose file is away included), or whose content
 cannot be kept as that backup, is left untouched: that run uses the defaults and refuses each
 settings change with the reason; what it notes on the side in `config.json`, such as recent
 files, lasts for that run only, and what is kept only in `persist.json`, such as the window
@@ -2362,6 +2994,23 @@ executable SHA-256 digests and sizes. Downloads and offline imports must match t
 installation checks the root executable and all required files and directories before activation.
 Packages live in `engines/<id>-<archive-sha256-prefix>/`, so a new package does not replace one
 an existing profile still references.
+
+The two macOS packages also record the oldest macOS they run on (`minimumMacOS`, 15.0: the
+`MIN_MACOS` build target of `tools/katago-macos/build.sh`). On an older macOS, read from
+`sw_vers -productVersion`, every start of an installed package's engine is refused before its
+process runs (the foreground and secondary engines, engine games, the analysis processes,
+benchmarks and the GTP configuration), and so is 引擎一键设置's 引擎启动检查. The failure dialog,
+or 引擎一键设置's status and message, explains which version is needed and which one runs;
+analysis processes other than 整盘精析 and benchmarks report it through their usual failure
+message, while 整盘精析 reports only its general engine error, as for any start failure of its
+session. Engines the user configured, packages without that record and other systems are not
+checked, and an unreadable version is not treated as older. Java runs the same check before
+each bundled launch, reading
+the oldest version from `macOSMinimumVersion` in the `source-build.json` beside the engine
+executable, where this client reads the package's `minimumMacOS` record; its engine check
+stopped without an answer there, which this client shows instead. The error 206 explanation
+and this refusal have been tried with stand-in engines only, not on a real Windows path that
+is too long or on an older macOS.
 
 Official Linux executables are AppImages and require `/dev/fuse` plus `fusermount` or
 `fusermount3` on PATH. Recommendations check each package's system libraries, the CUDA/cuDNN

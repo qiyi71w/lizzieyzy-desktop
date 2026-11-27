@@ -1,0 +1,60 @@
+/* 黑白胜率大字: the picture fills the window; the right-click menu is the main window's dropdown
+   (.mi rows with a check column, menuKeys.ts), drawn inside the window. */
+@font-face {
+  font-family: "Lizzie Winrate";
+  src: url("/fonts/OpenSans-Semibold.ttf") format("truetype");
+}
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--ds-panel);
+}
+#bw-canvas {
+  position: fixed;
+  left: 0;
+  top: 0;
+  display: block;
+}
+#bw-canvas:focus-visible {
+  outline-offset: -3px;
+}
+.bw-menu {
+  position: fixed;
+  z-index: 50;
+  min-width: 168px;
+  padding: 4px;
+  border-radius: var(--ds-radius-menu);
+  background: var(--ds-popup);
+  box-shadow: var(--ds-shadow-pop);
+  color: var(--ds-text);
+  white-space: nowrap;
+}
+.bw-menu > .mi {
+  display: flex;
+  align-items: center;
+  min-height: max(25px, calc(var(--ds-size) + 11px));
+  padding: 0 28px 0 0;
+  border-radius: var(--ds-radius-s);
+}
+.bw-menu > .mi.active {
+  background: var(--ds-hover);
+}
+.bw-menu > .mi:focus-visible {
+  outline: none;
+}
+.bw-menu > .mi > .mark {
+  flex: none;
+  width: 28px;
+  display: flex;
+  justify-content: center;
+}
+.bw-menu > .mi > .mark > .icon {
+  width: 16px;
+  height: 16px;
+}
+.bw-menu > .sep {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--ds-line);
+}

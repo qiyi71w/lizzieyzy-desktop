@@ -9,14 +9,15 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+use lizzie_core::appearance::ThemeSettings;
 use lizzie_core::api::{EngineProblem, ImportFailure, ImportReason, ImportStatus, ImportTarget, JavaImportView};
 use lizzie_core::engine::gtp::{split_command, LaunchSpec};
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineIo, InstanceId, Launcher};
 use lizzie_core::java_import::{self, JavaSource};
 use lizzie_core::settings::{
-    Config, DisplaySettings, EstimateStyle, ExtraMode, FramePlacement, HawkeyeBranch, HawkeyePeriod, Language, MoveRankMode,
-    Persisted, ProblemSide, ProblemSort, ProxyMode, Storage, SubBoardMode, WindowPlacement,
+    BigWinrateSettings, BigWinrateStyle, Config, DisplaySettings, EstimateStyle, ExtraMode, FramePlacement, HawkeyeBranch,
+    HawkeyePeriod, Language, MoveRankMode, Persisted, ProblemSide, ProblemSort, ProxyMode, Storage, SubBoardMode, WindowPlacement,
 };
 use lizzie_core::workbench::{Workbench, IMPORT_NEEDS_REPLACE, IMPORT_STALE, SETTINGS_SAVE_FAILED};
 use serde_json::json;
@@ -1708,6 +1709,150 @@ fn the_java_layout_modes_import_numbers_and_names_and_unknown_values_use_normal(
     }
 }
 
+/// 棋盘坐标 (Java `ui.coordinate-size`, `ui.coordinate-bold`, read by Theme.coordinateSize /
+/// coordinateBold) and the names' win rates (`ui.show-name-winrates`, NameWinrates.SHOWN_KEY). A
+/// size the theme page does not offer, or a value Java cannot read, is reported and leaves the
+/// setting as it was.
+#[test]
+fn coordinate_labels_and_name_winrates_import_and_unusable_values_are_left_out() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let ui = json!({ "coordinate-size": 140, "coordinate-bold": true, "show-name-winrates": true });
+    std::fs::write(java.join("config.txt"), json!({ "ui": ui }).to_string()).unwrap();
+    let p = preview(&mut wb, &java);
+    for (key, target) in [("ui.coordinate-size", ImportTarget::Appearance), ("ui.coordinate-bold", ImportTarget::Appearance), ("ui.show-name-winrates", ImportTarget::NamesOnBoard)] {
+        let it = item(&p.items, key);
+        assert_eq!((it.status, it.target), (ImportStatus::Imported, Some(target)), "{key}");
+    }
+    wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    let check = |theme: &ThemeSettings, display: &DisplaySettings, what: &str| {
+        assert_eq!((theme.coordinate_size, theme.coordinate_bold, display.name_winrates), (140, true, true), "{what}");
+    };
+    let v = wb.view(false).settings;
+    check(&v.theme, &v.display, "view");
+    let saved = saved_config(&product);
+    check(&saved.appearance_defaults, &saved.display, "saved");
+
+    for (key, value) in [
+        ("coordinate-size", json!(150)),
+        ("coordinate-size", json!(300)),
+        ("coordinate-size", json!("large")),
+        ("coordinate-bold", json!("yes")),
+        ("coordinate-bold", json!(1)),
+        ("show-name-winrates", json!("on")),
+    ] {
+        std::fs::write(java.join("config.txt"), json!({ "ui": { key: value } }).to_string()).unwrap();
+        let p = preview(&mut wb, &java);
+        let it = item(&p.items, &format!("ui.{key}"));
+        assert_eq!((it.status, it.reason), (ImportStatus::Incompatible, Some(ImportReason::InvalidValue)), "{key} {value}");
+        wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+        let v = wb.view(false).settings;
+        check(&v.theme, &v.display, &format!("{key} {value}"));
+    }
+    // Java's optInt reads a size written as text.
+    std::fs::write(java.join("config.txt"), json!({ "ui": { "coordinate-size": "200" } }).to_string()).unwrap();
+    let p = preview(&mut wb, &java);
+    assert_eq!(item(&p.items, "ui.coordinate-size").status, ImportStatus::Imported);
+    wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    assert_eq!(wb.view(false).settings.theme.coordinate_size, 200);
+}
+
+/// 黑白胜率大字's three keys (`BigWinrateSettings`): the style's enum name, 窗口置顶 and the whole
+/// window's bounds of at least 120 × 60. Anything else is reported as a value Java would not use
+/// and leaves this product's setting as it was.
+#[test]
+fn big_winrate_style_on_top_and_bounds_import_and_unusable_values_are_left_out() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let ui = json!({ "big-winrate-style": "LED", "big-winrate-on-top": true, "big-winrate-bounds": [-40, 30, 600, 300] });
+    std::fs::write(java.join("config.txt"), json!({ "ui": ui }).to_string()).unwrap();
+    let p = preview(&mut wb, &java);
+    for key in ["ui.big-winrate-style", "ui.big-winrate-on-top", "ui.big-winrate-bounds"] {
+        let it = item(&p.items, key);
+        assert_eq!((it.status, it.target), (ImportStatus::Imported, Some(ImportTarget::BigWinrate)), "{key}");
+    }
+    wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    let imported = BigWinrateSettings { style: BigWinrateStyle::Led, on_top: true, bounds: Some([-40, 30, 600, 300]), frame: None };
+    assert_eq!(wb.view(false).settings.big_winrate, imported);
+    assert_eq!(saved_config(&product).big_winrate, imported);
+
+    for (key, value) in [
+        ("big-winrate-style", json!("NEON")),
+        ("big-winrate-style", json!("led")),
+        ("big-winrate-style", json!(1)),
+        ("big-winrate-on-top", json!("yes")),
+        ("big-winrate-bounds", json!([0, 0, 119, 300])),
+        ("big-winrate-bounds", json!([0, 0, 600, 59])),
+        ("big-winrate-bounds", json!([0, 0, 600])),
+        ("big-winrate-bounds", json!("0,0,600,300")),
+    ] {
+        std::fs::write(java.join("config.txt"), json!({ "ui": { key: value } }).to_string()).unwrap();
+        let p = preview(&mut wb, &java);
+        let it = item(&p.items, &format!("ui.{key}"));
+        assert_eq!((it.status, it.reason), (ImportStatus::Incompatible, Some(ImportReason::InvalidValue)), "{key} {value}");
+        wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+        assert_eq!(wb.view(false).settings.big_winrate, imported, "{key} {value}");
+    }
+}
+
+/// 棋力评估's phase boundaries (`StrengthDialogHost.PHASE_BOUNDS_KEY`): two integers leaving the
+/// opening and the middle game at least ten moves, with a move after the middle game. Anything
+/// else, also the largest integers, is reported and leaves the boundaries as they were.
+#[test]
+fn strength_phase_bounds_import_and_unusable_values_are_left_out() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    assert_eq!(wb.config().strength.phase_bounds, [60, 150]);
+    std::fs::write(java.join("config.txt"), json!({ "ui": { "strength-phase-bounds": [80, 180] } }).to_string()).unwrap();
+    let p = preview(&mut wb, &java);
+    let it = item(&p.items, "ui.strength-phase-bounds");
+    assert_eq!((it.status, it.target), (ImportStatus::Imported, Some(ImportTarget::StrengthPhaseBounds)));
+    wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    assert_eq!(wb.config().strength.phase_bounds, [80, 180]);
+    assert_eq!(saved_config(&product).strength.phase_bounds, [80, 180]);
+
+    for value in [
+        json!([3, 12]),
+        json!([80, 85]),
+        json!([60.5, 150]),
+        json!(["60", 150]),
+        json!([150, 60]),
+        json!([60, 60]),
+        json!([60]),
+        json!("60,150"),
+        json!([4294967290_u32, u32::MAX]),
+        json!([u32::MAX, u32::MAX]),
+        json!([60, u32::MAX]),
+        json!([60, 1001]),
+        json!([1000, 1010]),
+    ] {
+        std::fs::write(java.join("config.txt"), json!({ "ui": { "strength-phase-bounds": value } }).to_string()).unwrap();
+        let p = preview(&mut wb, &java);
+        let it = item(&p.items, "ui.strength-phase-bounds");
+        assert_eq!((it.status, it.reason), (ImportStatus::Incompatible, Some(ImportReason::InvalidValue)), "{value}");
+        wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+        assert_eq!(saved_config(&product).strength.phase_bounds, [80, 180], "{value}");
+    }
+
+    // Exactly ten moves of middle game are enough, and it can end as late as move 1000.
+    for value in [[60, 70], [990, 1000]] {
+        std::fs::write(java.join("config.txt"), json!({ "ui": { "strength-phase-bounds": value } }).to_string()).unwrap();
+        let p = preview(&mut wb, &java);
+        assert_eq!(item(&p.items, "ui.strength-phase-bounds").status, ImportStatus::Imported, "{value:?}");
+        wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+        assert_eq!(saved_config(&product).strength.phase_bounds, value);
+    }
+}
+
 #[test]
 fn new_java_display_keys_report_invalid_values_without_changing_defaults() {
     let tmp = tempfile::tempdir().unwrap();
@@ -3111,6 +3256,43 @@ fn human_engine_game_imports_java_dialog_values_and_reports_each_key() {
     assert_eq!(&saved_config(&product).game, g);
 }
 
+/// Java's 规则 menu writes the rule set it chose with its komi for new games and engine games and
+/// the startup rules (`RulesQuickSwitch.rememberForNewGames`): all of them come over, and the rule
+/// set is the chosen one (`RulePreset.chosen`). A name Java does not know is not taken over.
+#[test]
+fn the_chosen_rule_set_and_its_komi_come_over() {
+    use lizzie_core::engine::rules::RuleSet;
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let source = json!({"ui": {
+        "rule-preset": "CHINESE_2027", "new-game-komi": 7.0, "new-engine-game-komi": 7.0,
+        "auto-load-kata-rules": true,
+        "kata-rules": r#"{"ko":"SIMPLE","scoring":"AREA","tax":"NONE","suicide":false,"hasButton":false,"whiteHandicapBonus":"N","friendlyPassOk":true}"#,
+    }});
+    std::fs::write(java.join("config.txt"), source.to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    let row = item(&p.items, "ui.rule-preset");
+    assert_eq!((row.status, row.target), (ImportStatus::Imported, Some(ImportTarget::KataRules)));
+    wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    let c = saved_config(&product);
+    assert_eq!(c.engine.rule_set.as_deref(), Some("CHINESE_2027"));
+    assert_eq!((c.game.komi, c.matches.komi), (7.0, 7.0));
+    assert_eq!(RuleSet::chosen(&c.engine).map(|s| s.id), Some("CHINESE_2027"));
+
+    let other = tmp.path().join("other");
+    std::fs::create_dir_all(&other).unwrap();
+    std::fs::write(other.join("config.txt"), json!({"ui": {"rule-preset": "CHINESE_2030"}}).to_string()).unwrap();
+    let other_product = tmp.path().join("other-product");
+    let mut wb = workbench(&other_product, Recorder::default());
+    let p = preview(&mut wb, &other);
+    assert_eq!(item(&p.items, "ui.rule-preset").status, ImportStatus::Incompatible);
+    wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    assert_eq!(saved_config(&other_product).engine.rule_set, None);
+}
+
 #[test]
 fn game_time_mode_uses_java_precedence_and_missing_keys_preserve_settings() {
     use lizzie_core::settings::AiTimeMode;
@@ -3231,45 +3413,119 @@ fn engine_match_imports_dialog_and_toolbar_values_with_one_shared_wrn_owner() {
         "second-engine-resign-move-counts": 4, "first-engine-resign-winrate": 2.5,
         "second-engine-resign-winrate": 3.5, "check-random-visits": true,
         "percents-random-visits": 25.0, "show-previous-bestmoves-in-enginegame": true,
-        "show-previous-bestmoves-only-first-move": false
+        "show-previous-bestmoves-only-first-move": false,
+        // Java EngineGameOpeningParameters.persist.
+        "engine-game-first-wrn": 0.5, "engine-game-second-wrn": 2.0,
+        "engine-game-first-pda": -3.0, "engine-game-second-pda": 1.25
     }});
     std::fs::write(java.join("config.txt"), values.to_string()).unwrap();
     let mut toolbar = vec![json!(-1); 51];
-    for (index,value) in [(17,50),(18,60),(19,3),(20,500),(21,600),(22,7),(23,1),(24,1),(25,1),(26,1),(27,-1),(36,300),(38,4),(45,12)] {
+    for (index, value) in [
+        (17, 50),
+        (18, 60),
+        (19, 3),
+        (20, 500),
+        (21, 600),
+        (22, 7),
+        (23, 1),
+        (24, 1),
+        (25, 1),
+        (26, 1),
+        (27, -1),
+        (36, 300),
+        (38, 4),
+        (45, 12),
+    ] {
         toolbar[index] = json!(value);
     }
-    for (index,value) in [(30,false),(31,true),(35,false),(37,true),(44,true),(49,true)] { toolbar[index] = json!(value); }
-    toolbar[46] = json!(0.75);
-    std::fs::write(java.join("persist"),json!({"ui-persist":{"toolbar-parameter":toolbar}}).to_string()).unwrap();
-    let product = tmp.path().join("product");
-    let mut wb = workbench(&product,Recorder::default());
-    let preview = preview(&mut wb,&java);
-    for key in values["ui"].as_object().unwrap().keys() {
-        let row = item(&preview.items,&format!("ui.{key}"));
-        assert_eq!(row.status,ImportStatus::Imported,"{key}");
-        assert_eq!(row.target,Some(if key=="disable-wrn-in-game" { ImportTarget::HumanEngineGame } else { ImportTarget::EngineMatch }));
+    for (index, value) in [(30, false), (31, true), (35, false), (37, true), (44, true), (49, true)] {
+        toolbar[index] = json!(value);
     }
-    wb.apply_java_import(preview.id, &[], false, false, true, None).unwrap().unwrap();
+    toolbar[46] = json!(0.75);
+    std::fs::write(
+        java.join("persist"),
+        json!({"ui-persist":{"toolbar-parameter":toolbar}}).to_string(),
+    )
+    .unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let preview = preview(&mut wb, &java);
+    for key in values["ui"].as_object().unwrap().keys() {
+        let row = item(&preview.items, &format!("ui.{key}"));
+        assert_eq!(row.status, ImportStatus::Imported, "{key}");
+        assert_eq!(
+            row.target,
+            Some(if key == "disable-wrn-in-game" {
+                ImportTarget::HumanEngineGame
+            } else {
+                ImportTarget::EngineMatch
+            })
+        );
+    }
+    wb.apply_java_import(preview.id, &[], false, false, true, None)
+        .unwrap()
+        .unwrap();
     let s = &wb.config().matches;
-    assert_eq!((&*s.first.commands,&*s.first.name,&*s.second.commands,&*s.second.name),("first gtp","First","second gtp","Second"));
-    assert_eq!((s.komi,s.handicap,s.rules.as_str()),(6.5,4,"japanese"));
+    assert_eq!(
+        (&*s.first.commands, &*s.first.name, &*s.second.commands, &*s.second.name),
+        ("first gtp", "First", "second gtp", "Second")
+    );
+    assert_eq!((s.komi, s.handicap, s.rules.as_str()), (6.5, 4, "japanese"));
     assert!(s.ponder && s.sgf_start && !s.sgf_random && !s.advanced_time);
-    assert_eq!((s.first_time_mode,s.second_time_mode),(lizzie_core::settings::MatchTimeMode::EngineOwned,lizzie_core::settings::MatchTimeMode::RawAdvanced));
-    assert_eq!((s.first_time_command.as_str(),s.second_time_command.as_str()),("time_settings 10 5 1","time_settings 20 10 1"));
-    assert_eq!((s.first_resign.min_move,s.first_resign.consecutive_moves,s.first_resign.winrate),(30,3,2.5));
-    assert_eq!((s.second_resign.min_move,s.second_resign.consecutive_moves,s.second_resign.winrate),(40,4,3.5));
+    assert_eq!(
+        (s.first_time_mode, s.second_time_mode),
+        (
+            lizzie_core::settings::MatchTimeMode::EngineOwned,
+            lizzie_core::settings::MatchTimeMode::RawAdvanced
+        )
+    );
+    assert_eq!(
+        (s.first_time_command.as_str(), s.second_time_command.as_str()),
+        ("time_settings 10 5 1", "time_settings 20 10 1")
+    );
+    assert_eq!(
+        (
+            s.first_resign.min_move,
+            s.first_resign.consecutive_moves,
+            s.first_resign.winrate
+        ),
+        (30, 3, 2.5)
+    );
+    assert_eq!(
+        (
+            s.second_resign.min_move,
+            s.second_resign.consecutive_moves,
+            s.second_resign.winrate
+        ),
+        (40, 4, 3.5)
+    );
     assert!(s.check_random_visits && s.show_previous_bestmoves && !s.previous_bestmove_only);
-    assert_eq!(s.random_visits_percent,25.0);
+    assert_eq!(s.random_visits_percent, 25.0);
+    let o = s.opening;
+    assert_eq!(
+        (o.first_wrn, o.second_wrn, o.first_pda, o.second_pda),
+        (0.5, 2.0, -3.0, 1.25)
+    );
     assert!(!wb.config().game.disable_wrn);
     let v = wb.persisted().matches.clone();
-    assert_eq!((v.first_move_visits,v.second_move_visits,v.first_visits,v.second_visits),(50,60,500,600));
-    assert_eq!((v.first_seconds,v.second_seconds,v.batch_limit),(3.0,4.0,7));
-    assert!(v.batch_enabled && v.continue_position && v.first_move_visits_enabled && v.visits_enabled && v.time_enabled);
-    assert_eq!(v.kind,lizzie_core::api::GameKind::Genmove);
+    assert_eq!(
+        (
+            v.first_move_visits,
+            v.second_move_visits,
+            v.first_visits,
+            v.second_visits
+        ),
+        (50, 60, 500, 600)
+    );
+    assert_eq!((v.first_seconds, v.second_seconds, v.batch_limit), (3.0, 4.0, 7));
+    assert!(
+        v.batch_enabled && v.continue_position && v.first_move_visits_enabled && v.visits_enabled && v.time_enabled
+    );
+    assert_eq!(v.kind, lizzie_core::api::GameKind::Genmove);
     assert!(!v.auto_save && !v.exchange_colors && v.max_moves_enabled && v.random_moves_enabled && v.save_winrate);
-    assert_eq!((v.max_moves,v.random_moves,v.random_winrate_diff),(300,12,0.75));
+    assert_eq!((v.max_moves, v.random_moves, v.random_winrate_diff), (300, 12, 0.75));
     drop(wb);
-    assert_eq!(workbench(&product,Recorder::default()).persisted().matches,v);
+    assert_eq!(workbench(&product, Recorder::default()).persisted().matches, v);
 }
 
 #[test]
@@ -3333,12 +3589,41 @@ fn humansl_java_corrupt_or_future_fields_fall_back_independently() {
     let p = preview(&mut wb, &java);
     wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
     let s = &wb.config().human_sl.training;
+    // An unreadable mode is Java's default, 边下边提醒 (`TrainingMode.CHOICES`' first).
     assert_eq!(
         (s.mode, s.level, s.player_color),
-        (TrainingMode::PostGameReview, CoachLevel::Dan11, PlayerColor::Black)
+        (TrainingMode::LiveFeedback, CoachLevel::Dan11, PlayerColor::Black)
     );
     assert_eq!((s.pace, s.handicap), (Pace::Natural, 9));
     assert!(wb.config().human_sl.advanced_visible);
+}
+
+/// Each training mode Java saves imports as itself (Java's 边下边提醒 is `LIVE_FEEDBACK`): a choice
+/// saved in Java is kept over the default.
+#[test]
+fn humansl_java_training_modes_import_as_saved() {
+    use lizzie_core::settings::TrainingMode;
+    for (java, mode) in [
+        ("LIVE_FEEDBACK", TrainingMode::LiveFeedback),
+        ("POST_GAME_REVIEW", TrainingMode::PostGameReview),
+        ("LIVE_ANALYSIS", TrainingMode::LiveAnalysis),
+    ] {
+        let tmp = tempfile::tempdir().unwrap();
+        let java_dir = tmp.path().join("java");
+        std::fs::create_dir_all(&java_dir).unwrap();
+        std::fs::write(
+            java_dir.join("config.txt"),
+            json!({"ui": {"human-sl-training-last-settings": {"mode": java, "level": "DAN_3", "pace": "NATURAL"}}}).to_string(),
+        )
+        .unwrap();
+        let product = tmp.path().join("product");
+        let mut wb = workbench(&product, Recorder::default());
+        let p = preview(&mut wb, &java_dir);
+        assert!(p.items.iter().any(|row| row.target == Some(ImportTarget::HumanSlTraining) && row.status == ImportStatus::Imported));
+        wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+        assert_eq!(wb.config().human_sl.training.mode, mode, "{java}");
+        assert_eq!(saved_config(&product).human_sl.training.mode, mode, "{java}");
+    }
 }
 
 /// The newer Java saves the level and AI 思考时间 by name; older ones the preset, the numbered rank
@@ -3431,6 +3716,7 @@ fn top_toolbar_groups_import_by_value() {
         "show-double-menu-btn": true, "show-basic-btn": false, "show-edit-bar": false,
         "show-force-menu": false, "show-double-menu-game-control": false,
         "show-time-control-in-menu": true, "show-playout-control-in-menu": false,
+        "show-suggestion-limit-in-menu": true,
         "show-analyze-controller": true, "show-double-menu-var": false, "show-double-menu-moveinfo": true,
         "show-rule-menu": false, "show-param-menu": false, "show-goban-menu": false,
         "show-saveload-menu": false, "auto-wrap-tool-bar": false
@@ -3443,6 +3729,7 @@ fn top_toolbar_groups_import_by_value() {
     for key in [
         "ui.show-double-menu-btn", "ui.show-basic-btn", "ui.show-edit-bar", "ui.show-force-menu",
         "ui.show-double-menu-game-control", "ui.show-time-control-in-menu", "ui.show-playout-control-in-menu",
+        "ui.show-suggestion-limit-in-menu",
         "ui.show-analyze-controller", "ui.show-double-menu-var", "ui.show-double-menu-moveinfo", "ui.show-rule-menu",
         "ui.show-param-menu", "ui.show-goban-menu", "ui.show-saveload-menu", "ui.auto-wrap-tool-bar",
     ] {
@@ -3458,6 +3745,7 @@ fn top_toolbar_groups_import_by_value() {
         show_game_controls: false,
         show_time_limit: true,
         show_visit_limit: false,
+        show_suggestion_limit: true,
         show_analyze_sides: true,
         show_candidate_sides: false,
         show_candidate_info: true,
@@ -3469,6 +3757,50 @@ fn top_toolbar_groups_import_by_value() {
     };
     assert_eq!(wb.config().top_toolbar, expected);
     assert_eq!(saved_config(&product).top_toolbar, expected);
+}
+
+/// The newer Java toolbar's three choices: the 候选点 field (`SuggestionLimitField.SHOWN_KEY`, off by
+/// default) and the 激进度 / 广度 groups (`ToolbarParameterToggles`, shown by default), each read by
+/// `optBoolean`, with the limit the field edits.
+#[test]
+fn toolbar_candidate_limit_and_parameter_choices_import() {
+    let tmp = tempfile::tempdir().unwrap();
+    let java = tmp.path().join("java");
+    std::fs::create_dir_all(&java).unwrap();
+    let source = json!({
+        "ui": {"show-suggestion-limit-in-menu": true, "show-pda-in-menu": false, "show-wrn-in-menu": false},
+        "leelaz": {"limit-max-suggestion": 3},
+    });
+    std::fs::write(java.join("config.txt"), source.to_string()).unwrap();
+    let product = tmp.path().join("product");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    for (key, target) in [
+        ("ui.show-suggestion-limit-in-menu", ImportTarget::TopToolbar),
+        ("ui.show-pda-in-menu", ImportTarget::KataParamToolbar),
+        ("ui.show-wrn-in-menu", ImportTarget::KataParamToolbar),
+        ("leelaz.limit-max-suggestion", ImportTarget::LimitMaxSuggestion),
+    ] {
+        let row = item(&p.items, key);
+        assert_eq!((row.status, row.target), (ImportStatus::Imported, Some(target)), "{key}");
+    }
+    wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    let saved = saved_config(&product);
+    assert!(saved.top_toolbar.show_suggestion_limit);
+    assert_eq!((saved.engine.kata_params.show_pda, saved.engine.kata_params.show_wrn), (false, false));
+    assert_eq!(saved.engine.analysis.limit_max_suggestion, 3);
+
+    // An unreadable choice is incompatible and keeps the product's (Java's) default.
+    let java = tmp.path().join("java2");
+    std::fs::create_dir_all(&java).unwrap();
+    let source = json!({"ui": {"show-suggestion-limit-in-menu": "nope", "show-pda-in-menu": false}});
+    std::fs::write(java.join("config.txt"), source.to_string()).unwrap();
+    let product = tmp.path().join("product2");
+    let mut wb = workbench(&product, Recorder::default());
+    let p = preview(&mut wb, &java);
+    assert_eq!(item(&p.items, "ui.show-suggestion-limit-in-menu").status, ImportStatus::Incompatible);
+    wb.apply_java_import(p.id, &[], false, false, true, None).unwrap().unwrap();
+    assert!(!saved_config(&product).top_toolbar.show_suggestion_limit);
 }
 
 #[test]

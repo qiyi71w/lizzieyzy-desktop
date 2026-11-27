@@ -16,21 +16,23 @@ use std::time::{Duration, Instant};
 
 use super::Workbench;
 use crate::api::{
-    AnalysisScope, ApiError, CandidateView, ConsoleLineKind, ConsoleLineView, EngineEntryView,
+    AnalysisScope, AnalysisStatus, ApiError, CandidateView, CommandResult, ConsoleLineKind, ConsoleLineView, EngineEntryView,
     EngineFailureView, EngineNotice, EngineScope, EngineSettingsView, EngineState, EngineView, ErrorKind,
-    ForegroundEngineView, HistoryPoint, NodeAnalysisView, RulesPromptView, SecondaryEngineView, SecondaryView,
+    ForegroundEngineView, HistoryPoint, NodeAnalysisView, RulesPromptView, RulesStatus, SecondaryEngineView, SecondaryView,
+    SessionRulesView,
     ClickReviewView,
 };
 use crate::browse::Navigation;
 use crate::display::{self, BoardOverlayView};
 use crate::engine::gtp::InfoLine;
 use crate::engine::profile::{new_profile_id, AnalysisSettings, EngineProfile, EngineStartup};
-use crate::engine::rules::KataRules;
+use crate::engine::rules::{KataRules, RuleSet};
 use crate::engine::cloud::CloudStartFailure;
+use crate::engine::diagnosis::diagnose_output;
 use crate::engine::ssh::RemoteFailure;
 use crate::engine::runtime::{
-    Bootstrap, CheckedLaunch, ConsoleKind, EngineFailure, EngineInput, InstanceId, LaunchCheck, ModelIdentity,
-    ModelLookup, Phase, RulesOutcome, RuntimeEvent, Target, UserCommandError,
+    Bootstrap, CheckedLaunch, ConsoleKind, EngineFailure, EngineInput, InstanceId, LaunchCheck, LeaseAvailability,
+    ModelIdentity, ModelLookup, Phase, RulesOutcome, RuntimeEvent, Target, UserCommandError,
 };
 use crate::record::{BoardSize, DocumentEdit, GameRecord, NodeId, NodeKind, Point, Position, Stone, ROOT};
 use crate::sanitize::sanitize;
@@ -63,6 +65,7 @@ pub(super) struct AnalysisStore {
     /// The Kata形势 ownership (`BoardData.estimateArray`), Black-positive: read from a saved
     /// payload, or reported live while ownership was requested.
     ownership: HashMap<NodeId, Vec<f64>>,
+    /// What each result was made with (PDA, breadth) and the header slots a read-in one had.
     metadata: HashMap<NodeId, crate::formats::saved_analysis::Metadata>,
     /// Results the next live result replaces even with fewer visits (`BoardData.isChanged`): a
     /// 强制计算区域 changed the search they were made with.
@@ -112,6 +115,14 @@ impl AnalysisStore {
             Some(o) => self.ownership.insert(node, o),
             None => self.ownership.remove(&node),
         };
+    }
+
+    /// The ownership a weaker result brings to the node's stored result (`OWNERSHIP_ONLY`): the
+    /// result and what it was made with stay as they are.
+    pub(super) fn backfill_ownership(&mut self, node: NodeId, ownership: Vec<f64>) {
+        if self.nodes.contains_key(&node) {
+            self.ownership.insert(node, ownership);
+        }
     }
 
     /// An engine's new result for the node (`BoardData.tryToSetBestMoves`): beyond `limit`
@@ -249,10 +260,15 @@ impl AnalysisStore {
             || self.get(rec, node).is_none_or(|old| more_visits(result, old))
     }
 
-    /// A live result just stored was made with PDA `pda` (`BoardData.pda`): it is saved with it.
-    pub(super) fn made_with_pda(&mut self, node: NodeId, pda: f64) {
-        if pda != 0.0 && self.nodes.contains_key(&node) {
-            let metadata = crate::formats::saved_analysis::Metadata { pda, header_slots: 0 };
+    /// A live result just stored was made with PDA `pda` and breadth `wrn` (`BoardData.pda`,
+    /// `wrn`/`wrnKnown`; `None` when unknown): it is saved with them.
+    pub(super) fn made_with(&mut self, node: NodeId, pda: f64, wrn: Option<f64>) {
+        if (pda != 0.0 || wrn.is_some()) && self.nodes.contains_key(&node) {
+            let metadata = crate::formats::saved_analysis::Metadata {
+                pda,
+                wrn,
+                header_slots: 0,
+            };
             self.metadata.insert(node, metadata);
         }
     }
@@ -328,6 +344,11 @@ impl AnalysisStore {
 
     pub(super) fn pda(&self, node: NodeId) -> f64 {
         self.metadata.get(&node).map_or(0.0, |m| m.pda)
+    }
+
+    /// The breadth the node's result was made with; `None` when unknown.
+    pub(super) fn wrn(&self, node: NodeId) -> Option<f64> {
+        self.metadata.get(&node).and_then(|m| m.wrn)
     }
 
     pub(super) fn payload(&self, rec: &GameRecord, node: NodeId) -> Option<String> {
@@ -576,7 +597,7 @@ impl Workbench {
             SessionRules::Valid { rules, .. } => [Some(fg), secondary]
                 .into_iter()
                 .flatten()
-                .all(|id| self.engines.rules_outcome(id, rules) == RulesOutcome::Confirmed),
+                .all(|id| self.engines.rules_outcome(id, rules, self.rules_revision) == RulesOutcome::Confirmed),
             SessionRules::Invalid { .. } => false,
         }
     }
@@ -598,7 +619,7 @@ impl Workbench {
             SessionRules::Invalid { raw } => (raw.clone(), "INVALID_DECLARATION", fg),
             SessionRules::Valid { raw, rules } => {
                 let failed = [Some(fg), secondary].into_iter().flatten().find_map(|id| {
-                    match self.engines.rules_outcome(id, rules) {
+                    match self.engines.rules_outcome(id, rules, self.rules_revision) {
                         RulesOutcome::Failed(f) => Some((id, f)),
                         _ => None,
                     }
@@ -875,9 +896,10 @@ impl Workbench {
         if self.game_is_empty() && size != self.doc.record.size {
             self.reopen_empty_board(size, false);
         }
-        // The engine's komi becomes the game komi unless the user chose it (`targetKomi`): at
-        // once for a running engine, for a new one when it is ready and the game still empty.
-        let target_komi = if self.komi_changed { self.komi } else { profile.komi };
+        // The engine's komi (`engine_komi`) becomes the game komi unless the user chose it
+        // (`targetKomi`): at once for a running engine, for a new one when it is ready and the
+        // game still empty.
+        let target_komi = if self.komi_changed { self.komi } else { self.engine_komi(&profile) };
         self.start_komi = None;
         self.auto_analysis_abandon();
         self.quick_engine_changed();
@@ -1324,28 +1346,78 @@ impl Workbench {
         true
     }
 
-    /// 引擎规则 (`LizzieFrame.setRules`): needs a ready KataGo; the chosen rules become the
-    /// session rules (`publishManualRules`) and are remembered for auto-loading.
-    pub fn set_kata_rules(&mut self, rules: &str, auto_load: bool) -> Result<Option<&'static str>, ApiError> {
-        if self.fox_owns_board() || self.fox_holds_engine() { return Ok(Some("Fox.conflict")); }
+    /// 规则面板 确定 (`SetKataRules.applySelectedRules`, `RulesQuickSwitch.apply`): KataGo takes
+    /// `rules`, and the game `komi` unless it is a handicap game. `rule_set` is the rule set the
+    /// panel shows as chosen (these rules and komi). In this order:
+    /// 1. The settings are saved: `auto_load` (启动时自动应用), and when it is on the rules as KataGo's
+    ///    startup rules and a `rule_set` as the one chosen, its komi as the komi of new games, of
+    ///    engine games and of a cleared board. A failed save changes nothing and reaches no engine.
+    /// 2. A different komi goes to the game and the engine, before the rules
+    ///    (`Runtime::request_rules`).
+    /// 3. The rules become the session rules (`publishManualRules`) and go to the engines; the
+    ///    views after the answer, [`CommandResult::RulesApplied`], say through `session_rules` how
+    ///    the foreground KataGo it names took them, while it is still the foreground engine.
+    ///
+    /// Refused, as a message key, without a ready KataGo in the foreground, during whole-game
+    /// analysis and while the engine is lent to another task; an engine game refuses it first
+    /// (`match_gate`).
+    pub fn set_kata_rules(
+        &mut self,
+        rules: &str,
+        komi: f64,
+        rule_set: Option<&str>,
+        auto_load: bool,
+    ) -> Result<CommandResult, ApiError> {
+        let refused = |key: &str| Ok(CommandResult::Refused { message_key: key.to_string() });
+        if self.fox_owns_board() || self.fox_holds_engine() { return refused("Fox.conflict"); }
         let Some(fg) = self
             .engines
             .foreground()
             .filter(|&f| self.engines.phase(f) == Some(Phase::Ready))
         else {
-            return Ok(Some("LizzieFrame.setParamNoEngineHint"));
+            return refused("LizzieFrame.setParamNoEngineHint");
         };
         if !self.engines.is_katago(fg) {
-            return Ok(Some("SetKataRules.notKataGoHint"));
+            return refused("SetKataRules.notKataGoHint");
+        }
+        if self.whole_game_active() {
+            return refused("WholeGameAnalysis.conflict.analysis");
+        }
+        if self.engines.exclusive_gtp_availability() == LeaseAvailability::ExistingLease {
+            return refused("AnalysisSettings.reuseStatus.existing_lease");
         }
         let parsed = KataRules::parse(rules)
             .filter(KataRules::has_required_fields)
             .ok_or_else(|| ApiError::new(ErrorKind::InvalidArgument, format!("not KataGo rules: {rules}")))?;
-        let text = rules.trim().to_string();
+        if !komi.is_finite() {
+            return Err(ApiError::new(ErrorKind::InvalidArgument, "komi"));
+        }
+        let rule_set = match rule_set {
+            None => None,
+            Some(id) => Some(
+                RuleSet::by_id(id)
+                    .filter(|&set| RuleSet::of(&parsed, komi, Some(set)).is_some_and(|s| s.id == set.id))
+                    .ok_or_else(|| ApiError::new(ErrorKind::InvalidArgument, format!("not the rule set {id}")))?,
+            ),
+        };
+        let startup = rules.trim().to_string();
         self.commit_config(|c| {
-            c.engine.kata_rules = text;
             c.engine.auto_load_kata_rules = auto_load;
+            if !auto_load {
+                return;
+            }
+            c.engine.kata_rules = startup;
+            if let Some(set) = rule_set {
+                c.engine.rule_set = Some(set.id.to_string());
+                c.game.komi = set.komi;
+                c.matches.komi = set.komi;
+            }
         })?;
+        if self.doc.record.info.handicap == 0 && komi != self.komi {
+            self.komi_changed = true;
+            self.start_komi = None;
+            self.apply_komi(komi);
+        }
         // A manual rules choice discards every stored analysis (`clearBestMovesAfter(start)`).
         self.clear_best_moves();
         self.session_rules = SessionRules::Valid {
@@ -1355,7 +1427,22 @@ impl Workbench {
         self.rules_revision += 1;
         self.pending_prompt = None;
         self.sync_engine();
-        Ok(None)
+        Ok(CommandResult::RulesApplied { after: self.view_seq(), instance: fg })
+    }
+
+    /// The rule set `rules` (KataGo rules JSON or a preset name) and `komi` are, by its id, as the
+    /// 规则面板 shows it: rule sets with the same rules are told apart by komi, and `picked` (the
+    /// row picked last in the panel), else the rule set chosen in the settings, tells a draw rule
+    /// from the rule set it counts like. `None` for rules that are no rule set (自定义).
+    pub fn rule_set_of(&self, rules: &str, komi: f64, picked: Option<&str>) -> Option<&'static str> {
+        let chosen = picked.and_then(RuleSet::by_id).or_else(|| RuleSet::chosen(&self.config.engine));
+        RuleSet::of(&KataRules::parse(rules)?, komi, chosen).map(|s| s.id)
+    }
+
+    /// The komi of a new game on the foreground engine (`Leelaz.orikomi`): the chosen rule set's
+    /// (`RulePreset.newGameKomi`), else the engine's own.
+    pub(super) fn engine_komi(&self, profile: &EngineProfile) -> f64 {
+        RuleSet::chosen(&self.config.engine).map_or(profile.komi, |set| set.komi)
     }
 
     /// GtpConsolePane send. Like Java, `komi <v>` sets the game komi and `undo` steps back in
@@ -1562,11 +1649,12 @@ impl Workbench {
     }
 
     /// [`Self::engine_input`] read at `now`, the clock [`Self::engine_tick`] is given: a borrowed
-    /// search's stall time counts from the last output read.
+    /// search's stall time counts from the last output read, and the training companion's answers
+    /// are taken as arriving then.
     pub fn engine_input_at(&mut self, instance: InstanceId, input: EngineInput, now: std::time::Instant) -> bool {
         let events = self.engines.input(instance, input, now);
-        let changed = self.engine_events(events);
-        // A remote compute switch completes with its board sync, whose answers raise no event.
+        let changed = self.engine_events(events, now);
+        // A remote compute switch completes with its board sync ([`RuntimeEvent::Synced`]).
         self.cloud_activation_settle();
         changed
     }
@@ -1581,7 +1669,7 @@ impl Workbench {
     /// Returns whether the view changed.
     pub fn finish_launch(&mut self, checked: CheckedLaunch) -> bool {
         let events = self.engines.finish_launch(checked);
-        self.engine_events(events)
+        self.engine_events(events, std::time::Instant::now())
     }
 
     /// Engine starts whose model header is read for the title's B11 speed notice, each handed
@@ -1624,7 +1712,7 @@ impl Workbench {
     /// [`Self::engine_timer`]. Returns whether the view changed.
     pub fn engine_tick(&mut self, now: std::time::Instant) -> bool {
         let events = self.engines.tick(now);
-        let engines = self.engine_events(events);
+        let engines = self.engine_events(events, now);
         let quick = self.quick_tick(now);
         let whole = self.whole_game_tick(now);
         let tracking = self.tracking_tick(now);
@@ -1643,10 +1731,11 @@ impl Workbench {
     /// Handles runtime events produced by operations outside engine output.
     pub(super) fn drain_engine_events(&mut self) -> bool {
         let events = self.engines.take_events();
-        !events.is_empty() && self.engine_events(events)
+        !events.is_empty() && self.engine_events(events, std::time::Instant::now())
     }
 
-    pub(super) fn engine_events(&mut self, events: Vec<RuntimeEvent>) -> bool {
+    /// Handles `events`, which happened at `now`.
+    pub(super) fn engine_events(&mut self, events: Vec<RuntimeEvent>, now: std::time::Instant) -> bool {
         let mut changed = false;
         for ev in events {
             changed = true;
@@ -1657,7 +1746,7 @@ impl Workbench {
                 .and_then(|ev| self.fox_event(ev))
                 .and_then(|ev| self.match_event(ev))
                 .and_then(|ev| self.play_event(ev))
-                .and_then(|ev| self.human_sl_event(ev))
+                .and_then(|ev| self.human_sl_event(ev, now))
                 .and_then(|ev| self.strength_event(ev))
                 .and_then(|ev| self.quick_event(ev))
                 .and_then(|ev| self.flash_event(ev))
@@ -1680,6 +1769,7 @@ impl Workbench {
                     self.readboard_engine_ready(instance);
                 }
                 RuntimeEvent::Rules { .. } => {}
+                RuntimeEvent::Synced { .. } => {}
                 RuntimeEvent::RawNet { .. } => {}
                 RuntimeEvent::Pondering { .. } => self.foreground_pondered(),
                 RuntimeEvent::Failed(f) => {
@@ -1719,7 +1809,17 @@ impl Workbench {
                     // 批量分析's record has its own store and run.
                     if !secondary && Some(doc) == self.batch_doc_id() {
                         let progress = line.candidates.iter().map(|c| c.visits).sum();
-                        if self.batch_foreground_result(doc, node, stamp, komi, to_play, engine_name, line, elapsed) {
+                        if self.batch_foreground_result(
+                            instance,
+                            doc,
+                            node,
+                            stamp,
+                            komi,
+                            to_play,
+                            engine_name,
+                            line,
+                            elapsed,
+                        ) {
                             self.restart_proven(instance);
                             self.engines.analysis_progress_accepted(instance, progress);
                         }
@@ -1760,6 +1860,7 @@ impl Workbench {
                     // Attended points belong to the main board's candidates only (`isMain`).
                     let tracked_points = if secondary { Vec::new() } else { self.attended_points(node) };
                     let pda = self.engine_pda(instance);
+                    let wrn = self.engine_wrn(instance, &result);
                     let rec = &self.doc.record;
                     let cache = self.config.engine.analysis.enable_lizzie_cache;
                     let store = if secondary {
@@ -1773,7 +1874,7 @@ impl Workbench {
                         let limit = self.config.engine.analysis.limit_branch_length;
                         fill_pv_captures(&mut result, &rec.position(node), limit, !self.config.edit.no_capture);
                         store.update(node, stamp, result, ownership, shown, &tracked_points);
-                        store.made_with_pda(node, pda);
+                        store.made_with(node, pda, wrn);
                     }
                     let running = node == self.cursor
                         && !self.paused
@@ -1832,6 +1933,17 @@ impl Workbench {
         self.cursor == ROOT && self.doc.record.position(ROOT).stones.iter().all(Option::is_none)
     }
 
+    /// The main board's first-use hint (Java `EmptyBoardHint.shows`): nobody has opened a record yet
+    /// (the recent files are empty), the record is a fresh empty board (`isEmptyGame`: shown at
+    /// its root, without moves, branches or setup stones) and its empty position has no analysis
+    /// (`getPlayouts() <= 0`), so the hint never covers that analysis.
+    pub(super) fn empty_board_hint(&self) -> bool {
+        self.config.recent_files.is_empty()
+            && self.at_empty_board()
+            && !self.doc.record.has_children_of_root()
+            && self.store.get(&self.doc.record, ROOT).is_none_or(|a| a.visits == 0)
+    }
+
     /// 空棋盘停止计算 (`Leelaz.java:7455-7468`): an ordinary analysis of the empty board stops at
     /// its result, once per position until the user resumes it. Like the limits it belongs to,
     /// it never applies to a game, an engine match or 自动分析, whose results do not get here.
@@ -1887,6 +1999,10 @@ impl Workbench {
             CloudStartFailure::Refused { detail } => CloudStartFailure::Refused { detail: sanitize(&detail) },
             other => other,
         });
+        // Java diagnoses the output of a start-up attempt only (`EngineStartupDiagnostics`).
+        let diagnosis = f
+            .diagnosis
+            .or_else(|| f.during_startup.then(|| diagnose_output(&f.output)).flatten());
         self.engine_failures.push(EngineFailureView {
             engine_name: f.engine_name,
             command: sanitize(&f.command),
@@ -1896,6 +2012,7 @@ impl Workbench {
             repair: None,
             remote,
             cloud,
+            diagnosis,
             profile_id: f.profile_id,
             secondary: f.secondary,
         });
@@ -1966,19 +2083,36 @@ impl Workbench {
             })
         });
         let (lease, unrestored) = self.lease_view();
+        let analysing = self.engines.analysing(self.doc.id, self.cursor);
         EngineView {
             engines,
             foreground,
             secondary,
             paused: self.paused,
-            analysing: self.engines.analysing(self.doc.id, self.cursor),
+            analysing,
             stopped_by_limit: self.limit_stop == Some((self.doc.id, self.cursor)),
+            status: if self.quick_running() {
+                AnalysisStatus::AutoAnalyzing
+            } else if analysing {
+                AnalysisStatus::Analyzing
+            } else {
+                AnalysisStatus::Paused
+            },
             analyze_black: self.analyze_black,
             analyze_white: self.analyze_white,
-            // No rule set is remembered as chosen yet, so a draw rule counting like another
-            // rule set is never told apart from it.
-            rules_key: rules.map(|r| r.caption_key(self.komi, None).to_string()),
+            rules_key: rules.map(|r| r.caption_key(self.komi, RuleSet::chosen(&self.config.engine)).to_string()),
             rules: rules.map(KataRules::to_gtp_argument),
+            session_rules: match (&self.session_rules, fg) {
+                (SessionRules::Valid { rules, .. }, Some(f)) => Some(SessionRulesView {
+                    rules: rules.to_gtp_argument(),
+                    status: match self.engines.rules_outcome(f, rules, self.rules_revision) {
+                        RulesOutcome::Confirmed => RulesStatus::Confirmed,
+                        RulesOutcome::Pending => RulesStatus::Pending,
+                        RulesOutcome::Failed(_) => RulesStatus::Failed,
+                    },
+                }),
+                _ => None,
+            },
             console_seq: self.engines.console_seq(),
             lease,
             unrestored,
@@ -1988,6 +2122,7 @@ impl Workbench {
             search_threads_operation: self.search_threads_operation_view(),
             custom_pda: self.custom_pda_view(),
             priority_points: self.priority_points_at(self.cursor).to_vec(),
+            zhizi: self.zhizi_connection(),
         }
     }
 

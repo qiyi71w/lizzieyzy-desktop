@@ -5,8 +5,9 @@
 //! (`formatAnalysisPayload`).
 //!
 //! The payload's first line is the header `<engine> <winrate> <playouts> [<scoreMean>
-//! [<scoreStdev> [<pda>]]] [rootVisits=<n>]`, the win rate being that of the side that just moved;
-//! the second line holds the candidate moves and optional Black-positive ownership.
+//! [<scoreStdev> [<pda>]]] [rootVisits=<n>] [wrn=<breadth>]`, the win rate being that of the side
+//! that just moved; the named extensions follow the six header slots (`SgfAnalysisPayloadWriter`).
+//! The second line holds the candidate moves and optional Black-positive ownership.
 
 use crate::api::{CandidateView, NodeAnalysisView};
 use crate::engine::gtp::{parse_vertex, vertex};
@@ -27,6 +28,9 @@ pub struct SavedAnalysis {
     pub score_stdev: Option<f64>,
     /// `pda`, the sixth header field (0 when absent).
     pub pda: f64,
+    /// The breadth (`analysisWideRootNoise`) the result was made with (`wrn=`, Java
+    /// `wrn`/`wrnKnown`); `None` when unknown: absent, unreadable or outside 0 to 2.
+    pub wrn: Option<f64>,
 }
 
 /// The primary engine's tags: on a move node, and on the root or a setup node.
@@ -79,6 +83,18 @@ fn playouts(text: &str) -> u64 {
     }
 }
 
+/// `applyAnalysisHeader`'s `wrn=` after the six header slots (the last one counts): known when it
+/// is a finite number from 0 to 2.
+fn breadth(header: &[&str]) -> Option<f64> {
+    header
+        .iter()
+        .skip(6)
+        .rev()
+        .find_map(|t| t.strip_prefix("wrn="))
+        .and_then(|v| v.parse::<f64>().ok())
+        .filter(|v| (0.0..=2.0).contains(v))
+}
+
 fn read(payload: &str) -> Option<SavedAnalysis> {
     let (line1, line2) = payload.split_once('\n').unwrap_or((payload, ""));
     let header: Vec<&str> = line1.split_whitespace().collect();
@@ -99,6 +115,7 @@ fn read(payload: &str) -> Option<SavedAnalysis> {
         score_lead: header.get(3).map(|s| number(s, 0.0)),
         score_stdev: header.get(4).map(|s| number(s, 0.0)),
         pda: header.get(5).map_or(0.0, |s| number(s, 0.0)),
+        wrn: breadth(&header),
     };
     // A header without a score takes the best move's (`applyParsedAnalysisInfo`); its
     // uncertainty is the header's (none, so unknown).
@@ -133,6 +150,8 @@ fn read(payload: &str) -> Option<SavedAnalysis> {
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct Metadata {
     pub pda: f64,
+    /// The breadth the result was made with; `None` when unknown.
+    pub wrn: Option<f64>,
     pub header_slots: usize,
 }
 
@@ -282,12 +301,14 @@ pub(crate) fn load(
         ownership,
         metadata: Metadata {
             pda: summary.pda,
+            wrn: summary.wrn,
             header_slots: slots.len().min(6),
         },
     })
 }
 
-/// `formatNodeData` / `bestMovesToString`: the same payload fixed Java reads.
+/// `SgfAnalysisPayloadWriter.format`: the same payload fixed Java reads. A known breadth writes
+/// the full scalar header and `wrn=` after it, also when it is 0.
 pub(crate) fn write(a: &NodeAnalysisView, size: BoardSize, metadata: Metadata, ownership: Option<&Vec<f64>>) -> String {
     use std::fmt::Write as _;
     let mut out = format!(
@@ -296,18 +317,23 @@ pub(crate) fn write(a: &NodeAnalysisView, size: BoardSize, metadata: Metadata, o
         100.0 - a.winrate,
         crate::formats::winrate_comment::playouts_text(a.visits)
     );
-    if a.score_lead.is_some() || a.root_visits.is_some() {
+    let (slots, wrn) = (metadata.header_slots, metadata.wrn);
+    if a.score_lead.is_some() || a.root_visits.is_some() || wrn.is_some() {
+        let explicit = a.root_visits.is_none() && wrn.is_none() && slots > 0;
         let _ = write!(out, " {}", a.score_lead.unwrap_or(0.0));
-        if a.root_visits.is_some() || metadata.header_slots == 0 || metadata.header_slots >= 5 {
+        if !explicit || slots >= 5 {
             let _ = write!(out, " {}", a.score_stdev.unwrap_or(0.0));
         }
-        if a.root_visits.is_some() || metadata.header_slots >= 6 || (metadata.header_slots == 0 && metadata.pda != 0.0)
-        {
+        let pda = if explicit { slots >= 6 } else { metadata.pda != 0.0 };
+        if a.root_visits.is_some() || wrn.is_some() || pda {
             let _ = write!(out, " {}", metadata.pda);
         }
     }
     if let Some(n) = a.root_visits {
         let _ = write!(out, " rootVisits={n}");
+    }
+    if let Some(w) = wrn {
+        let _ = write!(out, " wrn={}", crate::formats::winrate_comment::java_double(w));
     }
     let coordinate = |p: Option<crate::record::Point>| p.map_or_else(|| "pass".to_string(), |p| vertex(size, p));
     for (i, c) in a.candidates.iter().enumerate() {
@@ -377,6 +403,7 @@ mod tests {
                 score_lead: Some(1.2),
                 score_stdev: Some(0.7),
                 pda: 0.5,
+                wrn: None,
             }
         );
     }

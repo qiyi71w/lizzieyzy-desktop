@@ -114,6 +114,7 @@ mod tests {
             playouts: "计算量".into(),
             komi: "贴目:".into(),
             pda: "PDA:".into(),
+            wrn: "广度:".into(),
         }
     }
 

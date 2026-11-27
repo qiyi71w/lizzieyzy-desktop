@@ -4,7 +4,7 @@
 import { run, state, unavailable } from "../app";
 import { regionMenuEntries, selecting, selectionClicked, selectionDragged, selectionPressed, selectionReleased } from "../analysis/region";
 import { undo } from "../analysis/table";
-import { COMMANDS } from "../commands";
+import { COMMANDS, setDisplay } from "../commands";
 import type { Point, Stone } from "../contract/generated";
 import { t } from "../i18n";
 import { commitComment } from "./comment";
@@ -18,6 +18,9 @@ import { pressStone } from "../display/clickReview";
 export interface BoardHost {
   /** The intersection under a client point, or null off the grid. */
   pointAt(clientX: number, clientY: number): Point | null;
+  /** Whether a client point is on the players' names under the main board as last drawn
+   *  (BoardRenderer.isOnPlayerName). */
+  onNames(clientX: number, clientY: number): boolean;
   /** Client-space centre and stone radius of an intersection. */
   stoneAt(point: Point): { x: number; y: number; r: number } | null;
   /** Moves of the suggestion variation previewed on the main board as shown (BoardRenderer
@@ -160,7 +163,13 @@ function setupClick(point: Point, right: boolean): void {
   void edit({ op: "SetupStone", point, stone });
 }
 
-function leftPress(detail: number, point: Point | null): void {
+/** LizzieFrame.togglePlayerNameWinrates: the win rates beside the names show or hide, kept for
+ *  the next start (NameWinrates.toggle). */
+function toggleNameWinrates(): void {
+  setDisplay({ nameWinrates: !state.view!.settings.display.nameWinrates });
+}
+
+function leftPress(detail: number, point: Point | null, onNames: boolean): void {
   const v = state.view!;
   const settings = v.settings.edit;
   const game = v.game;
@@ -170,7 +179,12 @@ function leftPress(detail: number, point: Point | null): void {
     if (point) void edit({ op: "FindMove", point, any_branch: false });
     return;
   }
-  if (!point) return;
+  // onClicked's togglePlayerNameWinratesAt (LizzieFrame.java:9436-9443), off the grid only: a
+  // press that reaches an intersection stays the board's.
+  if (!point) {
+    if (onNames) toggleNameWinrates();
+    return;
+  }
   // tryToMarkup, then Input.insert, then onClicked.
   if (editing.markup) {
     void edit({ op: "ToggleMark", point, tool: editing.markup });
@@ -217,9 +231,10 @@ function rightPress(clientX: number, clientY: number, point: Point | null): void
 }
 
 /** Input.mousePressed / IndependentMainBoard.mousePressed: a press at `point` (null off the grid);
- *  a popup opens at the main-window client point (`clientX`, `clientY`). True when the press
- *  started a region selection (selectPressed), which the pressed surface drags to its release. */
-export function pressBoard(point: Point | null, button: number, detail: number, altKey: boolean, clientX: number, clientY: number): boolean {
+ *  a popup opens at the main-window client point (`clientX`, `clientY`); `onNames` when it is on
+ *  the players' names under the board. True when the press started a region selection
+ *  (selectPressed), which the pressed surface drags to its release. */
+export function pressBoard(point: Point | null, button: number, detail: number, altKey: boolean, clientX: number, clientY: number, onNames: boolean): boolean {
   if (!state.view || (button !== 0 && button !== 1 && button !== 2)) return false;
   // processCommentMousePressed: a press on the board closes the comment edit pane.
   commitComment();
@@ -229,6 +244,7 @@ export function pressBoard(point: Point | null, button: number, detail: number, 
   // position browsed back to it brings the board back to the game, whatever stands there.
   if (humanSlGameActive()) {
     if (button === 0 && point) void edit({ op: "Play", point, color: null });
+    else if (button === 0 && onNames) toggleNameWinrates();
     return false;
   }
   if (state.view.editing.setup_mode) {
@@ -245,7 +261,7 @@ export function pressBoard(point: Point | null, button: number, detail: number, 
     selectionPressed(altKey);
     return true;
   }
-  if (button === 0) leftPress(detail, point);
+  if (button === 0) leftPress(detail, point, onNames);
   else rightPress(clientX, clientY, point);
   return false;
 }
@@ -275,7 +291,7 @@ export function bindBoardInput(boards: HTMLElement[], boardHost: BoardHost): voi
       if (!state.view || (ev.button !== 0 && ev.button !== 1 && ev.button !== 2)) return;
       ev.preventDefault();
       const point = ev.button === 1 ? null : host.pointAt(ev.clientX, ev.clientY);
-      if (pressBoard(point, ev.button, ev.detail, ev.altKey, ev.clientX, ev.clientY)) trackSelection(ev);
+      if (pressBoard(point, ev.button, ev.detail, ev.altKey, ev.clientX, ev.clientY, host.onNames(ev.clientX, ev.clientY))) trackSelection(ev);
     });
     board.addEventListener("mouseup", (ev) => {
       if (ev.button === 1) releaseBoard(null, 1);

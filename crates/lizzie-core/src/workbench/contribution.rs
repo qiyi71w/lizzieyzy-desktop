@@ -39,8 +39,15 @@ fn refused(key: &str) -> CommandResult {
 }
 
 /// One launch of the worker (`ContributeEngine.Launch`).
+#[derive(Default)]
 struct Launch {
     worker: Option<InstanceId>,
+    /// It started a game (`Starting game`, or a game snapshot): its end is no start-up failure
+    /// (`EngineStartupDiagnostics.Attempt.ready`).
+    ready: bool,
+    /// Its last stdout lines before it was ready, diagnosed with its stderr when it fails to
+    /// start.
+    stdout: Vec<String>,
 }
 
 /// `ContributeEngine`'s session state.
@@ -71,6 +78,8 @@ struct Session {
     normal_end: bool,
     launch: Launch,
     launch_error: String,
+    /// The start was refused before the process existed (a packaged engine too new for this macOS).
+    launch_refusal: Option<crate::engine::diagnosis::StartupDiagnosis>,
     failure: output::Failure,
     last_remote: Option<RemoteFailure>,
     terminal: bool,
@@ -444,8 +453,9 @@ impl Workbench {
             launches: 0,
             add_cacerts: false,
             normal_end: false,
-            launch: Launch { worker: None },
+            launch: Launch::default(),
             launch_error: String::new(),
+            launch_refusal: None,
             failure: output::Failure::Other,
             last_remote: None,
             terminal: false,
@@ -498,6 +508,7 @@ impl Workbench {
         session.phase = ContributionPhase::Starting;
         session.terminal = false;
         session.launch_error.clear();
+        session.launch_refusal = None;
         session.failure = output::Failure::Other;
         session.last_remote = None;
         session.output.clear();
@@ -507,7 +518,7 @@ impl Workbench {
         let shown = session.shown_command.clone();
         let ssh = session.remote.clone();
         let cwd = session.cwd.clone();
-        session.launch = Launch { worker: None };
+        session.launch = Launch::default();
         match self.engines.start_worker_in_dir(
             &command,
             &shown,
@@ -523,7 +534,8 @@ impl Workbench {
             }
             Err(error) => {
                 if let Some(session) = self.contribution.session.as_mut() {
-                    session.launch_error = error;
+                    session.launch_error = error.message;
+                    session.launch_refusal = error.diagnosis;
                 }
                 self.contribution_process_ended(false);
             }
@@ -696,6 +708,14 @@ impl Workbench {
     }
 
     fn contribution_stdout(&mut self, line: &str) {
+        if let Some(launch) = self.contribution.session.as_mut().map(|session| &mut session.launch) {
+            if !launch.ready {
+                launch.stdout.push(line.to_string());
+                if launch.stdout.len() > 30 {
+                    launch.stdout.remove(0);
+                }
+            }
+        }
         let trimmed = line.trim();
         if trimmed.starts_with('{') {
             let Ok(json) = serde_json::from_str::<serde_json::Value>(trimmed) else {
@@ -839,8 +859,11 @@ impl Workbench {
                 }
             }
         }
-        if parsed.starting_game && session.phase != ContributionPhase::Exited {
-            session.phase = ContributionPhase::Running;
+        if parsed.starting_game {
+            session.launch.ready = true;
+            if session.phase != ContributionPhase::Exited {
+                session.phase = ContributionPhase::Running;
+            }
         }
         if parsed.normal_end && !session.normal_end {
             session.normal_end = true;
@@ -984,15 +1007,26 @@ impl Workbench {
         } else {
             session.launch_error.clone()
         };
+        // Java diagnoses the output of the last launch while it had not started a game, and
+        // refuses a packaged engine this macOS is too old for, like a GTP engine.
+        let starting = !session.launch.ready;
         let failure = (!normal).then(|| EngineFailureView {
             engine_name: CONSOLE_ENGINE.into(),
             command: session.shown_command.clone(),
-            during_startup: session.games.is_empty(),
+            during_startup: starting,
             message: sanitize(&message),
             output: session.output.clone(),
             repair: None,
             remote: session.last_remote.clone(),
             cloud: None,
+            diagnosis: session.launch_refusal.clone().or_else(|| {
+                starting
+                    .then(|| {
+                        crate::engine::diagnosis::diagnose_output(&session.output)
+                            .or_else(|| crate::engine::diagnosis::diagnose_output(&session.launch.stdout))
+                    })
+                    .flatten()
+            }),
             profile_id: String::new(),
             secondary: false,
         });
@@ -1029,6 +1063,7 @@ impl Workbench {
                     .as_ref()
                     .is_some_and(|session| session.watching.is_none() && session.board == document);
                 if let Some(session) = self.contribution.session.as_mut() {
+                    session.launch.ready = true;
                     if session.phase != ContributionPhase::Exited {
                         session.phase = ContributionPhase::Running;
                     }
@@ -1041,6 +1076,7 @@ impl Workbench {
             }
             snapshot::Ingest::Updated(index) => {
                 if let Some(session) = self.contribution.session.as_mut() {
+                    session.launch.ready = true;
                     if session.phase != ContributionPhase::Exited {
                         session.phase = ContributionPhase::Running;
                     }
@@ -1311,6 +1347,7 @@ impl Workbench {
             playouts: java_text(language, "SGFParse.playouts"),
             komi: java_text(language, "SGFParse.komi"),
             pda: java_text(language, "SGFParse.pda"),
+            wrn: java_text(language, "SGFParse.wrn"),
         };
         let previous = {
             let record = &self.doc.record;
@@ -1698,6 +1735,7 @@ impl Workbench {
             | Command::SetKataEstimate { .. }
             | Command::TogglePanel { .. }
             | Command::SetPanelSettings { .. }
+            | Command::SetBigWinrate { .. }
             | Command::SetPanelSizes { .. }
             | Command::SetPanelArrangement { .. } => None,
             Command::Edit { op } => self.contribution_edit_refusal(op),

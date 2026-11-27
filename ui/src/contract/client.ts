@@ -1,5 +1,6 @@
 // The only bridge to the Rust side. Mutating UI entries send `Command` through `dispatch`;
-// immutable function search is independent of the workbench and its lock.
+// immutable function search is independent of the workbench and its lock; the 规则面板's rule set
+// query only reads it.
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { ApiError, AppearanceCatalog, AppearanceSettings, Command, CommandResult, ConsoleLineView, FunctionMatch, Language, LogsStatus, SlotRef, ThemeImages, ThemeSettings, WorkbenchView } from "./generated";
@@ -57,6 +58,12 @@ export function dispatch(command: Command): Promise<CommandResult> {
 
 export function searchFunctions(query: string, language: Language): Promise<FunctionMatch[]> {
   return invoke<FunctionMatch[]>("search_functions", { query, language });
+}
+
+/** 规则面板: the rule set `rules` (KataGo rules JSON) and `komi` are, by id; `picked` is the rule
+ *  set picked last in the panel. Null: no rule set (自定义). */
+export function ruleSetOf(rules: string, komi: number, picked: string | null): Promise<string | null> {
+  return invoke<string | null>("rule_set_of", { rules, komi, picked });
 }
 
 export function snapshot(): Promise<WorkbenchView> {

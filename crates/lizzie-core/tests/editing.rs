@@ -698,6 +698,36 @@ fn try_play_brings_back_the_saved_analysis_of_what_it_set_aside() {
     assert_eq!(shown, [Some(100), Some(200)], "and save it");
 }
 
+/// The analysis 试下 sets aside and brings back keeps the breadth it was made with and whether it
+/// is known: a known 0.5, a known 0 and an unknown one stay as they were.
+#[test]
+fn try_play_brings_back_each_breadth_as_it_was() {
+    let dir = tempfile::tempdir().unwrap();
+    let text = "(;SZ[9];B[ee]\
+        ;W[dd]LZ[KataGo 55.0 100 1 0.5 0 wrn=0.5\nmove C3 visits 100 winrate 5500 scoreMean 1 pv C3]\
+        ;B[cc]LZ[KataGo 45.0 200 1 0.5 0 wrn=0\nmove G7 visits 200 winrate 4500 scoreMean 1 pv G7]\
+        ;W[ff]LZ[KataGo 50.0 300 1 0.5\nmove G3 visits 300 winrate 5000 scoreMean 1 pv G3])";
+    let breadths = |text: &str| -> Vec<Option<Option<f64>>> {
+        let rec = sgf::read(text).unwrap();
+        std::iter::successors(rec.main_child(ROOT), |&n| rec.main_child(n))
+            .map(|n| lizzie_core::formats::saved_analysis::primary(&rec.node(n).properties).map(|a| a.wrn))
+            .collect()
+    };
+    let mut wb = opened(dir.path(), text);
+    let before = wb
+        .begin_save(dir.path().join("a.sgf").to_str().unwrap(), "LizzieYzy Tauri:test")
+        .text;
+    assert_eq!(breadths(&before), [None, Some(Some(0.5)), Some(Some(0.0)), Some(None)]);
+    wb.navigate(Navigation::Forward(1));
+    edit(&mut wb, EditCommand::TryPlay);
+    play(&mut wb, "gg");
+    edit(&mut wb, EditCommand::TryPlay);
+    let after = wb
+        .begin_save(dir.path().join("b.sgf").to_str().unwrap(), "LizzieYzy Tauri:test")
+        .text;
+    assert_eq!(breadths(&after), breadths(&before), "{after}");
+}
+
 #[test]
 fn a_variation_added_as_branch_stays_beside_the_main_line() {
     let dir = tempfile::tempdir().unwrap();

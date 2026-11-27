@@ -22,8 +22,9 @@ fn eval(a: &NodeAnalysisView) -> NodeEval {
         score_lead: a.score_lead,
         score_stdev: a.score_stdev,
         komi: a.komi,
-        // Live results carry no PDA of their own.
+        // Live results carry no PDA or breadth of their own; the store keeps them.
         pda: 0.0,
+        wrn: None,
         to_play: a.to_play,
     }
 }
@@ -81,6 +82,7 @@ fn comment_labels(language: crate::settings::Language) -> CommentLabels {
         playouts: java_text(language, "SGFParse.playouts"),
         komi: java_text(language, "SGFParse.komi"),
         pda: java_text(language, "SGFParse.pda"),
+        wrn: java_text(language, "SGFParse.wrn"),
     }
 }
 
@@ -88,6 +90,7 @@ impl Workbench {
     fn node_eval(&self, rec: &GameRecord, store: &AnalysisStore, id: NodeId) -> Option<NodeEval> {
         let mut a = eval(store.get(rec, id)?);
         a.pda = store.pda(id);
+        a.wrn = store.wrn(id);
         (a.visits > 0).then_some(a)
     }
 

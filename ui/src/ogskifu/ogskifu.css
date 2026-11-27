@@ -1,0 +1,34 @@
+/* OGS 棋谱 (OgsKifuDownload): the 野狐棋谱 window's layout (foxkifu.css) with its own columns
+   (时间, 黑方, 白方, 结果, 棋盘大小, 打开), a table body that takes keyboard focus, and the status
+   line under the page buttons. */
+.ogs-table :is(th, td) {
+  text-align: left;
+}
+/* 棋盘大小 and 打开 are short and centred. */
+.ogs-table :is(th, td):is(:nth-child(5), :nth-child(6)) {
+  text-align: center;
+}
+.ogs-table tbody:focus {
+  outline: none;
+}
+/* The table body is one Tab stop: with focus, the whole list draws the ring. */
+.fk-scroll:has(tbody:focus-visible) {
+  outline: 2px solid var(--ds-ring);
+  outline-offset: -2px;
+}
+
+.ogs-south {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  background: var(--ds-chrome);
+}
+.ogs-status {
+  padding: 0 12px 6px;
+  color: var(--ds-text-2);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.ogs-status:empty {
+  display: none;
+}

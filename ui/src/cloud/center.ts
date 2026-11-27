@@ -4,9 +4,9 @@
 // unsaved drafts (fields, plan/model choice, link) and presentation state. A reply that arrives
 // after the window closed, or after a newer request of the same kind, is dropped.
 import { registerViewHandler, state } from "../app";
-import type { CloudCatalog, CloudCommand, Command, CloudFailure, CloudReply, CloudSettings, CloudState, EngineFailureView, EngineProfile, Overview, WorkbenchView } from "../contract/generated";
+import type { CloudCatalog, CloudCommand, Command, CloudFailure, CloudReply, CloudSettings, CloudState, EngineFailureView, EngineProfile, Overview, WorkbenchView, ZhiziConnection } from "../contract/generated";
 import { message } from "../dialogs";
-import { format, t } from "../i18n";
+import { format, product, t } from "../i18n";
 import { openAccountDetails } from "./details";
 import { openPayment } from "./payment";
 import {
@@ -26,6 +26,9 @@ const CATALOG_REFRESH_MS = 6 * 60 * 60 * 1000;
 interface Center {
   focus(): void;
   onView(view: WorkbenchView): void;
+  report(): object;
+  zhiziPending(): boolean;
+  disconnect(): void;
 }
 
 let instance: Center | null = null;
@@ -39,6 +42,25 @@ export function openRemoteCompute(): void {
   instance = createCenter(view);
 }
 
+/** 远程算力's footer as drawn (client coordinates), or null when the window is closed. */
+export function remoteComputeReport(): object | null {
+  return instance?.report() ?? null;
+}
+
+/** A 智子 switch the 远程算力 window started that the core does not report yet: 断开智子引擎
+ *  still has it to drop (ZhiziConnectionControls' pending switch). */
+export function remoteComputeZhiziPending(): boolean {
+  return instance?.zhiziPending() ?? false;
+}
+
+/** 断开智子引擎 through the open 远程算力 window, which drops its pending 智子 switch first;
+ *  `false` when the window is closed. */
+export function remoteComputeDisconnect(): boolean {
+  if (!instance) return false;
+  instance.disconnect();
+  return true;
+}
+
 function profileOf(view: WorkbenchView): EngineProfile | null {
   const fg = view.engine.foreground;
   return fg ? view.settings.engine.engines[fg.index] ?? null : null;
@@ -49,6 +71,18 @@ function foregroundProvider(view: WorkbenchView): Provider | null {
   if (!view.engine.foreground) return null;
   const cloud = profileOf(view)?.cloud;
   return cloud?.provider === "Zhizi" ? "zhizi" : cloud?.provider === "Custom" ? "custom" : "local";
+}
+
+/** ZhiziConnectionControls.showState: the 主/对比智子引擎 status line. */
+const SESSION_TEXT: Record<ZhiziConnection, string> = {
+  Disconnected: "RemoteCompute.zhiziSession.disconnected",
+  Connected: "RemoteCompute.zhiziSession.connected",
+  Busy: "RemoteCompute.zhiziSession.busy",
+};
+
+/** Writes `text` only when it changed, so a view update does not rewrite a control being pressed. */
+function setText(node: HTMLElement, text: string): void {
+  if (node.textContent !== text) node.textContent = text;
 }
 
 /** The launch an engine switch asked for, as the core stores it on the seated profile. */
@@ -129,9 +163,14 @@ function createCenter(initial: WorkbenchView): Center {
   let account: CloudState | null = null;
   let page: Page = saved.provider === "custom" ? "custom" : "zhizi";
   let codeMode = false, resetMode = false, busy = false, passwordShown = false;
+  /** An account request (sign-in, code, reset, sign-out) is under way: its controls stay disabled. */
+  let accountBusy = false;
   let overview: Overview | null = null, overviewLoading = false, catalogRefreshing = false;
   let cooldown = 0, cooldownTimer: number | undefined;
   let statusText = t("RemoteCompute.chooseHint"), statusOk: boolean | null = null, dotOk = true;
+  /** ZhiziConnectionControls: an outcome shown instead of the status line until the connection
+   *  state changes (blocked or failed), and whether a disconnection is under way. */
+  let sessionNotice: string | null = null, lastSession: ZhiziConnection | null = null, disconnecting = false;
   /** Java dispose cancels the overview and catalog workers; runBackground sign-in work and the
    *  account choices (logout, remember) finish after the window closes, their replies dropped. */
   const owner = requestOwner();
@@ -304,8 +343,17 @@ function createCenter(initial: WorkbenchView): Center {
   const customPage = el("div", "rc-page");
   customPage.append(customCard, customAction);
 
-  // ---- footer ------------------------------------------------------------------------------
+  // ---- footer: the 智子 connections, then the current engine and the last status ------------
   const footer = el("div", "rc-footer");
+  const session = el("div", "rc-session");
+  const sessionLabel = el("span", "rc-session-status");
+  sessionLabel.setAttribute("role", "status");
+  sessionLabel.setAttribute("aria-live", "polite");
+  const disconnectButton = button(t("RemoteCompute.disconnectZhizi"), "", "remote.disconnectZhizi", () => void disconnectZhizi());
+  const billing = el("p", "rc-session-note", t("RemoteCompute.zhiziSession.billing"));
+  billing.id = "rc-zhizi-billing";
+  disconnectButton.setAttribute("aria-describedby", billing.id);
+  session.append(sessionLabel, disconnectButton);
   const dot = el("span", "rc-dot");
   dot.setAttribute("role", "img");
   dot.setAttribute("aria-label", t("RemoteCompute.connectionIndicator"));
@@ -315,7 +363,12 @@ function createCenter(initial: WorkbenchView): Center {
   statusLabel.setAttribute("role", "status");
   statusLabel.setAttribute("aria-live", "polite");
   statusLabel.setAttribute("aria-label", t("RemoteCompute.connectionStatus"));
-  footer.append(dot, currentLabel, statusLabel);
+  // The dot stays beside its label; the status takes the next line when the two do not fit.
+  const currentGroup = el("span", "rc-current-group");
+  currentGroup.append(dot, currentLabel);
+  const currentRow = el("div", "rc-current-row");
+  currentRow.append(currentGroup, statusLabel);
+  footer.append(session, billing, currentRow);
 
   const root = el("div", "rc-root");
   root.append(header, zhiziPage, customPage, footer);
@@ -470,24 +523,33 @@ function createCenter(initial: WorkbenchView): Center {
     officialButton.disabled = busy;
 
     const zhizi = zhiziActionState(view);
-    useZhiziButton.textContent = zhizi.text; useZhiziButton.title = zhizi.tip; useZhiziButton.disabled = !zhizi.enabled;
+    setText(useZhiziButton, zhizi.text); useZhiziButton.title = zhizi.tip; useZhiziButton.disabled = !zhizi.enabled;
     const custom = customActionState();
-    useCustomButton.textContent = custom.text; useCustomButton.title = custom.tip; useCustomButton.disabled = !custom.enabled;
+    setText(useCustomButton, custom.text); useCustomButton.title = custom.tip; useCustomButton.disabled = !custom.enabled;
 
-    const active = foregroundProvider(view) ?? (saved.provider as Provider);
-    if (active === "zhizi") {
-      currentLabel.textContent = t("RemoteCompute.current.zhizi");
-      currentLabel.title = format(t("RemoteCompute.currentValue"), zhiziDisplayName(saved.args));
-    } else if (active === "custom") {
-      currentLabel.textContent = t("RemoteCompute.current.custom");
-      currentLabel.title = format(t("RemoteCompute.currentValue"), customDisplayName(saved.customUrl));
-    } else {
-      currentLabel.textContent = currentLabel.title = t("RemoteCompute.current.local");
-    }
-    statusLabel.textContent = statusText;
+    // The 主/对比智子引擎 connections as the core reports them, whatever engine is chosen.
+    const connection = view.engine.zhizi;
+    if (connection !== lastSession) { lastSession = connection; sessionNotice = null; }
+    setText(sessionLabel, disconnecting ? t("RemoteCompute.zhiziSession.disconnecting") : sessionNotice ?? t(SESSION_TEXT[connection]));
+    // Usable while a 智子 engine runs or this window's 智子 switch is under way (refresh()).
+    const nothing = connection === "Disconnected" && !zhiziPending();
+    disconnectButton.disabled = disconnecting || nothing;
+    const why = nothing ? product("zhiziNothingToDisconnect") : "";
+    if (disconnectButton.title !== why) disconnectButton.title = why;
+
+    // updateCurrentStatus: no running foreground engine is 无活动主引擎 with a muted dot.
+    const active = foregroundProvider(view);
+    const current =
+      active === "zhizi" ? { text: t("RemoteCompute.current.zhizi"), tip: format(t("RemoteCompute.currentValue"), zhiziDisplayName(saved.args)) }
+      : active === "custom" ? { text: t("RemoteCompute.current.custom"), tip: format(t("RemoteCompute.currentValue"), customDisplayName(saved.customUrl)) }
+      : { text: t(active === "local" ? "RemoteCompute.current.local" : "RemoteCompute.current.none"), tip: "" };
+    setText(currentLabel, current.text);
+    currentLabel.title = current.tip || current.text;
+    setText(statusLabel, statusText);
     statusLabel.title = statusText;
     statusLabel.className = `rc-status ${statusOk === null ? "" : statusOk ? "rc-ok" : "rc-error"}`;
     dot.classList.toggle("rc-dot-error", !dotOk);
+    dot.classList.toggle("rc-dot-idle", dotOk && active === null);
     if (focused instanceof HTMLElement && focused !== win.frame && win.frame.contains(focused) && (focused.matches(":disabled") || focused.closest("[hidden]"))) {
       win.frame.focus();
     }
@@ -509,12 +571,12 @@ function createCenter(initial: WorkbenchView): Center {
   /** runBackground: busy, a status, and on failure the status plus a warning dialog. */
   async function background(op: CloudCommand, pending: string, sendCode = false): Promise<CloudReply | null> {
     const seq = ++operationSeq;
-    busy = true;
+    busy = accountBusy = true;
     status(pending, true);
     update();
     const outcome = await write(op);
     if (!outcome || seq !== operationSeq) return null;
-    busy = false;
+    busy = accountBusy = false;
     if (outcome.reply) { applyReply(outcome.reply); return outcome.reply; }
     const f = outcome.failure;
     if (f.cancelled) { statusText = t("RemoteCompute.chooseHint"); statusOk = null; currentStatus(); return null; }
@@ -613,11 +675,11 @@ function createCenter(initial: WorkbenchView): Center {
   async function logout() {
     overviewSeq++; catalogSeq++; operationSeq++;
     overviewLoading = catalogRefreshing = false;
-    busy = true;
+    busy = accountBusy = true;
     update();
     const outcome = await write({ type: "Logout" });
     if (!outcome) return;
-    busy = false;
+    busy = accountBusy = false;
     if (outcome.failure) {
       if (!outcome.failure.cancelled) status(failureText(outcome.failure, currentArgs()), false);
       update();
@@ -747,6 +809,35 @@ function createCenter(initial: WorkbenchView): Center {
   }
 
   // ---- engine switches ---------------------------------------------------------------------
+  /** ZhiziConnectionControls.disconnect: this window's 智子 switch still under way is dropped
+   *  first (cancelPendingSwitch); then the core ends every 智子 engine, or says why it cannot. */
+  async function disconnectZhizi() {
+    if (disconnecting) return;
+    if (zhiziPending()) {
+      monitor = null;
+      statusText = t("RemoteCompute.chooseHint"); statusOk = null; dotOk = true;
+    }
+    disconnecting = true;
+    busy = true;
+    sessionNotice = null;
+    update();
+    const result = await cloudCommand({ type: "DisconnectZhizi" });
+    disconnecting = false;
+    if (!alive) return;
+    // An account request still under way keeps its controls disabled.
+    busy = accountBusy || monitor !== null;
+    // The outcome stays until the connection state it was shown for changes.
+    lastSession = (state.view ?? initial).engine.zhizi;
+    if (result.type === "Refused") sessionNotice = t("RemoteCompute.zhiziSession.blocked");
+    else if (result.type === "Failed") sessionNotice = t("RemoteCompute.zhiziSession.failed");
+    // updateCurrentStatus: the footer dot follows the engine again (muted without one).
+    currentStatus();
+  }
+
+  function zhiziPending(): boolean {
+    return monitor?.launch.provider === "zhizi";
+  }
+
   /** switchPrimaryEngine: the command, then the views after its commit decide success or failure. */
   async function switchEngine(command: Command, launch: Launch, starting: string, success: string, failure: string) {
     const pending: NonNullable<typeof monitor> = { launch, success, failure, receipt: null, seen: new Map() };
@@ -848,11 +939,33 @@ function createCenter(initial: WorkbenchView): Center {
 
   return {
     focus: () => win.frame.focus(),
+    zhiziPending,
+    disconnect: () => void disconnectZhizi(),
     onView(view) {
       const cloud = JSON.stringify(view.settings.cloud);
       if (cloud !== lastViewCloud) { lastViewCloud = cloud; saved = view.settings.cloud; }
       watch(view);
       update();
+    },
+    report() {
+      const box = (node: Element) => {
+        const r = node.getBoundingClientRect();
+        return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) };
+      };
+      // `cut`: text overflowing its own box rather than wrapped.
+      const part = (node: HTMLElement) => ({
+        text: node.textContent ?? "", rect: box(node),
+        cut: node.scrollWidth > node.clientWidth + 1 || node.scrollHeight > node.clientHeight + 1,
+      });
+      return {
+        frame: box(win.frame),
+        footer: box(footer),
+        session: part(sessionLabel),
+        disconnect: { ...part(disconnectButton), disabled: disconnectButton.disabled, title: disconnectButton.title },
+        billing: part(billing),
+        current: { ...part(currentLabel), idle: dot.classList.contains("rc-dot-idle"), error: dot.classList.contains("rc-dot-error") },
+        status: part(statusLabel),
+      };
     },
   };
 }

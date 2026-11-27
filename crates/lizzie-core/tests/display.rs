@@ -86,6 +86,26 @@ fn play(wb: &mut Workbench, at: &str) {
     wb.edit(EditCommand::Play { point: p(at), color: None }).unwrap();
 }
 
+/// 姓名旁胜率 (NameWinrates.SHOWN_KEY, `show-name-winrates`): hidden by default and kept across a
+/// restart; a stored value that does not read is hidden, and the other settings still load.
+#[test]
+fn name_winrates_are_hidden_by_default_and_kept_across_a_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    assert!(!wb.view(true).settings.display.name_winrates);
+    display(&mut wb, |d| d.name_winrates = true);
+    assert!(workbench(dir.path()).view(true).settings.display.name_winrates);
+    display(&mut wb, |d| d.name_winrates = false);
+    assert!(!workbench(dir.path()).view(true).settings.display.name_winrates);
+    let file = storage(dir.path()).config_file;
+    let mut raw: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+    raw["display"]["nameWinrates"] = serde_json::json!("on");
+    raw["display"]["namesOnBoard"] = serde_json::json!(false);
+    std::fs::write(&file, serde_json::to_vec(&raw).unwrap()).unwrap();
+    let d = workbench(dir.path()).view(true).settings.display;
+    assert_eq!((d.name_winrates, d.names_on_board), (false, false));
+}
+
 #[test]
 fn last_moves_count_back_from_the_newest_and_can_restart_at_one() {
     let dir = tempfile::tempdir().unwrap();

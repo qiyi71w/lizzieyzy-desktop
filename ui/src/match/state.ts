@@ -34,7 +34,7 @@ export function engineIdentity(index: number): MatchSettings["first"] {
 }
 
 /** Match SetValues with one change over the saved values (Java's immediate saves and toolbar edits). */
-export function matchValues(change: { settings?: Partial<MatchSettings>; session?: Partial<MatchSessionSettings>; disable_wrn?: boolean }) {
+export function matchValues(change: { settings?: Partial<MatchSettings>; session?: Partial<MatchSessionSettings> }) {
   const m = state.view!.settings.matches;
   return {
     type: "Match" as const,
@@ -42,7 +42,6 @@ export function matchValues(change: { settings?: Partial<MatchSettings>; session
       type: "SetValues" as const,
       settings: { ...m.settings, ...change.settings },
       session: { ...m.session, ...change.session },
-      disable_wrn: change.disable_wrn ?? m.disable_wrn,
     },
   };
 }

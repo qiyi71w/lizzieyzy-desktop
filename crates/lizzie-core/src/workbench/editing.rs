@@ -237,7 +237,7 @@ impl Workbench {
             return Ok(match op {
                 EditCommand::Play { point, .. } => self.human_sl_human_move(Some(point)),
                 EditCommand::Pass => self.human_sl_human_move(None),
-                _ => CommandResult::Refused { message_key: "AnalysisSettings.reuseStatus.human_sl_game".into() },
+                op => super::humansl::human_sl_edit_refusal(&op),
             });
         }
         if let Some(refusal) = self.match_edit_refusal(&op) { return Ok(refusal); }
@@ -653,13 +653,13 @@ impl Workbench {
     }
 
     /// `Board.clear` / `reopen`: a new empty board of `size`. The komi is the foreground engine's
-    /// own (`Leelaz.orikomi`) when one runs, else the current one.
+    /// (`Leelaz.orikomi`, `Workbench::engine_komi`) when one runs, else the current one.
     pub(super) fn new_board(&mut self, size: BoardSize) {
         if let Some(komi) = self
             .engines
             .foreground()
             .and_then(|fg| self.engines.profile_of(fg))
-            .map(|p| p.komi)
+            .map(|p| self.engine_komi(p))
         {
             self.komi = komi;
         }

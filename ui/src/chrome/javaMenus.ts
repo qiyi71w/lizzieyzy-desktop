@@ -1,12 +1,21 @@
 // Java main-window menu bar, in Menu.java add() order: fixed Java
-// wimi321/lizzieyzy-next cb53acc55eda42c6c671b5f668cd3b597456bf07, src/main/java/featurecat/lizzie/gui/Menu.java.
+// wimi321/lizzieyzy-next cb53acc55eda42c6c671b5f668cd3b597456bf07, src/main/java/featurecat/lizzie/gui/Menu.java,
+// with 同步 > OGS棋谱 after 腾讯棋谱 as in the newer 6a5c8d1524f8bdfd9163162a38dcf64c23402a1b.
 // 显示 > 外观主题 > 外观模式 is this product's own submenu, shown once the dark set is ready;
-// 显示 > 面板 > 编辑面板布局… is this product's own item (the panel arrangement's edit mode); and
+// 显示 > 面板 > 编辑面板布局… is this product's own item (the panel arrangement's edit mode);
+// 显示 > 黑白胜率大字 follows wimi321/lizzieyzy-next 6a5c8d1524f8bdfd9163162a38dcf64c23402a1b
+// (Menu.java:652-655, after 自动播放), with this product's id; 棋局 > 对局参数 follows the same
+// commit (Menu.java:3125, EngineGameParameterControls.addMenuEntry, after 暂停/继续引擎对局),
+// with this product's id;
+// 顶部工具栏 > 自定义内容's 激进度 / 广度 (ToolbarParameterToggles) and 候选点上限
+// (SuggestionLimitField), and 同步 > Web 旁观 > 强制结束试下, follow wimi321/lizzieyzy-next
+// 6a5c8d1524f8bdfd9163162a38dcf64c23402a1b (Menu.java:4095-4098, 4506-4541); and
 // this product leaves out 底部工具栏's 详细工具栏(过时的)(仅中文) submenu. `key` is the DisplayStrings resource key,
 // this product's resource key (i18n/productStrings.json), or literal text where Java uses literal
 // text; `id` the Java action id (AutoAnalyzeMenu.ACTION_PROPERTY / FunctionCatalog), or a product
-// id for an item Java gave none whose key another item shares (工具栏's 显示 / 不显示). Which
-// entries are available is decided by the command catalog (commands.ts), not here.
+// id for an item Java gave none (自定义内容's three later items) or whose key another item shares
+// (工具栏's 显示 / 不显示). 强制结束试下 takes the id of the bottom bar's 同步 item it shares its action
+// with. Which entries are available is decided by the command catalog (commands.ts), not here.
 
 export type MenuNode =
   | { t: "sep" }
@@ -324,6 +333,16 @@ export const JAVA_MENUS: TopMenu[] = [
          },
          {
           "t": "check",
+          "key": "Menu.lblPDA",
+          "id": "menu.showPDAInMenu"
+         },
+         {
+          "t": "check",
+          "key": "Menu.lblWRN",
+          "id": "menu.showWRNInMenu"
+         },
+         {
+          "t": "check",
           "key": "Menu.showTimeLimitController",
           "id": "menu.showTimeLimitController"
          },
@@ -331,6 +350,11 @@ export const JAVA_MENUS: TopMenu[] = [
           "t": "check",
           "key": "Menu.showPlayoutLimitController",
           "id": "menu.showPlayoutLimitController"
+         },
+         {
+          "t": "check",
+          "key": "Menu.showSuggestionLimit",
+          "id": "menu.showSuggestionLimit"
          },
          {
           "t": "check",
@@ -760,6 +784,11 @@ export const JAVA_MENUS: TopMenu[] = [
     "t": "item",
     "key": "Menu.makeAutoPlay",
     "id": "menu.makeAutoPlay"
+   },
+   {
+    "t": "item",
+    "key": "Menu.bigWinrateWindow",
+    "id": "menu.bigWinrateWindow"
    },
    {
     "t": "item",
@@ -1249,6 +1278,11 @@ export const JAVA_MENUS: TopMenu[] = [
    },
    {
     "t": "item",
+    "key": "EngineGameParameters.entry",
+    "id": "menu.engineGameParameters"
+   },
+   {
+    "t": "item",
     "key": "Menu.changeEngineGameNumbers",
     "id": "menu.changeEngineGameNumbers"
    },
@@ -1655,6 +1689,11 @@ export const JAVA_MENUS: TopMenu[] = [
    },
    {
     "t": "item",
+    "key": "Menu.ogsKifu",
+    "id": "menu.ogsKifu"
+   },
+   {
+    "t": "item",
     "key": "Menu.readBoard",
     "id": "sync.board",
     "when": "windows"
@@ -1675,6 +1714,11 @@ export const JAVA_MENUS: TopMenu[] = [
       "t": "item",
       "key": "Menu.webBoardCopyUrl",
       "id": "menu.webBoardCopyUrl"
+     },
+     {
+      "t": "item",
+      "key": "Menu.webBoardForceExitTrial",
+      "id": "sync.exit-web-trial"
      }
     ]
    },

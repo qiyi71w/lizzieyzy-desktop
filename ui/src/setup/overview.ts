@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Asset, CapabilityStatus, ExperimentalBackend, MissingDependency, RecommendationReason, ResourcesView, RuntimeRequirement } from "../contract/generated";
 import { icon } from "../design/icons";
 import { ask, confirm, message } from "../dialogs";
+import { diagnosisText } from "../engine/diagnosis";
 import { errorText } from "../errorText";
 import { product, t } from "../i18n";
 import { tagged, type SetupCard, type SetupContext } from "./card";
@@ -29,7 +30,7 @@ export function overviewCard(_ctx: SetupContext): SetupCard {
     const checked = r.verificationExecutable === checkedExecutable ? r.verification : null;
     const running = !!foreground?.ready && s.discoverySource === "foreground";
     const validation = row(summary, t("AutoSetup.engineValidation"), running ? t("AutoSetup.validationRunning") : checked ? resourceText(keys[checked.status]) : t("AutoSetup.validationNotAvailable"));
-    if (checked) validation.title = checked.detail;
+    if (checked) validation.title = checked.diagnosis ? diagnosisText(checked.diagnosis) : checked.detail;
     // The setup works: no step on this page is the next thing to do.
     const healthy = running || checked?.status === "VALID" || checked?.status === "ACTIVE";
     tagged(validation, healthy ? "ready" : checked ? "failed" : "neutral");

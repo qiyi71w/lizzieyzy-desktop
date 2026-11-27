@@ -1,4 +1,5 @@
 use super::*;
+use crate::settings::MatchOpeningParameters;
 
 impl Reader<'_> {
     pub(super) fn matches(&mut self, ui: &Map<String, Value>, handled: &mut Handled) {
@@ -74,6 +75,35 @@ impl Reader<'_> {
                 DisplayKind::Int(min, max) => as_i64(raw).filter(|n| (min..=max).contains(n)).map(Value::from),
                 _ => as_f64(raw).map(Value::from),
             };
+            self.match_value(format!("ui.{key}"), field, value, raw, false);
+        }
+        // Java EngineGameOpeningParameters: per-position opening breadth (0..=2) and aggressiveness
+        // (-3..=3); a value outside its range is not taken.
+        for (key, field, valid) in [
+            (
+                "engine-game-first-wrn",
+                "opening.firstWrn",
+                MatchOpeningParameters::valid_wrn as fn(f64) -> bool,
+            ),
+            (
+                "engine-game-second-wrn",
+                "opening.secondWrn",
+                MatchOpeningParameters::valid_wrn,
+            ),
+            (
+                "engine-game-first-pda",
+                "opening.firstPda",
+                MatchOpeningParameters::valid_pda,
+            ),
+            (
+                "engine-game-second-pda",
+                "opening.secondPda",
+                MatchOpeningParameters::valid_pda,
+            ),
+        ] {
+            let Some(raw) = ui.get(key) else { continue };
+            handled.push(("ui", key));
+            let value = as_f64(raw).filter(|v| valid(*v)).map(Value::from);
             self.match_value(format!("ui.{key}"), field, value, raw, false);
         }
         for (key, field) in [

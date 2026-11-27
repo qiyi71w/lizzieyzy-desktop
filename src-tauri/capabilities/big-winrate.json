@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "big-winrate",
+  "description": "黑白胜率大字 (BigWinrateWindow): draws the figures the main window relays and reports its right-click menu choices",
+  "windows": ["big-winrate"],
+  "permissions": ["core:default"]
+}

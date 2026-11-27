@@ -6,15 +6,18 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use lizzie_core::api::{CommandResult, EditCommand, FlashOutcome, FlashTarget, OpenSource, UnrestoredReason};
+use lizzie_core::api::{
+    CommandResult, EditCommand, FlashOutcome, FlashTarget, OgsKifuCommand, OgsKifuStatus, OpenSource, UnrestoredReason,
+};
 use lizzie_core::browse::Navigation;
 use lizzie_core::engine::gtp::LaunchSpec;
 use lizzie_core::engine::profile::{EngineProfile, EngineStartup};
 use lizzie_core::engine::runtime::{EngineInput, EngineIo, InstanceId, Launcher};
 use lizzie_core::formats::sgf;
+use lizzie_core::ogs_kifu::{fetch, Http, Response};
 use lizzie_core::record::{Point, RecordFormat};
 use lizzie_core::settings::{AnalysisEngineSettings, Storage};
-use lizzie_core::workbench::{OpenOrigin, Workbench, ANALYSIS_COMMAND_MISSING};
+use lizzie_core::workbench::{OgsKifuTask, OpenOrigin, Workbench, ANALYSIS_COMMAND_MISSING};
 
 #[derive(Default)]
 struct Proc {
@@ -385,6 +388,28 @@ fn resuming_during_a_process_run_lets_the_foreground_analyse_at_once() {
     let v = wb.view(false);
     assert!(!v.engine.paused && v.flash.is_some(), "the run continues");
     assert!(foreground_analyses(&serve(&mut wb, &world, fg, 0, true)));
+}
+
+/// 规则面板 确定 while a run holds the foreground engine (Java `isRulesMutationOccupied`): refused
+/// with Java's message; nothing is saved or sent.
+#[test]
+fn the_rules_panel_is_refused_while_a_run_holds_the_engine() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    configure(&mut wb, true, false);
+    let fg = with_engine(&mut wb, &world);
+    open(&mut wb, RECORD);
+    serve(&mut wb, &world, fg, 0, true);
+    start(&mut wb, FlashTarget::WholeGame);
+    serve(&mut wb, &world, fg, 0, false);
+    assert_eq!(wb.view(false).engine.lease, lizzie_core::api::LeaseAvailabilityView::ExistingLease);
+    assert_eq!(
+        wb.set_kata_rules(CHINESE, 7.0, None, true).unwrap(),
+        CommandResult::Refused { message_key: "AnalysisSettings.reuseStatus.existing_lease".into() }
+    );
+    assert!(world.take(fg).is_empty(), "the engine was told something");
+    assert!(!wb.config().engine.auto_load_kata_rules);
 }
 
 #[test]
@@ -778,6 +803,91 @@ fn opening_a_record_during_a_borrowed_run_waits_for_the_hand_back_and_ends_it_si
     assert!(
         wb.view(false).analysis.is_none(),
         "nothing of the old run reaches the new record"
+    );
+}
+
+/// The OGS 棋谱 window's stand-in transport: each request's address with its reply, in order.
+struct OgsReplies(Vec<(String, &'static str)>);
+
+impl Http for OgsReplies {
+    fn get(&mut self, url: &str) -> Result<Response, String> {
+        let (expected, body) = self.0.remove(0);
+        assert_eq!(url, expected);
+        Ok(Response {
+            status: 200,
+            body: body.into(),
+        })
+    }
+}
+
+fn ogs_serve(wb: &mut Workbench, replies: Vec<(String, &'static str)>) {
+    let mut http = OgsReplies(replies);
+    for task in wb.take_ogs_kifu_tasks() {
+        if let OgsKifuTask::Fetch(job) = task {
+            let reply = fetch(&job.request, OGS, &mut http, job.no_capture);
+            wb.ogs_kifu_reply(&job, reply);
+        }
+    }
+    assert!(http.0.is_empty());
+}
+
+const OGS: &str = "http://127.0.0.1:9/api/v1/";
+
+/// A record the OGS window downloaded waits while the borrowed engine is given back; closing the
+/// window then withdraws it: once the engine is back the current game stays, nothing tells of an
+/// open, and the window is free.
+#[test]
+fn closing_the_ogs_window_withdraws_its_record_waiting_for_the_hand_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let mut wb = workbench(dir.path(), &world);
+    configure(&mut wb, true, false);
+    let fg = with_engine(&mut wb, &world);
+    open(&mut wb, RECORD);
+    start(&mut wb, FlashTarget::WholeGame);
+    serve(&mut wb, &world, fg, 0, false);
+    wb.ogs_kifu(OgsKifuCommand::Search { text: "alice".into() }).unwrap();
+    ogs_serve(
+        &mut wb,
+        vec![
+            (
+                format!("{OGS}players/?username=alice"),
+                r#"{"results":[{"id":12,"username":"alice"}]}"#,
+            ),
+            (
+                format!("{OGS}players/12/games/?ended__isnull=false&ordering=-ended&page_size=20&page=1"),
+                r#"{"count":1,"results":[{"id":101,"ended":"2026-01-01T12:00:00Z","players":{"black":{"username":"b"},"white":{"username":"w"}},"black_lost":false,"white_lost":true,"outcome":"Resignation","width":19,"height":19}]}"#,
+            ),
+        ],
+    );
+    let before = wb.view(false);
+    wb.ogs_kifu(OgsKifuCommand::OpenGame { id: 101 }).unwrap();
+    ogs_serve(&mut wb, vec![(format!("{OGS}games/101/sgf"), "(;SZ[19]KM[6.5];B[qd])")]);
+    let waiting = wb.view(false);
+    assert_eq!(
+        waiting.document.id, before.document.id,
+        "not adopted while the engine is borrowed"
+    );
+    assert_eq!(waiting.ogs_kifu.status, Some(OgsKifuStatus::Opening));
+
+    wb.ogs_kifu(OgsKifuCommand::Close).unwrap();
+    let closed = wb.view(false);
+    assert!(closed.pending_open.is_none());
+    assert!(!closed.ogs_kifu.busy, "a reopened window is free");
+
+    world.release_held(fg);
+    serve(&mut wb, &world, fg, 20, true);
+    let after = wb.view(false);
+    assert_eq!(after.engine.unrestored, None);
+    assert_eq!(
+        after.document.id, before.document.id,
+        "the closed window's record is not adopted"
+    );
+    assert_eq!(after.open_outcome, None, "nothing tells of an open");
+    assert_eq!(
+        (after.ogs_kifu.opened, after.ogs_kifu.busy),
+        (0, false),
+        "no after-open action"
     );
 }
 

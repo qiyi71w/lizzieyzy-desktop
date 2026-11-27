@@ -3,17 +3,68 @@
 // document content (strength.css); the two move charts paint on a canvas from the tokens (paint.ts)
 // with Java's hit targets, hover states and tooltips.
 import type { MoveRank, StrengthReport, StrengthSample, StrengthSideReport, StrengthSummary } from "../contract/generated";
-import { t } from "../i18n";
+import { product, registerProduct, t } from "../i18n";
 import {
   aiLikelihood, averageScoreLossText, confidenceText, hasSamples, highestDanLevel, isGoodMove, javaFixed, javaFormat, MOVE_RANKS,
-  moveRankName, percentText, rankScaleRows, rankScaleSelectedIndex, rankScalePlainText, rankScaleTooltip, sideRankText, strengthLabel,
-  weightedScoreLossText,
+  moveRankName, percentText, rankScalePlainText, rankScaleTooltip, sideRankText, strengthLabel, weightedScoreLossText,
 } from "./format";
 import { ff, fillRound, line, metrics, painted, palette, setFont, stone, strokeRound, text, width, type G, type Painted } from "./paint";
+import { rankRuler } from "./scale";
 
 const i = Math.trunc;
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
 const sideName = (black: boolean) => (black ? t("Menu.Black") : t("Menu.White"));
+
+// What the 发挥水准 counts and rates and the HumanSL figures of 详细数据 mean; Java shows them
+// without help.
+registerProduct({
+  ZhCn: {
+    strengthPerformanceCountHelp: "这一方下出这一等级的手数。",
+    strengthPerformanceRateHelp: "这一等级的手数占这一方参与评估手数的比例。",
+    strengthHumanSlDifficultyHelp:
+      "按人类风格模型估计，业余 9 段棋手在这一方面对的局面里下出亏损超过 1.2 目的棋的平均可能（0–100），越高局面越难。只统计 AI 分析覆盖了 9 段棋手九成以上可能下法的局面。",
+    strengthHumanSlCoverageHelp: "按人类风格模型估计，AI 分析过的候选点占业余 9 段棋手可能下法的比例，按这一方每手平均。越高，难度一项越可靠。",
+  },
+  ZhTw: {
+    strengthPerformanceCountHelp: "這一方下出這一等級的手數。",
+    strengthPerformanceRateHelp: "這一等級的手數佔這一方參與評估手數的比例。",
+    strengthHumanSlDifficultyHelp:
+      "按人類風格模型估計，業餘 9 段棋手在這一方面對的局面裡下出虧損超過 1.2 目的棋的平均可能（0–100），越高局面越難。只統計 AI 分析涵蓋了 9 段棋手九成以上可能下法的局面。",
+    strengthHumanSlCoverageHelp: "按人類風格模型估計，AI 分析過的候選點佔業餘 9 段棋手可能下法的比例，按這一方每手平均。越高，難度一項越可靠。",
+  },
+  EnUs: {
+    strengthPerformanceCountHelp: "Moves of this side in this rank.",
+    strengthPerformanceRateHelp: "Share of this side's counted moves that are in this rank.",
+    strengthHumanSlDifficultyHelp:
+      "Human-style estimate of how likely a 9-dan amateur would be to lose more than 1.2 points in the positions this side faced, averaged (0–100). Higher means harder positions. Only positions where the AI analysis covers at least 90% of the 9-dan's likely moves count.",
+    strengthHumanSlCoverageHelp:
+      "Human-style estimate of how much of a 9-dan amateur's likely moves the AI analysis covered, averaged over this side's moves. The higher it is, the more reliable the difficulty.",
+  },
+  JaJp: {
+    strengthPerformanceCountHelp: "この側でこの評価になった手数です。",
+    strengthPerformanceRateHelp: "この側の評価に使った手数のうち、この評価になった手の割合です。",
+    strengthHumanSlDifficultyHelp:
+      "人間スタイルモデルによる推定で、この側が直面した局面でアマ九段が 1.2 目を超えて損をする手を打つ平均的な可能性（0〜100）です。高いほど難しい局面です。AI の解析がアマ九段の打ちそうな手の 9 割以上をカバーした局面だけを数えます。",
+    strengthHumanSlCoverageHelp:
+      "人間スタイルモデルによる推定で、アマ九段が打ちそうな手のうち AI が解析した候補手が占める割合を、この側の着手ごとに平均したものです。高いほど難易度の信頼性が高くなります。",
+  },
+  KoKr: {
+    strengthPerformanceCountHelp: "이쪽에서 이 등급에 해당하는 수입니다.",
+    strengthPerformanceRateHelp: "이쪽에서 평가에 쓰인 수 가운데 이 등급에 해당하는 수의 비율입니다.",
+    strengthHumanSlDifficultyHelp:
+      "사람 스타일 모델의 추정으로, 이쪽이 마주한 국면에서 아마 9단이 1.2집 넘게 손해 보는 수를 둘 평균 가능성(0~100)입니다. 높을수록 어려운 국면입니다. AI 분석이 아마 9단이 둘 만한 수의 90% 이상을 포함한 국면만 셉니다.",
+    strengthHumanSlCoverageHelp:
+      "사람 스타일 모델의 추정으로, 아마 9단이 둘 만한 수 가운데 AI가 분석한 후보수가 차지하는 비율을 이쪽의 수마다 평균한 값입니다. 높을수록 난이도를 더 믿을 수 있습니다.",
+  },
+  ThTh: {
+    strengthPerformanceCountHelp: "จำนวนตาของฝ่ายนี้ที่อยู่ในระดับนี้",
+    strengthPerformanceRateHelp: "สัดส่วนของตาในระดับนี้ เทียบกับตาทั้งหมดของฝ่ายนี้ที่ใช้ในการประเมิน",
+    strengthHumanSlDifficultyHelp:
+      "ค่าประมาณจากโมเดลสไตล์มนุษย์: โอกาสเฉลี่ย (0–100) ที่นักเล่นสมัครเล่น 9 ดั้งจะเดินเสียเกิน 1.2 แต้มในตำแหน่งที่ฝ่ายนี้เจอ ยิ่งสูงตำแหน่งยิ่งยาก นับเฉพาะตำแหน่งที่การวิเคราะห์ของ AI ครอบคลุมตาที่ 9 ดั้งน่าจะเดินอย่างน้อย 90%",
+    strengthHumanSlCoverageHelp:
+      "ค่าประมาณจากโมเดลสไตล์มนุษย์: สัดส่วนของตาที่นักเล่นสมัครเล่น 9 ดั้งน่าจะเดินซึ่ง AI ได้วิเคราะห์ไว้ เฉลี่ยต่อตาของฝ่ายนี้ ยิ่งสูง ค่าความยากยิ่งเชื่อถือได้",
+  },
+});
 
 export function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", content = ""): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -27,6 +78,15 @@ export function stoneMark(black: boolean): HTMLElement {
   const s = el("span", `ps-stone ${black ? "black" : "white"}`);
   s.setAttribute("aria-hidden", "true");
   return s;
+}
+
+/** Explains a figure on hover and to screen readers (Java's StrengthText.wrappedTooltip help);
+ *  `tag` names it for the acceptance probe. */
+export function explain<T extends HTMLElement>(e: T, help: string, tag: string): T {
+  e.title = help;
+  e.setAttribute("aria-description", help);
+  e.dataset.help = tag;
+  return e;
 }
 
 /** A section's heading: the side's stone and its title. */
@@ -53,56 +113,62 @@ export interface CardTexts {
   metrics: string[];
 }
 
-/** PlayerStrengthAssessmentCard: the side, its rank and 可信度, five metric rows with their bars
- *  and the 段位标尺 scale. The tooltip and accessible texts are Java's. */
+/** PlayerStrengthAssessmentCard: the side, its rank and 可信度, the 段位标尺 ruler with the rank
+ *  marked (StrengthRankCard) and five metric rows with their bars. The card explains the rank
+ *  with the scale (StrengthText.scaleTooltip), 可信度 and each metric with their own help. */
 export function assessmentSection(black: boolean, side: StrengthSideReport, humanSl: boolean): { element: HTMLElement; drawn: CardTexts } {
   const report = side.summary;
   const drawn: CardTexts = { rank: sideRankText(report), confidence: confidenceText(report.confidence), metrics: [] };
+  const tag = black ? "black" : "white";
   const section = el("section", "ps-side");
   section.title = rankScaleTooltip(side);
+  section.dataset.help = `${tag}.rank`;
+  section.dataset.side = tag;
   section.setAttribute("aria-label", `${sideName(black)} ${t("PlayerStrengthEstimate.title")}`);
-  section.setAttribute("aria-description", rankScalePlainText(side));
+  section.setAttribute("aria-description", `${t("PlayerStrengthEstimate.help.rank")} ${rankScalePlainText(side)}`);
 
   const figure = el("div", "ps-figure");
-  figure.append(el("span", "ps-headline", drawn.rank), el("span", "ps-label", `${t("PlayerStrengthEstimate.confidence")}: ${drawn.confidence}`));
+  figure.append(
+    el("span", "ps-headline", drawn.rank),
+    explain(el("span", "ps-label", `${t("PlayerStrengthEstimate.confidence")}: ${drawn.confidence}`), t("PlayerStrengthEstimate.help.confidence"), `${tag}.confidence`),
+  );
 
   const rows = el("div", "ps-metrics");
   const moves = t("PlayerStrengthEstimate.moves");
-  const metric = (label: string, value: string, fraction: number, kind: string) => {
+  const metric = (label: string, value: string, fraction: number, kind: string, help: string, name: string) => {
     // drawMetricRow: an empty HumanSL 40 side shows "-" and empty bars except for 手数.
     if (humanSl && !hasSamples(report) && label !== moves) {
       value = "-";
       fraction = 0;
     }
     drawn.metrics.push(value);
-    const row = el("div", "ps-metric");
+    const row = explain(el("div", "ps-metric"), help, `${tag}.${name}`);
     row.append(el("span", "ps-label", label), el("span", "ps-value", value), meter(fraction, kind));
     rows.append(row);
   };
-  metric(moves, String(report.sample_count), clamp(report.sample_count / 240, 0, 1), "ps-fill-rate");
-  metric(t("PlayerStrengthEstimate.firstChoice"), percentText(report.first_choice_rate), report.first_choice_rate, "ps-fill-rate");
-  metric(t("PlayerStrengthEstimate.goodMoveRate"), percentText(report.move_rank_good_move_rate), report.move_rank_good_move_rate, "ps-fill-rate");
-  metric(t("PlayerStrengthEstimate.avgScoreLoss"), averageScoreLossText(report), 1 - clamp(report.average_score_equivalent_loss / 8, 0, 1), "ps-fill-loss");
-  metric(t("PlayerStrengthEstimate.weightedScoreLoss"), weightedScoreLossText(report), 1 - clamp(report.weighted_score_loss / 8, 0, 1), "ps-fill-loss");
+  metric(moves, String(report.sample_count), clamp(report.sample_count / 240, 0, 1), "ps-fill-rate", t("PlayerStrengthEstimate.help.moves"), "moves");
+  metric(t("PlayerStrengthEstimate.firstChoice"), percentText(report.first_choice_rate), report.first_choice_rate, "ps-fill-rate",
+    t("PlayerStrengthEstimate.help.firstChoice"), "firstChoice");
+  metric(t("PlayerStrengthEstimate.goodMoveRate"), percentText(report.move_rank_good_move_rate), report.move_rank_good_move_rate, "ps-fill-rate",
+    t("PlayerStrengthEstimate.help.goodMoveRate"), "goodMoveRate");
+  metric(t("PlayerStrengthEstimate.avgScoreLoss"), averageScoreLossText(report), 1 - clamp(report.average_score_equivalent_loss / 8, 0, 1), "ps-fill-loss",
+    t("PlayerStrengthEstimate.help.avgScoreLoss"), "avgScoreLoss");
+  metric(t("PlayerStrengthEstimate.weightedScoreLoss"), weightedScoreLossText(report), 1 - clamp(report.weighted_score_loss / 8, 0, 1), "ps-fill-loss",
+    t("PlayerStrengthEstimate.help.weightedScoreLoss"), "weightedScoreLoss");
 
-  // The scale with the side's band marked.
+  // StrengthRankCard.paintScale: the track filled up to the side's rank.
   const scale = el("div", "ps-scale");
-  scale.append(el("div", "ps-label", t("PlayerStrengthEstimate.rank.scale")));
-  const selected = humanSl && !hasSamples(report) ? -1 : rankScaleSelectedIndex(report.rank_value);
-  rankScaleRows().forEach(([key, name], k) => {
-    const row = el("div", k === selected ? "ps-scale-row selected" : "ps-scale-row");
-    row.append(el("span", "ps-scale-dot"), el("span", "ps-scale-key", key), el("span", "", name));
-    scale.append(row);
-  });
+  const rank = hasSamples(report) && report.rank_value !== null && Number.isFinite(report.rank_value) ? report.rank_value : null;
+  scale.append(el("div", "ps-label", t("PlayerStrengthEstimate.rank.scale")), rankRuler([{ rank, black: null }], true));
 
-  const body = el("div", "ps-side-body");
-  body.append(rows, scale);
-  section.append(sideHeading(black, sideName(black) + t("PlayerStrengthEstimate.performanceSuffix")), figure, body);
+  section.append(sideHeading(black, sideName(black) + t("PlayerStrengthEstimate.performanceSuffix")), figure, scale, rows);
   return { element: section, drawn };
 }
 
-/** PlayerStrengthMatchSummaryCard: the 吻合度 ring with its figure and four small figures. */
+/** PlayerStrengthMatchSummaryCard: the 吻合度 ring with its figure and four small figures, each
+ *  explained by its help (StrengthAccuracyCard). */
 export function matchSummary(black: boolean, report: StrengthSummary): HTMLElement {
+  const tag = black ? "black" : "white";
   const section = el("section", "ps-side ps-match-summary");
   const ring = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   ring.setAttribute("class", "ps-ring");
@@ -113,16 +179,16 @@ export function matchSummary(black: boolean, report: StrengthSummary): HTMLEleme
   ring.innerHTML = `<circle class="ps-ring-track" cx="22" cy="22" r="18"/>${value > 0 ? `<circle class="ps-ring-value" cx="22" cy="22" r="18" pathLength="100" stroke-dasharray="${value * 100} 100" transform="rotate(-90 22 22)"/>` : ""}`;
   const figure = el("div", "ps-figure");
   figure.append(el("span", "ps-headline", percentText(report.match_rate)), el("span", "ps-label", t("PlayerStrengthEstimate.match.overallMatch")));
-  const lead = el("div", "ps-ring-row");
+  const lead = explain(el("div", "ps-ring-row"), t("PlayerStrengthEstimate.help.overallMatch"), `${tag}.overallMatch`);
   lead.append(ring, figure);
   const stats = el("div", "ps-stats");
-  for (const [label, shown] of [
-    [t("PlayerStrengthEstimate.firstChoice"), percentText(report.first_choice_rate)],
-    [t("PlayerStrengthEstimate.goodMoveRate"), percentText(report.move_rank_good_move_rate)],
-    [t("PlayerStrengthEstimate.moves"), String(report.sample_count)],
-    [t("PlayerStrengthEstimate.mistakeRate"), percentText(report.mistake_rate)],
-  ] as [string, string][]) {
-    const stat = el("div", "ps-stat");
+  for (const [label, shown, help, name] of [
+    [t("PlayerStrengthEstimate.firstChoice"), percentText(report.first_choice_rate), t("PlayerStrengthEstimate.help.firstChoice"), "firstChoice"],
+    [t("PlayerStrengthEstimate.goodMoveRate"), percentText(report.move_rank_good_move_rate), t("PlayerStrengthEstimate.help.goodMoveRate"), "goodMoveRate"],
+    [t("PlayerStrengthEstimate.moves"), String(report.sample_count), t("PlayerStrengthEstimate.help.moves"), "moves"],
+    [t("PlayerStrengthEstimate.mistakeRate"), percentText(report.mistake_rate), t("PlayerStrengthEstimate.help.mistakeRate"), "mistakeRate"],
+  ] as [string, string, string, string][]) {
+    const stat = explain(el("div", "ps-stat"), help, `${tag}.${name}`);
     stat.append(el("span", "ps-label", label), el("span", "ps-value", shown));
     stats.append(stat);
   }
@@ -439,7 +505,10 @@ export function performancePanel(report: StrengthReport): HTMLElement {
       const row = el("div", `ps-rank-row rank-${RANK_CLASS[rank]}`);
       const name = el("span", "ps-rank-name");
       name.append(el("span", "ps-rank-dot"), moveRankName(rank));
-      row.append(name, el("span", "ps-value ps-num", String(counts[k])), meter(fraction, "ps-fill-rank"), el("span", "ps-num", `${javaFixed(fraction * 100, 1)}%`));
+      const tag = `performance.${black ? "black" : "white"}.${RANK_CLASS[rank]}`;
+      const count = explain(el("span", "ps-value ps-num", String(counts[k])), product("strengthPerformanceCountHelp"), `${tag}.count`);
+      const rate = explain(el("span", "ps-num", `${javaFixed(fraction * 100, 1)}%`), product("strengthPerformanceRateHelp"), `${tag}.rate`);
+      row.append(name, count, meter(fraction, "ps-fill-rank"), rate);
       table.append(row);
     });
     section.append(heading, table);
@@ -496,14 +565,16 @@ export function matchChart(report: StrengthReport): Painted {
   const near = (p: { x: number; y: number }, b: { x: number; y: number; w: number; h: number }) =>
     p.x >= b.x - 6 && p.y >= b.y - 10 && p.x < b.x + b.w + 6 && p.y < b.y + b.h + 10;
 
-  /** rankTooltipAt: the black section's windows first. */
+  /** rankTooltipAt: the black section's windows first, named like Java's dialog names the sides
+   *  (SidebarHeader.black / white). */
   const tooltipAt = (p: { x: number; y: number }, w: number, h: number): string | null => {
     const { chartX, chartWidth, max, sectionHeight } = geometry(w, h);
     for (const [side, black, sideTop] of [[report.black, true, 0], [report.white, false, sectionHeight]] as const) {
       for (const segment of shown(side)) {
         // Rectangle.grow(6, 10).contains.
         if (!near(p, windowBounds(segment.first_move, segment.last_move, chartX, rowsOf(sideTop, sectionHeight).rankY, chartWidth, max))) continue;
-        return javaFormat(t("PlayerStrengthEstimate.match.rankTooltip"), sideName(black), segment.first_move, segment.last_move, strengthLabel(segment.summary));
+        const player = black ? t("SidebarHeader.black") : t("SidebarHeader.white");
+        return javaFormat(t("PlayerStrengthEstimate.match.rankTooltip"), player, segment.first_move, segment.last_move, strengthLabel(segment.summary));
       }
     }
     return null;

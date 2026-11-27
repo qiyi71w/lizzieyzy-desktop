@@ -1,12 +1,14 @@
 // 野狐棋谱 entries (同步 > 野狐棋谱, the toolbar's 野狐棋谱 button and the bottom 同步 popup;
-// `openFoxReq`) and the relay to its window. The core owns the search and its list; the window
-// shows them.
+// `openFoxReq`), function search's 打开棋谱后此窗口 and the relay to its window. The core owns the
+// search and its list; the window shows them.
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { registerViewHandler, run, state } from "../app";
+import { frameMetrics } from "../appearance/state";
 import { COMMANDS, type CommandEntry } from "../commands";
 import type { WorkbenchView } from "../contract/generated";
 import { language, t } from "../i18n";
+import { afterGetRequest } from "./afterGet";
 import { FOX_KIFU_DATA_EVENT, FOX_KIFU_INPUT_EVENT, FOX_KIFU_LABEL, type FoxKifuInput, type FoxKifuPayload, type FoxKifuReport } from "./model";
 
 let lastSent = "";
@@ -29,8 +31,13 @@ export async function openFoxKifu(): Promise<void> {
   }
 }
 
+/** Function search's 打开棋谱后此窗口: the window comes up with that choice located, unchanged. */
+const afterGet = afterGetRequest(openFoxKifu, () => {
+  if (state.view) relay(state.view);
+});
+
 function relay(v: WorkbenchView): void {
-  const payload: FoxKifuPayload = { language: language(), view: v.fox_kifu };
+  const payload: FoxKifuPayload = { language: language(), frameFontSize: frameMetrics().frameFontSize, locate: afterGet.request, view: v.fox_kifu };
   const text = JSON.stringify(payload);
   if (text === lastSent) return;
   lastSent = text;
@@ -45,6 +52,8 @@ export async function startFoxKifu(): Promise<void> {
     if (e.payload.type === "ready") {
       lastSent = "";
       if (state.view) relay(state.view);
+    } else if (e.payload.type === "located") {
+      afterGet.located(e.payload.request);
     } else report = e.payload.report;
   });
 }
@@ -56,4 +65,5 @@ export function foxKifuReport() {
 
 Object.assign(COMMANDS, {
   "menu.foxKifu": { run: () => void openFoxKifu() },
+  "fox.after-get": { run: () => void afterGet.locate(), locate: () => afterGet.locate() },
 } satisfies Record<string, CommandEntry>);

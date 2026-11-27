@@ -6,6 +6,9 @@ use crate::{
 };
 use std::path::Path;
 
+/// Java `PlayerStrengthEstimator.MIN_REPORT_SAMPLES`: a report with fewer analysed moves has no figures.
+const MIN_REPORT_SAMPLES: u32 = 6;
+
 pub fn estimate(
     input: &MainLineInput,
     model_id: &str,
@@ -41,9 +44,56 @@ pub(super) fn assemble(
         model: model.view(),
         black: summarize_samples(&black, model),
         white: summarize_samples(&white, model),
-        enough_data: overall.summary.sample_count >= 6,
+        enough_data: overall.summary.sample_count >= MIN_REPORT_SAMPLES,
         overall,
     }
+}
+/// The strength dialog's [`StrengthContext`] for `report`, estimated from `input` by any model while
+/// `analyzing` tells whether an analysis of the game is running (Java `StrengthDashboard.showReport`
+/// with `StrengthDialogHost.analysisProgress` and `analysisReady`). `human_style_download` is passed
+/// through.
+pub fn context(
+    input: &MainLineInput,
+    report: &StrengthReport,
+    analyzing: bool,
+    human_style_download: Option<u64>,
+    settings: &DisplaySettings,
+) -> StrengthContext {
+    let moves = input.positions.get(1..).unwrap_or_default();
+    let analyzed = moves
+        .iter()
+        .filter(|p| p.analysis.as_ref().is_some_and(|a| a.visits > 0))
+        .count() as u32;
+    let total = moves.len() as u32;
+    let stage = if report.enough_data {
+        // Less than nine in ten moves analysed: the figures may be off.
+        StrengthStage::Ready {
+            partial: !analyzing && u64::from(analyzed) * 10 < u64::from(total) * 9,
+        }
+    } else if report.model.human_sl && standard_ready(input, settings) {
+        StrengthStage::NeedsHumanStyle
+    } else if !analyzing && analyzed >= total {
+        StrengthStage::TooShort
+    } else {
+        StrengthStage::NeedsAnalysis
+    };
+    StrengthContext {
+        stage,
+        analyzed,
+        total,
+        analyzing,
+        human_style_download,
+    }
+}
+/// The standard model has enough analysed moves (`StrengthDialogHost.analysisReady`): its samples
+/// do not depend on the model.
+fn standard_ready(input: &MainLineInput, settings: &DisplaySettings) -> bool {
+    input
+        .positions
+        .windows(2)
+        .filter(|pair| sample(&pair[0], &pair[1], settings).is_some())
+        .count() as u32
+        >= MIN_REPORT_SAMPLES
 }
 fn candidate_score(c: &CandidateInput) -> Option<f64> {
     if c.kata {
@@ -239,7 +289,7 @@ fn weighted(samples: &[&StrengthSample], fallback: f64) -> f64 {
         sum / weights
     }
 }
-fn summary(samples: &[StrengthSample], model: &StrengthModel) -> StrengthSummary {
+pub(super) fn summary(samples: &[StrengthSample], model: &StrengthModel) -> StrengthSummary {
     let n = samples.len();
     if n == 0 {
         return StrengthSummary {

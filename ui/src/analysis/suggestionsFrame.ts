@@ -222,21 +222,25 @@ function breakable(text: string): (string | HTMLElement)[] {
 }
 
 /** The actual move's cell text in parts: in 序号 its rank with a smaller 实战 note under it
- *  ("15(实战)"; an actual move outside the candidates has the note alone), in a figure column a
- *  smaller change before the value ("↓-4.6(50.4)"), so the value lines up with the column's
- *  other rows; a column too narrow for both breaks between them. */
+ *  ("15(实战)"; an actual move outside the candidates has the note alone), in a figure column the
+ *  value with its change after it in smaller type ("50.4 ↓4.6", wording.ts withChange); a column
+ *  too narrow for both breaks between them. */
 export function actualParts(text: string, rank: boolean): (string | HTMLElement)[] {
-  const open = text.indexOf("(");
-  if (open <= 0 && !rank) return [text];
   const note = document.createElement("span");
   note.className = "actual-note";
+  if (!rank) {
+    const space = text.indexOf(" ");
+    if (space < 0) return [text];
+    note.textContent = text.slice(space + 1);
+    return [text.slice(0, space), document.createElement("wbr"), note];
+  }
+  const open = text.indexOf("(");
   if (open <= 0) {
     note.textContent = text;
     return [note];
   }
-  const head = text.slice(0, open), inner = text.slice(open + 1, text.lastIndexOf(")"));
-  note.textContent = rank ? inner : head;
-  return rank ? [head, note] : [note, document.createElement("wbr"), inner];
+  note.textContent = text.slice(open + 1, text.lastIndexOf(")"));
+  return [text.slice(0, open), note];
 }
 
 export function bootFrame(): void {

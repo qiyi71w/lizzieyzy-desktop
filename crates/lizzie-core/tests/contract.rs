@@ -44,8 +44,9 @@ fn generate() -> String {
         Command, CommandResult, ErrorKind, ApiError,
         DocumentView, TreeNodeKind, TreeNodeView, TreeView, LastAction, PositionView,
         OpenOutcome, SaveOutcome, PendingOpen, EngineSettingsView, SettingsView, StoneSound,
-        EngineState, EngineEntryView, ForegroundEngineView, EngineView, CandidateView, NodeAnalysisView,
-        HistoryPoint, EngineFailureView, EngineNotice, ConsoleLineKind, ConsoleLineView, RulesPromptView,
+        EngineState, EngineEntryView, ForegroundEngineView, EngineView, AnalysisStatus, ZhiziConnection, CandidateView, NodeAnalysisView,
+        HistoryPoint, EngineFailureView, EngineNotice, ConsoleLineKind, ConsoleLineView, RulesPromptView, RulesStatus,
+        SessionRulesView,
         WorkbenchView, LogsStatus, JavaImportView, ImportStatus, ImportReason, ImportTarget, ImportItemView,
         EngineProblem, ImportEngineView, ImportPreviewView, ImportReportView, ImportFailure,
         ImportCommentaryCredential,
@@ -81,13 +82,14 @@ fn generate() -> String {
         RawNetMode, RawNetView,
         EstimateStyle, CoordinateStyle, PvVisitsMode,
         KataEstimateMode, KataEstimateState, KataEstimateView, ScoreCommand, ScorePoint, ScoreView, ScoreVerdict,
-        MoveEvaluation, MoveChange, StatisticsView, FramePlacement,
+        MoveEvaluation, MoveChange, StatisticsView, lizzie_core::api::WinrateReading, FramePlacement,
+        lizzie_core::settings::BigWinrateSettings, lizzie_core::settings::BigWinrateStyle,
         ExtraMode, SecondaryEngineView, SecondaryView,
         AnalysisEngineSettings, QuickModelView, QuickModelStatus, QuickAnalysisView, ProblemListSettings,
         HumanSlSettingsView, HumanSlModelView, HumanSlModelStatus, CoachLevelView,
         lizzie_core::settings::HumanSlSettings, lizzie_core::settings::HumanSlTrainingSettings,
         lizzie_core::settings::TrainingMode, lizzie_core::humansl::CoachLevel,
-        lizzie_core::humansl::CoachLevelKind, lizzie_core::humansl::Pace,
+        lizzie_core::humansl::CoachLevelKind, lizzie_core::humansl::CoachGrade, lizzie_core::humansl::Pace,
         lizzie_core::settings::PlayerColor,
         ProblemSide, ProblemSort, ProblemListView, ProblemMoveView, LeaseAvailabilityView, UnrestoredReason,
         FlashTarget, FlashRange, FlashAnalysisView, FlashOutcome,
@@ -110,14 +112,21 @@ fn generate() -> String {
         lizzie_core::api::MatchRulesUnverified, lizzie_core::api::MatchEnd,
         lizzie_core::api::MatchOutcomeView, lizzie_core::api::MatchNotice,
         lizzie_core::api::MatchWinrateImageRequest, lizzie_core::api::MatchSettingsView,
+        lizzie_core::api::MatchParametersView, lizzie_core::api::MatchParameterPosition,
+        lizzie_core::api::MatchParameterValue, lizzie_core::api::MatchParameter,
+        lizzie_core::api::MatchParameterFailure, lizzie_core::api::MatchParameterFailureReason,
         lizzie_core::settings::MatchTimeMode, lizzie_core::settings::MatchIdentity,
         lizzie_core::settings::MatchResignPolicy, lizzie_core::settings::MatchSettings,
+        lizzie_core::settings::MatchOpeningParameters,
         HumanSlCommand, HumanSlPhase, HumanSlStartupStage, HumanSlSide, HumanSlAnalysisDisplay,
         HumanSlView, HumanSlNotice, HumanSlResult,
-        HumanSlContinuation,
+        HumanSlContinuation, HumanSlDecision, HumanSlFeedbackView, HumanSlLastMove, HumanSlHintView,
+        HumanSlDecisionView, lizzie_core::humansl::feedback::MoveFeedback, lizzie_core::humansl::feedback::Verdict,
+        lizzie_core::humansl::assist::HintStep, lizzie_core::humansl::assist::CoachMarks,
         StrengthCommand, StrengthView, StrengthStatusView, StrengthManualView, StrengthManualOutcome,
         StrengthModelView, StrengthReport, StrengthSideReport, StrengthSegment, StrengthSummary,
-        StrengthSample, StrengthConfidence, StrengthMoveCategory,
+        StrengthSample, StrengthConfidence, StrengthMoveCategory, StrengthContext, StrengthStage,
+        StrengthPhases, StrengthPhase, PhaseSide, PhaseBadge, PhaseVerdict, PhaseReview,
         CommentaryCommand, ConnectionCommand, CommentaryView, CommentaryMode, CommentaryProvider,
         WebBoardCommand, WebBoardView,
         UpdateCommand, UpdateOrigin, UpdateOutcome, UpdateDownloadPhase, UpdateError, UpdateOfferView,
@@ -131,6 +140,8 @@ fn generate() -> String {
         lizzie_core::settings::KifuAfterGet, lizzie_core::settings::FoxRecentSearch,
         TencentKifuCommand, TencentKifuView, TencentKifuRow, TencentKifuBusy,
         lizzie_core::settings::TencentRecentSearch,
+        OgsKifuCommand, OgsKifuView, OgsKifuRow, OgsKifuLabel, OgsKifuStatus,
+        lizzie_core::ogs_kifu::OgsFailure,
         FunctionMatch, FunctionTarget, MatchLevel, SettingsSection,
         lizzie_core::settings::PanelSettings, lizzie_core::settings::PanelSizes,
         lizzie_core::settings::PanelArrangement, lizzie_core::settings::ArrangedPanel,
@@ -153,7 +164,7 @@ fn generate() -> String {
         lizzie_core::tsumego::TsumegoAttacker, lizzie_core::tsumego::TsumegoKoThreat,
         lizzie_core::tsumego::capture::CapturedProblem, lizzie_core::tsumego::capture::CapturePreview,
         lizzie_core::engine::ssh::SshSettings, lizzie_core::engine::ssh::RemoteFailure,
-        lizzie_core::engine::cloud::CloudStartFailure,
+        lizzie_core::engine::cloud::CloudStartFailure, lizzie_core::engine::diagnosis::StartupDiagnosis,
         SshCredentialCommand, SshPasswordState,
         ContributionCommand, ContributionFile, ContributionLink, ContributionPhase, ContributionTip,
         ContributionGameView, ContributionView, ContributionNotice, SavedEngineKind, SavedEngineReason,
@@ -180,24 +191,32 @@ fn generate() -> String {
     out
 }
 
-/// The core's rules presets and engine-game rules choices, for the rules editor's 典型规则 buttons
-/// and the 本局规则 picker: the UI keeps no copy of its own.
+/// The core's rules presets, rule sets and engine-game rules choices, for the rules editor's 典型规则
+/// buttons, the 规则面板's list and the 本局规则 picker: the UI keeps no copy of its own.
 fn rule_constants() -> String {
-    use lizzie_core::engine::rules::{KataRules, MATCH_RULE_OPTIONS, PRESETS};
+    use lizzie_core::engine::rules::{KataRules, MATCH_RULE_OPTIONS, PRESETS, RULE_SETS};
+    let json = |rules: &KataRules| serde_json::from_str::<serde_json::Value>(&rules.to_gtp_argument()).unwrap();
     let presets: serde_json::Map<String, serde_json::Value> = PRESETS
         .iter()
-        .map(|p| {
-            let rules = KataRules::preset(p.0).unwrap().to_gtp_argument();
-            (p.0.to_string(), serde_json::from_str(&rules).unwrap())
-        })
+        .map(|p| (p.0.to_string(), json(&KataRules::preset(p.0).unwrap())))
         .collect();
-    let options: Vec<[&str; 2]> = MATCH_RULE_OPTIONS.iter().map(|o| [o.0, o.1]).collect();
+    let sets: Vec<serde_json::Value> = RULE_SETS
+        .iter()
+        .map(|s| serde_json::json!({ "id": s.id, "labelKey": s.label_key, "komi": s.komi, "rules": json(s.rules()) }))
+        .collect();
+    let options: Vec<serde_json::Value> = MATCH_RULE_OPTIONS
+        .iter()
+        .map(|o| serde_json::json!({ "id": o.id, "rules": o.rules, "labelKey": o.label_key, "komi": o.komi() }))
+        .collect();
     format!(
         "/** KataGo's official rules presets (`KataGoRules.officialPresets`), by name. */\n\
          export const KATA_RULE_PRESETS: Readonly<Record<string, Readonly<Record<string, string | boolean>>>> = {};\n\n\
-         /** The engine game's standard rules choices: preset name and label key (`MatchRuleOption`). */\n\
-         export const MATCH_RULE_OPTIONS: ReadonlyArray<readonly [preset: string, labelKey: string]> = {};\n",
+         /** The rule sets in their list order (`RulePreset`): id, label key, komi and rules. */\n\
+         export const RULE_SETS: ReadonlyArray<{{ readonly id: string; readonly labelKey: string; readonly komi: number; readonly rules: Readonly<Record<string, string | boolean>> }}> = {};\n\n\
+         /** The engine game's standard rules choices (`MatchRuleOption`): id, the rules sent, label key and komi. */\n\
+         export const MATCH_RULE_OPTIONS: ReadonlyArray<{{ readonly id: string; readonly rules: string; readonly labelKey: string; readonly komi: number | null }}> = {};\n",
         serde_json::to_string(&presets).unwrap(),
+        serde_json::to_string(&sets).unwrap(),
         serde_json::to_string(&options).unwrap(),
     )
 }

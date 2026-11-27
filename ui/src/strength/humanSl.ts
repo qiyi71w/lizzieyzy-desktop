@@ -4,14 +4,27 @@
 import { registerViewHandler, run, state } from "../app";
 import { dispatch } from "../contract/client";
 import { errorText } from "../errorText";
+import { diagnosisText } from "../engine/diagnosis";
 import type { StrengthManualOutcome } from "../contract/generated";
 import { chooseSave, message } from "../dialogs";
-import { format, product, t } from "../i18n";
+import { format, product, registerProduct, t } from "../i18n";
 import { resourceCommand, resourceView } from "../setup/dialog";
+import { size } from "../setup/setupText";
 import { humanSlText } from "./format";
 import { openWindow } from "./window";
 
 const TITLE = "HumanSL 40";
+
+// Java's prompt (HumanSL40.downloadPrompt) says "about 99 MB"; this one names the size of the
+// resource catalogue's weights, as 棋力评估's human-style page does.
+registerProduct({
+  ZhCn: { strengthHumanStyleDownloadPrompt: "此测评需要补充模型（约 {0}），现在下载吗？" },
+  ZhTw: { strengthHumanStyleDownloadPrompt: "此評估需要補充模型（約 {0}），現在下載嗎？" },
+  EnUs: { strengthHumanStyleDownloadPrompt: "This assessment needs an additional model (about {0}). Download now?" },
+  JaJp: { strengthHumanStyleDownloadPrompt: "この評価には追加モデル（約 {0}）が必要です。ダウンロードしますか？" },
+  KoKr: { strengthHumanStyleDownloadPrompt: "이 평가에는 추가 모델(약 {0})이 필요합니다. 지금 다운로드할까요?" },
+  ThTh: { strengthHumanStyleDownloadPrompt: "การประเมินนี้ต้องใช้โมเดลเพิ่มเติม (ประมาณ {0}) ดาวน์โหลดเลยไหม?" },
+});
 
 interface Progress {
   update(): void;
@@ -33,8 +46,10 @@ export function progressReport(): ProgressReport | null {
   return current?.report() ?? null;
 }
 
-/** errorText: a HumanSL40.* key as its text, any other error after HumanSL40.failed. */
+/** errorText: a HumanSL40.* key as its text, any other error after HumanSL40.failed; a policy
+ *  engine refused with an explanation (a packaged engine too new for this macOS) shows it there. */
 function failureText(outcome: Extract<StrengthManualOutcome, { type: "Failed" }>): string {
+  if (outcome.diagnosis) return `${t("HumanSL40.failed")}\n${diagnosisText(outcome.diagnosis)}`;
   return outcome.detail !== null ? `${t("HumanSL40.failed")}\n${outcome.detail}` : humanSlText(outcome.message_key);
 }
 
@@ -60,13 +75,26 @@ async function startRun(resume: boolean): Promise<boolean | "download"> {
   return false;
 }
 
+/** The download prompt with the size the human-style page names: the strength report's (the
+ *  resource catalogue's weights, formatted as the setup dialog does). */
+async function downloadPrompt(): Promise<string> {
+  let bytes: number | null = null;
+  try {
+    const result = await dispatch({ type: "Strength", op: { type: "Report" } });
+    if (result.type === "Strength") bytes = result.context.human_style_download;
+  } catch {
+    // The size is then unknown, as size() says.
+  }
+  return product("strengthHumanStyleDownloadPrompt", size(bytes));
+}
+
 /** Resolves once the dialog (or the prompt that ended the run) is gone. */
 export async function prepareHumanSl(): Promise<void> {
   const previousRun = state.view?.strength.manual?.run ?? 0;
   const started = await startRun(false);
   if (started === true) return progressDialog(false, previousRun);
   // JOptionPane.YES_NO_OPTION titled "HumanSL 40".
-  if (started === "download" && (await chooseSave(TITLE, t("HumanSL40.downloadPrompt"), product("yes"), product("no")))) {
+  if (started === "download" && (await chooseSave(TITLE, await downloadPrompt(), product("yes"), product("no")))) {
     await progressDialog(true, previousRun);
   }
 }

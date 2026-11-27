@@ -3,6 +3,7 @@ import { registerViewHandler, run, state } from "../app";
 import type { Asset, ExperimentalBackend, InstalledPackage, ResourceCommand, ResourceEngineChoice, ResourcePlanView, ResourceResult, ResourcesView, TuningView } from "../contract/generated";
 import { ask, closeBox, message } from "../dialogs";
 import { footer } from "../engine/controls";
+import { diagnosisText } from "../engine/diagnosis";
 import { product, t } from "../i18n";
 import { tuningText } from "../engine/tuningText";
 import { messageText } from "../errorText";
@@ -44,8 +45,9 @@ registerViewHandler((view) => {
     const id = `resource:${outcome.task}:${outcome.status}`;
     if (!seenOutcomes.has(id)) {
       seenOutcomes.add(id);
-      const text = resourceText(outcome.messageKey);
-      footerStatus = text.includes("%s") ? javaFormat(text, outcome.detail) : `${text}${outcome.detail ? `\n${outcome.detail}` : ""}`;
+      // A packaged engine the check refused reads as that explanation, as in the failure window.
+      const text = outcome.diagnosis ? diagnosisText(outcome.diagnosis) : resourceText(outcome.messageKey);
+      footerStatus = outcome.diagnosis ? text : text.includes("%s") ? javaFormat(text, outcome.detail) : `${text}${outcome.detail ? `\n${outcome.detail}` : ""}`;
       if (outcome.status === "failed") void message(t("AutoSetup.failed"), footerStatus, "error");
     }
   }
