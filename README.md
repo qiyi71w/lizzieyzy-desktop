@@ -1229,8 +1229,8 @@ importing the matching LizzieYzy Next settings.
   and balance orders. 自建算力 takes a `ws://` or `wss://` KataGo Analysis WebSocket link,
   including one imported from a QR image. It is not a raw GTP-over-WebSocket endpoint. In a
   window narrower than about 660 px the center stacks its two columns, and a column too narrow
-  at the interface font puts 连接方式 and 智子模型 above their fields, so the fields keep room
-  for their values.
+  at the interface font puts the labels of 连接方式, 智子模型 and the sign-in fields above their
+  fields, so the fields keep room for their values and the sign-in hints.
   - Sign-in and account refresh do not start an engine. 启用智子云算力 or 使用此远程链接
     explicitly selects and starts the configured service; 创建订单 separately authorizes an
     order. Failed or uncertain order creation is not automatically retried. Closing a payment

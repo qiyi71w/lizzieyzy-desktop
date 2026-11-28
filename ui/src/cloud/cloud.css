@@ -351,9 +351,12 @@
   justify-self: start;
 }
 /* A column too narrow for the label beside its field at the interface font (a small window, a
-   large font) puts each label above its field, so the field takes the whole width. */
+   large font) puts each label above its field, so the field takes the whole width: the plan's
+   fields, and the sign-in fields, whose hints (Japanese's 電話番号またはメールアドレス) are cut
+   beside their labels. */
 @container rc-column (max-width: 24em) {
-  .rc-plan {
+  .rc-plan,
+  .rc-login .rc-field {
     grid-template-columns: minmax(0, 1fr);
     gap: 4px;
   }
@@ -362,6 +365,17 @@
   }
   .rc-official {
     grid-column: 1;
+  }
+  /* With the labels above, what stood under the fields' column starts where the fields do; the
+     code field takes its row too, 发送验证码 under it. */
+  .rc-login > :is(.rc-hint, .rc-options, .rc-login-button) {
+    margin-left: 0;
+  }
+  .rc-login .rc-code {
+    flex-wrap: wrap;
+  }
+  .rc-login .rc-code > input {
+    flex-basis: 100%;
   }
 }
 /* A refresh beside the list it reloads: the icon alone, as square as a field is tall. */
