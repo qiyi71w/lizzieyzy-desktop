@@ -1643,7 +1643,9 @@ importing the matching LizzieYzy Next settings.
   that is over no other engine game can start; starting one is refused, as while a game runs. A
   process that has ended in the meantime is not written (its
   replacement keeps its own values) and is reported; one that refuses or does not answer is
-  reported and stopped rather than reused.
+  reported and stopped rather than reused. A participant whose connection closes while it is
+  getting its values back is unrestored because the restore failed (恢复失败, as for 快析), not
+  because it could not be stopped.
   对局参数 (棋局 > 对局参数, the top toolbar's 对局参数 beside 暂停, function search): while an
   analysis-mode game is playing or paused, a panel shows 黑方设置 and 白方设置 columns with each
   side's engine (引擎 1 / 引擎 2), its confirmed 广度 and 激进度 (未确认 while unknown, 不支持 for

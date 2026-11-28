@@ -313,6 +313,15 @@ impl Workbench {
         })
     }
 
+    /// The batch's end is giving `instance`, a process it captured, its values back.
+    pub(super) fn match_params_restoring_to(&self, instance: InstanceId) -> bool {
+        self.matches.run.as_ref().is_some_and(|r| {
+            r.parameters.as_ref().is_some_and(|s| {
+                matches!(s.work, Some(Work::Restore(_))) && s.originals.iter().any(|o| o.instance == instance)
+            })
+        })
+    }
+
     /// The game's opening values (Java `applyOpening`), once both participants answered their
     /// setup: true when they are confirmed (or the batch has no session), false while they are
     /// written or after they failed. Every participant is checked before anything is sent, and
