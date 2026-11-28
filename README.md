@@ -118,10 +118,7 @@ importing the matching LizzieYzy Next settings.
   menus' row. Lines break at the spaces between the names first, and a hyphenated name or file
   name that fits on a line is not broken at its hyphen; only a name or file name wider than the
   whole row breaks inside itself (Chinese, Japanese and Korean between characters, a long word
-  with no break point of its own at any letter), so the title never reaches past the window.
-  Known limitation: on macOS, when a Chinese, Japanese or Korean name is followed by a part in
-  parentheses, such as `申真谞 (Result:B+R)`, the line may break just after the `(` instead of
-  at the space before it; the title stays complete and still takes at most two lines. A
+  with no break point of its own at any letter), so the title never reaches past the window. A
   game that does not fit on two lines ends the second in "…", and hovering the row shows the
   whole title; the system title shown by the taskbar or window list is always complete. A game
   title of ordinary length is shown whole in all six interface languages. That row leaves out

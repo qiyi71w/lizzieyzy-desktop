@@ -1491,8 +1491,14 @@ fn profile_thread_policy_controls_launch_and_bootstrap() {
         if expected {
             let overrides = tuning::overrides(&args);
             assert_eq!(overrides["numsearchthreads"], "8");
-            assert_eq!(overrides["numnnserverthreadspermodel"], "2");
-            assert_eq!(overrides["nnmaxbatchsize"], "16");
+            if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+                // Apple Silicon leaves these to its hardware profile (`apply_apple_launch_policy`).
+                assert!(!overrides.contains_key("numnnserverthreadspermodel"));
+                assert!(!overrides.contains_key("nnmaxbatchsize"));
+            } else {
+                assert_eq!(overrides["numnnserverthreadspermodel"], "2");
+                assert_eq!(overrides["nnmaxbatchsize"], "16");
+            }
         }
         wb.end_engines();
     }

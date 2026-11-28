@@ -164,7 +164,13 @@ fn policy_launch_is_scoped_and_user_overrides_win() {
     tuning::apply_launch_policy(&target.command, Some(&p), &mut spec);
     let overrides = tuning::overrides(&spec.args);
     assert_eq!(overrides["numsearchthreads"], "8");
-    assert_eq!(overrides["nnmaxbatchsize"], "16");
+    if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        // Apple Silicon leaves these to its hardware profile (`apply_apple_launch_policy`).
+        assert!(!overrides.contains_key("numnnserverthreadspermodel"));
+        assert!(!overrides.contains_key("nnmaxbatchsize"));
+    } else {
+        assert_eq!(overrides["nnmaxbatchsize"], "16");
+    }
     p.source = ThreadSource::CFG;
     assert_eq!(p.threads_for_launch(&target.command), 0);
     p.source = ThreadSource::BENCHMARK;

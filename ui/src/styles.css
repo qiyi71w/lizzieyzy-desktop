@@ -138,11 +138,17 @@ body {
   -webkit-line-clamp: 2;
   overflow: hidden;
   text-wrap: balance;
-  /* Lines break at the spaces, between the names and the result (windowBar.ts keeps a hyphen
-     from breaking a part); only a name or file wider than the whole row breaks inside itself,
-     Chinese, Japanese and Korean between characters and a word without a break anywhere. */
+  /* Lines break at the spaces, between the names and the result (windowBar.ts keeps a hyphen or
+     an opening bracket from breaking a part); only a name or file wider than the whole row breaks
+     inside itself, Chinese, Japanese and Korean between characters and a word without a break
+     anywhere. */
   word-break: keep-all;
   overflow-wrap: anywhere;
+}
+/* A part the row holds on one line, where the engine would break it after an opening bracket
+   (windowBar.ts keepPartsWhole). */
+#menubar[data-title-row] .title-part {
+  white-space: nowrap;
 }
 /* The title row is the window's whole width on macOS too: the clearance for the system's window
    buttons (the bar's 78 px start, 72 px more than elsewhere) belongs to the menus' row only. */

@@ -35,6 +35,9 @@ fn fixture(mut replies: impl FnMut(Request) -> Reply + Send + 'static, count: us
                     Err(e) => panic!("fixture accept: {e}"),
                 }
             };
+            // The accepted socket inherits the listener's non-blocking mode on macOS and Windows;
+            // the fixture reads it synchronously, bounded by `read_request`'s timeout.
+            stream.set_nonblocking(false).unwrap();
             let reply = replies(read_request(&mut stream));
             let body = reply.body.to_string();
             let response = format!("HTTP/1.1 {} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n{}\r\n{}",reply.status,body.len(),reply.headers,body);
@@ -305,6 +308,7 @@ fn closing_one_owner_cancels_all_its_reads_without_touching_other_owners_or_engi
                     Err(e)=>panic!("fixture accept: {e}"),
                 }
             };
+            stream.set_nonblocking(false).unwrap();
             let release=server_release.clone();
             let arrived=arrived_tx.clone();
             workers.push(thread::spawn(move || {
@@ -412,6 +416,7 @@ fn socket_token_adapter_obeys_the_transport_startup_budget() {
                     Err(e)=>panic!("socket fixture: {e}"),
                 }
             };
+            stream.set_nonblocking(false).unwrap();
             stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
             let mut peer=accept(stream).unwrap();
             peer.send(Message::Text("0{\"sid\":\"fixture\",\"upgrades\":[],\"pingInterval\":25000,\"pingTimeout\":20000}".into())).unwrap();
