@@ -342,15 +342,17 @@ mod tests {
             let _stop = Cancel(&cancel);
             assert_eq!(request(port, Duration::ZERO, &["GET /auth/elsewhere HTTP/1.1\r\n"]), 400);
             // The browser connects, then sends the request line late and in two pieces.
+            let late = Duration::from_millis(120);
             let (head, tail) = valid.split_at(valid.len() / 2);
             let first = format!("GET {head}");
             let second = format!("{tail} HTTP/1.1\r\n");
-            assert_eq!(request(port, Duration::from_millis(120), &[&first, &second]), 200);
+            assert_eq!(request(port, late, &[&first, &second]), 200);
             let values = completion.recv_timeout(Duration::from_secs(5)).unwrap();
             assert_eq!(values.get("code").map(String::as_str), Some("fixture-code"));
-            // While the sign-in completes, the same callback again is a conflict.
-            let again = format!("GET {valid} HTTP/1.1\r\n");
-            assert_eq!(request(port, Duration::ZERO, &[&again]), 409);
+            // While the sign-in completes, the same callback again is a conflict and an invalid
+            // one still bad, however late their request lines arrive.
+            assert_eq!(request(port, late, &[&first, &second]), 409);
+            assert_eq!(request(port, late, &["GET /auth/else", "where HTTP/1.1\r\n"]), 400);
             release.send(()).unwrap();
             assert!(server.join().unwrap().is_ok());
         });
