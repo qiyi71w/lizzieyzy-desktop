@@ -2071,7 +2071,6 @@ impl Workbench {
 
     /// The engine part of the view; `recognised` is [`Self::foreground_rules`] for its caption.
     pub(super) fn engine_view(&self, recognised: Option<Recognition>) -> EngineView {
-        let running: Vec<_> = self.engines.running_profiles().collect();
         let fg = self.engines.foreground();
         let engines = self
             .config
@@ -2081,8 +2080,9 @@ impl Workbench {
             .map(|p| EngineEntryView {
                 name: p.name.clone(),
                 command: sanitize(&p.command),
-                state: running
-                    .iter()
+                state: self
+                    .engines
+                    .running_profiles()
                     .find(|(_, profile, _)| profile.id == p.id)
                     .map(|(_, _, phase)| match phase {
                         Phase::Starting => EngineState::Loading,
@@ -2163,7 +2163,7 @@ impl Workbench {
             search_threads_operation: self.search_threads_operation_view(),
             custom_pda: self.custom_pda_view(),
             priority_points: self.priority_points_at(self.cursor).to_vec(),
-            zhizi: self.zhizi_connection(&running),
+            zhizi: self.zhizi_connection(),
         }
     }
 

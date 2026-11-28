@@ -74,7 +74,7 @@ impl Reviewer {
         self.judged.iter().rev().find(|(n, _)| *n == node).map(|(_, f)| f)
     }
 
-    pub(super) fn ratings(&self) -> impl Iterator<Item = &MoveFeedback> {
+    pub(super) fn ratings(&self) -> impl Iterator<Item = &MoveFeedback> + Clone {
         self.judged.iter().map(|(_, f)| f)
     }
 
@@ -115,8 +115,7 @@ impl Reviewer {
 
     /// `judged` changed: its summary follows.
     fn judged_changed(&mut self) {
-        let ratings: Vec<MoveFeedback> = self.ratings().cloned().collect();
-        self.summary = feedback::RatingSummary::of(&ratings);
+        self.summary = feedback::RatingSummary::of(self.ratings());
     }
 }
 

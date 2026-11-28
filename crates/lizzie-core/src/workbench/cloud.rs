@@ -194,9 +194,9 @@ impl Workbench {
     }
 
     /// The 主/对比智子引擎 connections, whatever engine or account is chosen (Java
-    /// `EngineManager.zhiziConnectionState`), from the `running` instances the engine view lists.
-    pub(super) fn zhizi_connection(&self, running: &[(InstanceId, &EngineProfile, Phase)]) -> ZhiziConnection {
-        let engines = zhizi_engines(running.iter().copied());
+    /// `EngineManager.zhiziConnectionState`), from the running instances.
+    pub(super) fn zhizi_connection(&self) -> ZhiziConnection {
+        let engines = zhizi_engines(self.engines.running_profiles());
         if self.zhizi_busy(&engines) {
             ZhiziConnection::Busy
         } else if engines.is_empty() {
