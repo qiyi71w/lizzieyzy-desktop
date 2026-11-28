@@ -3,5 +3,5 @@
   "identifier": "commentary",
   "description": "AI commentary window events and close control",
   "windows": ["commentary"],
-  "permissions": ["core:default", "core:window:allow-close", "core:window:allow-set-focus"]
+  "permissions": ["core:event:allow-listen", "core:event:allow-emit-to", "core:window:allow-close", "core:window:allow-set-focus"]
 }

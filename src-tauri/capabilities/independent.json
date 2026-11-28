@@ -4,9 +4,11 @@
   "description": "Floating main and sub boards relay board input and adjust their undecorated frame bounds",
   "windows": ["independent-main", "independent-sub"],
   "permissions": [
-    "core:default",
+    "core:event:allow-listen",
+    "core:event:allow-emit-to",
+    "core:window:allow-scale-factor",
+    "core:window:allow-outer-position",
     "core:window:allow-set-size",
-    "core:window:allow-set-position",
-    "core:window:allow-set-always-on-top"
+    "core:window:allow-set-position"
   ]
 }

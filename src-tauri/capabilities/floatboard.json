@@ -3,5 +3,5 @@
   "identifier": "readboard-float",
   "description": "棋盘同步工具's float board relays its input to the main window; src-tauri places it",
   "windows": ["readboard-float"],
-  "permissions": ["core:default"]
+  "permissions": ["core:event:allow-listen", "core:event:allow-emit-to"]
 }

@@ -4,7 +4,8 @@
   "description": "腾讯棋谱 (TencentKifuDownload): sends its commands, comes forward for its progress and hides on Escape",
   "windows": ["tencent-kifu"],
   "permissions": [
-    "core:default",
+    "core:event:allow-listen",
+    "core:event:allow-emit-to",
     "core:window:allow-show",
     "core:window:allow-unminimize",
     "core:window:allow-set-focus",

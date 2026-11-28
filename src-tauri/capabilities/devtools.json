@@ -1,0 +1,25 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "child-devtools",
+  "description": "Debug builds' Ctrl+Shift+I (macOS Cmd+Alt+I), which Tauri adds to every page, opens the developer tools of each local child window too; release builds have no such shortcut",
+  "windows": [
+    "batch-table",
+    "big-winrate",
+    "commentary",
+    "control-panel",
+    "readboard-float",
+    "fox-kifu",
+    "hawkeye",
+    "hawkeye-sub",
+    "independent-main",
+    "independent-sub",
+    "ogs-kifu",
+    "suggestions",
+    "suggestions-sub",
+    "tencent-kifu",
+    "tsumego-capture",
+    "yike-live"
+  ],
+  "webviews": ["yike-bar"],
+  "permissions": ["core:webview:allow-internal-toggle-devtools"]
+}

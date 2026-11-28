@@ -3,5 +3,5 @@
   "identifier": "control-panel",
   "description": "独立棋局控制面板 (Controller): shows its buttons in the language the main window relays and reports each press",
   "windows": ["control-panel"],
-  "permissions": ["core:default"]
+  "permissions": ["core:event:allow-listen", "core:event:allow-emit-to"]
 }

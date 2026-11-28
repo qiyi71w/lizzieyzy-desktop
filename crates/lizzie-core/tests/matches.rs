@@ -1481,6 +1481,40 @@ fn match_rules_keep_windows_and_unc_paths_in_engine_commands_as_typed() {
     assert!(summary.text.contains(&format!("\r\nCommand:{masked}")), "{}", summary.text);
 }
 
+/// Credentials Java's masking left partly visible are masked whole in the details window and
+/// the saved rules block, while the other side's UNC path stays as typed.
+#[test]
+fn match_rules_mask_values_between_escaped_quotes_and_behind_escaped_percent_signs() {
+    let plain = r"\\wsl.localhost\Ubuntu\katago gtp -override-config logDir=\\wsl.localhost\Ubuntu\logs";
+    for (command, masked) in [
+        (r#"/opt/katago gtp -override-config password=\"SECRET RET\""#, r#"/opt/katago gtp -override-config password=\"<redacted>\""#),
+        (r#"plink -pw \"SEC RET\" user@host ./katago gtp"#, "plink -pw <redacted> user@host ./katago gtp"),
+        (r"/opt/katago gtp -override-config password\u0025\u0033dSECRET", "/opt/katago gtp -override-config password%3d<redacted>"),
+    ] {
+        let mut m = Match::with_profiles(
+            Some("en-US"),
+            vec![
+                EngineProfile { id: "one".into(), name: "First".into(), command: command.into(), ..EngineProfile::default() },
+                EngineProfile { id: "two".into(), name: "Second".into(), command: plain.into(), ..EngineProfile::default() },
+            ],
+        );
+        m.start(batch());
+        m.serve(&|_, _| None);
+        let shown = details(&m).unwrap();
+        assert!(shown.contains(&format!("Black: First ({masked})\nStatus: confirmed\n")), "{shown}");
+        assert!(shown.contains(&format!("White: Second ({plain})\nStatus: confirmed\n")), "{shown}");
+        m.finish_turn("resign");
+        let jobs = m.wb.take_background_saves();
+        let sgf = jobs.iter().find(|j| j.path.extension().is_some_and(|e| e == "sgf")).unwrap();
+        let record = lizzie_core::formats::parse(lizzie_core::record::RecordFormat::Sgf, &sgf.text, false).unwrap();
+        let root = &record.node(ROOT).comment;
+        assert!(root.contains(&shown), "the saved block is the details text: {root}");
+        for text in [&shown, &sgf.text] {
+            assert!(!text.contains("SEC") && !text.contains("RET"), "{text}");
+        }
+    }
+}
+
 #[test]
 fn spec_08_query_only_rules_are_checked_instead_of_offered_as_unverified() {
     // MatchRulesAdmission.java:36–40,167–180,202–210: a queryable side must return

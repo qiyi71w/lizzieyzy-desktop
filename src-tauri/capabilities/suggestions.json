@@ -3,5 +3,5 @@
   "identifier": "suggestions",
   "description": "独立选点列表 (AnalysisFrame): the primary window and 双引擎模式's secondary one render what the main window relays and report their input",
   "windows": ["suggestions", "suggestions-sub"],
-  "permissions": ["core:default"]
+  "permissions": ["core:event:allow-listen", "core:event:allow-emit-to"]
 }
