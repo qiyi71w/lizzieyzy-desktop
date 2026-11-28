@@ -374,7 +374,7 @@ impl Workbench {
     /// handicap game, the komi new games start with (the chosen rule set's, or 7.5); else the
     /// current komi.
     pub(super) fn human_sl_even_komi(&self, rules: Option<Recognition>, chosen: Option<&RuleSet>) -> f64 {
-        RuleSet::even_game_komi_of(rules, self.komi, self.doc.record.info.handicap > 0, chosen)
+        RuleSet::even_game_komi(rules, self.komi, self.doc.record.info.handicap > 0, chosen)
     }
 
     /// The companion's analysis command before the HumanSL model is added, or the key of the first

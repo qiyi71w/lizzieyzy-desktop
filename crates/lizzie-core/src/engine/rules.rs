@@ -348,16 +348,12 @@ impl RuleSet {
         matches().find(|s| !s.draw_rule || single)
     }
 
-    /// The komi of an even game under the rules KataGo plays now (`RulePreset.evenGameKomi`):
-    /// that of the rule set they are, such as 7 for the 2027 rules or 6.5 for the Japanese; else,
-    /// after a handicap game, the komi new games start with (the chosen rule set's, or 7.5); else
-    /// the current game's `komi`.
-    pub fn even_game_komi(rules: Option<&KataRules>, komi: f64, handicap_game: bool, chosen: Option<&RuleSet>) -> f64 {
-        RuleSet::even_game_komi_of(rules.map(|r| Recognition::of(r, komi, chosen)), komi, handicap_game, chosen)
-    }
-
-    /// [`Self::even_game_komi`] from the rules' [`Recognition`] with the same `komi` and `chosen`.
-    pub fn even_game_komi_of(rules: Option<Recognition>, komi: f64, handicap_game: bool, chosen: Option<&RuleSet>) -> f64 {
+    /// The komi of an even game under the rules KataGo plays now (`RulePreset.evenGameKomi`),
+    /// from their [`Recognition`] with the game's `komi` and the rule set `chosen`: that of the
+    /// rule set they are, such as 7 for the 2027 rules or 6.5 for the Japanese; else, after a
+    /// handicap game, the komi new games start with (the chosen rule set's, or 7.5); else the
+    /// current game's `komi`.
+    pub fn even_game_komi(rules: Option<Recognition>, komi: f64, handicap_game: bool, chosen: Option<&RuleSet>) -> f64 {
         match rules.and_then(|r| r.set) {
             Some(set) => set.komi,
             None if handicap_game => chosen.map_or(NEW_GAME_KOMI, |c| c.komi),
@@ -406,7 +402,8 @@ impl Recognition {
         Recognition { summary, set: RuleSet::recognise(rules, summary, komi, chosen) }
     }
 
-    /// [`KataRules::caption_key`].
+    /// The captured-panel rules caption key (`RulePreset.captionKey`): the rule set's short name
+    /// when these rules and komi are one, else the rules' summary.
     pub fn caption_key(&self) -> &'static str {
         self.set.map_or(self.summary, RuleSet::caption_key)
     }
@@ -551,12 +548,6 @@ impl KataRules {
         } else {
             "LizzieFrame.currentRules.others"
         }
-    }
-
-    /// The captured-panel rules caption key with the game's `komi` (`RulePreset.captionKey`): the
-    /// rule set's short name when these rules and komi are one, else the rules' summary.
-    pub fn caption_key(&self, komi: f64, chosen: Option<&RuleSet>) -> &'static str {
-        Recognition::of(self, komi, chosen).caption_key()
     }
 
     pub fn field(&self, name: &str) -> Option<&Value> {

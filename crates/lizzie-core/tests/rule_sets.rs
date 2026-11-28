@@ -1,7 +1,7 @@
 //! The rule sets (Java `RulePreset`): KataGo rules with the komi that belongs to them, which rule
 //! set given rules and a komi are, the rules caption they give and the komi of an even game.
 
-use lizzie_core::engine::rules::{KataRules, MatchRuleOption, RuleSet, MATCH_RULE_OPTIONS, RULE_SETS};
+use lizzie_core::engine::rules::{KataRules, MatchRuleOption, Recognition, RuleSet, MATCH_RULE_OPTIONS, RULE_SETS};
 
 /// KataGo's `kata-get-rules` answers.
 const CHINESE: &str = r#"{"friendlyPassOk":true,"hasButton":false,"ko":"SIMPLE","scoring":"AREA","suicide":false,"tax":"NONE","whiteHandicapBonus":"N"}"#;
@@ -107,7 +107,7 @@ fn rule_sets_of_their_own_rules_ignore_komi() {
 /// `RulePreset.captionKey`: the rule set's short name for the 2027 rules, else the rules' summary.
 #[test]
 fn the_caption_names_the_rule_set_else_the_rules() {
-    let caption = |text: &str, komi: f64, chosen: Option<&str>| rules(text).caption_key(komi, chosen.map(set));
+    let caption = |text: &str, komi: f64, chosen: Option<&str>| Recognition::of(&rules(text), komi, chosen.map(set)).caption_key();
     assert_eq!(caption(CHINESE, 7.0, None), "LizzieFrame.currentRules.chinese2027");
     assert_eq!(caption(CHINESE, 7.5, None), "LizzieFrame.currentRules.chinese");
     assert_eq!(
@@ -138,7 +138,8 @@ fn the_caption_names_the_rule_set_else_the_rules() {
 #[test]
 fn the_even_game_komi_follows_the_rule_set() {
     let even = |text: Option<&str>, komi: f64, handicap: bool, chosen: Option<&str>| {
-        RuleSet::even_game_komi(text.map(rules).as_ref(), komi, handicap, chosen.map(set))
+        let chosen = chosen.map(set);
+        RuleSet::even_game_komi(text.map(|t| Recognition::of(&rules(t), komi, chosen)), komi, handicap, chosen)
     };
     assert_eq!(even(Some(CHINESE), 7.0, false, None), 7.0);
     assert_eq!(even(Some(JAPANESE), 7.5, false, None), 6.5);
