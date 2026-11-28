@@ -2,7 +2,7 @@
 // at a time in the order the user issued them (like Swing's event queue), so a quick Down/Up pair
 // can never be applied in the opposite order.
 import { dispatch, nativeDialog } from "./contract/client";
-import type { Command, CommandResult, CommentLabels, ExportKind, GameInfo, Navigation, StoneSound, TreeNodeView, WorkbenchView } from "./contract/generated";
+import type { CoachLevelView, Command, CommandResult, CommentLabels, ExportKind, GameInfo, Navigation, StoneSound, TreeNodeView, WorkbenchView } from "./contract/generated";
 import { ask, confirm, message, timedMessage } from "./dialogs";
 import { product, t } from "./i18n";
 import { tuningText } from "./engine/tuningText";
@@ -24,6 +24,8 @@ export const state = {
   /** Last stone sound requested and how many were requested (reported to acceptance automation). */
   lastSound: null as StoneSound | null,
   soundRequests: 0,
+  /** Every HumanSL opponent, weakest first: the catalogue of the last full view. */
+  humanSlLevels: [] as readonly CoachLevelView[],
 };
 
 const listeners: (() => void)[] = [];
@@ -50,6 +52,7 @@ export function apply(view: WorkbenchView): void {
     for (let n = state.root; state.nodes.get(n)?.children.length; n = state.nodes.get(n)!.children[0]) count++;
     state.mainLineNodes = count;
   }
+  if (view.human_sl_levels) state.humanSlLevels = view.human_sl_levels;
   const line = new Set(view.position.path);
   for (let n: number | undefined = view.position.node; n !== undefined && n !== view.position.line_end; ) {
     n = state.nodes.get(n)?.children[0];

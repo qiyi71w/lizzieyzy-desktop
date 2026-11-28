@@ -230,7 +230,7 @@ pub const WORST_SHOWN: usize = 3;
 
 /// How many of `ratings` got each rating, in [`Verdict`] order: 妙手, 好棋, 缓手, 问题手, 恶手
 /// (`MoveReviewer.count`).
-pub fn counts(ratings: &[MoveFeedback]) -> [u32; 5] {
+pub fn counts<'a>(ratings: impl IntoIterator<Item = &'a MoveFeedback>) -> [u32; 5] {
     let mut counts = [0; 5];
     for r in ratings {
         counts[r.verdict as usize] += 1;
@@ -239,15 +239,40 @@ pub fn counts(ratings: &[MoveFeedback]) -> [u32; 5] {
 }
 
 /// The game's key mistakes: its 恶手, a 问题手 not counting (`MoveReviewer.keyMistakes`).
-pub fn key_mistakes(ratings: &[MoveFeedback]) -> u32 {
-    counts(ratings)[Verdict::Blunder as usize]
+pub fn key_mistakes<'a>(ratings: impl IntoIterator<Item = &'a MoveFeedback>) -> u32 {
+    blunders(&counts(ratings))
+}
+
+/// The 恶手 among [`counts`].
+fn blunders(counts: &[u32; 5]) -> u32 {
+    counts[Verdict::Blunder as usize]
+}
+
+/// What the summary says of a game's ratings: how many got each rating ([`counts`]), its key
+/// mistakes ([`key_mistakes`]) and the [`WORST_SHOWN`] worst mistakes ([`worst_mistakes`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct RatingSummary {
+    pub counts: [u32; 5],
+    pub key_mistakes: u32,
+    pub worst: Vec<MoveFeedback>,
+}
+
+impl RatingSummary {
+    pub fn of<'a>(ratings: impl Iterator<Item = &'a MoveFeedback> + Clone) -> RatingSummary {
+        let counts = counts(ratings.clone());
+        RatingSummary {
+            counts,
+            key_mistakes: blunders(&counts),
+            worst: worst_mistakes(ratings, WORST_SHOWN),
+        }
+    }
 }
 
 /// The `n` worst of the player's mistakes, in the order played (`MoveReviewer.worstMistakes`): the
 /// most severe rating first, among equal ratings the largest drop of the win chance, then the
 /// earlier move.
-pub fn worst_mistakes(ratings: &[MoveFeedback], n: usize) -> Vec<MoveFeedback> {
-    let mut worst: Vec<&MoveFeedback> = ratings.iter().filter(|r| r.verdict.is_mistake()).collect();
+pub fn worst_mistakes<'a>(ratings: impl IntoIterator<Item = &'a MoveFeedback>, n: usize) -> Vec<MoveFeedback> {
+    let mut worst: Vec<&MoveFeedback> = ratings.into_iter().filter(|r| r.verdict.is_mistake()).collect();
     // A stable sort keeps the order played among equals.
     worst.sort_by(|a, b| b.verdict.cmp(&a.verdict).then(a.win_change().total_cmp(&b.win_change())));
     worst.truncate(n);

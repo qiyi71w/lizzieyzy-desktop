@@ -1203,8 +1203,12 @@ async fn run_command(app: AppHandle, shared: State, command: Command) -> Result<
             Ok(result)
         }
         Command::Strength { op } => {
+            // A phases preview only answers the dialog's draft; it changes nothing to publish.
+            let preview = matches!(op, lizzie_core::api::StrengthCommand::PreviewPhases { .. });
             let result = shared.workbench.lock().unwrap().strength(op)?;
-            publish(&app, &shared);
+            if !preview {
+                publish(&app, &shared);
+            }
             Ok(result)
         }
         Command::WebBoard { op: WebBoardCommand::Start } => Ok(web_board::start(&app, &shared)),

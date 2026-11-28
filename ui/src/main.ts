@@ -113,6 +113,7 @@ import {
   prepare,
   coordinateLook,
   nameWinrates,
+  rawNetLineShown,
   ARROW,
   SCROLLBAR,
   type BoardReport,
@@ -1788,8 +1789,10 @@ function renderDual(v: WorkbenchView, d: DualPanels, W: number, H: number, size:
     coach: null,
   };
   const previewSig = scene.preview ? `${scene.preview.order}:${scene.preview.length}:${scene.preview.pv.length}` : "";
-  // The names' win rates are the node's reading, as on the main board (BoardRenderer.drawName).
-  const namesSig = `${scene.names}:${scene.nameWinrates?.black ?? ""}`;
+  // The names' win rates are the node's reading, as on the main board (BoardRenderer.drawName);
+  // a reading change repaints the right board only while it draws the names.
+  const namesDrawn = scene.names && !rawNetLineShown(scene);
+  const namesSig = `${scene.names}:${namesDrawn ? scene.nameWinrates?.black ?? "" : ""}`;
   if (changed("board2", `${size}:${docSig}:${secondaryRevision}:${displaySig2}:${ui}:${scene.hovered}:${previewSig}:${namesSig}:${layerSignature("right", scene.ownership)}:${scoreSig}:${scene.mark?.x},${scene.mark?.y}:${JSON.stringify(clickReviewReport())}`))
     rightReport = paintBoard(prepare($("board2"), d.right), mainGeom(v, d.right), d.right, scene);
   // drawPonderingStateForExtraMode2 (LizzieFrame.java:6663-6719): each engine's name and 思考

@@ -321,6 +321,9 @@ pub struct Workbench {
     session_rules: analysis::SessionRules,
     /// Increases whenever the session rules are published anew.
     rules_revision: u64,
+    /// [`crate::engine::rules::RuleSet::chosen`] of the engine settings, kept between views; read
+    /// through [`Workbench::chosen_rule_set`].
+    chosen_rule_set: crate::engine::rules::ChosenRuleSet,
     /// The rules target and engines the user chose to analyse with their own rules.
     rules_override: Option<analysis::RulesKey>,
     /// The rules target and engines already asked about.
@@ -506,6 +509,7 @@ impl Workbench {
             secondary_fallback: None,
             session_rules: analysis::SessionRules::Unspecified,
             rules_revision: 0,
+            chosen_rule_set: Default::default(),
             rules_override: None,
             rules_prompted: None,
             pending_prompt: None,
@@ -1231,9 +1235,13 @@ impl Workbench {
 
     /// Builds the next view for the UI. `full` always includes the tree (initial load, reload);
     /// otherwise the tree is included only when the UI has not received it for this document and
-    /// revision. One-shot parts (open and save outcomes, sound) are handed over here.
+    /// revision, and the OGS 棋谱 window's rows likewise only when they changed. The fixed HumanSL
+    /// opponent catalogue comes with `full` views only. One-shot parts (open and save outcomes,
+    /// sound) are handed over here.
     pub fn view(&mut self, full: bool) -> WorkbenchView {
         self.refresh_commentary_view();
+        self.chosen_rule_set.refresh(&self.config.engine);
+        self.refresh_strength_tail();
         self.seq += 1;
         let current = (self.doc.id, self.doc.revision);
         let tree = if full || self.tree_sent_for != Some(current) {
@@ -1243,6 +1251,8 @@ impl Workbench {
             None
         };
         let mut v = self.build_view(tree);
+        v.human_sl_levels = full.then(human_sl_levels);
+        v.ogs_kifu.rows = self.ogs_kifu_unsent_rows(full);
         v.open_outcome = self.outcome.take();
         v.save_outcome = self.save_outcome.take();
         v.sounds = std::mem::take(&mut self.sounds);
@@ -1269,6 +1279,8 @@ impl Workbench {
     /// nothing is handed over, so what the UI receives does not depend on being observed.
     pub fn inspect(&self) -> WorkbenchView {
         let mut v = self.build_view(Some(tree_view(&self.doc)));
+        v.human_sl_levels = Some(human_sl_levels());
+        v.ogs_kifu.rows = Some(self.ogs_kifu_rows());
         v.open_outcome = self.outcome.clone();
         v.save_outcome = self.save_outcome.clone();
         v.sounds = self.sounds.clone();
@@ -1292,11 +1304,17 @@ impl Workbench {
     /// Everything but the one-shot parts, which [`Self::view`] hands over and [`Self::inspect`]
     /// copies.
     fn build_view(&self, tree: Option<TreeView>) -> WorkbenchView {
+        // Worked out once for the projection: the rules caption and the even-game komi both come
+        // from the foreground rules recognised with the rule set chosen last.
+        let chosen = self.chosen_rule_set();
+        let rules = self.foreground_rules(chosen);
+        let position = self.position_view();
+        let board_captures = (position.black_captures, position.white_captures);
         WorkbenchView {
             seq: self.seq,
             document: self.document_view(),
             tree,
-            position: self.position_view(),
+            position,
             pending_open: self.pending.as_ref().map(|p| PendingOpen {
                 ticket: p.ticket,
                 path: match &p.origin {
@@ -1337,7 +1355,7 @@ impl Workbench {
                 display: self.config.display.clone(),
                 analysis_engine: self.config.analysis_engine.clone(),
                 quick_model: self.quick_model_view(),
-                human_sl: self.human_sl_settings_view(),
+                human_sl: self.human_sl_settings_view(rules, chosen),
                 problems: self.config.problems.clone(),
                 flash_range: self.config.flash_range,
                 auto_analysis: self.config.auto_analysis.clone(),
@@ -1361,7 +1379,7 @@ impl Workbench {
             },
             recent_files: self.config.recent_files.iter().rev().cloned().collect(),
             komi: self.komi,
-            engine: self.engine_view(),
+            engine: self.engine_view(rules),
             full_trace: self.diagnostics.full_trace(),
             fox: self.fox_view(),
             quick: self.quick_view(),
@@ -1391,6 +1409,7 @@ impl Workbench {
             java_import: self.java_import_view(),
             resources: None,
             tuning: None,
+            human_sl_levels: None,
             editing: self.editing_view(),
             recovery: self.recovery_view(),
             readboard: self.readboard_view(),
@@ -1403,7 +1422,7 @@ impl Workbench {
             match_outcome: None,
             match_notices: Vec::new(),
             match_winrate_image: None,
-            human_sl: self.human_sl_view(),
+            human_sl: self.human_sl_view(board_captures),
             strength: self.strength_view(),
             online: self.online_view(),
             commentary: self.commentary_view(),
@@ -1480,6 +1499,11 @@ impl Workbench {
             }),
         }
     }
+}
+
+/// Every HumanSL opponent, weakest first: a fixed catalogue the UI keeps from a full view.
+fn human_sl_levels() -> Vec<crate::api::CoachLevelView> {
+    crate::humansl::CoachLevel::ALL.into_iter().map(Into::into).collect()
 }
 
 /// The stone or pass that leads to a node of `kind`.

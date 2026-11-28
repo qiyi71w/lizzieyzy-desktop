@@ -215,7 +215,7 @@ export function phasesPanel(initial: StrengthPhases, actions: PhaseActions): Pha
     });
     handle.addEventListener("pointermove", (e) => {
       if (drag !== index) return;
-      moveDivider(index, moveAt(e.clientX - canvas.element.getBoundingClientRect().left));
+      moveDivider(index, moveAt(e.clientX - canvas.element.getBoundingClientRect().left), true);
     });
     const release = () => {
       if (drag !== index) return;
@@ -235,7 +235,7 @@ export function phasesPanel(initial: StrengthPhases, actions: PhaseActions): Pha
       const step = e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0;
       if (!step || e.altKey || e.ctrlKey || e.metaKey) return;
       e.preventDefault();
-      if (moveDivider(index, draft[index] + step * (e.shiftKey ? 10 : 1))) void keep(draft);
+      if (moveDivider(index, draft[index] + step * (e.shiftKey ? 10 : 1), false)) void keep(draft);
     });
     return handle;
   });
@@ -263,15 +263,17 @@ export function phasesPanel(initial: StrengthPhases, actions: PhaseActions): Pha
    *  limit on boundaries. */
   const highest = (index: number) => (index === 0 ? draft[1] - min() : Math.max(draft[0] + min(), Math.min(phases.max_bound, axisEnd() - min())));
 
-  /** StrengthPhaseTimeline.moveDivider: within its neighbours, every phase at least ten moves. */
-  function moveDivider(index: number, move: number): boolean {
+  /** StrengthPhaseTimeline.moveDivider: within its neighbours, every phase at least ten moves.
+   *  A drag previews the phases at the draft; a key keeps the draft at once, and the phases come
+   *  with the keep's answer. */
+  function moveDivider(index: number, move: number, dragging: boolean): boolean {
     const low = index === 0 ? min() : draft[0] + min();
     const target = Math.max(low, Math.min(highest(index), move));
     if (target === draft[index]) return false;
     draft = index === 0 ? [target, draft[1]] : [draft[0], target];
     layout();
     canvas.repaint();
-    void preview();
+    if (dragging) void preview();
     return true;
   }
 

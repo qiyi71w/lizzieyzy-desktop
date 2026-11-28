@@ -80,6 +80,10 @@ const ALIASES: [(&str, &str); 15] = [
     ("ing", "goe"),
 ];
 
+/// Each preset's rules, in `PRESETS` order: recognising rules compares with these, so it builds
+/// nothing.
+static PRESET_RULES: LazyLock<Vec<KataRules>> = LazyLock::new(|| PRESETS.iter().map(KataRules::of_preset).collect());
+
 /// An engine-game rules choice (`MatchRuleOption`): rules, the dialog's entry and the komi that goes
 /// with them.
 #[derive(Debug)]
@@ -344,12 +348,13 @@ impl RuleSet {
         matches().find(|s| !s.draw_rule || single)
     }
 
-    /// The komi of an even game under the rules KataGo plays now (`RulePreset.evenGameKomi`):
-    /// that of the rule set they are, such as 7 for the 2027 rules or 6.5 for the Japanese; else,
-    /// after a handicap game, the komi new games start with (the chosen rule set's, or 7.5); else
-    /// the current game's `komi`.
-    pub fn even_game_komi(rules: Option<&KataRules>, komi: f64, handicap_game: bool, chosen: Option<&RuleSet>) -> f64 {
-        match rules.and_then(|r| RuleSet::of(r, komi, chosen)) {
+    /// The komi of an even game under the rules KataGo plays now (`RulePreset.evenGameKomi`),
+    /// from their [`Recognition`] with the game's `komi` and the rule set `chosen`: that of the
+    /// rule set they are, such as 7 for the 2027 rules or 6.5 for the Japanese; else, after a
+    /// handicap game, the komi new games start with (the chosen rule set's, or 7.5); else the
+    /// current game's `komi`.
+    pub fn even_game_komi(rules: Option<Recognition>, komi: f64, handicap_game: bool, chosen: Option<&RuleSet>) -> f64 {
+        match rules.and_then(|r| r.set) {
             Some(set) => set.komi,
             None if handicap_game => chosen.map_or(NEW_GAME_KOMI, |c| c.komi),
             None => komi,
@@ -383,9 +388,78 @@ impl RuleSet {
     }
 }
 
+/// What some rules are with a komi: their summary and the rule set they are ([`RuleSet::of`]).
+/// Worked out once, it gives both the rules caption and the even-game komi.
+#[derive(Clone, Copy, Debug)]
+pub struct Recognition {
+    summary: &'static str,
+    set: Option<&'static RuleSet>,
+}
+
+impl Recognition {
+    pub fn of(rules: &KataRules, komi: f64, chosen: Option<&RuleSet>) -> Recognition {
+        let summary = rules.summary_key();
+        Recognition { summary, set: RuleSet::recognise(rules, summary, komi, chosen) }
+    }
+
+    /// The captured-panel rules caption key (`RulePreset.captionKey`): the rule set's short name
+    /// when these rules and komi are one, else the rules' summary.
+    pub fn caption_key(&self) -> &'static str {
+        self.set.map_or(self.summary, RuleSet::caption_key)
+    }
+}
+
+/// [`RuleSet::chosen`] kept with the settings it was worked out from, so that settings that did
+/// not change are not parsed again; it compares the three settings the answer depends on.
+#[derive(Debug, Default)]
+pub struct ChosenRuleSet {
+    rule_set: Option<String>,
+    auto_load: bool,
+    kata_rules: String,
+    chosen: Option<&'static RuleSet>,
+}
+
+impl ChosenRuleSet {
+    fn holds(&self, settings: &EngineSettings) -> bool {
+        self.auto_load == settings.auto_load_kata_rules
+            && self.rule_set == settings.rule_set
+            && self.kata_rules == settings.kata_rules
+    }
+
+    /// Works the answer out again when `settings` are no longer the ones it was worked out from.
+    pub fn refresh(&mut self, settings: &EngineSettings) {
+        if !self.holds(settings) {
+            *self = ChosenRuleSet {
+                rule_set: settings.rule_set.clone(),
+                auto_load: settings.auto_load_kata_rules,
+                kata_rules: settings.kata_rules.clone(),
+                chosen: RuleSet::chosen(settings),
+            };
+        }
+    }
+
+    /// [`RuleSet::chosen`] for `settings`: the kept answer while they are the ones it was worked
+    /// out from, else worked out now.
+    pub fn get(&self, settings: &EngineSettings) -> Option<&'static RuleSet> {
+        if self.holds(settings) {
+            self.chosen
+        } else {
+            RuleSet::chosen(settings)
+        }
+    }
+}
+
 impl KataRules {
     pub fn preset(name: &str) -> Option<KataRules> {
-        let &(_, ko, scoring, tax, suicide, button, bonus, friendly) = PRESETS.iter().find(|p| p.0 == name)?;
+        KataRules::preset_ref(name).cloned()
+    }
+
+    /// The rules of official preset `name`, from the preset table.
+    fn preset_ref(name: &str) -> Option<&'static KataRules> {
+        PRESETS.iter().position(|p| p.0 == name).map(|at| &PRESET_RULES[at])
+    }
+
+    fn of_preset(&(_, ko, scoring, tax, suicide, button, bonus, friendly): &Preset) -> KataRules {
         let mut m = Map::new();
         m.insert("ko".into(), ko.into());
         m.insert("scoring".into(), scoring.into());
@@ -394,7 +468,7 @@ impl KataRules {
         m.insert("hasButton".into(), button.into());
         m.insert("whiteHandicapBonus".into(), bonus.into());
         m.insert("friendlyPassOk".into(), friendly.into());
-        Some(KataRules(m))
+        KataRules(m)
     }
 
     /// A JSON object (as `kata-get-rules` answers) or a preset name / alias; a GTP `=` prefix is
@@ -424,7 +498,7 @@ impl KataRules {
 
     /// Whether these rules are preset `name` (see `same_as`).
     pub fn matches_preset(&self, name: &str) -> bool {
-        KataRules::preset(name).is_some_and(|preset| self.same_as(&preset))
+        KataRules::preset_ref(name).is_some_and(|preset| self.same_as(preset))
     }
 
     /// Whether these rules are `other`. Territory scoring does not use `friendlyPassOk` (the rules
@@ -456,7 +530,7 @@ impl KataRules {
 
     /// The official preset this value equals, if any.
     pub fn official_name(&self) -> Option<&'static str> {
-        PRESETS.iter().map(|p| p.0).find(|n| self.matches_preset(n))
+        PRESETS.iter().zip(PRESET_RULES.iter()).find(|(_, rules)| self.same_as(rules)).map(|(p, _)| p.0)
     }
 
     /// `KataGoRules.summary().labelKey()`: the rules' summary caption key.
@@ -474,13 +548,6 @@ impl KataRules {
         } else {
             "LizzieFrame.currentRules.others"
         }
-    }
-
-    /// The captured-panel rules caption key with the game's `komi` (`RulePreset.captionKey`): the
-    /// rule set's short name when these rules and komi are one, else the rules' summary.
-    pub fn caption_key(&self, komi: f64, chosen: Option<&RuleSet>) -> &'static str {
-        let summary = self.summary_key();
-        RuleSet::recognise(self, summary, komi, chosen).map_or(summary, RuleSet::caption_key)
     }
 
     pub fn field(&self, name: &str) -> Option<&Value> {

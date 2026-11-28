@@ -14,6 +14,7 @@ import {
   OGS_KIFU_DATA_EVENT,
   OGS_KIFU_INPUT_EVENT,
   OGS_KIFU_LABEL,
+  RelayedRows,
   type OgsKifuInput,
   type OgsKifuPayload,
   type OgsKifuReport,
@@ -23,6 +24,7 @@ import "./text";
 let lastSent = "";
 let report: OgsKifuReport | null = null;
 let opening = false;
+const relayed = new RelayedRows();
 
 /** openKifu(true): the window comes up (or forward) and browsing may preload the analysis engine.
  *  The JFrame follows the main window's 总在最前. */
@@ -46,7 +48,9 @@ const afterGet = afterGetRequest(openOgsKifu, () => {
 });
 
 function relay(v: WorkbenchView): void {
-  const payload: OgsKifuPayload = { language: language(), frameFontSize: frameMetrics().frameFontSize, locate: afterGet.request, view: v.ogs_kifu };
+  const view = relayed.windowView(v.ogs_kifu);
+  if (!view) return;
+  const payload: OgsKifuPayload = { language: language(), frameFontSize: frameMetrics().frameFontSize, locate: afterGet.request, view };
   const text = JSON.stringify(payload);
   if (text === lastSent) return;
   lastSent = text;

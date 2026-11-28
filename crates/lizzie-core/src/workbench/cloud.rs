@@ -21,6 +21,13 @@ fn is_zhizi(profile: &EngineProfile) -> bool {
     profile.cloud.as_ref().is_some_and(|c| c.provider == CloudProvider::Zhizi)
 }
 
+/// Every running 智子 engine among `running` (the runtime's instances): the foreground and
+/// secondary ones, those fast engine change keeps, and those whose profile is no longer listed
+/// (Java `zhiziConnectionTargets`). Analysis processes are not among them.
+fn zhizi_engines<'a>(running: impl IntoIterator<Item = (InstanceId, &'a EngineProfile, Phase)>) -> Vec<InstanceId> {
+    running.into_iter().filter(|(_, profile, _)| is_zhizi(profile)).map(|(id, _, _)| id).collect()
+}
+
 impl Workbench {
     /// Commit account-owned fields. Only catalog refresh supplies its original saved args;
     /// compare-before-write keeps a later provider activation's launch parameters intact.
@@ -167,16 +174,6 @@ impl Workbench {
         }
     }
 
-    /// Every running 智子 engine: the foreground and secondary ones, those fast engine change
-    /// keeps, and those whose profile is no longer listed (Java `zhiziConnectionTargets`).
-    /// Analysis processes are not among them.
-    fn zhizi_engines(&self) -> Vec<InstanceId> {
-        self.engines.running().into_iter()
-            .map(|(id, _, _)| id)
-            .filter(|&id| self.engines.profile_of(id).is_some_and(is_zhizi))
-            .collect()
-    }
-
     /// Whether 断开智子引擎 must wait (Java `zhiziSelectionBusy` and `Leelaz.zhiziConnectionBusy`):
     /// one of `engines` is starting, restoring after a restart or held by a task, the remote
     /// compute switch to one has not completed (its first board sync neither confirmed nor
@@ -197,9 +194,9 @@ impl Workbench {
     }
 
     /// The 主/对比智子引擎 connections, whatever engine or account is chosen (Java
-    /// `EngineManager.zhiziConnectionState`).
-    pub fn zhizi_connection(&self) -> ZhiziConnection {
-        let engines = self.zhizi_engines();
+    /// `EngineManager.zhiziConnectionState`), from the running instances.
+    pub(super) fn zhizi_connection(&self) -> ZhiziConnection {
+        let engines = zhizi_engines(self.engines.running_profiles());
         if self.zhizi_busy(&engines) {
             ZhiziConnection::Busy
         } else if engines.is_empty() {
@@ -217,7 +214,7 @@ impl Workbench {
     /// billing. Returns [`ZhiziConnection::Busy`] and changes nothing while
     /// [`Self::zhizi_connection`] is busy, else [`ZhiziConnection::Disconnected`].
     pub fn disconnect_zhizi(&mut self) -> ZhiziConnection {
-        let engines = self.zhizi_engines();
+        let engines = zhizi_engines(self.engines.running_profiles());
         if self.zhizi_busy(&engines) {
             return ZhiziConnection::Busy;
         }

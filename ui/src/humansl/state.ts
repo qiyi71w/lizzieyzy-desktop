@@ -79,9 +79,9 @@ export function levelDetail(level: CoachLevelView): string {
   return format(t("HumanSlTraining.level.detail"), levelKataGo(level), levelGrade(level));
 }
 
-/** The core's description of `level`. */
-export function coachLevel(level: CoachLevel, v: WorkbenchView | null = state.view): CoachLevelView | undefined {
-  return v?.settings.human_sl.levels.find((l) => l.level === level);
+/** The core's description of `level`, from the catalogue of the last full view. */
+export function coachLevel(level: CoachLevel): CoachLevelView | undefined {
+  return state.humanSlLevels.find((l) => l.level === level);
 }
 
 /** The dialogs a session's exit may open afterwards, registered by their owners. */

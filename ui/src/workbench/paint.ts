@@ -842,6 +842,12 @@ function stoneShadow(g: CanvasRenderingContext2D, cx: number, cy: number, r: num
  *  painted onto it one by one. */
 const shadowLayers = new WeakMap<HTMLCanvasElement | OffscreenCanvas, { key: string; layer: HTMLCanvasElement }>();
 
+/** On Windows the WebView2 traces showed the board canvases painted in software and a GPU-backed
+ *  shadow layer read back at every repaint of the board (about ten a second while an engine
+ *  analyses). There the layer asks for a memory-backed canvas (`willReadFrequently`), which those
+ *  traces showed composited without a readback; other platforms keep the default. */
+const SHADOW_LAYER: CanvasRenderingContext2DSettings = navigator.userAgent.includes("Windows") ? { willReadFrequently: true } : {};
+
 function enhancedShadows(g: CanvasRenderingContext2D, points: number[], geometry: string, px: (p: number) => number, py: (p: number) => number, r: number) {
   const canvas = g.canvas;
   const t = g.getTransform();
@@ -853,7 +859,7 @@ function enhancedShadows(g: CanvasRenderingContext2D, points: number[], geometry
       layer.width = canvas.width;
       layer.height = canvas.height;
     }
-    const lg = layer.getContext("2d")!;
+    const lg = layer.getContext("2d", SHADOW_LAYER)!;
     lg.setTransform(1, 0, 0, 1, 0, 0);
     lg.clearRect(0, 0, layer.width, layer.height);
     lg.setTransform(t);
@@ -1863,8 +1869,7 @@ export function paintBoard(g: CanvasRenderingContext2D, geo: BoardGeom, origin: 
   };
   // drawWoodenBoard (BoardRenderer.java:3620-3651): a custom board image gets a (0,0,0,50) wash.
   Object.assign(surface, { x: ox, y: oy, size: geo.size, image: look.board, custom: look.customBoard });
-  // The pure network's line replaces the names (BoardRenderer.java:303-311).
-  const rawLine = s.rawNetOn || (s.policy && s.engine && !s.katago);
+  const rawLine = rawNetLineShown(s);
   if (layers.board) {
     boardFill(g, ox, oy, geo.size, sizeY);
     if (look.customBoard && !look.pureBoard) {
@@ -2308,6 +2313,11 @@ function measure(g: CanvasRenderingContext2D, text: string): TextMeasure {
 
 function textWidth(g: CanvasRenderingContext2D, text: string): number {
   return Math.round(measure(g, text).width);
+}
+
+/** The pure network's line replaces the names under the board (BoardRenderer.java:303-311). */
+export function rawNetLineShown(s: BoardScene): boolean {
+  return s.rawNetOn || (s.policy && s.engine && !s.katago);
 }
 
 /** BoardRenderer.drawName (BoardRenderer.java:796-862): both name stones (the side to move drawn on
