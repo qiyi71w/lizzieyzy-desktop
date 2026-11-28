@@ -313,12 +313,20 @@ impl Workbench {
         })
     }
 
-    /// The batch's end is giving `instance`, a process it captured, its values back.
+    /// The batch's end is giving `instance`, a process it captured, its values back and has not
+    /// confirmed them yet: a command for it is in flight or still to come, or one of them failed.
     pub(super) fn match_params_restoring_to(&self, instance: InstanceId) -> bool {
-        self.matches.run.as_ref().is_some_and(|r| {
-            r.parameters.as_ref().is_some_and(|s| {
-                matches!(s.work, Some(Work::Restore(_))) && s.originals.iter().any(|o| o.instance == instance)
-            })
+        let Some(s) = self.matches.run.as_ref().and_then(|r| r.parameters.as_ref()) else {
+            return false;
+        };
+        let Some(Work::Restore(restore)) = &s.work else {
+            return false;
+        };
+        s.originals.iter().enumerate().any(|(index, original)| {
+            original.instance == instance
+                && (restore.failed.contains(&index)
+                    || restore.leg.as_ref().is_some_and(|(at, _)| *at == index)
+                    || restore.queue.iter().any(|(at, _)| *at == index))
         })
     }
 

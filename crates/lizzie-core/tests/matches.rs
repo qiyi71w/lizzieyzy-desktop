@@ -2642,6 +2642,31 @@ fn an_engine_whose_transport_closes_while_its_values_are_given_back_failed_its_r
         [UnrestoredReason::Restore]
     );
 
+    // 引擎 1 already has its values back (set and read back) and only 引擎 2's restore is waited
+    // for: 引擎 1 ending then is not a failed restore.
+    let mut m = Match::new();
+    start_analysis(&mut m, OPENING, analysis());
+    m.serve(&|_, _| None);
+    let (one, two) = (m.world.ids()[0], m.world.ids()[1]);
+    m.command(MatchCommand::Stop);
+    let sent = m.serve(&move |i, c| (i == two && c == set(WRN, "1.5")).then(|| "HOLD".into()));
+    assert_eq!(m.phase(), Some(MatchPhase::Ending), "the restore waits for 引擎 2");
+    let restored: Vec<_> = parameter_commands(&sent)
+        .into_iter()
+        .filter(|(i, _)| *i == one)
+        .map(|(_, c)| c)
+        .collect();
+    assert_eq!(restored.last(), Some(&get(PDA)), "引擎 1 was given its values back: {sent:?}");
+    m.wb.engine_input(one, EngineInput::Exited(Some(1)));
+    m.serve(&|_, _| None);
+    m.wb.engine_tick(Instant::now() + Duration::from_secs(120));
+    m.serve(&|_, _| None);
+    assert_eq!(m.phase(), None);
+    assert_eq!(
+        m.wb.view(false).match_outcome.unwrap().unrestored,
+        [UnrestoredReason::Stop]
+    );
+
     // A participant that ends during the game retires the match; that is not a restore.
     let mut m = Match::new();
     start_analysis(&mut m, OPENING, analysis());
