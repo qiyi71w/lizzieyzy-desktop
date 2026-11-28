@@ -12,7 +12,7 @@ import { dispatch, isApiError } from "../contract/client";
 import { errorText } from "../errorText";
 import type { Command, KifuAfterGet, KifuPage, Language, OgsKifuCommand, OgsKifuRow, OgsKifuStatus } from "../contract/generated";
 import { language, product, setLanguage, t } from "../i18n";
-import { OGS_KIFU_DATA_EVENT, OGS_KIFU_INPUT_EVENT, type OgsKifuInput, type OgsKifuPayload, type OgsKifuReport } from "./model";
+import { OGS_KIFU_DATA_EVENT, OGS_KIFU_INPUT_EVENT, type OgsKifuInput, type OgsKifuPayload, type OgsKifuReport, type OgsKifuWindowView } from "./model";
 import { icon } from "../design/icons";
 import { applyTypeSizes } from "../design/theme";
 import "../design/window";
@@ -87,7 +87,7 @@ export function bootOgsKifu(): void {
   const self = getCurrentWebviewWindow();
   const emit = (input: OgsKifuInput) => void emitTo("main", OGS_KIFU_INPUT_EVENT, input);
 
-  let v: OgsKifuPayload["view"] | null = null;
+  let v: OgsKifuWindowView | null = null;
   let shown = -1;
   let opened = -1;
   let selected: number | null = null;
@@ -261,7 +261,7 @@ export function bootOgsKifu(): void {
     }
   }
 
-  function renderRows(view: OgsKifuPayload["view"]): void {
+  function renderRows(view: OgsKifuWindowView): void {
     body.replaceChildren();
     for (const r of view.rows) {
       const tr = el("tr");
@@ -315,7 +315,7 @@ export function bootOgsKifu(): void {
     table.style.minWidth = `calc(var(--ds-size) * ${2 * 5} + ${fixed} + ${fitted + 2 * KIFU_CELL_PADDING}px)`;
   }
 
-  function render(view: OgsKifuPayload["view"]): void {
+  function render(view: OgsKifuWindowView): void {
     v = view;
     renderTexts();
     setText(

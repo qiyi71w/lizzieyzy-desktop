@@ -16,7 +16,22 @@ export interface OgsKifuPayload {
   /** Function search's request for 打开棋谱后此窗口, by number, until the window says it located it. */
   locate: number | null;
   /** The view's part for the window, with the page's rows as last received. */
-  view: Omit<OgsKifuView, "rows"> & { rows: OgsKifuRow[] };
+  view: OgsKifuWindowView;
+}
+
+export type OgsKifuWindowView = Omit<OgsKifuView, "rows"> & { rows: OgsKifuRow[] };
+
+/** The window's part of the published views, which carry the page's rows only when they changed.
+ *  Until one has carried them the rows are unknown, not empty: a reloaded main window first
+ *  applies views built before its full snapshot. */
+export class RelayedRows {
+  private rows: OgsKifuRow[] | null = null;
+
+  /** `view` with the rows as last received; null while they are unknown (nothing to relay). */
+  windowView(view: OgsKifuView): OgsKifuWindowView | null {
+    if (view.rows) this.rows = view.rows;
+    return this.rows && { ...view, rows: this.rows };
+  }
 }
 
 /** What the acceptance probe reports for the window: its visible texts and controls. */

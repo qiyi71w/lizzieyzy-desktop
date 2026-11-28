@@ -3378,9 +3378,9 @@ recent: Array<string>,
  */
 label: OgsKifuLabel, 
 /**
- * The shown page's games. A published view carries them only when they changed since the
- * previous one (and every full view); `None` means the last ones received still hold.
- * `inspect` always carries them.
+ * The shown page's games. A published view carries them after each replacement of the list
+ * (search, page, close) and in every full view; `None` means the last ones received still
+ * hold. `inspect` always carries them.
  */
 rows: Array<OgsKifuRow> | null, 
 /**
