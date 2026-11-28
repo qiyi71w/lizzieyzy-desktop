@@ -7,7 +7,7 @@ use super::Workbench;
 use crate::api::*;
 use crate::engine::{
     gtp,
-    rules::{KataRules, RuleSet},
+    rules::{KataRules, Recognition, RuleSet},
     runtime::{InstanceId, LeaseAvailability, RuntimeEvent},
 };
 use crate::humansl::{self, protocol, take_back, CoachLevelKind};
@@ -320,7 +320,8 @@ impl Workbench {
         let komi = if settings.handicap > 0 {
             humansl::HANDICAP_KOMI
         } else {
-            self.human_sl_even_komi(self.chosen_rule_set())
+            let chosen = self.chosen_rule_set();
+            self.human_sl_even_komi(self.foreground_rules(chosen), chosen)
         };
         let resignation = humansl::Resignation::for_play(settings.level.play());
         let review = (settings.mode == TrainingMode::LiveFeedback).then(review::Reviewer::default);
@@ -368,12 +369,12 @@ impl Workbench {
 
     /// The komi of an even game under the rules the foreground KataGo plays
     /// (`CoachSetupContext.ofMainWindow`, `RulePreset.evenGameKomi`): that of the rule set they
-    /// are, the rule set `chosen` last ([`Workbench::chosen_rule_set`]) telling apart those with
-    /// the same rules; else, after a handicap game, the komi new games start with (the chosen rule
-    /// set's, or 7.5); else the current komi.
-    pub(super) fn human_sl_even_komi(&self, chosen: Option<&RuleSet>) -> f64 {
-        let rules = self.engines.foreground().and_then(|f| self.engines.confirmed_rules(f));
-        RuleSet::even_game_komi(rules, self.komi, self.doc.record.info.handicap > 0, chosen)
+    /// are (`rules`, [`Workbench::foreground_rules`]), the rule set `chosen` last
+    /// ([`Workbench::chosen_rule_set`]) telling apart those with the same rules; else, after a
+    /// handicap game, the komi new games start with (the chosen rule set's, or 7.5); else the
+    /// current komi.
+    pub(super) fn human_sl_even_komi(&self, rules: Option<Recognition>, chosen: Option<&RuleSet>) -> f64 {
+        RuleSet::even_game_komi_of(rules, self.komi, self.doc.record.info.handicap > 0, chosen)
     }
 
     /// The companion's analysis command before the HumanSL model is added, or the key of the first

@@ -26,7 +26,7 @@ use crate::browse::Navigation;
 use crate::display::{self, BoardOverlayView};
 use crate::engine::gtp::InfoLine;
 use crate::engine::profile::{new_profile_id, AnalysisSettings, EngineProfile, EngineStartup};
-use crate::engine::rules::{KataRules, RuleSet};
+use crate::engine::rules::{KataRules, Recognition, RuleSet};
 use crate::engine::cloud::CloudStartFailure;
 use crate::engine::diagnosis::diagnose_output;
 use crate::engine::ssh::RemoteFailure;
@@ -124,11 +124,11 @@ impl AnalysisStore {
 
     /// Replaces the node's result and its ownership (none when the result has none).
     pub(super) fn insert(&mut self, node: NodeId, stamp: u64, view: NodeAnalysisView, ownership: Option<Vec<f64>>) {
-        let before = self.nodes.get(&node).map(|(s, v)| (*s, v.visits > 0));
-        if before != Some((stamp, view.visits > 0)) {
+        let after = (stamp, view.visits > 0);
+        let before = self.nodes.insert(node, (stamp, view)).map(|(s, v)| (s, v.visits > 0));
+        if before != Some(after) {
             self.changed();
         }
-        self.nodes.insert(node, (stamp, view));
         self.metadata.remove(&node);
         self.stale.remove(&node);
         match ownership {
@@ -2062,9 +2062,15 @@ impl Workbench {
 
     // -------------------------------------------------------------------- projection
 
-    /// The engine part of the view; `chosen` is the rule set chosen last
-    /// ([`Self::chosen_rule_set`]).
-    pub(super) fn engine_view(&self, chosen: Option<&RuleSet>) -> EngineView {
+    /// The foreground KataGo's confirmed rules recognised with the game's komi and the rule set
+    /// `chosen` last ([`Self::chosen_rule_set`]).
+    pub(super) fn foreground_rules(&self, chosen: Option<&RuleSet>) -> Option<Recognition> {
+        let fg = self.engines.foreground()?;
+        self.engines.confirmed_rules(fg).map(|r| Recognition::of(r, self.komi, chosen))
+    }
+
+    /// The engine part of the view; `recognised` is [`Self::foreground_rules`] for its caption.
+    pub(super) fn engine_view(&self, recognised: Option<Recognition>) -> EngineView {
         let running: Vec<_> = self.engines.running_profiles().collect();
         let fg = self.engines.foreground();
         let engines = self
@@ -2135,7 +2141,7 @@ impl Workbench {
             },
             analyze_black: self.analyze_black,
             analyze_white: self.analyze_white,
-            rules_key: rules.map(|r| r.caption_key(self.komi, chosen).to_string()),
+            rules_key: recognised.map(|r| r.caption_key().to_string()),
             rules: rules.map(KataRules::to_gtp_argument),
             session_rules: match (&self.session_rules, fg) {
                 (SessionRules::Valid { rules, json, .. }, Some(f)) => Some(SessionRulesView {

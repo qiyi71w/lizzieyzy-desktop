@@ -1247,7 +1247,7 @@ fn unusable_phase_boundaries_fall_back_to_the_defaults() {
 }
 
 /// Past the main line's first 211 positions a view counts the analysed ones instead of
-/// fingerprinting them: a result arriving there still moves the stamp on.
+/// fingerprinting them: a result arriving there, and its clearing, still move the stamp on.
 #[test]
 fn the_stamp_follows_new_analysis_late_in_the_main_line() {
     let mut f = still();
@@ -1271,6 +1271,12 @@ fn the_stamp_follows_new_analysis_late_in_the_main_line() {
         EngineInput::Stdout(format!("info move {point} visits 100 winrate 0.55 scoreLead 2 prior 0.2 order 0 pv {point}")),
     );
     let v = f.wb.view(false);
+    assert_eq!(v.position.move_number, 220);
     assert!(v.analysis.is_some_and(|a| a.visits > 0), "move 220 is analysed");
     assert_ne!(v.strength.stamp, before);
+    // Clearing that move's analysis takes it out of the count again.
+    f.wb.clear_analysis_info(lizzie_core::api::AnalysisScope::Current);
+    let v = f.wb.view(false);
+    assert!(v.analysis.is_none_or(|a| a.visits == 0), "move 220's analysis is cleared");
+    assert_eq!(v.strength.stamp, before);
 }

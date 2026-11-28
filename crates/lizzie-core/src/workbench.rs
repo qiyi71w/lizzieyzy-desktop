@@ -1301,8 +1301,10 @@ impl Workbench {
     /// Everything but the one-shot parts, which [`Self::view`] hands over and [`Self::inspect`]
     /// copies.
     fn build_view(&self, tree: Option<TreeView>) -> WorkbenchView {
-        // Read once for the projection: the rules caption and the even-game komi both depend on it.
+        // Worked out once for the projection: the rules caption and the even-game komi both come
+        // from the foreground rules recognised with the rule set chosen last.
         let chosen = self.chosen_rule_set();
+        let rules = self.foreground_rules(chosen);
         let position = self.position_view();
         let board_captures = (position.black_captures, position.white_captures);
         WorkbenchView {
@@ -1350,7 +1352,7 @@ impl Workbench {
                 display: self.config.display.clone(),
                 analysis_engine: self.config.analysis_engine.clone(),
                 quick_model: self.quick_model_view(),
-                human_sl: self.human_sl_settings_view(chosen),
+                human_sl: self.human_sl_settings_view(rules, chosen),
                 problems: self.config.problems.clone(),
                 flash_range: self.config.flash_range,
                 auto_analysis: self.config.auto_analysis.clone(),
@@ -1374,7 +1376,7 @@ impl Workbench {
             },
             recent_files: self.config.recent_files.iter().rev().cloned().collect(),
             komi: self.komi,
-            engine: self.engine_view(chosen),
+            engine: self.engine_view(rules),
             full_trace: self.diagnostics.full_trace(),
             fox: self.fox_view(),
             quick: self.quick_view(),

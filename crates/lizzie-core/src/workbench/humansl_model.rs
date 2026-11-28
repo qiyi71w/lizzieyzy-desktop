@@ -1,7 +1,7 @@
 //! Java HumanSL model discovery: dedicated model paths only, never analysis weights.
 use super::{resources::HUMAN_SL_MODEL, Workbench};
 use crate::api::{HumanSlModelStatus, HumanSlModelView, HumanSlSettingsView};
-use crate::engine::rules::RuleSet;
+use crate::engine::rules::{Recognition, RuleSet};
 use crate::resources::{self as r, Model};
 use std::{
     path::{Path, PathBuf},
@@ -80,9 +80,9 @@ impl Workbench {
         valid
     }
 
-    /// The settings part of the view; `chosen` is the rule set chosen last
-    /// ([`Workbench::chosen_rule_set`]).
-    pub(super) fn human_sl_settings_view(&self, chosen: Option<&RuleSet>) -> HumanSlSettingsView {
+    /// The settings part of the view; `rules` are [`Workbench::foreground_rules`] with the rule set
+    /// `chosen` last ([`Workbench::chosen_rule_set`]).
+    pub(super) fn human_sl_settings_view(&self, rules: Option<Recognition>, chosen: Option<&RuleSet>) -> HumanSlSettingsView {
         let path = self.human_sl_model_path();
         HumanSlSettingsView {
             model: HumanSlModelView {
@@ -95,7 +95,7 @@ impl Workbench {
             },
             training: self.config.human_sl.training.clone().normalized(),
             advanced_visible: self.config.human_sl.advanced_visible,
-            even_komi: self.human_sl_even_komi(chosen),
+            even_komi: self.human_sl_even_komi(rules, chosen),
             handicap_komi: crate::humansl::HANDICAP_KOMI,
         }
     }

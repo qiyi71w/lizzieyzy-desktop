@@ -842,9 +842,10 @@ function stoneShadow(g: CanvasRenderingContext2D, cx: number, cy: number, r: num
  *  painted onto it one by one. */
 const shadowLayers = new WeakMap<HTMLCanvasElement | OffscreenCanvas, { key: string; layer: HTMLCanvasElement }>();
 
-/** WebView2 paints the board canvases in software. A layer on the GPU would be read back from it at
- *  every repaint of the board (about ten a second while an engine analyses), so there the layer is
- *  kept in memory like the board it is composited onto. */
+/** On Windows the WebView2 traces showed the board canvases painted in software and a GPU-backed
+ *  shadow layer read back at every repaint of the board (about ten a second while an engine
+ *  analyses). There the layer asks for a memory-backed canvas (`willReadFrequently`), which those
+ *  traces showed composited without a readback; other platforms keep the default. */
 const SHADOW_LAYER: CanvasRenderingContext2DSettings = navigator.userAgent.includes("Windows") ? { willReadFrequently: true } : {};
 
 function enhancedShadows(g: CanvasRenderingContext2D, points: number[], geometry: string, px: (p: number) => number, py: (p: number) => number, r: number) {

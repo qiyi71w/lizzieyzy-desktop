@@ -353,7 +353,12 @@ impl RuleSet {
     /// after a handicap game, the komi new games start with (the chosen rule set's, or 7.5); else
     /// the current game's `komi`.
     pub fn even_game_komi(rules: Option<&KataRules>, komi: f64, handicap_game: bool, chosen: Option<&RuleSet>) -> f64 {
-        match rules.and_then(|r| RuleSet::of(r, komi, chosen)) {
+        RuleSet::even_game_komi_of(rules.map(|r| Recognition::of(r, komi, chosen)), komi, handicap_game, chosen)
+    }
+
+    /// [`Self::even_game_komi`] from the rules' [`Recognition`] with the same `komi` and `chosen`.
+    pub fn even_game_komi_of(rules: Option<Recognition>, komi: f64, handicap_game: bool, chosen: Option<&RuleSet>) -> f64 {
+        match rules.and_then(|r| r.set) {
             Some(set) => set.komi,
             None if handicap_game => chosen.map_or(NEW_GAME_KOMI, |c| c.komi),
             None => komi,
@@ -384,6 +389,26 @@ impl RuleSet {
         RULE_SETS
             .iter()
             .any(|other| other.id != self.id && other.has_rules(rules, summary))
+    }
+}
+
+/// What some rules are with a komi: their summary and the rule set they are ([`RuleSet::of`]).
+/// Worked out once, it gives both the rules caption and the even-game komi.
+#[derive(Clone, Copy, Debug)]
+pub struct Recognition {
+    summary: &'static str,
+    set: Option<&'static RuleSet>,
+}
+
+impl Recognition {
+    pub fn of(rules: &KataRules, komi: f64, chosen: Option<&RuleSet>) -> Recognition {
+        let summary = rules.summary_key();
+        Recognition { summary, set: RuleSet::recognise(rules, summary, komi, chosen) }
+    }
+
+    /// [`KataRules::caption_key`].
+    pub fn caption_key(&self) -> &'static str {
+        self.set.map_or(self.summary, RuleSet::caption_key)
     }
 }
 
@@ -531,8 +556,7 @@ impl KataRules {
     /// The captured-panel rules caption key with the game's `komi` (`RulePreset.captionKey`): the
     /// rule set's short name when these rules and komi are one, else the rules' summary.
     pub fn caption_key(&self, komi: f64, chosen: Option<&RuleSet>) -> &'static str {
-        let summary = self.summary_key();
-        RuleSet::recognise(self, summary, komi, chosen).map_or(summary, RuleSet::caption_key)
+        Recognition::of(self, komi, chosen).caption_key()
     }
 
     pub fn field(&self, name: &str) -> Option<&Value> {
