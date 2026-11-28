@@ -82,32 +82,41 @@ function layoutTitle(): void {
     bar.setAttribute("data-title-row", "");
     title.style.paddingLeft = "";
     titleDetail.hidden = true;
-    if (breaksAfter("-")) titleGame.textContent = wanted.game.replace(/-(?=\S)/g, "-\u2060");
-    if (breaksAfter("([{")) keepPartsWhole();
+    if (breaksAfter("-", false)) titleGame.textContent = wanted.game.replace(/-(?=\S)/g, "-\u2060");
+    if (breaksAfter("([{", true)) keepPartsWhole();
     title.title = wanted.detail.length || clamped() ? wanted.text : "";
   }
   if (before !== bar.hasAttribute("data-title-row")) titleRowListeners.forEach((listener) => listener());
 }
 
-/** Whether the title row breaks a line right after one of `marks` inside a part. Lines should
- *  break only at the spaces, but Chromium (and so WebView2) also breaks after a hyphen
- *  ("Wolfeschlegel-" / "Steinhause"); the row then writes a word joiner after each such hyphen,
- *  which keeps a part the row holds on one line while a part wider than the row still breaks
- *  inside itself (overflow-wrap). The joiner is left out otherwise, as it can move the glyphs
- *  around it by a fraction of a pixel. WebKit on macOS, with the row's keep-all, breaks after an
- *  opening bracket instead ("申真谞 (" / "Result:B+R)"), joiner or not: see keepPartsWhole. */
-function breaksAfter(marks: string): boolean {
+/** Whether the title row breaks a line right after one of `marks` inside a part (with `fitting`,
+ *  only inside a part the row could hold on one line). Lines should break only at the spaces, but
+ *  Chromium (and so WebView2) also breaks after a hyphen ("Wolfeschlegel-" / "Steinhause"); the
+ *  row then writes a word joiner after each such hyphen, which keeps a part the row holds on one
+ *  line while a part wider than the row still breaks inside itself (overflow-wrap). The joiner is
+ *  left out otherwise, as it can move the glyphs around it by a fraction of a pixel. WebKit on
+ *  macOS, with the row's keep-all, breaks after an opening bracket instead ("申真谞 (" /
+ *  "Result:B+R)"), joiner or not: see keepPartsWhole. A part wider than the row may break after
+ *  its bracket in any engine, which is no reason for that. */
+function breaksAfter(marks: string, fitting: boolean): boolean {
   const text = titleGame.firstChild;
   const s = text?.textContent ?? "";
   if (!text) return false;
   const range = document.createRange();
-  const top = (i: number): number => {
-    range.setStart(text, i);
-    range.setEnd(text, i + 1);
-    return range.getBoundingClientRect().top;
+  const select = (start: number, end: number): Range => {
+    range.setStart(text, start);
+    range.setEnd(text, end);
+    return range;
+  };
+  const top = (i: number): number => select(i, i + 1).getBoundingClientRect().top;
+  // The width of the part around `i` on one line: its pieces' widths, wherever it broke.
+  const fits = (i: number): boolean => {
+    const end = s.indexOf(" ", i);
+    const pieces = select(s.lastIndexOf(" ", i) + 1, end < 0 ? s.length : end).getClientRects();
+    return [...pieces].reduce((width, piece) => width + piece.width, 0) <= titleGame.clientWidth;
   };
   for (let i = 0; i + 1 < s.length; i++) {
-    if (marks.includes(s[i]) && s[i + 1] !== " " && top(i + 1) > top(i) + 1) return true;
+    if (marks.includes(s[i]) && s[i + 1] !== " " && top(i + 1) > top(i) + 1 && (!fitting || fits(i))) return true;
   }
   return false;
 }
