@@ -1554,9 +1554,13 @@ importing the matching LizzieYzy Next settings.
   resignation thresholds and 随机落子). The dialog, 引擎对局设置 (from the dialog's 更多设置),
   人工干预 (立即落子, 允许人工落子, 黑认输, 白认输), 终止 / 暂停继续引擎对局 and
   修改多盘引擎对局数 follow Java, including 本局规则 (verified on KataGo with `kata-get-rules`; an
-  engine that cannot confirm them asks for consent), komi, handicap (on a 19×19 board only; when
+  engine that cannot confirm them asks for consent; in a short window a long message scrolls
+  between the question's title and its buttons), komi, handicap (on a 19×19 board only; when
   the black engine's board is another size the game starts without handicap), 多盘对局 with
-  交换黑白, 当前局面续弈, 加载开局SGF (in order or at random), 最大手数 and 后台计算. Both engines run
+  交换黑白, 当前局面续弈, 加载开局SGF (in order or at random), 最大手数 and 后台计算. In the dialog,
+  the 选择引擎 and Genmove模式 boxes are as wide as their longest entry (at least a column); in a
+  narrow dialog (a small window or a large 界面字体大小) each of those two rows puts 黑方's box
+  above 白方's, each across the row. Both engines run
   as their own processes (other running engines are closed); the engine to move is the
   foreground engine, so its analysis is what the board, the lists and the graph show. A match
   is accepted before it starts: it starts only once both engines are ready and answered their

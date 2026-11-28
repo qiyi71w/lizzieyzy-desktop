@@ -188,12 +188,13 @@
 .rc-code > input {
   flex: 1;
 }
-/* The password field with its show / hide toggle inside. */
+/* The password field with its show / hide toggle inside, as tall as the other fields (design/base.css:
+   taller at a large 界面字体大小). */
 .rc-password-shell {
   display: flex;
   align-items: center;
   min-width: 0;
-  height: var(--ds-control-h-l);
+  height: max(var(--ds-control-h-l), calc(var(--ds-size) * 1.4 + 6px));
   padding: 0 1px 0 8px;
   border: 1px solid var(--ds-line-strong);
   border-radius: var(--ds-radius);

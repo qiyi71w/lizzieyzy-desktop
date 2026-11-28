@@ -276,10 +276,11 @@ export async function openEngineGameDialog(locate: "wrn" | "pda" | null = null):
   }
   head.append(el("span", "match-slot"));
   sides.append(head);
-  row(sides, t("NewEngineGameDialog.lblengine"), "", black, white, el("span", "match-slot"));
+  // 选择引擎 and Genmove模式 take their boxes' widths from their choices (match.css).
+  row(sides, t("NewEngineGameDialog.lblengine"), "", black, white, el("span", "match-slot")).classList.add("match-choices");
   const timeOn = toggle(sides, t("NewEngineGameDialog.lblTime"), "", s.timeEnabled, "match.timeOn", timeBlack, timeWhite);
   // The time choice only counts in Genmove模式.
-  row(sides, t("SetAiTimes.lblGenmoveMode"), "", modeB, modeW, el("span", "match-slot"));
+  row(sides, t("SetAiTimes.lblGenmoveMode"), "", modeB, modeW, el("span", "match-slot")).classList.add("match-choices");
   const advName = el("span", "match-name", t("NewEngineGameDialog.lblAdvanceTime"));
   advName.append(helpButton("match.advancedTimeHelp", t("AdvanceTimeSettings.title"), t("AdvanceTimeSettings.describe")));
   row(sides, advName, "", advB, advW, el("span", "match-slot"));
