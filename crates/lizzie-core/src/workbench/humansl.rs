@@ -320,7 +320,7 @@ impl Workbench {
         let komi = if settings.handicap > 0 {
             humansl::HANDICAP_KOMI
         } else {
-            self.human_sl_even_komi()
+            self.human_sl_even_komi(self.chosen_rule_set())
         };
         let resignation = humansl::Resignation::for_play(settings.level.play());
         let review = (settings.mode == TrainingMode::LiveFeedback).then(review::Reviewer::default);
@@ -368,12 +368,11 @@ impl Workbench {
 
     /// The komi of an even game under the rules the foreground KataGo plays
     /// (`CoachSetupContext.ofMainWindow`, `RulePreset.evenGameKomi`): that of the rule set they
-    /// are, the rule set chosen last telling apart those with the same rules; else, after a
-    /// handicap game, the komi new games start with (the chosen rule set's, or 7.5); else the
-    /// current komi.
-    pub(super) fn human_sl_even_komi(&self) -> f64 {
+    /// are, the rule set `chosen` last ([`Workbench::chosen_rule_set`]) telling apart those with
+    /// the same rules; else, after a handicap game, the komi new games start with (the chosen rule
+    /// set's, or 7.5); else the current komi.
+    pub(super) fn human_sl_even_komi(&self, chosen: Option<&RuleSet>) -> f64 {
         let rules = self.engines.foreground().and_then(|f| self.engines.confirmed_rules(f));
-        let chosen = RuleSet::chosen(&self.config.engine);
         RuleSet::even_game_komi(rules, self.komi, self.doc.record.info.handicap > 0, chosen)
     }
 
@@ -1160,7 +1159,9 @@ impl Workbench {
             .as_ref()
             .map(|s| s.phase == HumanSlPhase::Playing && s.settings.mode == TrainingMode::LiveAnalysis)
     }
-    pub(super) fn human_sl_view(&self) -> Option<HumanSlView> {
+    /// The session's view; `board_captures` are the captures of the position the board shows,
+    /// the cursor's.
+    pub(super) fn human_sl_view(&self, board_captures: (u32, u32)) -> Option<HumanSlView> {
         let s = self.human_sl.session.as_ref()?;
         // While KataGo counts and after the game, nobody is to move and the clocks stand.
         let playing = s.phase == HumanSlPhase::Playing && !s.counting && s.result.is_none();
@@ -1168,8 +1169,16 @@ impl Workbench {
         // While the AI holds its reply to a 恶手, the player decides on their clock.
         let held = s.request.as_ref().is_some_and(|r| r.phase == Search::Held);
         let line = self.human_sl_game_line(s);
-        // The game's position, not the one the board shows while the player browses.
-        let position = line.last().map(|&live| self.doc.record.position(live));
+        // The game's position, not the one the board shows while the player browses; at the
+        // board's own node its captures are already known.
+        let captures = line.last().map(|&live| {
+            if live == self.cursor {
+                board_captures
+            } else {
+                let position = self.doc.record.position(live);
+                (position.black_captures, position.white_captures)
+            }
+        });
         let feedback = self.human_sl_feedback_view(s);
         Some(HumanSlView {
             id: s.id,
@@ -1204,8 +1213,8 @@ impl Workbench {
             // movesPlayed: the positions after the game's start, passes included.
             moves: line.len().saturating_sub(1) as u32,
             komi: s.komi,
-            black_captures: position.as_ref().map_or(0, |p| p.black_captures),
-            white_captures: position.as_ref().map_or(0, |p| p.white_captures),
+            black_captures: captures.map_or(0, |c| c.0),
+            white_captures: captures.map_or(0, |c| c.1),
             win_chances: self.human_sl_win_chances(s, &line, feedback.as_ref().map(|f| f.ratings.as_slice())),
             feedback,
         })

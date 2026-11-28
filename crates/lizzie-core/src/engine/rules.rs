@@ -80,6 +80,10 @@ const ALIASES: [(&str, &str); 15] = [
     ("ing", "goe"),
 ];
 
+/// Each preset's rules, in `PRESETS` order: recognising rules compares with these, so it builds
+/// nothing.
+static PRESET_RULES: LazyLock<Vec<KataRules>> = LazyLock::new(|| PRESETS.iter().map(KataRules::of_preset).collect());
+
 /// An engine-game rules choice (`MatchRuleOption`): rules, the dialog's entry and the komi that goes
 /// with them.
 #[derive(Debug)]
@@ -383,9 +387,57 @@ impl RuleSet {
     }
 }
 
+/// [`RuleSet::chosen`] kept with the settings it was worked out from, so that settings that did
+/// not change are not parsed again; it compares the three settings the answer depends on.
+#[derive(Debug, Default)]
+pub struct ChosenRuleSet {
+    rule_set: Option<String>,
+    auto_load: bool,
+    kata_rules: String,
+    chosen: Option<&'static RuleSet>,
+}
+
+impl ChosenRuleSet {
+    fn holds(&self, settings: &EngineSettings) -> bool {
+        self.auto_load == settings.auto_load_kata_rules
+            && self.rule_set == settings.rule_set
+            && self.kata_rules == settings.kata_rules
+    }
+
+    /// Works the answer out again when `settings` are no longer the ones it was worked out from.
+    pub fn refresh(&mut self, settings: &EngineSettings) {
+        if !self.holds(settings) {
+            *self = ChosenRuleSet {
+                rule_set: settings.rule_set.clone(),
+                auto_load: settings.auto_load_kata_rules,
+                kata_rules: settings.kata_rules.clone(),
+                chosen: RuleSet::chosen(settings),
+            };
+        }
+    }
+
+    /// [`RuleSet::chosen`] for `settings`: the kept answer while they are the ones it was worked
+    /// out from, else worked out now.
+    pub fn get(&self, settings: &EngineSettings) -> Option<&'static RuleSet> {
+        if self.holds(settings) {
+            self.chosen
+        } else {
+            RuleSet::chosen(settings)
+        }
+    }
+}
+
 impl KataRules {
     pub fn preset(name: &str) -> Option<KataRules> {
-        let &(_, ko, scoring, tax, suicide, button, bonus, friendly) = PRESETS.iter().find(|p| p.0 == name)?;
+        KataRules::preset_ref(name).cloned()
+    }
+
+    /// The rules of official preset `name`, from the preset table.
+    fn preset_ref(name: &str) -> Option<&'static KataRules> {
+        PRESETS.iter().position(|p| p.0 == name).map(|at| &PRESET_RULES[at])
+    }
+
+    fn of_preset(&(_, ko, scoring, tax, suicide, button, bonus, friendly): &Preset) -> KataRules {
         let mut m = Map::new();
         m.insert("ko".into(), ko.into());
         m.insert("scoring".into(), scoring.into());
@@ -394,7 +446,7 @@ impl KataRules {
         m.insert("hasButton".into(), button.into());
         m.insert("whiteHandicapBonus".into(), bonus.into());
         m.insert("friendlyPassOk".into(), friendly.into());
-        Some(KataRules(m))
+        KataRules(m)
     }
 
     /// A JSON object (as `kata-get-rules` answers) or a preset name / alias; a GTP `=` prefix is
@@ -424,7 +476,7 @@ impl KataRules {
 
     /// Whether these rules are preset `name` (see `same_as`).
     pub fn matches_preset(&self, name: &str) -> bool {
-        KataRules::preset(name).is_some_and(|preset| self.same_as(&preset))
+        KataRules::preset_ref(name).is_some_and(|preset| self.same_as(preset))
     }
 
     /// Whether these rules are `other`. Territory scoring does not use `friendlyPassOk` (the rules
@@ -456,7 +508,7 @@ impl KataRules {
 
     /// The official preset this value equals, if any.
     pub fn official_name(&self) -> Option<&'static str> {
-        PRESETS.iter().map(|p| p.0).find(|n| self.matches_preset(n))
+        PRESETS.iter().zip(PRESET_RULES.iter()).find(|(_, rules)| self.same_as(rules)).map(|(p, _)| p.0)
     }
 
     /// `KataGoRules.summary().labelKey()`: the rules' summary caption key.

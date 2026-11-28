@@ -884,7 +884,12 @@ resources: ResourcesView | null,
  * Engine performance (thread policy, benchmark); present when changed since the previous
  * view, and in full snapshots.
  */
-tuning: TuningView | null, editing: EditingView, 
+tuning: TuningView | null, 
+/**
+ * Every HumanSL opponent, weakest first: a fixed catalogue, present in full snapshots only;
+ * the UI keeps the last one it received.
+ */
+human_sl_levels: Array<CoachLevelView> | null, editing: EditingView, 
 /**
  * 存档与读档.
  */
@@ -2051,10 +2056,6 @@ playoutsThreshold: number,
 hideControlPane: boolean, };
 
 export type HumanSlSettingsView = { model: HumanSlModelView, training: HumanSlTrainingSettings, advanced_visible: boolean, 
-/**
- * Every opponent, weakest first.
- */
-levels: Array<CoachLevelView>, 
 /**
  * The komi an even game would start with now: the even-game komi of the rules KataGo plays
  * (`RulePreset.evenGameKomi`).

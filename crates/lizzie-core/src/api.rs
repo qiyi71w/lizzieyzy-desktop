@@ -1804,6 +1804,9 @@ pub struct WorkbenchView {
     /// Engine performance (thread policy, benchmark); present when changed since the previous
     /// view, and in full snapshots.
     pub tuning: Option<TuningView>,
+    /// Every HumanSL opponent, weakest first: a fixed catalogue, present in full snapshots only;
+    /// the UI keeps the last one it received.
+    pub human_sl_levels: Option<Vec<CoachLevelView>>,
     pub editing: EditingView,
     /// 存档与读档.
     pub recovery: RecoveryView,

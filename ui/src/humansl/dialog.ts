@@ -217,8 +217,9 @@ export function openHumanSlDialog(locateMode = false): void {
 
   // TrainingMode.CHOICES, 边下边提醒 first; each with its description below (CoachSetupForm.description).
   const mode = choice("mode", [t("HumanSlTraining.mode.feedback"), t("HumanSlTraining.mode.review"), t("HumanSlTraining.mode.live")], Math.max(0, MODES.indexOf(s.mode)));
-  // 对手棋力: the 31 opponents, weakest first, each by its Fox / Tygem rank and KataGo level.
-  const levels = saved.levels;
+  // 对手棋力: the 31 opponents, weakest first, each by its Fox / Tygem rank and KataGo level, from
+  // the catalogue of the last full view.
+  const levels = state.humanSlLevels;
   const level = select("level", levels.map((l) => `${levelFox(l)}, KataGo ${levelKataGo(l)}`));
   level.id = "hs-level";
   level.selectedIndex = Math.max(0, levels.findIndex((l) => l.level === s.level));

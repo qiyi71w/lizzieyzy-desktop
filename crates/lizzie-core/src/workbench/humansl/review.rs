@@ -33,6 +33,8 @@ pub(super) struct Reviewer {
     next: u64,
     /// The rated moves still in the game, in the order played, by the position after each.
     judged: Vec<(NodeId, MoveFeedback)>,
+    /// The summary of `judged`, worked out again whenever it changes.
+    summary: feedback::RatingSummary,
     /// The position the player is to move in, and its review once done.
     turn: Option<NodeId>,
     turn_review: Option<PositionReview>,
@@ -101,6 +103,7 @@ impl Reviewer {
     fn taken_back(&mut self, record: &crate::record::GameRecord, number: u32) {
         let withdrawn = |n: NodeId| !record.contains(n) || record.node(n).move_number > number;
         self.judged.retain(|(_, f)| f.move_number <= number);
+        self.judged_changed();
         if self.judging.is_some_and(withdrawn) {
             self.judging = None;
         }
@@ -108,6 +111,12 @@ impl Reviewer {
             self.turn = None;
             self.turn_review = None;
         }
+    }
+
+    /// `judged` changed: its summary follows.
+    fn judged_changed(&mut self) {
+        let ratings: Vec<MoveFeedback> = self.ratings().cloned().collect();
+        self.summary = feedback::RatingSummary::of(&ratings);
     }
 }
 
@@ -158,10 +167,10 @@ impl Workbench {
     }
 
     /// The review of `node` made for its current meaning, if any.
-    fn human_sl_cached_review(&self, node: NodeId) -> Option<PositionReview> {
+    fn human_sl_cached_review(&self, node: NodeId) -> Option<&PositionReview> {
         let r = self.human_sl.session.as_ref()?.review.as_ref()?;
         let (stamp, review) = r.reviews.get(&node)?;
-        (self.doc.record.contains(node) && self.doc.record.node(node).stamp == *stamp).then(|| review.clone())
+        (self.doc.record.contains(node) && self.doc.record.node(node).stamp == *stamp).then_some(review)
     }
 
     /// Starts the next review once none runs, after settling the tasks the finished reviews
@@ -181,7 +190,7 @@ impl Workbench {
                     if r.turn != Some(node) || !self.doc.record.contains(node) {
                         continue;
                     }
-                    match self.human_sl_cached_review(node) {
+                    match self.human_sl_cached_review(node).cloned() {
                         Some(review) => self.human_sl_turn_reviewed(node, Some(review)),
                         None => self.human_sl_review_send(task, node, TURN_VISITS, TURN_SECONDS, now),
                     }
@@ -201,18 +210,18 @@ impl Workbench {
                         self.human_sl_review_send(task, before, TURN_VISITS, TURN_SECONDS, now);
                         continue;
                     };
-                    if !feedback::needs_position_after(&first, vertex) {
-                        let rating = feedback::judge(number, vertex, &first, None);
-                        self.human_sl_judged(after, rating, now);
-                        continue;
-                    }
-                    match self.human_sl_cached_review(after) {
-                        Some(second) => {
-                            let rating = feedback::judge(number, vertex, &first, Some(&second));
-                            self.human_sl_judged(after, rating, now);
+                    let rating = if !feedback::needs_position_after(first, vertex) {
+                        feedback::judge(number, vertex, first, None)
+                    } else {
+                        match self.human_sl_cached_review(after) {
+                            Some(second) => feedback::judge(number, vertex, first, Some(second)),
+                            None => {
+                                self.human_sl_review_send(task, after, AFTER_VISITS, AFTER_SECONDS, now);
+                                continue;
+                            }
                         }
-                        None => self.human_sl_review_send(task, after, AFTER_VISITS, AFTER_SECONDS, now),
-                    }
+                    };
+                    self.human_sl_judged(after, rating, now);
                 }
             }
         }
@@ -263,25 +272,31 @@ impl Workbench {
         let Some(r) = self.human_sl.session.as_mut().and_then(|s| s.review.as_mut()) else {
             return;
         };
-        if let Some(found) = review.clone() {
+        // The review is kept for the tasks to come; this one reads it back from there, as it was
+        // made for the position's current meaning.
+        let reviewed = review.is_some();
+        if let Some(found) = review {
             r.reviews.insert(node, found);
         }
-        let review = review.map(|(_, review)| review);
         match task {
-            Task::Turn(turn) => self.human_sl_turn_reviewed(turn, review),
+            Task::Turn(turn) => {
+                let review = if reviewed { self.human_sl_cached_review(node).cloned() } else { None };
+                self.human_sl_turn_reviewed(turn, review)
+            }
             Task::Judge {
                 before,
                 after,
                 ref vertex,
                 number,
-            } => match review {
+            } => match reviewed {
                 // The move is judged from the first review once it is there.
-                Some(_) if node == before => r.tasks.push_front(task.clone()),
-                None if node == before => self.human_sl_judged(after, None, now),
-                second => {
+                true if node == before => r.tasks.push_front(task.clone()),
+                false if node == before => self.human_sl_judged(after, None, now),
+                _ => {
+                    let second = if reviewed { self.human_sl_cached_review(node) } else { None };
                     let rating = self
                         .human_sl_cached_review(before)
-                        .and_then(|first| feedback::judge(number, vertex, &first, second.as_ref()));
+                        .and_then(|first| feedback::judge(number, vertex, first, second));
                     self.human_sl_judged(after, rating, now);
                 }
             },
@@ -346,6 +361,7 @@ impl Workbench {
         if let Some(rating) = rating.filter(|_| in_game) {
             r.judged.retain(|(_, f)| f.move_number < rating.move_number);
             r.judged.push((after, rating));
+            r.judged_changed();
         }
         self.human_sl_verdict_arrived(now);
     }
@@ -404,9 +420,9 @@ impl Workbench {
         let a = &r.assist;
         Some(HumanSlFeedbackView {
             judging: r.judging.is_some(),
-            counts: feedback::counts(&ratings),
-            key_mistakes: feedback::key_mistakes(&ratings),
-            worst: feedback::worst_mistakes(&ratings, feedback::WORST_SHOWN),
+            counts: r.summary.counts,
+            key_mistakes: r.summary.key_mistakes,
+            worst: r.summary.worst.clone(),
             ratings,
             hints: a.hints_used(),
             can_hint: self.human_sl_can_hint(),

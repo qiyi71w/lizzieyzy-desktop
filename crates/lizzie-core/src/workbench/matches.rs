@@ -55,6 +55,9 @@ struct Run {
     rules_consent: bool,
     phase: MatchPhase,
     settings: MatchSettings,
+    /// The name of `settings.rules` in the display language, which the rules consent names as
+    /// the target (`MatchRuleOption.displayName`, else 自定义); the rules stay the run's.
+    rules_target_name: String,
     values: MatchSessionSettings,
     sides: [Participant; 2],
     first_is_black: bool,
@@ -475,6 +478,7 @@ impl Workbench {
                 let id = self.matches.next;
                 let parameters =
                     (session.kind == GameKind::Analysis).then(|| parameters::ParameterSession::new(&settings.opening));
+                let rules_target_name = self.match_rules_name(&settings.rules);
                 self.matches.run = Some(Run {
                     id,
                     game: id,
@@ -482,6 +486,7 @@ impl Workbench {
                     phase: MatchPhase::Starting,
                     rules_consent: false,
                     settings,
+                    rules_target_name,
                     values: session.clone(),
                     sides: seats.try_into().ok().unwrap(),
                     first_is_black: true,
@@ -1927,17 +1932,18 @@ impl Workbench {
         let r = self.matches.run.as_ref().filter(|r| matches!(r.phase, MatchPhase::Playing | MatchPhase::Paused))?;
         r.sides.iter().map(|p| p.instance).find(|&id| self.engines.is_kata_go_pda(id))
     }
+    /// The name of `rules` (a preset name or JSON, as the settings hold them) in the display
+    /// language: their engine-game rules choice's (`MatchRuleOption.displayName`), else 自定义.
+    fn match_rules_name(&self, rules: &str) -> String {
+        self.match_text(
+            crate::engine::rules::KataRules::parse(rules)
+                .as_ref()
+                .map_or("NewEngineGameDialog.matchRules.custom", crate::engine::rules::KataRules::match_name_key),
+        )
+    }
     pub(super) fn match_view(&self) -> Option<MatchView> {
         let r = self.matches.run.as_ref()?;
         let thinking = matches!(r.phase, MatchPhase::Playing | MatchPhase::Paused).then(|| self.match_side());
-        let rules_target_name = self.match_text(
-            crate::engine::rules::KataRules::parse(&r.settings.rules)
-                .as_ref()
-                .map_or(
-                    "NewEngineGameDialog.matchRules.custom",
-                    crate::engine::rules::KataRules::match_name_key,
-                ),
-        );
         let rules_unverified = r
             .sides
             .iter()
@@ -1988,7 +1994,7 @@ impl Workbench {
                 && !r.rules_consent
                 && r.rules_admission() == rules::Admission::Unverified,
             rules_unverified,
-            rules_target_name,
+            rules_target_name: r.rules_target_name.clone(),
             opening_index: r.opening.map(|i| i as u32),
             elapsed_seconds: r.started.elapsed().as_secs_f64(),
             parameters: self.match_params_view(),

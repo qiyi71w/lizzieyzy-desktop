@@ -10,8 +10,6 @@ pub struct HumanSlSettingsView {
     pub model: HumanSlModelView,
     pub training: HumanSlTrainingSettings,
     pub advanced_visible: bool,
-    /// Every opponent, weakest first.
-    pub levels: Vec<CoachLevelView>,
     /// The komi an even game would start with now: the even-game komi of the rules KataGo plays
     /// (`RulePreset.evenGameKomi`).
     pub even_komi: f64,

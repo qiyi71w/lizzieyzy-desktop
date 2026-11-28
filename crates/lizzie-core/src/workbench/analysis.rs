@@ -49,8 +49,9 @@ pub(super) enum SessionRules {
     /// No declaration: the engine's own rules are used.
     #[default]
     Unspecified,
-    /// A declaration KataGo understands (`raw` is the SGF text; `None` for a manual choice).
-    Valid { raw: Option<String>, rules: KataRules },
+    /// A declaration KataGo understands (`raw` is the SGF text; `None` for a manual choice), and
+    /// its `kata-set-rules` argument, which the rules panel's confirmation reads in every view.
+    Valid { raw: Option<String>, rules: KataRules, json: String },
     /// A declaration that is not usable KataGo rules.
     Invalid { raw: String },
 }
@@ -79,6 +80,11 @@ pub(super) struct AnalysisStore {
     /// 最大候选点数 (0 = none) each result was limited with when it came or was loaded
     /// (`tryToLimitMoves` splits `bestMoves` then; a later change of the setting does not).
     limits: HashMap<NodeId, usize>,
+    /// Moves on whenever which nodes have a result with visits may have changed: a result stored
+    /// for another stamp, or with visits where the one before had none or the other way round,
+    /// results dropped, and every record change ([`Self::retain_valid`] follows each). A count of
+    /// such nodes along the record can be kept until it moves on.
+    coverage: u64,
 }
 
 /// How long a kept candidate whose visits stopped growing stays kept.
@@ -86,6 +92,7 @@ const KEPT_FOR: Duration = Duration::from_secs(3);
 
 impl AnalysisStore {
     pub(super) fn reset(&mut self, doc: u64) {
+        self.changed();
         self.doc = doc;
         self.nodes.clear();
         self.ownership.clear();
@@ -94,6 +101,15 @@ impl AnalysisStore {
         self.kept_since.clear();
         self.attended.clear();
         self.limits.clear();
+    }
+
+    fn changed(&mut self) {
+        self.coverage = self.coverage.wrapping_add(1);
+    }
+
+    /// Moves on whenever which nodes have a result with visits may have changed (see the field).
+    pub(super) fn coverage(&self) -> u64 {
+        self.coverage
     }
 
     pub(super) fn get(&self, rec: &GameRecord, node: NodeId) -> Option<&NodeAnalysisView> {
@@ -108,6 +124,10 @@ impl AnalysisStore {
 
     /// Replaces the node's result and its ownership (none when the result has none).
     pub(super) fn insert(&mut self, node: NodeId, stamp: u64, view: NodeAnalysisView, ownership: Option<Vec<f64>>) {
+        let before = self.nodes.get(&node).map(|(s, v)| (*s, v.visits > 0));
+        if before != Some((stamp, view.visits > 0)) {
+            self.changed();
+        }
         self.nodes.insert(node, (stamp, view));
         self.metadata.remove(&node);
         self.stale.remove(&node);
@@ -222,6 +242,7 @@ impl AnalysisStore {
 
     /// Drops results whose node was removed or edited.
     pub(super) fn retain_valid(&mut self, rec: &GameRecord) {
+        self.changed();
         self.nodes
             .retain(|&node, (stamp, _)| rec.contains(node) && rec.node(node).stamp == *stamp);
         let nodes = &self.nodes;
@@ -275,6 +296,7 @@ impl AnalysisStore {
 
     /// `clearBestMovesInfomation`: the node's analysis is gone; it is neither shown nor saved.
     pub(super) fn erase(&mut self, node: NodeId) {
+        self.changed();
         self.nodes.remove(&node);
         self.ownership.remove(&node);
         self.metadata.remove(&node);
@@ -293,6 +315,7 @@ impl AnalysisStore {
             }
         }
         let mut part = AnalysisStore { doc: self.doc, ..AnalysisStore::default() };
+        self.changed();
         for &node in nodes {
             take(&mut self.nodes, &mut part.nodes, node);
             take(&mut self.ownership, &mut part.ownership, node);
@@ -617,7 +640,7 @@ impl Workbench {
         }
         let (target, failure, engine) = match &self.session_rules {
             SessionRules::Invalid { raw } => (raw.clone(), "INVALID_DECLARATION", fg),
-            SessionRules::Valid { raw, rules } => {
+            SessionRules::Valid { raw, rules, .. } => {
                 let failed = [Some(fg), secondary].into_iter().flatten().find_map(|id| {
                     match self.engines.rules_outcome(id, rules, self.rules_revision) {
                         RulesOutcome::Failed(f) => Some((id, f)),
@@ -668,6 +691,7 @@ impl Workbench {
             Some(raw) => match KataRules::parse(raw).filter(KataRules::has_required_fields) {
                 Some(rules) => SessionRules::Valid {
                     raw: Some(raw.to_string()),
+                    json: rules.to_gtp_argument(),
                     rules,
                 },
                 None => SessionRules::Invalid { raw: raw.to_string() },
@@ -1422,6 +1446,7 @@ impl Workbench {
         self.clear_best_moves();
         self.session_rules = SessionRules::Valid {
             raw: None,
+            json: parsed.to_gtp_argument(),
             rules: parsed,
         };
         self.rules_revision += 1;
@@ -1443,6 +1468,12 @@ impl Workbench {
     /// (`RulePreset.newGameKomi`), else the engine's own.
     pub(super) fn engine_komi(&self, profile: &EngineProfile) -> f64 {
         RuleSet::chosen(&self.config.engine).map_or(profile.komi, |set| set.komi)
+    }
+
+    /// The rule set chosen last ([`RuleSet::chosen`]), kept between views while the engine
+    /// settings stay the same.
+    pub(super) fn chosen_rule_set(&self) -> Option<&'static RuleSet> {
+        self.chosen_rule_set.get(&self.config.engine)
     }
 
     /// GtpConsolePane send. Like Java, `komi <v>` sets the game komi and `undo` steps back in
@@ -1928,9 +1959,11 @@ impl Workbench {
     }
 
     /// The current position is the empty board: the root with no setup stones
-    /// (`BoardHistoryList.noStoneBoard`).
+    /// (`BoardHistoryList.noStoneBoard`). The root is a snapshot whose setup holds each point in
+    /// one list at most, so it holds a stone exactly when it adds one.
     fn at_empty_board(&self) -> bool {
-        self.cursor == ROOT && self.doc.record.position(ROOT).stones.iter().all(Option::is_none)
+        let setup = &self.doc.record.node(ROOT).setup;
+        self.cursor == ROOT && setup.add_black.is_empty() && setup.add_white.is_empty()
     }
 
     /// The main board's first-use hint (Java `EmptyBoardHint.shows`): nobody has opened a record yet
@@ -2029,8 +2062,10 @@ impl Workbench {
 
     // -------------------------------------------------------------------- projection
 
-    pub(super) fn engine_view(&self) -> EngineView {
-        let running = self.engines.running();
+    /// The engine part of the view; `chosen` is the rule set chosen last
+    /// ([`Self::chosen_rule_set`]).
+    pub(super) fn engine_view(&self, chosen: Option<&RuleSet>) -> EngineView {
+        let running: Vec<_> = self.engines.running_profiles().collect();
         let fg = self.engines.foreground();
         let engines = self
             .config
@@ -2042,7 +2077,7 @@ impl Workbench {
                 command: sanitize(&p.command),
                 state: running
                     .iter()
-                    .find(|(_, id, _)| *id == p.id)
+                    .find(|(_, profile, _)| profile.id == p.id)
                     .map(|(_, _, phase)| match phase {
                         Phase::Starting => EngineState::Loading,
                         Phase::Ready => EngineState::Ready,
@@ -2100,11 +2135,11 @@ impl Workbench {
             },
             analyze_black: self.analyze_black,
             analyze_white: self.analyze_white,
-            rules_key: rules.map(|r| r.caption_key(self.komi, RuleSet::chosen(&self.config.engine)).to_string()),
+            rules_key: rules.map(|r| r.caption_key(self.komi, chosen).to_string()),
             rules: rules.map(KataRules::to_gtp_argument),
             session_rules: match (&self.session_rules, fg) {
-                (SessionRules::Valid { rules, .. }, Some(f)) => Some(SessionRulesView {
-                    rules: rules.to_gtp_argument(),
+                (SessionRules::Valid { rules, json, .. }, Some(f)) => Some(SessionRulesView {
+                    rules: json.clone(),
                     status: match self.engines.rules_outcome(f, rules, self.rules_revision) {
                         RulesOutcome::Confirmed => RulesStatus::Confirmed,
                         RulesOutcome::Pending => RulesStatus::Pending,
@@ -2122,7 +2157,7 @@ impl Workbench {
             search_threads_operation: self.search_threads_operation_view(),
             custom_pda: self.custom_pda_view(),
             priority_points: self.priority_points_at(self.cursor).to_vec(),
-            zhizi: self.zhizi_connection(),
+            zhizi: self.zhizi_connection(&running),
         }
     }
 

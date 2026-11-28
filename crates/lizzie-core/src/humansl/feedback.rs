@@ -240,7 +240,32 @@ pub fn counts(ratings: &[MoveFeedback]) -> [u32; 5] {
 
 /// The game's key mistakes: its 恶手, a 问题手 not counting (`MoveReviewer.keyMistakes`).
 pub fn key_mistakes(ratings: &[MoveFeedback]) -> u32 {
-    counts(ratings)[Verdict::Blunder as usize]
+    blunders(&counts(ratings))
+}
+
+/// The 恶手 among [`counts`].
+fn blunders(counts: &[u32; 5]) -> u32 {
+    counts[Verdict::Blunder as usize]
+}
+
+/// What the summary says of a game's ratings: how many got each rating ([`counts`]), its key
+/// mistakes ([`key_mistakes`]) and the [`WORST_SHOWN`] worst mistakes ([`worst_mistakes`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct RatingSummary {
+    pub counts: [u32; 5],
+    pub key_mistakes: u32,
+    pub worst: Vec<MoveFeedback>,
+}
+
+impl RatingSummary {
+    pub fn of(ratings: &[MoveFeedback]) -> RatingSummary {
+        let counts = counts(ratings);
+        RatingSummary {
+            counts,
+            key_mistakes: blunders(&counts),
+            worst: worst_mistakes(ratings, WORST_SHOWN),
+        }
+    }
 }
 
 /// The `n` worst of the player's mistakes, in the order played (`MoveReviewer.worstMistakes`): the

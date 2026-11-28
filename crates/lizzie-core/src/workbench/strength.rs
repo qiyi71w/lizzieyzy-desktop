@@ -11,7 +11,7 @@ use crate::{
         kata_analysis::{self, QueryOptions},
         runtime::{InstanceId, LeaseAvailability, RuntimeEvent},
     },
-    record::{NodeKind, ROOT},
+    record::{NodeId, NodeKind, ROOT},
     strength::{self as s, AnalysisInput, CandidateInput, MainLineInput, MoveInput, PositionInput},
 };
 use serde_json::{json, Value};
@@ -99,6 +99,9 @@ pub(super) struct StrengthFlow {
     /// The document and game a 补算 that needed the model download was asked for (the dialog's
     /// capture): the run resumed after the download prepares it or fails with gameChanged.
     download_target: Option<(u64, String)>,
+    /// How many main-line positions past the fingerprinted ones have analysis, with the key
+    /// ([`Workbench::strength_tail_key`]) it was counted for.
+    tail: Option<((u64, u64, u64), u32)>,
 }
 impl Default for StrengthFlow {
     fn default() -> Self {
@@ -126,6 +129,7 @@ impl Default for StrengthFlow {
             models: vec![s::StrengthModel::xgboost20tun(), s::StrengthModel::humansl40()],
             human_digest: s::HUMAN_SHA.into(),
             download_target: None,
+            tail: None,
         }
     }
 }
@@ -141,6 +145,9 @@ impl StrengthFlow {
         }
     }
 }
+/// The main line's first positions, which the view's stamp fingerprints one by one; the rest
+/// count by how many have analysis.
+const FINGERPRINTED: usize = 211;
 fn failure(message: String) -> StrengthManualOutcome {
     if message.starts_with("HumanSL40.") {
         StrengthManualOutcome::Failed {
@@ -979,7 +986,7 @@ impl Workbench {
         self.strength.game_key.hash(&mut hasher);
         let rec = &self.doc.record;
         let mut node = Some(ROOT);
-        for _ in 0..211 {
+        for _ in 0..FINGERPRINTED {
             let Some(id) = node else {
                 break;
             };
@@ -1001,11 +1008,10 @@ impl Workbench {
             node = rec.main_child(id);
         }
         // StrengthDialog.refresh: the rest of the main line counts by how many moves have analysis.
-        let mut analyzed = 0u32;
-        while let Some(id) = node {
-            analyzed += u32::from(self.store.get(rec, id).is_some_and(|a| a.visits > 0));
-            node = rec.main_child(id);
-        }
+        let analyzed = match self.strength.tail {
+            Some((key, analyzed)) if key == self.strength_tail_key() => analyzed,
+            _ => self.strength_analyzed_from(node),
+        };
         analyzed.hash(&mut hasher);
         StrengthView {
             models: self.strength.models.iter().map(s::StrengthModel::view).collect(),
@@ -1016,6 +1022,35 @@ impl Workbench {
             stamp: hasher.finish(),
             analyzing: self.strength_analyzing(),
         }
+    }
+    /// What the count of analysed positions past the fingerprinted ones depends on: the document,
+    /// its content and which nodes have a result with visits (the store's coverage, which also
+    /// moves on with every record change).
+    fn strength_tail_key(&self) -> (u64, u64, u64) {
+        (self.doc.id, self.doc.revision, self.store.coverage())
+    }
+    /// How many main-line positions from `node` on have analysis.
+    fn strength_analyzed_from(&self, mut node: Option<NodeId>) -> u32 {
+        let rec = &self.doc.record;
+        let mut analyzed = 0u32;
+        while let Some(id) = node {
+            analyzed += u32::from(self.store.get(rec, id).is_some_and(|a| a.visits > 0));
+            node = rec.main_child(id);
+        }
+        analyzed
+    }
+    /// Counts the analysed positions past the fingerprinted ones again once what they depend on
+    /// changed, so that a view does not walk the rest of the main line for an unchanged count.
+    pub(super) fn refresh_strength_tail(&mut self) {
+        let key = self.strength_tail_key();
+        if self.strength.tail.is_some_and(|(counted, _)| counted == key) {
+            return;
+        }
+        let mut node = Some(ROOT);
+        for _ in 0..FINGERPRINTED {
+            node = node.and_then(|id| self.doc.record.main_child(id));
+        }
+        self.strength.tail = Some((key, self.strength_analyzed_from(node)));
     }
     /// StrengthDialogHost.analyzing: a whole-game analysis, an automatic quick analysis or a flash
     /// analysis is starting or running.

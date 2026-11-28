@@ -1200,6 +1200,11 @@ impl Engines {
             .collect()
     }
 
+    /// Every running instance: its profile and phase, borrowed.
+    pub fn running_profiles(&self) -> impl Iterator<Item = (InstanceId, &EngineProfile, Phase)> {
+        self.instances.iter().map(|i| (i.id, &i.profile, i.phase))
+    }
+
     pub fn phase(&self, id: InstanceId) -> Option<Phase> {
         self.get(id).map(|i| i.phase)
     }

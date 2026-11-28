@@ -1245,3 +1245,32 @@ fn unusable_phase_boundaries_fall_back_to_the_defaults() {
     assert_eq!(p.phases[2].verdict, PhaseVerdict::NotReached);
     assert_eq!((p.max_bound, phases_now(&mut f.wb).bounds), (1000, [60, 1000]));
 }
+
+/// Past the main line's first 211 positions a view counts the analysed ones instead of
+/// fingerprinting them: a result arriving there still moves the stamp on.
+#[test]
+fn the_stamp_follows_new_analysis_late_in_the_main_line() {
+    let mut f = still();
+    let mut sgf = String::from("(;SZ[19]KM[7.5]");
+    for k in 1..=230 {
+        let (x, y) = long_move(k);
+        let colour = if k % 2 == 1 { "B" } else { "W" };
+        sgf.push_str(&format!(";{colour}[{}{}]", (b'a' + x as u8) as char, (b'a' + y as u8) as char));
+    }
+    sgf.push(')');
+    open(&mut f.wb, &sgf);
+    let id = foreground(&mut f);
+    f.wb.navigate(Navigation::Forward(220));
+    serve(&mut f, id);
+    let before = f.wb.view(false).strength.stamp;
+    assert_eq!(f.wb.view(false).strength.stamp, before, "nothing changed");
+    // The middle rows stay empty in this game.
+    let point = vertex(9, 9);
+    f.wb.engine_input(
+        id,
+        EngineInput::Stdout(format!("info move {point} visits 100 winrate 0.55 scoreLead 2 prior 0.2 order 0 pv {point}")),
+    );
+    let v = f.wb.view(false);
+    assert!(v.analysis.is_some_and(|a| a.visits > 0), "move 220 is analysed");
+    assert_ne!(v.strength.stamp, before);
+}

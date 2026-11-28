@@ -304,6 +304,24 @@ fn refused_rules_are_reported_as_failed() {
     assert_eq!(applied.rules, rules_of("CHINESE"));
 }
 
+/// The confirmation the panel waits for reads the rules of the latest 确定, also when the rules
+/// before them were confirmed already.
+#[test]
+fn the_published_session_rules_follow_each_choice() {
+    let dir = tempfile::tempdir().unwrap();
+    let world = World::default();
+    let (mut wb, id) = started(dir.path(), &world);
+    applied(wb.set_kata_rules(CHINESE, 7.5, None, false));
+    answer_all(&mut wb, &world, id);
+    let first = wb.view(false).engine.session_rules.unwrap();
+    assert_eq!((first.rules, first.status), (rules_of("CHINESE"), RulesStatus::Confirmed));
+    applied(wb.set_kata_rules(JAPANESE, 6.5, None, false));
+    assert_eq!(wb.view(false).engine.session_rules.unwrap().rules, rules_of("JAPANESE"));
+    answer_all(&mut wb, &world, id);
+    let second = wb.view(false).engine.session_rules.unwrap();
+    assert_eq!((second.rules, second.status), (rules_of("JAPANESE"), RulesStatus::Confirmed));
+}
+
 /// The komi sent before the rules is part of syncing the position: when the engine refuses it,
 /// that position is not set up again by itself (no `clear_board`, no second `komi`); another
 /// position is.

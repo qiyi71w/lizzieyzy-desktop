@@ -2473,8 +2473,11 @@ fn the_names_toggle_their_win_rates_during_the_game() {
 fn the_published_opponents_carry_javas_rank_table() {
     let table: Value = serde_json::from_str(include_str!("fixtures/coach/java-coach.json")).unwrap();
     let rows = table["levels"].as_array().unwrap();
-    let f = fixture(false);
-    let levels = f.wb.inspect().settings.human_sl.levels;
+    let mut f = fixture(false);
+    // A fixed catalogue: in full views and observations, not in every published view.
+    assert!(f.wb.view(true).human_sl_levels.is_some());
+    assert!(f.wb.view(false).human_sl_levels.is_none());
+    let levels = f.wb.inspect().human_sl_levels.unwrap();
     assert_eq!(levels.len(), 31);
     assert_eq!(rows.len(), 31);
     for (ours, java) in levels.iter().zip(rows) {
