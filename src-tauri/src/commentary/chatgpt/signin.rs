@@ -84,6 +84,15 @@ impl SignIn {
             .map_err(|_| failure("browser"))
     }
     pub fn run(&self, app: &AppHandle, http: &mut Http) -> Result<(), CommentaryFailure> {
+        self.serve(|values| self.complete(app, http, values))
+    }
+    /// Waits for the browser's callback on the loopback listener and answers it; `complete` then
+    /// finishes the sign-in with the callback's values while later callbacks are answered 409
+    /// (valid) or 400 (invalid).
+    fn serve(
+        &self,
+        complete: impl FnOnce(BTreeMap<String, String>) -> Result<(), CommentaryFailure>,
+    ) -> Result<(), CommentaryFailure> {
         loop {
             sessions::cancelled(&self.cancel)?;
             if Instant::now() >= self.deadline {
@@ -116,7 +125,7 @@ impl SignIn {
                                 std::thread::sleep(Duration::from_millis(20));
                             }
                         });
-                        let result = self.complete(app, http, values);
+                        let result = complete(values);
                         finished.store(true, Ordering::Release);
                         result
                     });
@@ -268,4 +277,78 @@ fn reply(stream: &mut TcpStream, status: u16) {
         _ => "Conflict",
     };
     let _ = write!(stream, "HTTP/1.1 {status} {reason}\r\nContent-Type: text/plain; charset=utf-8\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}", body.len());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+    use std::thread::sleep;
+
+    /// Sends `parts` to the callback port, pausing `pause` before each, and returns the reply's
+    /// status code (0 without one). The parts end with the request line: the callback reads no
+    /// further, and bytes left unread when it closes would reset the connection under its reply.
+    fn request(port: u16, pause: Duration, parts: &[&str]) -> u16 {
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        for part in parts {
+            sleep(pause);
+            let _ = stream.write_all(part.as_bytes());
+        }
+        // The status line only: the sign-in keeps the accepted connection until it completes.
+        let mut status = String::new();
+        let _ = std::io::BufRead::read_line(&mut std::io::BufReader::new(stream), &mut status);
+        status.split(' ').nth(1).and_then(|code| code.parse().ok()).unwrap_or(0)
+    }
+
+    /// Sets the sign-in's cancel flag when dropped, so a failed assertion ends `serve` instead of
+    /// leaving it waiting for its five-minute deadline.
+    struct Cancel<'a>(&'a AtomicBool);
+    impl Drop for Cancel<'_> {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::Release);
+        }
+    }
+
+    #[test]
+    fn a_callback_whose_request_arrives_late_and_in_pieces_completes_the_sign_in() {
+        let cancel = Arc::new(AtomicBool::new(false));
+        let context = SignInContext {
+            profile: None,
+            client: "dynamic_agent_client".into(),
+            host: "loopback-test".into(),
+            subject: None,
+            revision: 0,
+            reconsent: false,
+        };
+        let signin = SignIn::new(context, cancel.clone()).unwrap();
+        let port = signin.listener.local_addr().unwrap().port();
+        let valid = format!("/auth/callback?code=fixture-code&state={}", signin.state);
+        let (completed, completion) = mpsc::channel();
+        let (release, released) = mpsc::channel::<()>();
+        std::thread::scope(|scope| {
+            let server = scope.spawn(|| {
+                let (completed, released) = (completed, released);
+                signin.serve(|values| {
+                    completed.send(values).unwrap();
+                    let _ = released.recv_timeout(Duration::from_secs(10));
+                    Ok(())
+                })
+            });
+            let _stop = Cancel(&cancel);
+            assert_eq!(request(port, Duration::ZERO, &["GET /auth/elsewhere HTTP/1.1\r\n"]), 400);
+            // The browser connects, then sends the request line late and in two pieces.
+            let (head, tail) = valid.split_at(valid.len() / 2);
+            let first = format!("GET {head}");
+            let second = format!("{tail} HTTP/1.1\r\n");
+            assert_eq!(request(port, Duration::from_millis(120), &[&first, &second]), 200);
+            let values = completion.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert_eq!(values.get("code").map(String::as_str), Some("fixture-code"));
+            // While the sign-in completes, the same callback again is a conflict.
+            let again = format!("GET {valid} HTTP/1.1\r\n");
+            assert_eq!(request(port, Duration::ZERO, &[&again]), 409);
+            release.send(()).unwrap();
+            assert!(server.join().unwrap().is_ok());
+        });
+    }
 }
