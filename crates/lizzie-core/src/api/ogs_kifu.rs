@@ -41,8 +41,10 @@ pub struct OgsKifuView {
     pub recent: Vec<String>,
     /// The line under the search rows.
     pub label: OgsKifuLabel,
-    /// The shown page's games.
-    pub rows: Vec<OgsKifuRow>,
+    /// The shown page's games. A published view carries them only when they changed since the
+    /// previous one (and every full view); `None` means the last ones received still hold.
+    /// `inspect` always carries them.
+    pub rows: Option<Vec<OgsKifuRow>>,
     /// A player was found: the page buttons work.
     pub listed: bool,
     pub page: u32,

@@ -1,7 +1,7 @@
 // The relay between the main window and the OGS 棋谱 window (label `ogs-kifu`, ogskifu.html). The
 // main window owns the only workbench subscription and sends the window its part of every view;
 // the window sends its commands itself (dispatch) and reports what it shows.
-import type { Language, OgsKifuView } from "../contract/generated";
+import type { Language, OgsKifuRow, OgsKifuView } from "../contract/generated";
 
 export const OGS_KIFU_LABEL = "ogs-kifu";
 /** main → window: OgsKifuPayload. */
@@ -15,7 +15,8 @@ export interface OgsKifuPayload {
   frameFontSize: number;
   /** Function search's request for 打开棋谱后此窗口, by number, until the window says it located it. */
   locate: number | null;
-  view: OgsKifuView;
+  /** The view's part for the window, with the page's rows as last received. */
+  view: Omit<OgsKifuView, "rows"> & { rows: OgsKifuRow[] };
 }
 
 /** What the acceptance probe reports for the window: its visible texts and controls. */

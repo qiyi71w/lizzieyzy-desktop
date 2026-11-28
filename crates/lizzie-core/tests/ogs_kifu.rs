@@ -11,7 +11,7 @@
 use std::collections::VecDeque;
 
 use lizzie_core::api::{
-    CommandResult, KifuPage, OgsKifuCommand, OgsKifuLabel, OgsKifuStatus, OgsKifuView, OnlineCommand, OnlineJob,
+    CommandResult, KifuPage, OgsKifuCommand, OgsKifuLabel, OgsKifuRow, OgsKifuStatus, OgsKifuView, OnlineCommand, OnlineJob,
     OpenOutcome, OpenSource,
 };
 use lizzie_core::engine::gtp::LaunchSpec;
@@ -110,8 +110,14 @@ fn op(wb: &mut Workbench, op: OgsKifuCommand) -> CommandResult {
     wb.ogs_kifu(op).unwrap()
 }
 
+/// The window's part of the current state, with its rows (published views carry them only when
+/// they changed).
 fn view(wb: &mut Workbench) -> OgsKifuView {
-    wb.view(false).ogs_kifu
+    wb.inspect().ogs_kifu
+}
+
+fn page_rows(v: &OgsKifuView) -> &[OgsKifuRow] {
+    v.rows.as_deref().expect("inspect carries the rows")
 }
 
 fn open_file(wb: &mut Workbench, text: &str) -> bool {
@@ -137,6 +143,31 @@ fn listed(wb: &mut Workbench) {
             page(41, vec![game(101, "White"), game(102, "W2")]),
         );
     serve(wb, &mut http);
+}
+
+/// While analysis streams views, they do not repeat the window's unchanged rows: a published view
+/// carries them once after each change (a listed page, another page, closing) and every full view
+/// carries them.
+#[test]
+fn published_views_carry_the_rows_once_per_change() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut wb = workbench(dir.path());
+    listed(&mut wb);
+    let first = wb.view(false).ogs_kifu.rows.expect("the listed page");
+    assert_eq!(first.iter().map(|r| r.id).collect::<Vec<_>>(), vec![101, 102]);
+    assert_eq!(wb.view(false).ogs_kifu.rows, None, "unchanged rows are not sent again");
+    assert_eq!(wb.view(true).ogs_kifu.rows, Some(first), "a full view carries them");
+    assert_eq!(wb.view(false).ogs_kifu.rows, None);
+
+    op(&mut wb, OgsKifuCommand::Page { to: KifuPage::Next });
+    serve(&mut wb, &mut Script::default().reply(games_url(12, 2), 200, page(41, vec![game(202, "White page 2")])));
+    let next = wb.view(false).ogs_kifu.rows.expect("the next page");
+    assert_eq!(next.iter().map(|r| r.id).collect::<Vec<_>>(), vec![202]);
+    assert_eq!(wb.view(false).ogs_kifu.rows, None);
+
+    op(&mut wb, OgsKifuCommand::Close);
+    assert_eq!(wb.view(false).ogs_kifu.rows, Some(Vec::new()), "closing empties the list once");
+    assert_eq!(wb.view(false).ogs_kifu.rows, None);
 }
 
 /// Each address as Java `OgsSgfClient.sgfUri` reads it: `URI.create` on the whole trimmed text
@@ -498,7 +529,7 @@ fn a_search_lists_pages_and_remembers_the_text() {
     op(&mut wb, OgsKifuCommand::Open);
     let v = view(&mut wb);
     assert_eq!(
-        (v.label.clone(), v.rows.len(), v.listed, v.busy),
+        (v.label.clone(), page_rows(&v).len(), v.listed, v.busy),
         (OgsKifuLabel::Hint, 0, false, false)
     );
     // A blank field asks for the player and sends nothing.
@@ -534,8 +565,8 @@ fn a_search_lists_pages_and_remembers_the_text() {
         }
     );
     assert_eq!((v.page, v.pages, v.listed), (1, 3, true));
-    assert_eq!(v.rows.len(), 1);
-    assert_eq!(v.rows[0].white, "White");
+    assert_eq!(page_rows(&v).len(), 1);
+    assert_eq!(page_rows(&v)[0].white, "White");
     assert_eq!(v.recent, vec!["alice".to_string()]);
     let shown = v.shown;
 
@@ -555,7 +586,7 @@ fn a_search_lists_pages_and_remembers_the_text() {
     );
     let v = view(&mut wb);
     assert_eq!(
-        (v.page, v.rows[0].white.as_str(), v.rows[0].id),
+        (v.page, page_rows(&v)[0].white.as_str(), page_rows(&v)[0].id),
         (2, "White page 2", 202)
     );
     assert!(v.shown > shown, "a new page selects its first game");
@@ -630,7 +661,7 @@ fn unknown_players_empty_histories_and_failures_are_told_apart() {
     listed(&mut wb);
     // A failed search drops the previous player's rows at once.
     op(&mut wb, OgsKifuCommand::Search { text: "nobody".into() });
-    assert!(view(&mut wb).rows.is_empty());
+    assert!(page_rows(&view(&mut wb)).is_empty());
     serve(
         &mut wb,
         &mut Script::default().reply(
@@ -641,7 +672,7 @@ fn unknown_players_empty_histories_and_failures_are_told_apart() {
     );
     let v = view(&mut wb);
     assert_eq!(v.status, Some(OgsKifuStatus::NoPlayer));
-    assert_eq!((v.listed, v.rows.len()), (false, 0));
+    assert_eq!((v.listed, page_rows(&v).len()), (false, 0));
     assert_eq!(v.label, OgsKifuLabel::Searched { text: "nobody".into() });
 
     op(&mut wb, OgsKifuCommand::Search { text: "7".into() });
@@ -730,7 +761,7 @@ fn a_failed_download_keeps_the_current_record() {
         assert!(wb.view(false).pending_open.is_none());
         let v = view(&mut wb);
         assert_eq!(v.status, Some(OgsKifuStatus::Failed { failure, record: true }));
-        assert_eq!((v.busy, v.opened, v.rows.len()), (false, 0, 2), "the list stays");
+        assert_eq!((v.busy, v.opened, page_rows(&v).len()), (false, 0, 2), "the list stays");
     }
 }
 
@@ -749,7 +780,7 @@ fn closing_the_window_cancels_its_request_and_late_replies_change_nothing() {
     };
     op(&mut wb, OgsKifuCommand::Close);
     assert_eq!(wb.take_ogs_kifu_tasks(), vec![OgsKifuTask::Cancel(job.id)]);
-    let closed = wb.view(false);
+    let closed = wb.inspect();
     let mut http = Script::default()
         .reply(
             format!("{BASE}players/?username=bob"),
@@ -759,13 +790,13 @@ fn closing_the_window_cancels_its_request_and_late_replies_change_nothing() {
         .reply(games_url(5, 1), 200, page(1, vec![game(501, "w")]));
     let late = fetch(&job.request, BASE, &mut http, false);
     assert!(!wb.ogs_kifu_reply(job, late), "a late reply changes nothing");
-    let after = wb.view(false);
+    let after = wb.inspect();
     assert_eq!(after.ogs_kifu, closed.ogs_kifu);
     assert_eq!(after.ogs_kifu.recent, recent);
     assert_eq!(
         (
             after.ogs_kifu.label.clone(),
-            after.ogs_kifu.rows.len(),
+            page_rows(&after.ogs_kifu).len(),
             after.ogs_kifu.busy
         ),
         (OgsKifuLabel::Hint, 0, false)
@@ -816,7 +847,9 @@ fn another_open_ends_the_windows_download_and_its_late_reply_changes_nothing() {
         assert_eq!(wb.take_ogs_kifu_tasks(), vec![OgsKifuTask::Cancel(job.id)]);
         assert!(!wb.ogs_kifu_wanted(job.id));
         let v = &opened.ogs_kifu;
-        assert_eq!((v.busy, v.status.clone(), v.opened, v.rows.len()), (false, None, 0, 2));
+        assert_eq!((v.busy, v.status.clone(), v.opened), (false, None, 0));
+        let shown = view(&mut wb);
+        assert_eq!(page_rows(&shown).len(), 2, "the list stays");
 
         let mut http = Script::default().reply(format!("{BASE}games/101/sgf"), status, body);
         let late = fetch(&job.request, BASE, &mut http, false);
@@ -824,7 +857,7 @@ fn another_open_ends_the_windows_download_and_its_late_reply_changes_nothing() {
         let after = wb.view(false);
         assert_eq!(wb.document().id, doc);
         assert_eq!(after.open_outcome, None, "no record and no message");
-        assert_eq!(after.ogs_kifu, opened.ogs_kifu);
+        assert_eq!(view(&mut wb), shown);
         // The list can be used again.
         assert_eq!(
             op(&mut wb, OgsKifuCommand::Page { to: KifuPage::Next }),
@@ -1037,7 +1070,7 @@ fn replay(names: &[&str]) -> Script {
 type Row<'a> = (u64, &'a str, &'a str, &'a str, &'a str, &'a str);
 
 fn rows(v: &OgsKifuView) -> Vec<(u64, &str, &str, &str, &str, &str)> {
-    v.rows
+    page_rows(v)
         .iter()
         .map(|r| {
             (
@@ -1428,7 +1461,7 @@ fn recorded_replies_find_a_player_by_username_or_id_and_list_every_column() {
         serve_at(&mut wb, &mut replay(&[name]), API);
         let v = view(&mut wb);
         assert_eq!(v.status, Some(OgsKifuStatus::NoPlayer), "{name}");
-        assert_eq!((v.listed, v.rows.len()), (false, 0), "{name}");
+        assert_eq!((v.listed, page_rows(&v).len()), (false, 0), "{name}");
     }
 }
 

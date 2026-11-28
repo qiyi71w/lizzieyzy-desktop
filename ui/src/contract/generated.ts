@@ -3378,9 +3378,11 @@ recent: Array<string>,
  */
 label: OgsKifuLabel, 
 /**
- * The shown page's games.
+ * The shown page's games. A published view carries them only when they changed since the
+ * previous one (and every full view); `None` means the last ones received still hold.
+ * `inspect` always carries them.
  */
-rows: Array<OgsKifuRow>, 
+rows: Array<OgsKifuRow> | null, 
 /**
  * A player was found: the page buttons work.
  */

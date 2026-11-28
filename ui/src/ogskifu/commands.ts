@@ -7,7 +7,7 @@ import { registerViewHandler, run, state } from "../app";
 import { frameMetrics } from "../appearance/state";
 import { COMMANDS, type CommandEntry } from "../commands";
 import { afterGetRequest } from "../foxkifu/afterGet";
-import type { WorkbenchView } from "../contract/generated";
+import type { OgsKifuRow, WorkbenchView } from "../contract/generated";
 import { language, registerProduct, t } from "../i18n";
 import { ogsAfterGetReason } from "../search/locateRules";
 import {
@@ -23,6 +23,8 @@ import "./text";
 let lastSent = "";
 let report: OgsKifuReport | null = null;
 let opening = false;
+/** The page's rows as last received: a view carries them only when they changed. */
+let rows: OgsKifuRow[] = [];
 
 /** openKifu(true): the window comes up (or forward) and browsing may preload the analysis engine.
  *  The JFrame follows the main window's 总在最前. */
@@ -46,7 +48,8 @@ const afterGet = afterGetRequest(openOgsKifu, () => {
 });
 
 function relay(v: WorkbenchView): void {
-  const payload: OgsKifuPayload = { language: language(), frameFontSize: frameMetrics().frameFontSize, locate: afterGet.request, view: v.ogs_kifu };
+  if (v.ogs_kifu.rows) rows = v.ogs_kifu.rows;
+  const payload: OgsKifuPayload = { language: language(), frameFontSize: frameMetrics().frameFontSize, locate: afterGet.request, view: { ...v.ogs_kifu, rows } };
   const text = JSON.stringify(payload);
   if (text === lastSent) return;
   lastSent = text;

@@ -1235,8 +1235,9 @@ impl Workbench {
 
     /// Builds the next view for the UI. `full` always includes the tree (initial load, reload);
     /// otherwise the tree is included only when the UI has not received it for this document and
-    /// revision. The fixed HumanSL opponent catalogue comes with `full` views only. One-shot parts
-    /// (open and save outcomes, sound) are handed over here.
+    /// revision, and the OGS 棋谱 window's rows likewise only when they changed. The fixed HumanSL
+    /// opponent catalogue comes with `full` views only. One-shot parts (open and save outcomes,
+    /// sound) are handed over here.
     pub fn view(&mut self, full: bool) -> WorkbenchView {
         self.refresh_commentary_view();
         self.chosen_rule_set.refresh(&self.config.engine);
@@ -1251,6 +1252,7 @@ impl Workbench {
         };
         let mut v = self.build_view(tree);
         v.human_sl_levels = full.then(human_sl_levels);
+        v.ogs_kifu.rows = self.ogs_kifu_unsent_rows(full);
         v.open_outcome = self.outcome.take();
         v.save_outcome = self.save_outcome.take();
         v.sounds = std::mem::take(&mut self.sounds);
@@ -1278,6 +1280,7 @@ impl Workbench {
     pub fn inspect(&self) -> WorkbenchView {
         let mut v = self.build_view(Some(tree_view(&self.doc)));
         v.human_sl_levels = Some(human_sl_levels());
+        v.ogs_kifu.rows = Some(self.ogs_kifu_rows());
         v.open_outcome = self.outcome.clone();
         v.save_outcome = self.save_outcome.clone();
         v.sounds = self.sounds.clone();

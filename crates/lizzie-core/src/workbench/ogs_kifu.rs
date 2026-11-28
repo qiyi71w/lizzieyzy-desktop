@@ -66,12 +66,22 @@ pub(super) struct OgsKifuFlow {
     player: Option<Player>,
     label: Option<OgsKifuLabel>,
     games: Vec<Game>,
+    /// Moves on with every change of `games`; `rows_sent` is the one the UI last received.
+    rows_revision: u64,
+    rows_sent: Option<u64>,
     page: u32,
     pages: u32,
     shown: u64,
     status: Option<OgsKifuStatus>,
     opened: u64,
     tasks: Vec<OgsKifuTask>,
+}
+
+impl OgsKifuFlow {
+    fn replace_games(&mut self, games: Vec<Game>) {
+        self.games = games;
+        self.rows_revision += 1;
+    }
 }
 
 impl Workbench {
@@ -146,7 +156,7 @@ impl Workbench {
         });
         let f = &mut self.ogs_kifu;
         f.player = None;
-        f.games.clear();
+        f.replace_games(Vec::new());
         f.page = 1;
         f.pages = 1;
         f.label = Some(OgsKifuLabel::Searched { text: text.to_string() });
@@ -210,7 +220,7 @@ impl Workbench {
         let f = &mut self.ogs_kifu;
         let changed = f.player.is_some() || !f.games.is_empty() || f.label.is_some() || f.status.is_some();
         f.player = None;
-        f.games.clear();
+        f.replace_games(Vec::new());
         f.page = 1;
         f.pages = 1;
         f.label = None;
@@ -337,7 +347,7 @@ impl Workbench {
         } else {
             None
         };
-        f.games = page.games;
+        f.replace_games(page.games);
         f.page = page.page;
         f.pages = page.pages;
         f.shown += 1;
@@ -383,6 +393,8 @@ impl Workbench {
         });
     }
 
+    /// The window's part of the view; [`Self::ogs_kifu_rows`] or
+    /// [`Self::ogs_kifu_unsent_rows`] fills in the rows.
     pub(super) fn ogs_kifu_view(&self) -> OgsKifuView {
         let f = &self.ogs_kifu;
         let saved = &self.config.ogs_kifu;
@@ -390,7 +402,7 @@ impl Workbench {
             after_get: saved.after_get.unwrap_or(self.config.fox_kifu.after_get),
             recent: saved.recent.clone(),
             label: f.label.clone().unwrap_or(OgsKifuLabel::Hint),
-            rows: f.games.iter().map(row).collect(),
+            rows: None,
             listed: f.player.is_some(),
             page: f.page.max(1),
             pages: f.pages.max(1),
@@ -399,6 +411,22 @@ impl Workbench {
             status: f.status.clone(),
             opened: f.opened,
         }
+    }
+
+    /// The shown page's rows.
+    pub(super) fn ogs_kifu_rows(&self) -> Vec<OgsKifuRow> {
+        self.ogs_kifu.games.iter().map(row).collect()
+    }
+
+    /// The rows for the next published view: with `full`, or when the UI has not received them
+    /// since they changed (a view with analysis streaming would otherwise copy them every time).
+    pub(super) fn ogs_kifu_unsent_rows(&mut self, full: bool) -> Option<Vec<OgsKifuRow>> {
+        let f = &mut self.ogs_kifu;
+        if !full && f.rows_sent == Some(f.rows_revision) {
+            return None;
+        }
+        f.rows_sent = Some(f.rows_revision);
+        Some(self.ogs_kifu_rows())
     }
 }
 
