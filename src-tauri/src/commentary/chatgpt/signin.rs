@@ -136,6 +136,10 @@ impl SignIn {
         }
     }
     fn validate(&self, stream: &mut TcpStream) -> Result<BTreeMap<String, String>, ()> {
+        // Both accepts hand over a socket in the listener's non-blocking mode on macOS and
+        // Windows, where a request line not yet arrived would read as an error; the timeouts
+        // below bound a blocking read.
+        stream.set_nonblocking(false).map_err(|_| ())?;
         stream
             .set_read_timeout(Some(Duration::from_millis(250)))
             .map_err(|_| ())?;
