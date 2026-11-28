@@ -61,6 +61,11 @@ impl Adapter {
         )
     }
 
+    /// The trusted host keys: the 智子 model catalog's SSH connection is checked against them too.
+    pub fn known_hosts(&self) -> Arc<KnownHosts> {
+        self.known_hosts.clone()
+    }
+
     fn password(&self, account: &str) -> Option<String> {
         if let Some(password) = self.session.lock().unwrap().get(account) {
             return Some(password.clone());

@@ -1,13 +1,16 @@
 use super::{data, http::Http};
 use lizzie_core::cloud::{Catalog, CloudFailure};
-use russh::{client, keys::PublicKeyOrCertificate, ChannelMsg, Disconnect};
+use lizzie_core::engine::ssh::{HostKeyCheck, KnownHosts};
+use russh::{client, ChannelMsg, Disconnect};
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
 const WORLD: &str = "https://ikatago-fairyland.oss-cn-beijing.aliyuncs.com/world.json";
 /// Java obtains the SSH endpoint from HTTPS world/account metadata and uses its separately
 /// provisioned connect-account password, not the user's login password or engine transport.
-pub(super) fn refresh(http: &Http, base: &str, token: &str, world: Option<&str>) -> Result<Catalog, CloudFailure> {
+/// The server's host key is checked against the remote engines' trusted keys before that
+/// password is sent (Java B2 `SshCommandSession.open` with `SshKnownHosts`).
+pub(super) fn refresh(http: &Http, base: &str, token: &str, world: Option<&str>, known_hosts: &Arc<KnownHosts>) -> Result<Catalog, CloudFailure> {
     let connect = http.get(&format!("{base}/api/cluster/account/connectAccount/fetch"), token)?;
     let username = data::string(&connect,"connectUsername");
     let password = data::string(&connect,"connectPassword");
@@ -33,10 +36,11 @@ pub(super) fn refresh(http: &Http, base: &str, token: &str, world: Option<&str>)
     let port = endpoint.get("port").and_then(|v| v.as_u64()).unwrap_or(22);
     if host.is_empty() || user.is_empty() || !(1..=65535).contains(&port) { return Err(CloudFailure::new("invalid_catalog")); }
     let cancellation = http.clone();
+    let known_hosts = known_hosts.clone();
     let (tx, rx) = mpsc::sync_channel(1);
     tauri::async_runtime::spawn(async move {
         let result = tokio::select! {
-            result = tokio::time::timeout(Duration::from_secs(10), query(&host, port as u16, &user, &password)) =>
+            result = tokio::time::timeout(Duration::from_secs(10), query(known_hosts, &host, port as u16, &user, &password)) =>
                 result.unwrap_or_else(|_| Err(CloudFailure::new("catalog_timeout"))),
             _ = cancellation.wait_cancelled() => Err(CloudFailure::cancelled()),
         };
@@ -51,19 +55,18 @@ pub(super) fn refresh(http: &Http, base: &str, token: &str, world: Option<&str>)
         }
     }
 }
-struct MetadataPeer;
-impl client::Handler for MetadataPeer {
-    type Error = russh::Error;
-    async fn check_server_key(&mut self, _: &PublicKeyOrCertificate) -> Result<bool, Self::Error> {
-        // Fixed Java catalog client uses connect(null): the endpoint's identity is supplied by
-        // authenticated HTTPS discovery. This is not the user's arbitrary SSH engine entry.
-        Ok(true)
-    }
-}
-async fn query(host: &str, port: u16, user: &str, password: &str) -> Result<serde_json::Value, CloudFailure> {
+async fn query(known_hosts: Arc<KnownHosts>, host: &str, port: u16, user: &str, password: &str) -> Result<serde_json::Value, CloudFailure> {
     let fail = |_| CloudFailure::new("catalog_unavailable");
     let config = Arc::new(client::Config { nodelay: true, ..Default::default() });
-    let mut session = client::connect(config, (host,port), MetadataPeer).await.map_err(fail)?;
+    let check = HostKeyCheck::new(known_hosts, host, port);
+    let refused = check.refusal();
+    let mut session = match client::connect(config, (host,port), check).await {
+        Ok(session) => session,
+        Err(_) => return Err(match refused.take() {
+            Some(refusal) => CloudFailure { host_key: Some(refusal), ..CloudFailure::new("host_key_refused") },
+            None => CloudFailure::new("catalog_unavailable"),
+        }),
+    };
     if !session.authenticate_password(user,password).await.map_err(fail)?.success() {
         return Err(CloudFailure::new("catalog_authentication_failed"));
     }

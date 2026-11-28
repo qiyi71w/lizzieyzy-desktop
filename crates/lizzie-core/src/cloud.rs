@@ -118,11 +118,14 @@ pub struct CloudFailure {
     pub uncertain: bool,
     pub cancelled: bool,
     pub authentication_invalidated: bool,
+    /// The model catalog's SSH server was refused before any credential was sent: its host key is
+    /// not the trusted one, or the trusted keys could not be read (key `host_key_refused`).
+    pub host_key: Option<crate::engine::ssh::RemoteFailure>,
 }
 impl CloudFailure {
     pub fn new(key: &str) -> Self {
         Self { key: key.into(), status: 0, retry_after_seconds: 0, retryable: false,
-            uncertain: false, cancelled: false, authentication_invalidated: false }
+            uncertain: false, cancelled: false, authentication_invalidated: false, host_key: None }
     }
     pub fn cancelled() -> Self { Self { cancelled: true, ..Self::new("cancelled") } }
 }

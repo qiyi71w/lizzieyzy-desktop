@@ -2001,7 +2001,8 @@ function uiReport() {
     commentary: commentaryReport(),
     /** 跑谱贡献 (T36): the KataGo分布式训练 window as drawn, or null when it is closed. */
     contribution: contributionReport(),
-    /** 远程算力's footer (智子 connections, 断开智子引擎, its note, the current engine), or null when closed. */
+    /** 远程算力's footer (智子 connections, 断开智子引擎, its note, the current engine) and the model
+     *  refresh's host key refusal, or null when closed. */
     remoteCompute: remoteComputeReport(),
     /** 野狐棋谱 (T30): what its window last showed. */
     foxKifu: foxKifuReport(),

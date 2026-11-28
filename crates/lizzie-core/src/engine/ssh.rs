@@ -148,8 +148,9 @@ pub fn is_external_ssh(command: &str) -> bool {
         })
 }
 
-/// Why a remote engine could not start or is gone.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, TS)]
+/// Why a remote engine could not start or is gone. The model catalog query of 远程算力 reports
+/// its host key refusals ([`HostKeyCheck`]) with the same two variants.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "type")]
 pub enum RemoteFailure {
     /// The host could not be reached, the connection or key exchange failed or timed out, the key
@@ -223,8 +224,9 @@ impl std::fmt::Display for RemoteFailure {
 /// thread; it may block briefly on the platform's credential storage.
 pub type PasswordSource = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
-/// Host keys trusted on first use, by `host:port`, in a file of this application's settings.
-/// A different key is refused and remembered so the user can choose to trust it instead.
+/// Host keys trusted on first use, by `host:port`, in a file of this application's settings: one
+/// store for every SSH connection the application opens (remote engines and the 智子 model
+/// catalog). A different key is refused and remembered so the user can choose to trust it instead.
 pub struct KnownHosts {
     path: PathBuf,
     file: Mutex<()>,
@@ -262,17 +264,16 @@ impl KnownHosts {
         }
     }
 
+    /// Writes the trusted keys. When the file is a symbolic link (also one whose target does not
+    /// exist yet), the file it points to is written and the link stays.
     fn store(&self, hosts: &BTreeMap<String, String>) -> io::Result<()> {
-        if let Some(dir) = self.path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
         let text = serde_json::to_string_pretty(hosts).map_err(io::Error::other)?;
-        crate::settings::write_atomic(&self.path, text.as_bytes())
+        crate::settings::write_atomic(&link_target(&self.path)?, text.as_bytes())
     }
 
     /// Trusts `key` for `host:port` when none is trusted yet; a different trusted key refuses it,
     /// and so does a file of trusted keys that cannot be read.
-    fn check(&self, host: &str, port: u16, key: &PublicKey) -> Result<(), RemoteFailure> {
+    pub fn check(&self, host: &str, port: u16, key: &PublicKey) -> Result<(), RemoteFailure> {
         let _file = self.file.lock().unwrap();
         let mut hosts = self.load().map_err(|e| RemoteFailure::KnownHostsUnreadable {
             host: host.to_string(),
@@ -309,7 +310,8 @@ impl KnownHosts {
     /// fingerprint `shown` the user was shown. `true` as well when that key is trusted already
     /// (another refusal of it was confirmed); `false` when another key was offered since: that
     /// one has its own refusal to confirm. A file of trusted keys that cannot be read is an error
-    /// and is left as it is.
+    /// and is left as it is; so is one that cannot be written, and the key stays offered so the
+    /// same confirmation can be repeated once it can.
     pub fn trust_offered(&self, host: &str, port: u16, shown: &str) -> io::Result<bool> {
         let has_shown = |text: &String| PublicKey::from_openssh(text).is_ok_and(|key| fingerprint(&key) == shown);
         let name = host_key(host, port);
@@ -319,13 +321,39 @@ impl KnownHosts {
             return Ok(true);
         }
         let mut offered = self.offered.lock().unwrap();
-        if !offered.get(&name).is_some_and(has_shown) {
+        let Some(key) = offered.get(&name).filter(|text| has_shown(text)) else {
             return Ok(false);
-        }
-        hosts.insert(name.clone(), offered.remove(&name).unwrap());
+        };
+        hosts.insert(name.clone(), key.clone());
         self.store(&hosts)?;
+        offered.remove(&name);
         Ok(true)
     }
+}
+
+/// The file a chain of symbolic links ends at (`path` itself when it is not a link); relative
+/// targets are taken from the link's folder. The end need not exist.
+fn link_target(path: &Path) -> io::Result<PathBuf> {
+    let mut path = path.to_path_buf();
+    // The limit of Linux's own lookups: a loop of links fails instead of spinning.
+    for _ in 0..40 {
+        match std::fs::symlink_metadata(&path) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                let target = std::fs::read_link(&path)?;
+                path = match path.parent() {
+                    Some(dir) => dir.join(target),
+                    None => target,
+                };
+            }
+            Ok(_) => return Ok(path),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(path),
+            Err(e) => return Err(e),
+        }
+    }
+    Err(io::Error::other(format!(
+        "{}: too many levels of symbolic links",
+        path.display()
+    )))
 }
 
 /// Starts remote engine commands for the process launcher.
@@ -409,22 +437,51 @@ impl Drop for SshIo {
     }
 }
 
-/// Accepts the host key only when it is (or becomes) the trusted one.
-struct Client {
+/// The SSH client handler of every connection the application opens: the host key is accepted
+/// only when it is (or on first use becomes) the trusted one, so nothing is sent to a host before
+/// that. Why a key was refused is kept for [`HostKeyRefusal::take`].
+pub struct HostKeyCheck {
     known_hosts: Arc<KnownHosts>,
     host: String,
     port: u16,
-    refused: Arc<Mutex<Option<RemoteFailure>>>,
+    refused: HostKeyRefusal,
 }
 
-impl client::Handler for Client {
+/// The refusal of a [`HostKeyCheck`], read after its connection failed.
+#[derive(Clone, Default)]
+pub struct HostKeyRefusal(Arc<Mutex<Option<RemoteFailure>>>);
+
+impl HostKeyRefusal {
+    /// [`RemoteFailure::HostKeyChanged`] or [`RemoteFailure::KnownHostsUnreadable`] when the key
+    /// was refused.
+    pub fn take(&self) -> Option<RemoteFailure> {
+        self.0.lock().unwrap().take()
+    }
+}
+
+impl HostKeyCheck {
+    pub fn new(known_hosts: Arc<KnownHosts>, host: &str, port: u16) -> HostKeyCheck {
+        HostKeyCheck {
+            known_hosts,
+            host: host.to_string(),
+            port,
+            refused: HostKeyRefusal::default(),
+        }
+    }
+
+    pub fn refusal(&self) -> HostKeyRefusal {
+        self.refused.clone()
+    }
+}
+
+impl client::Handler for HostKeyCheck {
     type Error = russh::Error;
 
     async fn check_server_key(&mut self, key: &PublicKeyOrCertificate) -> Result<bool, Self::Error> {
         match self.known_hosts.check(&self.host, self.port, &key.public_key()) {
             Ok(()) => Ok(true),
             Err(failure) => {
-                *self.refused.lock().unwrap() = Some(failure);
+                *self.refused.0.lock().unwrap() = Some(failure);
                 Ok(false)
             }
         }
@@ -458,7 +515,7 @@ impl Lines {
     }
 }
 
-type Session = client::Handle<Client>;
+type Session = client::Handle<HostKeyCheck>;
 
 async fn login(
     connector: &SshConnector,
@@ -486,16 +543,11 @@ async fn login(
         },
         ..Default::default()
     });
-    let refused = Arc::new(Mutex::new(None));
-    let handler = Client {
-        known_hosts: connector.known_hosts.clone(),
-        host: remote.host.clone(),
-        port: remote.port,
-        refused: refused.clone(),
-    };
+    let handler = HostKeyCheck::new(connector.known_hosts.clone(), &remote.host, remote.port);
+    let refused = handler.refusal();
     let mut session = match tokio::time::timeout(KEY_EXCHANGE, client::connect_stream(config, stream, handler)).await {
         Err(_) => return Err(connect("key exchange timed out".into())),
-        Ok(Err(e)) => return Err(refused.lock().unwrap().take().unwrap_or_else(|| connect(e.to_string()))),
+        Ok(Err(e)) => return Err(refused.take().unwrap_or_else(|| connect(e.to_string()))),
         Ok(Ok(session)) => session,
     };
     let started = async {
@@ -683,5 +735,82 @@ mod tests {
         assert!(hosts.check("h", 22, &a).is_ok(), "A is still the trusted key");
         assert!(hosts.trust_offered("h", 22, &shown_c).unwrap());
         assert!(hosts.check("h", 22, &c).is_ok() && hosts.check("h", 22, &a).is_err());
+    }
+
+    /// 信任新密钥 that cannot be saved (the folder is read-only) fails and keeps the trusted key;
+    /// the same confirmation succeeds once the folder can be written again.
+    #[cfg(unix)]
+    #[test]
+    fn a_trust_that_could_not_be_saved_can_be_confirmed_again() {
+        use std::os::unix::fs::PermissionsExt;
+        let key = |s: &str| PublicKey::from_openssh(s).unwrap();
+        let a = key("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC86sYXFL25W92Pzq2/xqryr7bk/CTjx5Rxp/fBxiY9t");
+        let b = key("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ9gRqlnqviY7yC5fr94J5rkV4YBWbqfPn4+LEd6xZx+");
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("config");
+        std::fs::create_dir(&folder).unwrap();
+        let hosts = KnownHosts::new(folder.join("hosts.json"));
+        hosts.check("h", 22, &a).unwrap();
+        let Err(RemoteFailure::HostKeyChanged { offered, .. }) = hosts.check("h", 22, &b) else {
+            panic!()
+        };
+        std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o555)).unwrap();
+        let saved = hosts.trust_offered("h", 22, &offered);
+        std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+        // Skipped where permissions do not stop writing (running as root).
+        if saved.is_err() {
+            assert!(hosts.check("h", 22, &a).is_ok(), "A is still the trusted key");
+            // No new refusal in between: the confirmation itself must still be valid.
+            assert!(hosts.trust_offered("h", 22, &offered).unwrap());
+        }
+        assert!(hosts.check("h", 22, &b).is_ok() && hosts.check("h", 22, &a).is_err());
+    }
+
+    /// A file of trusted keys that is a symbolic link stays one: first use and 信任新密钥 write
+    /// the file it points to. A link whose target does not exist is a first connection, as in
+    /// Java B2 (`SshKnownHosts.entriesFor`: not a regular file, no entries).
+    #[cfg(unix)]
+    #[test]
+    fn trusted_keys_behind_a_link_go_to_the_file_it_points_to() {
+        use std::os::unix::fs::symlink;
+        let key = |s: &str| PublicKey::from_openssh(s).unwrap();
+        let a = key("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC86sYXFL25W92Pzq2/xqryr7bk/CTjx5Rxp/fBxiY9t");
+        let b = key("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ9gRqlnqviY7yC5fr94J5rkV4YBWbqfPn4+LEd6xZx+");
+        let dir = tempfile::tempdir().unwrap();
+        let is_link = |p: &Path| std::fs::symlink_metadata(p).unwrap().file_type().is_symlink();
+        let holds = |p: &Path, k: &PublicKey| {
+            let hosts: BTreeMap<String, String> = serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap();
+            hosts.get("[h]:22") == Some(&k.to_openssh().unwrap())
+        };
+
+        // A link to an existing file, by a relative path.
+        std::fs::create_dir(dir.path().join("real")).unwrap();
+        let target = dir.path().join("real/trusted.json");
+        std::fs::write(&target, b"{}").unwrap();
+        let link = dir.path().join("hosts.json");
+        symlink("real/trusted.json", &link).unwrap();
+        let hosts = KnownHosts::new(link.clone());
+        hosts.check("h", 22, &a).unwrap();
+        assert!(is_link(&link) && holds(&target, &a));
+        let Err(RemoteFailure::HostKeyChanged { offered, .. }) = hosts.check("h", 22, &b) else {
+            panic!()
+        };
+        assert!(hosts.trust_offered("h", 22, &offered).unwrap());
+        assert!(is_link(&link) && holds(&target, &b));
+
+        // A link whose target (and its folder) does not exist yet.
+        let target = dir.path().join("elsewhere/trusted.json");
+        let link = dir.path().join("dangling.json");
+        symlink(&target, &link).unwrap();
+        let hosts = KnownHosts::new(link.clone());
+        hosts.check("h", 22, &a).unwrap();
+        assert!(is_link(&link) && holds(&target, &a));
+        // The target goes missing between a refusal and its trust.
+        let Err(RemoteFailure::HostKeyChanged { offered, .. }) = hosts.check("h", 22, &b) else {
+            panic!()
+        };
+        std::fs::remove_file(&target).unwrap();
+        assert!(hosts.trust_offered("h", 22, &offered).unwrap());
+        assert!(is_link(&link) && holds(&target, &b));
     }
 }

@@ -3,8 +3,9 @@
 // Rust owns the account session, credentials, settings and the engine; this window holds only
 // unsaved drafts (fields, plan/model choice, link) and presentation state. A reply that arrives
 // after the window closed, or after a newer request of the same kind, is dropped.
-import { registerViewHandler, state } from "../app";
-import type { CloudCatalog, CloudCommand, Command, CloudFailure, CloudReply, CloudSettings, CloudState, EngineFailureView, EngineProfile, Overview, WorkbenchView, ZhiziConnection } from "../contract/generated";
+import { registerViewHandler, run, state } from "../app";
+import type { CloudCatalog, CloudCommand, Command, CloudFailure, CloudReply, CloudSettings, CloudState, EngineFailureView, EngineProfile, Overview, RemoteFailure, WorkbenchView, ZhiziConnection } from "../contract/generated";
+import { remoteFailureText } from "../engine/remote";
 import { message } from "../dialogs";
 import { format, product, t } from "../i18n";
 import { openAccountDetails } from "./details";
@@ -166,6 +167,9 @@ function createCenter(initial: WorkbenchView): Center {
   /** An account request (sign-in, code, reset, sign-out) is under way: its controls stay disabled. */
   let accountBusy = false;
   let overview: Overview | null = null, overviewLoading = false, catalogRefreshing = false;
+  /** Why the last model refresh refused the catalog's SSH server (its host key changed, or the
+   *  trusted keys could not be read), shown beside the model list until the next refresh. */
+  let hostKeyRefusal: RemoteFailure | null = null;
   let cooldown = 0, cooldownTimer: number | undefined;
   let statusText = t("RemoteCompute.chooseHint"), statusOk: boolean | null = null, dotOk = true;
   /** ZhiziConnectionControls: an outcome shown instead of the status line until the connection
@@ -301,6 +305,12 @@ function createCenter(initial: WorkbenchView): Center {
   weightRow.append(weightSelect, refreshWeightsButton);
   plan.append(presetLabel, presetSelect, weightLabelNode, weightRow, officialButton);
   presetSelect.onchange = weightSelect.onchange = () => update();
+  // The refused SSH server of the model refresh: the reason and, for a changed key, its trust.
+  const hostKeyNote = el("div", "rc-note rc-host-key");
+  hostKeyNote.dataset.key = "remote.hostKey";
+  const hostKeyText = el("p", "rc-host-key-text");
+  const trustHostKeyButton = button(product("sshTrustAndRetry"), "", "remote.hostKey.trust", () => void trustHostKey());
+  hostKeyNote.append(hostKeyText, trustHostKeyButton);
   const useZhiziButton = button(t("RemoteCompute.enableZhizi"), "", "remote.useZhizi", () => void useZhizi());
   const localFromZhizi = button(t("RemoteCompute.backToLocal"), "", "remote.local.zhizi", () => void useLocal());
   const zhiziButtons = el("div", "rc-actions");
@@ -310,7 +320,7 @@ function createCenter(initial: WorkbenchView): Center {
   websiteCopy.append(el("strong", "", t("RemoteCompute.websiteTitle")), el("span", "rc-website-url", "www.zhizigo.cn"));
   const websiteButton = button(t("RemoteCompute.openWebsite"), "", "remote.website", () => void openLink(false));
   website.append(websiteCopy, websiteButton);
-  zhiziAction.append(el("h3", "rc-section-title", t("RemoteCompute.oneClickEnable")), plan, zhiziButtons, website);
+  zhiziAction.append(el("h3", "rc-section-title", t("RemoteCompute.oneClickEnable")), plan, hostKeyNote, zhiziButtons, website);
   const zhiziPage = el("div", "rc-page");
   zhiziPage.append(loginCard, zhiziAction);
 
@@ -517,6 +527,10 @@ function createCenter(initial: WorkbenchView): Center {
 
     weightSelect.disabled = busy || catalogRefreshing || weightOptions.length === 0;
     refreshWeightsButton.disabled = busy || catalogRefreshing;
+    hostKeyNote.hidden = !hostKeyRefusal;
+    if (hostKeyRefusal) setText(hostKeyText, remoteFailureText(hostKeyRefusal));
+    trustHostKeyButton.hidden = hostKeyRefusal?.type !== "HostKeyChanged";
+    trustHostKeyButton.disabled = busy || catalogRefreshing;
     const selectedWeightOption = weightSelect.selectedOptions[0];
     weightSelect.title = selectedWeightOption?.title ?? "";
     officialButton.hidden = !selectedUnconfirmed();
@@ -675,6 +689,7 @@ function createCenter(initial: WorkbenchView): Center {
   async function logout() {
     overviewSeq++; catalogSeq++; operationSeq++;
     overviewLoading = catalogRefreshing = false;
+    hostKeyRefusal = null;
     busy = accountBusy = true;
     update();
     const outcome = await write({ type: "Logout" });
@@ -727,6 +742,7 @@ function createCenter(initial: WorkbenchView): Center {
     const preferred = selectedWeight();
     const seq = ++catalogSeq;
     catalogRefreshing = true;
+    hostKeyRefusal = null;
     status(t("RemoteCompute.status.refreshingWeights"), true);
     update();
     const outcome = await request({ type: "RefreshCatalog", args: currentArgs() });
@@ -743,6 +759,11 @@ function createCenter(initial: WorkbenchView): Center {
           ? format(t("RemoteCompute.status.weightsRefreshedRetired"), catalog.weights.length, preferred, weightName(resolved))
           : format(t("RemoteCompute.status.weightsRefreshed"), catalog.weights.length), true);
       }
+    } else if (outcome.failure.hostKey) {
+      // Refused before the connect password was sent: the opening and the manual refresh alike
+      // say why, beside the list that stays as saved.
+      hostKeyRefusal = outcome.failure.hostKey;
+      status(t("RemoteCompute.status.weightsRefreshFailed"), false);
     } else if (!outcome.failure.cancelled) {
       await lostSignIn(outcome.failure);
       if (!alive) return;
@@ -750,6 +771,19 @@ function createCenter(initial: WorkbenchView): Center {
       else if (!outcome.failure.authenticationInvalidated) dotOk = true;
     }
     update();
+  }
+
+  /** 信任新密钥并重试: trusts the key shown (a key offered since has its own refusal), then
+   *  refreshes again. As in the engine's failure window, a trust that could not be saved says why
+   *  (`run`'s error message) and nothing is retried. */
+  async function trustHostKey() {
+    if (hostKeyRefusal?.type !== "HostKeyChanged") return;
+    const { host, port, offered } = hostKeyRefusal;
+    trustHostKeyButton.disabled = true;
+    const trusted = await run({ type: "SshCredential", op: { type: "TrustHostKey", host, port, offered } });
+    if (!alive) return;
+    if (trusted) await refreshCatalog(true);
+    else update();
   }
 
   function showDetails(tab: 0 | 1) {
@@ -965,6 +999,11 @@ function createCenter(initial: WorkbenchView): Center {
         billing: part(billing),
         current: { ...part(currentLabel), idle: dot.classList.contains("rc-dot-idle"), error: dot.classList.contains("rc-dot-error") },
         status: part(statusLabel),
+        // The model refresh's host key refusal beside the model list, null while none is shown.
+        hostKey: hostKeyNote.hidden ? null : {
+          ...part(hostKeyText), note: box(hostKeyNote), column: box(zhiziAction),
+          trust: trustHostKeyButton.hidden ? null : { ...part(trustHostKeyButton), disabled: trustHostKeyButton.disabled },
+        },
       };
     },
   };

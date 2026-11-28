@@ -16,7 +16,7 @@ import { button, el } from "./window";
 
 const SETTLEMENT_ATTEMPTS = 6;
 const SETTLEMENT_RETRY_MS = 2000;
-const CANCELLED = { key: "cancelled", status: 0, retryAfterSeconds: 0, retryable: false, uncertain: false, cancelled: true, authenticationInvalidated: false };
+const CANCELLED = { key: "cancelled", status: 0, retryAfterSeconds: 0, retryable: false, uncertain: false, cancelled: true, authenticationInvalidated: false, hostKey: null };
 
 interface Choice {
   purpose: PaymentPurpose;

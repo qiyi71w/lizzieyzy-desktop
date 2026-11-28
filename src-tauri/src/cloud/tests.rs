@@ -1,4 +1,5 @@
 use super::*;
+use lizzie_core::engine::ssh::RemoteFailure;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::mpsc;
@@ -45,7 +46,9 @@ fn fixture(mut replies: impl FnMut(Request) -> Reply + Send + 'static, count: us
 }
 fn adapter(base: String) -> Adapter {
     let app = format!("cloud-test-{}-{}",std::process::id(),now_millis());
-    let mut adapter = Adapter::new(crate::secrets::Store::memory(&app,None));
+    // These tests never reach the catalog's SSH server, so the file is never written.
+    let known_hosts = Arc::new(KnownHosts::new(std::env::temp_dir().join(format!("{app}-known-hosts.json"))));
+    let mut adapter = Adapter::new(crate::secrets::Store::memory(&app,None),known_hosts);
     adapter.base = base;
     adapter
 }
@@ -460,4 +463,118 @@ fn socket_token_adapter_obeys_the_transport_startup_budget() {
         server.join().unwrap();socket.join().unwrap();
         assert_eq!(calls.load(Ordering::SeqCst),expected);
     }
+}
+
+/// The model catalog's SSH server: `query-server` answers a catalog; every password login is
+/// counted, accepted or not.
+struct CatalogServer { logins: Arc<AtomicU64>, channels: Vec<russh::Channel<russh::server::Msg>> }
+impl russh::server::Handler for CatalogServer {
+    type Error = russh::Error;
+    async fn auth_password(&mut self, user: &str, password: &str) -> Result<russh::server::Auth, Self::Error> {
+        self.logins.fetch_add(1,Ordering::SeqCst);
+        Ok(if user=="catalog-user" && password=="connect-password" {russh::server::Auth::Accept} else {russh::server::Auth::reject()})
+    }
+    async fn channel_open_session(&mut self, channel: russh::Channel<russh::server::Msg>, reply: russh::server::ChannelOpenHandle, _: &mut russh::server::Session) -> Result<(), Self::Error> {
+        self.channels.push(channel);
+        reply.accept().await;
+        Ok(())
+    }
+    async fn exec_request(&mut self, channel: russh::ChannelId, data: &[u8], session: &mut russh::server::Session) -> Result<(), Self::Error> {
+        assert_eq!(data,b"query-server");
+        session.channel_success(channel)?;
+        session.data(channel,&br#"{"serverVersion":"1","supportKataWeights":["b18","b28"],"defaultKataWeight":"b28"}"#[..])?;
+        session.exit_status_request(channel,0)?;
+        session.eof(channel)?;
+        session.close(channel)
+    }
+}
+/// Serves every connection with the host key `key` holds at that moment.
+fn catalog_ssh(key: Arc<Mutex<russh::keys::PrivateKey>>, logins: Arc<AtomicU64>) -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    listener.set_nonblocking(true).unwrap();
+    tauri::async_runtime::spawn(async move {
+        let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+        while let Ok((stream,_)) = listener.accept().await {
+            let config = Arc::new(russh::server::Config { keys: vec![key.lock().unwrap().clone()], auth_rejection_time: Duration::ZERO, ..Default::default() });
+            let handler = CatalogServer { logins: logins.clone(), channels: Vec::new() };
+            tauri::async_runtime::spawn(async move {
+                if let Ok(session) = russh::server::run_stream(config,stream,handler).await { let _ = session.await; }
+            });
+        }
+    });
+    port
+}
+fn ssh_host_key(seed: u8) -> russh::keys::PrivateKey {
+    russh::keys::ssh_key::private::Ed25519Keypair::from_seed(&[seed;32]).into()
+}
+fn fingerprint(key: &russh::keys::PrivateKey) -> String {
+    key.public_key().fingerprint(russh::keys::HashAlg::Sha256).to_string()
+}
+
+/// Java B2: the catalog's SSH server is checked against the remote engines' trusted host keys
+/// before the connect-account password is sent. The first key is trusted silently; a changed key
+/// or a file of trusted keys that cannot be read refuses the refresh without a login; 信任新密钥
+/// trusts only the key shown, and a key changed again after that is refused again.
+#[test]
+fn catalog_refresh_checks_the_ssh_host_key_before_sending_the_connect_password() {
+    const REFRESHES: usize = 5;
+    let key = Arc::new(Mutex::new(ssh_host_key(1)));
+    let logins = Arc::new(AtomicU64::new(0));
+    let ssh_port = catalog_ssh(key.clone(),logins.clone());
+    let metadata = Arc::new(Mutex::new(String::new()));
+    let world_base = metadata.clone();
+    let (base,server) = fixture(move |r| match r.path.as_str() {
+        "/api/cluster/account/login" => Reply::ok(json!({"token":"fixture-account-token"})),
+        "/api/cluster/account/connectAccount/fetch" => Reply::ok(json!({"connectUsername":"catalog-user","connectPassword":"connect-password"})),
+        "/world.json" => Reply::ok(json!({"platforms":[{"name":"all","http":{"getUrl":world_base.lock().unwrap().clone()}}]})),
+        "/users/catalog-user.ssh.json" => Reply::ok(json!({"host":"127.0.0.1","port":ssh_port,"user":"catalog-user"})),
+        path => panic!("unexpected request {path}"),
+    },1+3*REFRESHES);
+    *metadata.lock().unwrap() = base.clone();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("ssh-known-hosts.json");
+    let known_hosts = Arc::new(KnownHosts::new(path.clone()));
+    let mut adapter = Adapter::new(crate::secrets::Store::memory(&format!("cloud-catalog-test-{}",std::process::id()),None),known_hosts.clone());
+    adapter.world = Some(format!("{base}/world.json"));
+    adapter.base = base;
+    let login = password_login(&adapter);
+    let refresh = || adapter.dispatch(&login.settings,&network(),CloudCommand::RefreshCatalog {args:VIP_ARGS.into()});
+    let name = format!("[127.0.0.1]:{ssh_port}");
+    let trusted = || serde_json::from_str::<std::collections::BTreeMap<String,String>>(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let openssh = |seed: u8| ssh_host_key(seed).public_key().to_openssh().unwrap();
+
+    // First connection: the key is written down without asking and the catalog arrives.
+    let reply = refresh().unwrap();
+    assert!(matches!(&reply.result,CloudResult::Catalog {catalog} if catalog.default_weight=="b28"));
+    assert_eq!(trusted().get(&name),Some(&openssh(1)));
+    assert_eq!(logins.load(Ordering::SeqCst),1);
+
+    // The server's key changes: refused before any login, the trusted one shown with the new one.
+    *key.lock().unwrap() = ssh_host_key(2);
+    let failure = refresh().unwrap_err();
+    assert_eq!(failure.key,"host_key_refused");
+    let Some(RemoteFailure::HostKeyChanged {host,port,trusted: was,offered}) = failure.host_key else { panic!("{failure:?}") };
+    assert_eq!((host.as_str(),port,was,offered.clone()),("127.0.0.1",ssh_port,fingerprint(&ssh_host_key(1)),fingerprint(&ssh_host_key(2))));
+    assert_eq!(logins.load(Ordering::SeqCst),1,"no login reached a refused server");
+
+    // 信任新密钥并重试: the key shown is trusted and the refresh logs in.
+    assert!(known_hosts.trust_offered(&host,port,&offered).unwrap());
+    assert!(matches!(refresh().unwrap().result,CloudResult::Catalog {..}));
+    assert_eq!(trusted().get(&name),Some(&openssh(2)));
+    assert_eq!(logins.load(Ordering::SeqCst),2);
+
+    // Changed again after the trust: refused again, the trusted key untouched.
+    *key.lock().unwrap() = ssh_host_key(3);
+    assert!(matches!(refresh().unwrap_err().host_key,Some(RemoteFailure::HostKeyChanged {..})));
+    assert_eq!(trusted().get(&name),Some(&openssh(2)));
+    assert_eq!(logins.load(Ordering::SeqCst),2);
+
+    // A file of trusted keys that cannot be read: refused, nothing sent, the file left as it is.
+    std::fs::write(&path,b"{\"[127.0.0.1]:22\": \"ssh-ed25519 AAAA").unwrap();
+    let failure = refresh().unwrap_err();
+    assert!(matches!(&failure.host_key,Some(RemoteFailure::KnownHostsUnreadable {path: shown,..}) if *shown==path.display().to_string()),"{failure:?}");
+    assert_eq!(std::fs::read(&path).unwrap(),b"{\"[127.0.0.1]:22\": \"ssh-ed25519 AAAA");
+    assert_eq!(logins.load(Ordering::SeqCst),2);
+    server.join().unwrap();
 }

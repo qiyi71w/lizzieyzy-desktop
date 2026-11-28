@@ -1203,7 +1203,10 @@ importing the matching LizzieYzy Next settings.
   or is not valid, every connection is refused before anything is sent, as in Java, and the file
   is left as it is (信任新密钥并重试 does not rewrite it either); the failure names the file so it
   can be repaired or restored. Moving it away makes the next connection to each host trust the key
-  that host offers. The connection offers the SSH library's modern
+  that host offers. The same file holds the key of the 智子 model list's server (Cloud engines,
+  below). When `ssh-known-hosts.json` is a symbolic link, a newly trusted key is written to the
+  file it points to and the link stays; a link whose target does not exist yet counts as no
+  trusted keys, as in Java, and the target is created. The connection offers the SSH library's modern
   algorithms first and, after all of them, the SHA-1 ones older servers may be limited to: the key
   exchanges `diffie-hellman-group14-sha1` and `diffie-hellman-group-exchange-sha1`, and the message
   authentication codes `hmac-sha1-etm@openssh.com` and `hmac-sha1`, as Java offers them. A current
@@ -1237,6 +1240,16 @@ importing the matching LizzieYzy Next settings.
     window stops local polling, not an order already created by the service. Check the account
     or order before paying again. Service fees and remote resource lifetime remain with the
     provider; closing a socket is not proof that a billed resource has been released.
+  - The 智子模型 list comes from the service over SSH, with the connection account the service
+    hands out for the signed-in session: after sign-in, when the center opens with a list that is
+    older than six hours or not from the service, and with the refresh button next to the list.
+    That server's host key is checked against `ssh-known-hosts.json`, the same trusted keys as
+    remote engines (above), before the account's password is sent: the first key is trusted
+    without asking; a different key, or a file of trusted keys that cannot be read, refuses the
+    refresh. Below the list the center then says why, with both SHA-256 fingerprints and
+    信任新密钥并重试 for a changed key, which trusts only the key shown there and refreshes again;
+    an unreadable file is only explained. The saved list stays, so 启用智子云算力 still starts with
+    it.
   - Remember-token and remember-password choices are independent. Secrets use the native
     credential store, with a visible session-only fallback when it is unavailable; neither is
     written to `config.json`. Logout clears the account credentials. A custom link can itself

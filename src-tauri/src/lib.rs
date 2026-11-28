@@ -2247,7 +2247,7 @@ pub fn run() {
             let ssh_adapter = ssh::Adapter::new(store.clone(), &config_dir);
             app.manage(ssh_adapter.clone());
             app.manage(contribution::Adapter::new(store.clone()));
-            let cloud_adapter = Arc::new(cloud::Adapter::new(store));
+            let cloud_adapter = Arc::new(cloud::Adapter::new(store, ssh_adapter.known_hosts()));
             app.manage(cloud_adapter.clone());
             app.manage(cloud_dispatch::Requests::default());
             let log = Arc::new(logging::Log::start(&storage.logs_dir));
