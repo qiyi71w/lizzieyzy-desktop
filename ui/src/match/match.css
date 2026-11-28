@@ -49,6 +49,17 @@
 .match-sides .ds-row-text {
   min-width: 7em;
 }
+/* 选择引擎 and Genmove模式: a choice may be longer than a column (an engine's name, Thai's "AI
+   เวลาต่อการเคลื่อนไหว (วินาที)"). Their boxes are as wide as their longest choice, never narrower
+   than a column, and give way to the row's end; the other rows keep the columns. */
+.match-sides .match-choices .ds-row-control {
+  min-width: 0;
+}
+.match-sides .match-choices .ds-row-control > select {
+  flex: 0 1 auto;
+  width: auto;
+  min-width: calc(var(--ds-size) * 16.5);
+}
 .match-slot {
   flex: none;
   width: 28px;
@@ -113,6 +124,20 @@
     padding-bottom: 2px;
     line-height: 1.4;
     white-space: normal;
+  }
+  /* Two columns cannot hold these rows' choices here: each box takes a line of the row, 黑方
+     above 白方. */
+  .match-sides .match-choices .ds-row-control {
+    flex: 1 1 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .match-sides .match-choices .ds-row-control > select {
+    width: 100%;
+    min-width: 0;
+  }
+  .match-sides .match-choices .match-slot {
+    display: none;
   }
 }
 /* The 认输预置 rows: a group of their own after the sides; their fields are short. */
@@ -250,6 +275,17 @@
 .match-consent {
   white-space: pre-wrap;
   max-width: min(560px, 86vw);
+}
+/* Long engine commands can make the message taller than a short window (the 520 x 400 floor with
+   a large 界面字体大小): it scrolls between the title and the buttons, which stay in view. */
+.modal-box:has(> .modal-body > .match-consent) {
+  display: flex;
+  flex-direction: column;
+  max-height: 94vh;
+}
+.modal-box:has(> .modal-body > .match-consent) > .modal-body {
+  min-height: 0;
+  overflow-y: auto;
 }
 /* 本局规则详情 (MatchRulesDetailsDialog.preferredContentSize): a read-only text area of about 32 × 22
    characters, wrapping, scrolling when longer, and never past the window. */

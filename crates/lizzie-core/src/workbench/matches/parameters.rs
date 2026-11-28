@@ -313,6 +313,23 @@ impl Workbench {
         })
     }
 
+    /// The batch's end is giving `instance`, a process it captured, its values back and has not
+    /// confirmed them yet: a command for it is in flight or still to come, or one of them failed.
+    pub(super) fn match_params_restoring_to(&self, instance: InstanceId) -> bool {
+        let Some(s) = self.matches.run.as_ref().and_then(|r| r.parameters.as_ref()) else {
+            return false;
+        };
+        let Some(Work::Restore(restore)) = &s.work else {
+            return false;
+        };
+        s.originals.iter().enumerate().any(|(index, original)| {
+            original.instance == instance
+                && (restore.failed.contains(&index)
+                    || restore.leg.as_ref().is_some_and(|(at, _)| *at == index)
+                    || restore.queue.iter().any(|(at, _)| *at == index))
+        })
+    }
+
     /// The game's opening values (Java `applyOpening`), once both participants answered their
     /// setup: true when they are confirmed (or the batch has no session), false while they are
     /// written or after they failed. Every participant is checked before anything is sent, and

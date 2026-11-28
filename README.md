@@ -1229,8 +1229,8 @@ importing the matching LizzieYzy Next settings.
   and balance orders. 自建算力 takes a `ws://` or `wss://` KataGo Analysis WebSocket link,
   including one imported from a QR image. It is not a raw GTP-over-WebSocket endpoint. In a
   window narrower than about 660 px the center stacks its two columns, and a column too narrow
-  at the interface font puts 连接方式 and 智子模型 above their fields, so the fields keep room
-  for their values.
+  at the interface font puts the labels of 连接方式, 智子模型 and the sign-in fields above their
+  fields, so the fields keep room for their values and the sign-in hints.
   - Sign-in and account refresh do not start an engine. 启用智子云算力 or 使用此远程链接
     explicitly selects and starts the configured service; 创建订单 separately authorizes an
     order. Failed or uncertain order creation is not automatically retried. Closing a payment
@@ -1554,9 +1554,14 @@ importing the matching LizzieYzy Next settings.
   resignation thresholds and 随机落子). The dialog, 引擎对局设置 (from the dialog's 更多设置),
   人工干预 (立即落子, 允许人工落子, 黑认输, 白认输), 终止 / 暂停继续引擎对局 and
   修改多盘引擎对局数 follow Java, including 本局规则 (verified on KataGo with `kata-get-rules`; an
-  engine that cannot confirm them asks for consent), komi, handicap (on a 19×19 board only; when
+  engine that cannot confirm them asks for consent; in a short window a long message scrolls
+  between the question's title and its buttons), komi, handicap (on a 19×19 board only; when
   the black engine's board is another size the game starts without handicap), 多盘对局 with
-  交换黑白, 当前局面续弈, 加载开局SGF (in order or at random), 最大手数 and 后台计算. Both engines run
+  交换黑白, 当前局面续弈, 加载开局SGF (in order or at random), 最大手数 and 后台计算. In the dialog,
+  the 选择引擎 and Genmove模式 boxes take the width of their longest entry (at least a column)
+  as far as the row has room; a longer entry, such as a very long engine name, is cut at the
+  box's edge. In a narrow dialog (a small window or a large 界面字体大小) each of those two rows
+  puts 黑方's box above 白方's, each across the row. Both engines run
   as their own processes (other running engines are closed); the engine to move is the
   foreground engine, so its analysis is what the board, the lists and the graph show. A match
   is accepted before it starts: it starts only once both engines are ready and answered their
@@ -1643,7 +1648,9 @@ importing the matching LizzieYzy Next settings.
   that is over no other engine game can start; starting one is refused, as while a game runs. A
   process that has ended in the meantime is not written (its
   replacement keeps its own values) and is reported; one that refuses or does not answer is
-  reported and stopped rather than reused.
+  reported and stopped rather than reused. A participant whose connection closes while its
+  values are being given back, before they are confirmed, is unrestored because the restore
+  failed (恢复失败, as for 快析), not because it could not be stopped.
   对局参数 (棋局 > 对局参数, the top toolbar's 对局参数 beside 暂停, function search): while an
   analysis-mode game is playing or paused, a panel shows 黑方设置 and 白方设置 columns with each
   side's engine (引擎 1 / 引擎 2), its confirmed 广度 and 激进度 (未确认 while unknown, 不支持 for

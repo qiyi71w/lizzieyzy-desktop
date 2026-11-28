@@ -107,6 +107,11 @@
 .fox-visits {
   width: calc(var(--ds-size) * 10);
 }
+/* The port's stepper is as tall as the fields under it (design/base.css): at a large 界面字体大小
+   its fixed control height cut the digits. */
+.fox-form .ds-stepper {
+  height: max(var(--ds-control-h-l), calc(var(--ds-size) * 1.4 + 6px));
+}
 /* A hint sits 2 px under what it describes. */
 .fox-note {
   margin-top: -6px;

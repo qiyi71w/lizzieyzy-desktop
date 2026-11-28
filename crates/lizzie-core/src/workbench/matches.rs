@@ -1173,6 +1173,10 @@ impl Workbench {
                 }
                 // The parameter restore stopped it and reports that itself.
                 let stopped = instance.is_some_and(|i| self.match_params_stopped(i));
+                // Java `restoreOriginals`: a captured process whose transport closes while its
+                // values are given back failed that restore. Taken before a retirement below
+                // starts the restore.
+                let restoring = instance.is_some_and(|i| self.match_params_restoring_to(i));
                 if active {
                     if self
                         .matches
@@ -1188,7 +1192,7 @@ impl Workbench {
                 }
                 if let Some(failure) = failure {
                     let reason = match failure {
-                        LeaseFailure::TransportClosed => UnrestoredReason::Stop,
+                        LeaseFailure::TransportClosed if !restoring => UnrestoredReason::Stop,
                         _ => UnrestoredReason::Restore,
                     };
                     let r = self.matches.run.as_mut()?;
